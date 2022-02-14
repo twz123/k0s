@@ -18,23 +18,23 @@ curl https://docs.projectcalico.org/manifests/calico.yaml -O
 
 $CSPLIT_BINARY --digits=2 --quiet --prefix=$DIR/ calico.yaml "/---/" "{*}"
 
-for f in $DIR/*
+for f in "$DIR"/*
 do
     # skip directories
-    if [ -d $f ]; then
+    if [ -d "$f" ]; then
         continue
     fi
 
-    filename=$(yq eval '.metadata.name' $f)
-    kind=$(yq eval '.kind' $f)
+    filename=$(yq eval '.metadata.name' "$f")
+    kind=$(yq eval '.kind' "$f")
 
     if [[ $filename == "null" || $kind == "null" ]]; then
-        rm $f
+        rm -- "$f"
         continue
     fi
     echo "Processing $kind $filename $f"
-    mkdir -p $DIR/$kind
-    mv $f $DIR/$kind/$filename.yaml
+    mkdir -p -- "$DIR/$kind"
+    mv -- "$f" "$DIR/$kind/$filename.yaml"
 done
 
 

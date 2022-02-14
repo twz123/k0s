@@ -1,4 +1,4 @@
-name: Go lint
+name: Lint
 on:
   push:
     branches:
@@ -53,3 +53,7 @@ jobs:
           only-new-issues: false
           skip-build-cache: true
           args: --verbose
+
+      - name: check-shellscripts
+        run: |
+          make check-shellscripts

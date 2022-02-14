@@ -44,22 +44,22 @@ LD_FLAGS += -X k8s.io/component-base/version.buildDate=$(BUILD_DATE)
 LD_FLAGS += -X k8s.io/component-base/version.gitCommit="not_available"
 LD_FLAGS += $(BUILD_GO_LDFLAGS_EXTRA)
 
-golint := $(shell which golangci-lint)
+golint := $(shell which golangci-lint 2>/dev/null)
 ifeq ($(golint),)
 golint := cd hack/ci-deps && go install github.com/golangci/golangci-lint/cmd/golangci-lint && cd ../.. && "${GOPATH}/bin/golangci-lint"
 endif
 
-go_bindata := $(shell which go-bindata)
+go_bindata := $(shell which go-bindata 2>/dev/null)
 ifeq ($(go_bindata),)
 go_bindata := cd hack/ci-deps && go install github.com/kevinburke/go-bindata/... && cd ../.. && "${GOPATH}/bin/go-bindata"
 endif
 
-go_clientgen := $(shell which client-gen)
+go_clientgen := $(shell which client-gen 2>/dev/null)
 ifeq ($(go_clientgen),)
 go_clientgen := cd hack/ci-deps && go install k8s.io/code-generator/cmd/client-gen@v0.22.2 && cd ../.. && "${GOPATH}/bin/client-gen"
 endif
 
-go_controllergen := $(shell which controller-gen)
+go_controllergen := $(shell which controller-gen 2>/dev/null)
 ifeq ($(go_controllergen),)
 go_controllergen := cd hack/ci-deps && go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.8.0 && cd ../.. && "${GOPATH}/bin/controller-gen"
 endif
@@ -160,10 +160,22 @@ $(smoketests): k0s
 .PHONY: smoketests
 smoketests:  $(smoketests)
 
-
 .PHONY: check-unit
 check-unit: pkg/assets/zz_generated_offsets_$(shell go env GOOS).go static/gen_manifests.go
 	go test -race `go list ./... | egrep -v "inttest|pkg/assets|static"`
+
+.PHONY: check-shellscripts
+check-shellscripts:
+	docker run --rm \
+	  -v "$(CURDIR)":/go/src/github.com/k0sproject/k0s \
+	  -w /go/src/github.com/k0sproject/k0s \
+	  docker.io/koalaman/shellcheck:v0.8.0 \
+	  $$( \
+	    find . -type f -name '*.sh' | \
+	      git check-ignore --stdin --non-matching --verbose | \
+	      grep -e "$$(printf '^::\t' )" | \
+	      cut -f2 \
+	  )
 
 .PHONY: clean-gocache
 clean-gocache:

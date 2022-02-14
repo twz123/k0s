@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -x
 
-terraform output controller_pem > aws_private.pem
-terraform output -json > out.json
+terraform output controller_pem >aws_private.pem
+terraform output -json >out.json
 
 # prepare private key
 chmod 0600 aws_private.pem
