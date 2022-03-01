@@ -9,36 +9,23 @@ on:
 env:
   PYTHON_VERSION: 3.x
   TARGET_VERSION: ${{ github.event.inputs.version }}
-  
+
 jobs:
   build:
     name: Deploy docs
     runs-on: ubuntu-latest
     steps:
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v2
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install mkdocs
-          pip install git+https://${{ secrets.GH_TOKEN }}@github.com/lensapp/mkdocs-material-insiders.git
-          pip install mdx-truly-sane-lists
-          pip install mike
-
       - name: Checkout k0s ${{ github.event.inputs.version }}
         uses: actions/checkout@v2
         with:
-          ref: '${{ github.event.inputs.version }}'
+          ref: "${{ github.event.inputs.version }}"
           fetch-depth: 0
 
       - name: Checkout k0s main
         uses: actions/checkout@v2
         with:
-          ref: 'main'
-          path: 'main'
+          ref: "main"
+          path: "main"
           fetch-depth: 0
 
       - name: Copy files from main to ${{ github.event.inputs.version }}
@@ -47,14 +34,21 @@ jobs:
           cp -p main/mkdocs.yml mkdocs.yml
           rm -rf main
 
+      - name: Prepare docs environment
+        run: .github/workflows/prepare-docs-env.sh
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
       - name: Generate docs
-        run: make -C docs docs clean-k0s
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: .github/workflows/generate-docs.sh
 
       - name: git config
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-
 
       - name: mike deploy ${{ github.event.inputs.version }}
         run: |

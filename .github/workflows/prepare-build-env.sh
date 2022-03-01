@@ -2,7 +2,7 @@
 
 set -eu
 
-goVersion="$(make -s -f go_version.mk)"
+goVersion="$(./vars.mk go_version)"
 
 cat <<EOF >>"$GITHUB_ENV"
 GO_VERSION=$goVersion

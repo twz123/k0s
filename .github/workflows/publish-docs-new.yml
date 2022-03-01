@@ -1,0 +1,40 @@
+name: Publish docs via GitHub Pages
+on:
+  push:
+    branches:
+      - main
+  release:
+    types:
+      - published
+
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g."v1.22.4+k0s.0")'
+        required: true
+
+env:
+  TARGET_VERSION: ${{ github.event.inputs.version }}
+
+jobs:
+  build:
+    name: Deploy docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout k0s release
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Prepare docs environment
+        run: .github/workflows/prepare-docs-env.sh
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Publish docs
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: .github/workflows/publish-docs.sh
