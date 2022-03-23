@@ -173,6 +173,7 @@ spec:
     matchLabels:
       k8s-app: kube-router
       tier: node
+  minReadySeconds: 60
   template:
     metadata:
       labels:
@@ -265,11 +266,16 @@ spec:
               fieldPath: spec.nodeName
         - name: KUBE_ROUTER_CNI_CONF_FILE
           value: /etc/cni/net.d/10-kuberouter.conflist
+        startupProbe:
+          httpGet:
+            path: /healthz
+            port: 20244
+            periodSeconds: 10
+            failureThreshold: 30
         livenessProbe:
           httpGet:
             path: /healthz
             port: 20244
-          initialDelaySeconds: 10
           periodSeconds: 3
         resources:
           requests:
