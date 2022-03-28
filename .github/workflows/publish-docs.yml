@@ -2,7 +2,7 @@ name: Publish docs via GitHub Pages
 on:
   push:
     branches:
-      - main
+      - tmp/rebuild-docs
   release:
     types:
       - published
@@ -14,6 +14,13 @@ env:
 
 jobs:
   build:
+    strategy:
+      max-parallel: 1
+      matrix:
+        version:
+        - v1.23.5+k0s.0
+        - v1.22.8+k0s.0
+        - v1.21.11+k0s.0
     name: Deploy docs
     runs-on: ubuntu-latest
     steps:
@@ -44,12 +51,17 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          git checkout 46d193ba35c3f9572c8b856b84cde1ef6acc0ac2 -- docs/requirements_release.txt
           pip install -r docs/requirements_release.txt
+          git rm -f docs/requirements_release.txt
           pip install git+https://${{ secrets.GH_TOKEN }}@github.com/lensapp/mkdocs-material-insiders.git
           go install github.com/k0sproject/version/cmd/k0s_sort@v0.2.2
 
       - name: Generate docs
-        run: make -C docs
+        run: |
+          make -C docs cli TARGET_VERSION='${{ matrix.version }}'
+          git checkout '${{ matrix.version }}'
+          mkdocs build --strict
 
       - name: git config
         run: |
@@ -61,22 +73,14 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      # This deploys the current docs into gh-pages/head on merges to main
-      # The old "main" gets deleted if it exists, head is more descriptive
-      - name: mike deploy head
-        if: contains(github.ref, 'refs/heads/main')
-        run: |
-          mike deploy --push head
-
       # If this is a tag build, deploy as a new version
       - name: mike deploy new version
-        if: contains(github.ref, 'refs/tags/v') && !github.event.release.prerelease
         run: |
-          VERSION=${GITHUB_REF/refs\/tags\//}
-          mike deploy --push "${VERSION}"
+          mike deploy --push '${{ matrix.version }}'
 
       - name: Update mike version aliases
         id: set_versions
+        if: matrix.version == 'v1.23.5+k0s.0'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -95,6 +99,7 @@ jobs:
       # Commits if the files were changed
       # Finally pushes if there are unpushed commits
       - name: Create version files
+        if: matrix.version == 'v1.23.5+k0s.0'
         run: |
           LATEST=${{ steps.set_versions.outputs.LATEST }}
           STABLE=${{ steps.set_versions.outputs.STABLE }}

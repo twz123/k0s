@@ -27,7 +27,7 @@ JQ_COMMAND=jq -r '.assets[]|select(.browser_download_url|contains("amd64"))|sele
 
 .PHONY: k0s_release_binary
 k0s_release_binary:
-	curl -L -o ./k0s `curl $(LATEST_RELEASE_META_URL) | $(JQ_COMMAND)`
+	curl -L -o ./k0s 'https://github.com/k0sproject/k0s/releases/download/$(TARGET_VERSION)/k0s-$(TARGET_VERSION)-amd64'
 	chmod +x ./k0s
 
 .PHONY: cli
