@@ -26,10 +26,60 @@ import (
 	"github.com/k0sproject/k0s/pkg/constant"
 	"gopkg.in/yaml.v2"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 var k0sVars = constant.GetConfig("")
+
+var expectedDefaultProfileConfigMap = `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubelet-config-default-###VERSION###
+  namespace: kube-system
+data:
+  kubelet: |
+
+    apiVersion: kubelet.config.k8s.io/v1beta1
+    authentication:
+      anonymous:
+        enabled: false
+      webhook:
+        cacheTTL: 0s
+        enabled: true
+      x509:
+        clientCAFile: '{{.ClientCAFile}}'
+    authorization:
+      mode: Webhook
+      webhook:
+        cacheAuthorizedTTL: 0s
+        cacheUnauthorizedTTL: 0s
+    cgroupsPerQOS: true
+    clusterDNS:
+    - 10.96.0.10
+    clusterDomain: cluster.local
+    eventRecordQPS: 0
+    failSwapOn: false
+    kind: KubeletConfiguration
+    kubeReservedCgroup: '{{.KubeReservedCgroup}}'
+    kubeletCgroups: '{{.KubeletCgroups}}'
+    resolvConf: '{{.ResolvConf}}'
+    rotateCertificates: true
+    serverTLSBootstrap: true
+    tlsCipherSuites:
+    - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+    - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+    - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305
+    - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+    - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305
+    - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+    - TLS_RSA_WITH_AES_256_GCM_SHA384
+    - TLS_RSA_WITH_AES_128_GCM_SHA256
+    volumePluginDir: '{{.VolumePluginDir}}'
+    volumeStatsAggPeriod: 0s
+    
+`
 
 func Test_KubeletConfig(t *testing.T) {
 	dnsAddr, _ := cfg.Spec.Network.DNSAddress()
@@ -53,6 +103,10 @@ func Test_KubeletConfig(t *testing.T) {
 				formatProfileName("default-windows"),
 			})
 			requireRoleBinding(t, manifestYamls[3])
+		})
+		t.Run("renders_correctly", func(t *testing.T) {
+			expected := strings.ReplaceAll(expectedDefaultProfileConfigMap, "###VERSION###", constant.KubernetesMajorMinorVersion)
+			assert.Equal(t, expected, manifestYamls[0])
 		})
 	})
 	t.Run("default_profile_must_have_feature_gates_if_dualstack_setup", func(t *testing.T) {
@@ -79,7 +133,7 @@ func Test_KubeletConfig(t *testing.T) {
 			// check that each profile has config map, role and role binding
 			var resourceNamesForRole []string
 			for idx, profileName := range []string{"default", "default-windows", "profile_XXX", "profile_YYY"} {
-				fullName := "kubelet-config-" + profileName + "-1.23"
+				fullName := "kubelet-config-" + profileName + "-" + constant.KubernetesMajorMinorVersion
 				resourceNamesForRole = append(resourceNamesForRole, formatProfileName(profileName))
 				requireConfigMap(t, manifestYamls[idx], fullName)
 			}
@@ -97,7 +151,12 @@ func Test_KubeletConfig(t *testing.T) {
 			require.NoError(t, yaml.Unmarshal([]byte(manifestYamls[2]), &profileXXX))
 			require.NoError(t, yaml.Unmarshal([]byte(manifestYamls[3]), &profileYYY))
 
-			// manually apple the same changes to default config and check that there is no diff
+			kubeletXXX, ok := profileXXX.Data["kubelet"]
+			assert.True(t, ok, "worker profile doesn't contain kubelet configuration")
+			kubeletYYY, ok := profileYYY.Data["kubelet"]
+			assert.True(t, ok, "worker profile doesn't contain kubelet configuration")
+
+			// manually apply the same changes to default config and check that there is no diff
 			defaultProfileKubeletConfig := getDefaultProfile(dnsAddr, false, "cluster.local")
 			defaultProfileKubeletConfig["authentication"].(map[string]interface{})["anonymous"].(map[string]interface{})["enabled"] = false
 			defaultWithChangesXXX, err := yaml.Marshal(defaultProfileKubeletConfig)
@@ -109,8 +168,8 @@ func Test_KubeletConfig(t *testing.T) {
 
 			require.NoError(t, err)
 
-			require.YAMLEq(t, string(defaultWithChangesXXX), profileXXX.Data["kubelet"])
-			require.YAMLEq(t, string(defaultWithChangesYYY), profileYYY.Data["kubelet"])
+			assert.YAMLEq(t, string(defaultWithChangesXXX), kubeletXXX)
+			assert.YAMLEq(t, string(defaultWithChangesYYY), kubeletYYY)
 		})
 	})
 }
