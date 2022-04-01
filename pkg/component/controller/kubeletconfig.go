@@ -25,12 +25,18 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
+	"time"
 
 	"github.com/imdario/mergo"
 	"github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v2"
 	"k8s.io/apimachinery/pkg/api/errors"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/strategicpatch"
+	kubeletconfig "k8s.io/kubelet/config/v1beta1"
+	"sigs.k8s.io/yaml"
+
+	//kubeletconfig "k8s.io/kubernetes/pkg/kubelet/apis/config"
+	// "k8s.io/kubernetes/pkg/kubelet/apis/config/scheme"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/templatewriter"
@@ -52,6 +58,8 @@ type KubeletConfig struct {
 	k0sVars          constant.CfgVars
 	previousProfiles v1beta1.WorkerProfiles
 }
+
+type workerProfile = kubeletconfig.KubeletConfiguration
 
 // NewKubeletConfig creates new KubeletConfig reconciler
 func NewKubeletConfig(k0sVars constant.CfgVars, clientFactory k8sutil.ClientFactoryInterface) (*KubeletConfig, error) {
@@ -111,7 +119,7 @@ func (k *KubeletConfig) defaultProfilesExist(ctx context.Context) (bool, error) 
 		return false, err
 	}
 	defaultProfileName := formatProfileName("default")
-	_, err = c.CoreV1().ConfigMaps("kube-system").Get(ctx, defaultProfileName, v1.GetOptions{})
+	_, err = c.CoreV1().ConfigMaps("kube-system").Get(ctx, defaultProfileName, metav1.GetOptions{})
 	if err != nil && errors.IsNotFound(err) {
 		return false, nil
 	} else if err != nil {
@@ -120,51 +128,70 @@ func (k *KubeletConfig) defaultProfilesExist(ctx context.Context) (bool, error) 
 	return true, nil
 }
 
+// Some helpers for workerProfile config values
+var (
+	// TODO(go1.8): the following should be a single generic helper
+	stringPtr = func(s string) *string { return &s }
+	boolPtr   = func(b bool) *bool { return &b }
+	i32Ptr    = func(i int32) *int32 { return &i }
+
+	zeroSecs = metav1.Duration{0 * time.Second}
+)
+
 func (k *KubeletConfig) createProfiles(clusterSpec *v1beta1.ClusterConfig) (*bytes.Buffer, error) {
 	dnsAddress, err := clusterSpec.Spec.Network.DNSAddress()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get DNS address for kubelet config: %v", err)
 	}
+
 	manifest := bytes.NewBuffer([]byte{})
-	defaultProfile := getDefaultProfile(dnsAddress, clusterSpec.Spec.Network.DualStack.Enabled, clusterSpec.Spec.Network.ClusterDomain)
-	defaultProfile["cgroupsPerQOS"] = true
-	defaultProfile["resolvConf"] = "{{.ResolvConf}}"
 
-	winDefaultProfile := getDefaultProfile(dnsAddress, clusterSpec.Spec.Network.DualStack.Enabled, clusterSpec.Spec.Network.ClusterDomain)
-	winDefaultProfile["cgroupsPerQOS"] = false
-
+	defaultProfile := newWorkerProfile(dnsAddress, clusterSpec.Spec.Network.DualStack.Enabled, clusterSpec.Spec.Network.ClusterDomain)
+	defaultProfile.CgroupsPerQOS = boolPtr(true)
+	defaultProfile.ResolverConfig = stringPtr("{{.ResolvConf}}")
 	if err := k.writeConfigMapWithProfile(manifest, "default", defaultProfile); err != nil {
-		return nil, fmt.Errorf("can't write manifest for default profile config map: %v", err)
+		return nil, fmt.Errorf("failed to write manifest for default profile config map: %w", err)
 	}
+
+	winDefaultProfile := newWorkerProfile(dnsAddress, clusterSpec.Spec.Network.DualStack.Enabled, clusterSpec.Spec.Network.ClusterDomain)
+	winDefaultProfile.CgroupsPerQOS = boolPtr(false)
 	if err := k.writeConfigMapWithProfile(manifest, "default-windows", winDefaultProfile); err != nil {
-		return nil, fmt.Errorf("can't write manifest for default profile config map: %v", err)
+		return nil, fmt.Errorf("failed to write manifest for default-windows profile config map: %w", err)
 	}
+
 	configMapNames := []string{
 		formatProfileName("default"),
 		formatProfileName("default-windows"),
 	}
-	for _, profile := range clusterSpec.Spec.WorkerProfiles {
-		profileConfig := getDefaultProfile(dnsAddress, false, clusterSpec.Spec.Network.ClusterDomain) // Do not add dualstack feature gate to the custom profiles
 
-		var workerValues unstructuredYamlObject
-		err := json.Unmarshal(profile.Config, &workerValues)
+	for _, profileSpec := range clusterSpec.Spec.WorkerProfiles {
+		profile := newWorkerProfile(dnsAddress, false, clusterSpec.Spec.Network.ClusterDomain) // Do not add dualstack feature gate to the custom profiles
+
+		// profile, err := patchedProfile(profile, profileSpec.Config)
+		// if err != nil {
+		// 	return nil, fmt.Errorf("failed to generate worker profile %q: %w", profileSpec.Name, err)
+		// }
+
+		var x kubeletconfig.KubeletConfiguration
+		yaml.Unmarshal(profileSpec.Config, &x)
 		if err != nil {
-			return nil, fmt.Errorf("failed to decode worker profile values: %v", err)
-		}
-		merged, err := mergeProfiles(&profileConfig, workerValues)
-		if err != nil {
-			return nil, fmt.Errorf("can't merge profile `%s` with default profile: %v", profile.Name, err)
+			return nil, err
 		}
 
-		if err := k.writeConfigMapWithProfile(manifest,
-			profile.Name,
-			merged); err != nil {
-			return nil, fmt.Errorf("can't write manifest for profile config map: %v", err)
+		err := patchProfile(profile, x)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate worker profile %q: %w", profileSpec.Name, err)
 		}
-		configMapNames = append(configMapNames, formatProfileName(profile.Name))
+
+		// FIXME the above should go away
+
+		if err := k.writeConfigMapWithProfile(manifest, profileSpec.Name, profile); err != nil {
+			return nil, fmt.Errorf("failed to write manifest for worker profile %q: %w", profileSpec.Name, err)
+		}
+		configMapNames = append(configMapNames, formatProfileName(profileSpec.Name))
 	}
 	if err := k.writeRbacRoleBindings(manifest, configMapNames); err != nil {
-		return nil, fmt.Errorf("can't write manifest for rbac bindings: %v", err)
+		return nil, fmt.Errorf("failed to write manifest for RBAC bindings: %w", err)
 	}
 	return manifest, nil
 }
@@ -183,9 +210,7 @@ func (k *KubeletConfig) save(data []byte) error {
 	return nil
 }
 
-type unstructuredYamlObject map[string]interface{}
-
-func (k *KubeletConfig) writeConfigMapWithProfile(w io.Writer, name string, profile unstructuredYamlObject) error {
+func (k *KubeletConfig) writeConfigMapWithProfile(w io.Writer, name string, profile *workerProfile) error {
 	profileYaml, err := yaml.Marshal(profile)
 	if err != nil {
 		return err
@@ -222,37 +247,41 @@ func (k *KubeletConfig) writeRbacRoleBindings(w io.Writer, configMapNames []stri
 	return tw.WriteToBuffer(w)
 }
 
-func getDefaultProfile(dnsAddress string, dualStack bool, clusterDomain string) unstructuredYamlObject {
+func newWorkerProfile(dnsAddress string, dualStack bool, clusterDomain string) *workerProfile {
 	// the motivation to keep it like this instead of the yaml template:
 	// - it's easier to merge programatically defined structure
 	// - apart from map[string]interface there is no good way to define free-form mapping
 
-	// for the authentication.x509.clientCAFile and volumePluginDir we want to use later binding so we put template placeholder instead of actual value there
-	profile := unstructuredYamlObject{
-		"apiVersion": "kubelet.config.k8s.io/v1beta1",
-		"kind":       "KubeletConfiguration",
-		"authentication": map[string]interface{}{
-			"anonymous": map[string]interface{}{
-				"enabled": false,
+	profile := &workerProfile{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "kubelet.config.k8s.io/v1beta1",
+			Kind:       "KubeletConfiguration",
+		},
+		Authentication: kubeletconfig.KubeletAuthentication{
+			Anonymous: kubeletconfig.KubeletAnonymousAuthentication{
+				Enabled: boolPtr(false),
 			},
-			"webhook": map[string]interface{}{
-				"cacheTTL": "0s",
-				"enabled":  true,
+			Webhook: kubeletconfig.KubeletWebhookAuthentication{
+				CacheTTL: zeroSecs,
+				Enabled:  boolPtr(true),
 			},
-			"x509": map[string]interface{}{
-				"clientCAFile": "{{.ClientCAFile}}", // see line 174 explanation
+			X509: kubeletconfig.KubeletX509Authentication{
+				// For the authentication.x509.clientCAFile and volumePluginDir
+				// we want to use late binding so we put a template placeholder
+				// instead of actual value there.
+				ClientCAFile: "{{.ClientCAFile}}",
 			},
 		},
-		"authorization": map[string]interface{}{
-			"mode": "Webhook",
-			"webhook": map[string]interface{}{
-				"cacheAuthorizedTTL":   "0s",
-				"cacheUnauthorizedTTL": "0s",
+		Authorization: kubeletconfig.KubeletAuthorization{
+			Mode: kubeletconfig.KubeletAuthorizationModeWebhook,
+			Webhook: kubeletconfig.KubeletWebhookAuthorization{
+				CacheAuthorizedTTL:   zeroSecs,
+				CacheUnauthorizedTTL: zeroSecs,
 			},
 		},
-		"clusterDNS":    []string{dnsAddress},
-		"clusterDomain": clusterDomain,
-		"tlsCipherSuites": []string{
+		ClusterDNS:    []string{dnsAddress},
+		ClusterDomain: clusterDomain,
+		TLSCipherSuites: []string{
 			"TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
 			"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
 			"TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305",
@@ -262,17 +291,17 @@ func getDefaultProfile(dnsAddress string, dualStack bool, clusterDomain string) 
 			"TLS_RSA_WITH_AES_256_GCM_SHA384",
 			"TLS_RSA_WITH_AES_128_GCM_SHA256",
 		},
-		"volumeStatsAggPeriod": "0s",
-		"volumePluginDir":      "{{.VolumePluginDir}}", // see line 174 explanation
-		"failSwapOn":           false,
-		"rotateCertificates":   true,
-		"serverTLSBootstrap":   true,
-		"eventRecordQPS":       0,
-		"kubeReservedCgroup":   "{{.KubeReservedCgroup}}",
-		"kubeletCgroups":       "{{.KubeletCgroups}}",
+		VolumeStatsAggPeriod: zeroSecs,
+		VolumePluginDir:      "{{.VolumePluginDir}}", // see authentication.x509.clientCAFile
+		FailSwapOn:           boolPtr(false),
+		RotateCertificates:   true,
+		ServerTLSBootstrap:   true,
+		EventRecordQPS:       i32Ptr(0),
+		KubeReservedCgroup:   "{{.KubeReservedCgroup}}",
+		KubeletCgroups:       "{{.KubeletCgroups}}",
 	}
 	if dualStack {
-		profile["featureGates"] = map[string]bool{
+		profile.FeatureGates = map[string]bool{
 			"IPv6DualStack": true,
 		}
 	}
@@ -323,12 +352,36 @@ subjects:
     name: system:nodes
 `
 
-// mergeInto merges b to the a, a is modified inplace
-func mergeProfiles(a *unstructuredYamlObject, b unstructuredYamlObject) (unstructuredYamlObject, error) {
-	if err := mergo.Merge(a, b, mergo.WithOverride); err != nil {
+// patchProfile merges b into a, a is modified in-place
+func patchProfile(base *workerProfile, overrides workerProfile) error {
+	// FIXME want to replace this with strategic merge patch below...
+	return mergo.Merge(base, overrides, mergo.WithOverride)
+}
+
+// patchedProfile merges b into a, a is modified in-place
+func patchedProfileX(base *workerProfile, overrides []byte) (*kubeletconfig.KubeletConfiguration, error) {
+	original, err := json.Marshal(base)
+	if err != nil {
 		return nil, err
 	}
-	return *a, nil
+
+	patch, err := yaml.YAMLToJSON(overrides)
+	if err != nil {
+		return nil, err
+	}
+
+	var result kubeletconfig.KubeletConfiguration
+	patched, err := strategicpatch.StrategicMergePatch(original, patch, &result)
+	if err != nil {
+		return nil, err
+	}
+
+	err = yaml.Unmarshal(patched, &result)
+	if err != nil {
+		return nil, err
+	}
+
+	return &result, nil
 }
 
 // Health-check interface

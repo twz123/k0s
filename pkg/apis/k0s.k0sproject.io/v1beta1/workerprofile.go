@@ -17,7 +17,11 @@ package v1beta1
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+
+	kubeletconfig "k8s.io/kubelet/config/v1beta1"
+	"sigs.k8s.io/yaml"
 )
 
 var _ Validateable = (*WorkerProfiles)(nil)
@@ -54,10 +58,15 @@ var lockedFields = map[string]struct{}{
 // Validate validates instance
 func (wp *WorkerProfile) Validate() error {
 	var parsed map[string]interface{}
-
-	err := json.Unmarshal(wp.Config, &parsed)
+	err := yaml.Unmarshal(wp.Config, &parsed)
 	if err != nil {
-		return err
+		return errors.New("failed to parse worker profile")
+	}
+
+	var validated kubeletconfig.KubeletConfiguration
+	err = yaml.UnmarshalStrict(wp.Config, &validated)
+	if err != nil {
+		return fmt.Errorf("not a valid Kubelet configuration: %w", err)
 	}
 
 	for field := range parsed {

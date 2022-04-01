@@ -20,60 +20,82 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestWorkerProfile worker profile test suite
 func TestWorkerProfile(t *testing.T) {
 	t.Run("worker_profile_validation", func(t *testing.T) {
 		cases := []struct {
-			name  string
-			spec  map[string]interface{}
-			valid bool
+			name   string
+			spec   interface{}
+			errMsg string
 		}{
 			{
-				name:  "Generic spec is valid",
-				spec:  map[string]interface{}{},
-				valid: true,
+				name:   "Generic spec is valid",
+				spec:   map[string]interface{}{},
+				errMsg: "",
+			},
+			{
+				name:   "invalid YAML",
+				spec:   []byte("kaput"),
+				errMsg: "failed to parse worker profile",
+			},
+			{
+				name: "Unknown fields are rejected",
+				spec: map[string]interface{}{
+					"foo": "bar",
+				},
+				errMsg: "unknown field \"foo\"",
 			},
 			{
 				name: "Locked field clusterDNS",
 				spec: map[string]interface{}{
-					"clusterDNS": "8.8.8.8",
+					"clusterDNS": []string{"8.8.8.8"},
 				},
-				valid: false,
+				errMsg: "field `clusterDNS` is prohibited",
 			},
 			{
 				name: "Locked field clusterDomain",
 				spec: map[string]interface{}{
 					"clusterDomain": "cluster.org",
 				},
-				valid: false,
+				errMsg: "field `clusterDomain` is prohibited",
 			},
 			{
 				name: "Locked field apiVersion",
 				spec: map[string]interface{}{
 					"apiVersion": "v2",
 				},
-				valid: false,
+				errMsg: "field `apiVersion` is prohibited",
 			},
 			{
 				name: "Locked field kind",
 				spec: map[string]interface{}{
 					"kind": "Controller",
 				},
-				valid: false,
+				errMsg: "field `kind` is prohibited",
 			},
 		}
 
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
-				b, err := json.Marshal(tc.spec)
-				if err != nil {
-					t.Fatal(err)
+				var b []byte
+				var err error
+				switch tc.spec.(type) {
+				case []byte:
+					b = tc.spec.([]byte)
+				default:
+					b, err = json.Marshal(tc.spec)
+					require.NoError(t, err)
 				}
 				profile := WorkerProfile{Config: b}
-				valid := profile.Validate() == nil
-				assert.Equal(t, valid, tc.valid)
+				err = profile.Validate()
+				if tc.errMsg == "" {
+					assert.NoError(t, err)
+				} else {
+					assert.Contains(t, err.Error(), tc.errMsg)
+				}
 			})
 		}
 	})

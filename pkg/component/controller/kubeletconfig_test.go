@@ -19,12 +19,16 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/k0sproject/k0s/internal/testutil"
-	"github.com/k0sproject/k0s/pkg/apis/helm.k0sproject.io/v1beta1"
 	config "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/constant"
-	"gopkg.in/yaml.v2"
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/kubelet/config/v1beta1"
+	"sigs.k8s.io/yaml"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -59,14 +63,33 @@ data:
     clusterDNS:
     - 10.96.0.10
     clusterDomain: cluster.local
+    cpuManagerReconcilePeriod: 0s
     eventRecordQPS: 0
+    evictionPressureTransitionPeriod: 0s
     failSwapOn: false
+    fileCheckFrequency: 0s
+    httpCheckFrequency: 0s
+    imageMinimumGCAge: 0s
     kind: KubeletConfiguration
     kubeReservedCgroup: '{{.KubeReservedCgroup}}'
     kubeletCgroups: '{{.KubeletCgroups}}'
+    logging:
+      flushFrequency: 0
+      options:
+        json:
+          infoBufferSize: "0"
+      verbosity: 0
+    memorySwap: {}
+    nodeStatusReportFrequency: 0s
+    nodeStatusUpdateFrequency: 0s
     resolvConf: '{{.ResolvConf}}'
     rotateCertificates: true
+    runtimeRequestTimeout: 0s
     serverTLSBootstrap: true
+    shutdownGracePeriod: 0s
+    shutdownGracePeriodCriticalPods: 0s
+    streamingConnectionIdleTimeout: 0s
+    syncFrequency: 0s
     tlsCipherSuites:
     - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
     - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
@@ -110,16 +133,16 @@ func Test_KubeletConfig(t *testing.T) {
 		})
 	})
 	t.Run("default_profile_must_have_feature_gates_if_dualstack_setup", func(t *testing.T) {
-		profile := getDefaultProfile(dnsAddr, true, "cluster.local")
+		profile := newWorkerProfile(dnsAddr, true, "cluster.local")
 		require.Equal(t, map[string]bool{
 			"IPv6DualStack": true,
-		}, profile["featureGates"])
+		}, profile.FeatureGates)
 	})
 	t.Run("default_profile_must_pass_down_cluster_domain", func(t *testing.T) {
-		profile := getDefaultProfile(dnsAddr, true, "cluster.local.custom")
+		profile := newWorkerProfile(dnsAddr, true, "cluster.local.custom")
 		require.Equal(t, string(
 			"cluster.local.custom",
-		), profile["clusterDomain"])
+		), profile.ClusterDomain)
 	})
 	t.Run("with_user_provided_profiles", func(t *testing.T) {
 		k := defaultConfigWithUserProvidedProfiles(t)
@@ -140,13 +163,8 @@ func Test_KubeletConfig(t *testing.T) {
 			requireRole(t, manifestYamls[len(resourceNamesForRole)], resourceNamesForRole)
 		})
 		t.Run("user_profile_X_must_be_merged_with_default_profile", func(t *testing.T) {
-			profileXXX := struct {
-				Data map[string]string `yaml:"data"`
-			}{}
-
-			profileYYY := struct {
-				Data map[string]string `yaml:"data"`
-			}{}
+			profileXXX := corev1.ConfigMap{}
+			profileYYY := corev1.ConfigMap{}
 
 			require.NoError(t, yaml.Unmarshal([]byte(manifestYamls[2]), &profileXXX))
 			require.NoError(t, yaml.Unmarshal([]byte(manifestYamls[3]), &profileYYY))
@@ -157,13 +175,13 @@ func Test_KubeletConfig(t *testing.T) {
 			assert.True(t, ok, "worker profile doesn't contain kubelet configuration")
 
 			// manually apply the same changes to default config and check that there is no diff
-			defaultProfileKubeletConfig := getDefaultProfile(dnsAddr, false, "cluster.local")
-			defaultProfileKubeletConfig["authentication"].(map[string]interface{})["anonymous"].(map[string]interface{})["enabled"] = false
+			defaultProfileKubeletConfig := newWorkerProfile(dnsAddr, false, "cluster.local")
+			defaultProfileKubeletConfig.Authentication.Anonymous.Enabled = boolPtr(false)
 			defaultWithChangesXXX, err := yaml.Marshal(defaultProfileKubeletConfig)
 			require.NoError(t, err)
 
-			defaultProfileKubeletConfig = getDefaultProfile(dnsAddr, false, "cluster.local")
-			defaultProfileKubeletConfig["authentication"].(map[string]interface{})["webhook"].(map[string]interface{})["cacheTTL"] = "15s"
+			defaultProfileKubeletConfig = newWorkerProfile(dnsAddr, false, "cluster.local")
+			defaultProfileKubeletConfig.Authentication.Webhook.CacheTTL = metav1.Duration{15 * time.Second}
 			defaultWithChangesYYY, err := yaml.Marshal(defaultProfileKubeletConfig)
 
 			require.NoError(t, err)
@@ -178,17 +196,17 @@ func defaultConfigWithUserProvidedProfiles(t *testing.T) *KubeletConfig {
 	k, err := NewKubeletConfig(k0sVars, testutil.NewFakeClientFactory())
 	require.NoError(t, err)
 
-	cfgProfileX := map[string]interface{}{
-		"authentication": map[string]interface{}{
-			"anonymous": map[string]interface{}{
-				"enabled": false,
+	cfgProfileX := workerProfile{
+		Authentication: v1beta1.KubeletAuthentication{
+			Anonymous: v1beta1.KubeletAnonymousAuthentication{
+				Enabled: boolPtr(false),
 			},
 		},
 	}
-	wcx, err := json.Marshal(cfgProfileX)
-	if err != nil {
-		t.Fatal(err)
-	}
+
+	wcx, err := yaml.Marshal(cfgProfileX)
+	require.NoError(t, err)
+
 	cfg.Spec.WorkerProfiles = append(cfg.Spec.WorkerProfiles,
 		config.WorkerProfile{
 			Name:   "profile_XXX",
@@ -196,10 +214,10 @@ func defaultConfigWithUserProvidedProfiles(t *testing.T) *KubeletConfig {
 		},
 	)
 
-	cfgProfileY := map[string]interface{}{
-		"authentication": map[string]interface{}{
-			"webhook": map[string]interface{}{
-				"cacheTTL": "15s",
+	cfgProfileY := workerProfile{
+		Authentication: v1beta1.KubeletAuthentication{
+			Webhook: v1beta1.KubeletWebhookAuthentication{
+				CacheTTL: metav1.Duration{15 * time.Second},
 			},
 		},
 	}
@@ -219,33 +237,26 @@ func defaultConfigWithUserProvidedProfiles(t *testing.T) *KubeletConfig {
 }
 
 func requireConfigMap(t *testing.T, spec string, name string) {
-	dst := map[string]interface{}{}
+	dst := corev1.ConfigMap{}
 	require.NoError(t, yaml.Unmarshal([]byte(spec), &dst))
-	dst = v1beta1.CleanUpGenericMap(dst)
-	require.Equal(t, "ConfigMap", dst["kind"])
-	require.Equal(t, name, dst["metadata"].(map[string]interface{})["name"])
-	spec, foundSpec := dst["data"].(map[string]interface{})["kubelet"].(string)
+	require.Equal(t, "ConfigMap", dst.TypeMeta.Kind)
+	require.Equal(t, name, dst.ObjectMeta.Name)
+	spec, foundSpec := dst.Data["kubelet"]
 	require.True(t, foundSpec, "kubelet config map must have embedded kubelet config")
 	require.True(t, strings.TrimSpace(spec) != "", "kubelet config map must have non-empty embedded kubelet config")
 }
 
 func requireRole(t *testing.T, spec string, expectedResourceNames []string) {
-	dst := map[string]interface{}{}
+	dst := rbacv1.Role{}
 	require.NoError(t, yaml.Unmarshal([]byte(spec), &dst))
-	dst = v1beta1.CleanUpGenericMap(dst)
-	require.Equal(t, "Role", dst["kind"])
-	require.Equal(t, "system:bootstrappers:kubelet-configmaps", dst["metadata"].(map[string]interface{})["name"])
-	var currentResourceNames []string
-	for _, el := range dst["rules"].([]interface{})[0].(map[string]interface{})["resourceNames"].([]interface{}) {
-		currentResourceNames = append(currentResourceNames, el.(string))
-	}
-	require.Equal(t, expectedResourceNames, currentResourceNames)
+	require.Equal(t, "Role", dst.TypeMeta.Kind)
+	require.Equal(t, "system:bootstrappers:kubelet-configmaps", dst.ObjectMeta.Name)
+	require.Equal(t, expectedResourceNames, dst.Rules[0].ResourceNames)
 }
 
 func requireRoleBinding(t *testing.T, spec string) {
-	dst := map[string]interface{}{}
+	dst := rbacv1.RoleBinding{}
 	require.NoError(t, yaml.Unmarshal([]byte(spec), &dst))
-	dst = v1beta1.CleanUpGenericMap(dst)
-	require.Equal(t, "RoleBinding", dst["kind"])
-	require.Equal(t, "system:bootstrappers:kubelet-configmaps", dst["metadata"].(map[string]interface{})["name"])
+	require.Equal(t, "RoleBinding", dst.TypeMeta.Kind)
+	require.Equal(t, "system:bootstrappers:kubelet-configmaps", dst.ObjectMeta.Name)
 }
