@@ -193,6 +193,8 @@ func (c *CmdOpts) StartWorker(ctx context.Context) error {
 		CertManager: certManager,
 	})
 
+	componentManager.Add(ctx, worker.NewNodeLocalLoadBalancer(staticPods))
+
 	// extract needed components
 	if err := componentManager.Init(ctx); err != nil {
 		return err
