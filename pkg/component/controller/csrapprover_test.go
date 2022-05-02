@@ -69,7 +69,7 @@ func TestBasicCRSApprover(t *testing.T) {
 			},
 		},
 	}
-	c := NewCSRApprover(config, &DummyLeaderElector{Leader: true}, fakeFactory)
+	c := NewCSRApprover(config, &DummyLeaderElector{Leader: true}, fakeFactory).(*CSRApprover)
 
 	assert.NoError(t, c.Init(ctx))
 	assert.NoError(t, c.approveCSR(ctx))

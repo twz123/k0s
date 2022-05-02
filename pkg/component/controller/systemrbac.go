@@ -23,8 +23,8 @@ import (
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/templatewriter"
+	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/constant"
-	"github.com/sirupsen/logrus"
 )
 
 // SystemRBAC implements system RBAC reconciler
@@ -33,10 +33,8 @@ type SystemRBAC struct {
 }
 
 // NewSystemRBAC creates new system level RBAC reconciler
-func NewSystemRBAC(manifestDir string) (*SystemRBAC, error) {
-	return &SystemRBAC{
-		manifestDir: manifestDir,
-	}, nil
+func NewSystemRBAC(manifestDir string) component.Component {
+	return &SystemRBAC{manifestDir}
 }
 
 // Init does nothing
@@ -66,12 +64,6 @@ func (s *SystemRBAC) Run(_ context.Context) error {
 
 // Stop does currently nothing
 func (s *SystemRBAC) Stop() error {
-	return nil
-}
-
-// Reconcile detects changes in configuration and applies them to the component
-func (s *SystemRBAC) Reconcile() error {
-	logrus.Debug("reconcile method called for: SystemRBAC")
 	return nil
 }
 

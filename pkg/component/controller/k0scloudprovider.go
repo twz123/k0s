@@ -21,7 +21,6 @@ import (
 
 	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/k0scloudprovider"
-	"github.com/sirupsen/logrus"
 )
 
 type k0sCloudProvider struct {
@@ -83,12 +82,6 @@ func (c *k0sCloudProvider) Run(_ context.Context) error {
 func (c *k0sCloudProvider) Stop() error {
 	close(c.stopCh)
 
-	return nil
-}
-
-// Reconcile detects changes in configuration and applies them to the component
-func (c *k0sCloudProvider) Reconcile() error {
-	logrus.Debug("reconcile method called for: k0sCloudProvider")
 	return nil
 }
 
