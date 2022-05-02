@@ -31,10 +31,11 @@ import (
 func init() {
 	logrus.SetOutput(os.Stderr)
 	logrus.SetLevel(logrus.WarnLevel)
-	customFormatter := new(logrus.TextFormatter)
-	customFormatter.TimestampFormat = "2006-01-02 15:04:05"
-	customFormatter.FullTimestamp = true
-	logrus.SetFormatter(customFormatter)
+	logrus.SetFormatter(&logrus.TextFormatter{
+		// This is time.RFC3339 with millisecond resolution.
+		TimestampFormat: "2006-01-02T15:04:05.000Z07:00",
+		FullTimestamp:   true,
+	})
 }
 
 func main() {

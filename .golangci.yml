@@ -4,6 +4,7 @@ run:
 
   skip-dirs-use-default: false
   skip-dirs:
+    - build
     - pkg/helm
     - static
     - hack

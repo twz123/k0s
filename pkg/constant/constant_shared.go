@@ -84,6 +84,8 @@ const (
 	KubeProxyImageVersion              = "v1.25.0"
 	CoreDNSImage                       = "k8s.gcr.io/coredns/coredns"
 	CoreDNSImageVersion                = "v1.9.3"
+	EnvoyProxyImage                    = "docker.io/envoyproxy/envoy-distroless"
+	EnvoyProxyImageVersion             = "v1.20.0"
 	CalicoImage                        = "docker.io/calico/cni"
 	CalicoComponentImagesVersion       = "v3.24.1"
 	CalicoNodeImage                    = "docker.io/calico/node"

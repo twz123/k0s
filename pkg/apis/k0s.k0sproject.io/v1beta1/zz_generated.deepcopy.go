@@ -250,6 +250,7 @@ func (in *ClusterImages) DeepCopyInto(out *ClusterImages) {
 	out.MetricsServer = in.MetricsServer
 	out.KubeProxy = in.KubeProxy
 	out.CoreDNS = in.CoreDNS
+	out.EnvoyProxy = in.EnvoyProxy
 	out.Calico = in.Calico
 	out.KubeRouter = in.KubeRouter
 }

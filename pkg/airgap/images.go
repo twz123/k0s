@@ -31,6 +31,7 @@ func GetImageURIs(spec *v1beta1.ClusterImages) []string {
 	images := []string{
 		spec.Konnectivity.URI(),
 		spec.CoreDNS.URI(),
+		spec.EnvoyProxy.URI(),
 		spec.KubeProxy.URI(),
 		spec.MetricsServer.URI(),
 		pauseImage.URI(),

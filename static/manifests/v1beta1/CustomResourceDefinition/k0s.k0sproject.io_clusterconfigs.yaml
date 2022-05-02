@@ -187,6 +187,14 @@ spec:
                     type: object
                   default_pull_policy:
                     type: string
+                  envoyproxy:
+                    description: ImageSpec container image settings
+                    properties:
+                      image:
+                        type: string
+                      version:
+                        type: string
+                    type: object
                   konnectivity:
                     description: ImageSpec container image settings
                     properties:
