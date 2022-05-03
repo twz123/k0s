@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
+	"github.com/k0sproject/k0s/pkg/component"
 	k8sutil "github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/sirupsen/logrus"
 	v1core "k8s.io/api/core/v1"
@@ -29,7 +30,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-type TunneledEndpointReconciler struct {
+type tunneledEndpointReconciler struct {
 	cfg *v1beta1.ClusterConfig
 
 	logger *logrus.Entry
@@ -38,11 +39,11 @@ type TunneledEndpointReconciler struct {
 	kubeClientFactory k8sutil.ClientFactoryInterface
 }
 
-func (ter TunneledEndpointReconciler) Init(_ context.Context) error {
+func (ter tunneledEndpointReconciler) Init(context.Context) error {
 	return nil
 }
 
-func (ter *TunneledEndpointReconciler) Run(ctx context.Context) error {
+func (ter *tunneledEndpointReconciler) Run(ctx context.Context) error {
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
@@ -62,20 +63,20 @@ func (ter *TunneledEndpointReconciler) Run(ctx context.Context) error {
 	return nil
 }
 
-func (ter *TunneledEndpointReconciler) Stop() error {
+func (ter *tunneledEndpointReconciler) Stop() error {
 	return nil
 }
 
-func (ter *TunneledEndpointReconciler) Healthy() error {
+func (ter *tunneledEndpointReconciler) Healthy() error {
 	return nil
 }
 
-func (ter *TunneledEndpointReconciler) Reconcile(ctx context.Context, cfg *v1beta1.ClusterConfig) error {
+func (ter *tunneledEndpointReconciler) Reconcile(ctx context.Context, cfg *v1beta1.ClusterConfig) error {
 	ter.cfg = cfg
 	return nil
 }
 
-func (ter TunneledEndpointReconciler) reconcile(ctx context.Context) error {
+func (ter tunneledEndpointReconciler) reconcile(ctx context.Context) error {
 	if ter.cfg == nil {
 		return nil
 	}
@@ -98,7 +99,7 @@ func (ter TunneledEndpointReconciler) reconcile(ctx context.Context) error {
 	return nil
 }
 
-func (ter TunneledEndpointReconciler) reconcileEndpoint(ctx context.Context) error {
+func (ter tunneledEndpointReconciler) reconcileEndpoint(ctx context.Context) error {
 	c, err := ter.kubeClientFactory.GetClient()
 	if err != nil {
 		return err
@@ -179,7 +180,7 @@ func makeNodesAddresses(ctx context.Context, c kubernetes.Interface) ([]v1core.E
 	return addresses, nil
 }
 
-func (ter TunneledEndpointReconciler) createEndpoint(ctx context.Context, subsets []v1core.EndpointSubset) error {
+func (ter tunneledEndpointReconciler) createEndpoint(ctx context.Context, subsets []v1core.EndpointSubset) error {
 
 	ep := &v1core.Endpoints{
 		TypeMeta: v1.TypeMeta{
@@ -205,7 +206,7 @@ func (ter TunneledEndpointReconciler) createEndpoint(ctx context.Context, subset
 	return nil
 }
 
-func (ter TunneledEndpointReconciler) makeDefaultServiceInternalOnly(ctx context.Context) error {
+func (ter tunneledEndpointReconciler) makeDefaultServiceInternalOnly(ctx context.Context) error {
 	c, err := ter.kubeClientFactory.GetClient()
 	if err != nil {
 		return err
@@ -228,8 +229,8 @@ func (ter TunneledEndpointReconciler) makeDefaultServiceInternalOnly(ctx context
 	return nil
 }
 
-func NewTunneledEndpointReconciler(leaderElector LeaderElector, kubeClientFactory k8sutil.ClientFactoryInterface) *TunneledEndpointReconciler {
-	return &TunneledEndpointReconciler{
+func NewTunneledEndpointReconciler(leaderElector LeaderElector, kubeClientFactory k8sutil.ClientFactoryInterface) component.ReconcilerComponent {
+	return &tunneledEndpointReconciler{
 		leaderElector:     leaderElector,
 		kubeClientFactory: kubeClientFactory,
 		logger:            logrus.WithFields(logrus.Fields{"component": "tunneled_endpoint_reconciler"}),

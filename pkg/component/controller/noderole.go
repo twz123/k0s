@@ -28,12 +28,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/constant"
 	k8sutil "github.com/k0sproject/k0s/pkg/kubernetes"
 )
 
-// NodeRole implements the component interface to manage node role labels for worker nodes
-type NodeRole struct {
+// nodeRole implements the component interface to manage node role labels for worker nodes
+type nodeRole struct {
 	kubeClientFactory k8sutil.ClientFactoryInterface
 
 	log     *logrus.Entry
@@ -41,22 +42,22 @@ type NodeRole struct {
 }
 
 // NewNodeRole creates new NodeRole reconciler
-func NewNodeRole(k0sVars constant.CfgVars, clientFactory k8sutil.ClientFactoryInterface) (*NodeRole, error) {
+func NewNodeRole(k0sVars constant.CfgVars, clientFactory k8sutil.ClientFactoryInterface) component.Component {
 	log := logrus.WithFields(logrus.Fields{"component": "noderole"})
-	return &NodeRole{
+	return &nodeRole{
 		kubeClientFactory: clientFactory,
 		log:               log,
 		k0sVars:           k0sVars,
-	}, nil
+	}
 }
 
 // Init no-op
-func (n *NodeRole) Init(_ context.Context) error {
+func (n *nodeRole) Init(_ context.Context) error {
 	return nil
 }
 
 // Run checks and adds labels
-func (n *NodeRole) Run(ctx context.Context) error {
+func (n *nodeRole) Run(ctx context.Context) error {
 	client, err := n.kubeClientFactory.GetClient()
 	if err != nil {
 		return err
@@ -88,7 +89,7 @@ func (n *NodeRole) Run(ctx context.Context) error {
 	return nil
 }
 
-func (n *NodeRole) ensureNodeLabel(ctx context.Context, client kubernetes.Interface, node corev1.Node) error {
+func (n *nodeRole) ensureNodeLabel(ctx context.Context, client kubernetes.Interface, node corev1.Node) error {
 	var labelToAdd string
 	for label, value := range node.Labels {
 		if strings.HasPrefix(label, constant.NodeRoleLabelNamespace) {
@@ -110,16 +111,16 @@ func (n *NodeRole) ensureNodeLabel(ctx context.Context, client kubernetes.Interf
 	return nil
 }
 
-func (n *NodeRole) addNodeLabel(ctx context.Context, client kubernetes.Interface, node, key, value string) (*corev1.Node, error) {
+func (n *nodeRole) addNodeLabel(ctx context.Context, client kubernetes.Interface, node, key, value string) (*corev1.Node, error) {
 	keyPath := fmt.Sprintf("/metadata/labels/%s", jsonpointer.Escape(key))
 	patch := fmt.Sprintf(`[{"op":"add", "path":"%s", "value":"%s" }]`, keyPath, value)
 	return client.CoreV1().Nodes().Patch(ctx, node, types.JSONPatchType, []byte(patch), metav1.PatchOptions{})
 }
 
 // Stop no-op
-func (n *NodeRole) Stop() error {
+func (n *nodeRole) Stop() error {
 	return nil
 }
 
 // Health-check interface
-func (n *NodeRole) Healthy() error { return nil }
+func (n *nodeRole) Healthy() error { return nil }

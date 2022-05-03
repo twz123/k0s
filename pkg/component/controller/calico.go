@@ -34,14 +34,10 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/templatewriter"
 )
 
-// Dummy checks so we catch easily if we miss some interface implementation
-var _ component.Component = &Calico{}
-var _ component.ReconcilerComponent = &Calico{}
-
 var calicoCRDOnce sync.Once
 
-// Calico is the Component interface implementation to manage Calico
-type Calico struct {
+// calico is the Component interface implementation to manage Calico
+type calico struct {
 	log *logrus.Entry
 
 	crdSaver   manifestsSaver
@@ -76,28 +72,23 @@ type calicoConfig struct {
 }
 
 // NewCalico creates new Calico reconciler component
-func NewCalico(k0sVars constant.CfgVars, crdSaver manifestsSaver, manifestsSaver manifestsSaver) (*Calico, error) {
+func NewCalico(k0sVars constant.CfgVars, crdSaver manifestsSaver, manifestsSaver manifestsSaver) component.ReconcilerComponent {
 	log := logrus.WithFields(logrus.Fields{"component": "calico"})
-	return &Calico{
+	return &calico{
 		log:        log,
 		crdSaver:   crdSaver,
 		saver:      manifestsSaver,
 		prevConfig: calicoConfig{},
 		k0sVars:    k0sVars,
-	}, nil
+	}
 }
 
-// Init does nothing
-func (c *Calico) Init(_ context.Context) error {
-	return nil
-}
+func (c *calico) Init(context.Context) error { return nil }
+func (c *calico) Run(context.Context) error  { return nil }
+func (c *calico) Healthy() error             { return nil }
+func (c *calico) Stop() error                { return nil }
 
-// Run nothing really running, all logic based on reactive reconcile
-func (c *Calico) Run(_ context.Context) error {
-	return nil
-}
-
-func (c *Calico) dumpCRDs() error {
+func (c *calico) dumpCRDs() error {
 	var emptyStruct struct{}
 
 	// Write the CRD definitions only at "boot", they do not change during runtime
@@ -133,7 +124,7 @@ func (c *Calico) dumpCRDs() error {
 	return nil
 }
 
-func (c *Calico) processConfigChanges(newConfig calicoConfig) error {
+func (c *calico) processConfigChanges(newConfig calicoConfig) error {
 	manifestDirectories, err := static.AssetDir("manifests/calico")
 	if err != nil {
 		return fmt.Errorf("error retrieving calico manifests: %s. will retry", err.Error())
@@ -176,7 +167,7 @@ func (c *Calico) processConfigChanges(newConfig calicoConfig) error {
 	return nil
 }
 
-func (c *Calico) getConfig(clusterConfig *v1beta1.ClusterConfig) (calicoConfig, error) {
+func (c *calico) getConfig(clusterConfig *v1beta1.ClusterConfig) (calicoConfig, error) {
 	ipv6AutoDetectionMethod := clusterConfig.Spec.Network.Calico.IPAutodetectionMethod
 	if clusterConfig.Spec.Network.Calico.IPv6AutodetectionMethod != "" {
 		ipv6AutoDetectionMethod = clusterConfig.Spec.Network.Calico.IPv6AutodetectionMethod
@@ -204,13 +195,8 @@ func (c *Calico) getConfig(clusterConfig *v1beta1.ClusterConfig) (calicoConfig, 
 	return config, nil
 }
 
-// Stop stops the calico reconciler
-func (c *Calico) Stop() error {
-	return nil
-}
-
 // Reconcile detects changes in configuration and applies them to the component
-func (c *Calico) Reconcile(_ context.Context, cfg *v1beta1.ClusterConfig) error {
+func (c *calico) Reconcile(_ context.Context, cfg *v1beta1.ClusterConfig) error {
 	c.log.Debug("reconcile method called for: Calico")
 	if cfg.Spec.Network.Provider != "calico" {
 		return nil
@@ -238,6 +224,3 @@ func (c *Calico) Reconcile(_ context.Context, cfg *v1beta1.ClusterConfig) error 
 	}
 	return nil
 }
-
-// Health-check interface
-func (c *Calico) Healthy() error { return nil }

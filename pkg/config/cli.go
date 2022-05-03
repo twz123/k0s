@@ -28,7 +28,6 @@ import (
 	cloudprovider "k8s.io/cloud-provider"
 
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
-	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/constant"
 )
 
@@ -68,11 +67,9 @@ type ControllerOptions struct {
 	NoTaints          bool
 	DisableComponents []string
 
-	ClusterComponents               *component.Manager
 	EnableK0sCloudProvider          bool
 	K0sCloudProviderPort            int
 	K0sCloudProviderUpdateFrequency time.Duration
-	NodeComponents                  *component.Manager
 	EnableDynamicConfig             bool
 	EnableMetricsScraper            bool
 }

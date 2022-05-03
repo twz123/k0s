@@ -24,31 +24,28 @@ import (
 	"github.com/k0sproject/k0s/static"
 )
 
-var _ component.Component = &CRD{}
+var _ component.Component = &crd{}
 
-// CRD unpacks bundled CRD definitions to the filesystem
-type CRD struct {
+// crd unpacks bundled CRD definitions to the filesystem
+type crd struct {
 	saver manifestsSaver
 }
 
 // NewCRD build new CRD
-func NewCRD(s manifestsSaver) *CRD {
-	return &CRD{
-		saver: s,
-	}
+func NewCRD(saver manifestsSaver) component.Component {
+	return &crd{saver}
 }
 
 var bundles = []string{
 	"helm",
 }
 
-// Init  (c CRD) Init(_ context.Context) error {
-func (c CRD) Init(_ context.Context) error {
+func (c crd) Init(_ context.Context) error {
 	return nil
 }
 
 // Run unpacks manifests from bindata
-func (c CRD) Run(_ context.Context) error {
+func (c crd) Run(_ context.Context) error {
 	for _, bundle := range bundles {
 		crds, err := static.AssetDir(fmt.Sprintf("manifests/%s/CustomResourceDefinition", bundle))
 		if err != nil {
@@ -71,10 +68,5 @@ func (c CRD) Run(_ context.Context) error {
 	return nil
 }
 
-func (c CRD) Stop() error {
-	return nil
-}
-
-func (c CRD) Healthy() error {
-	return nil
-}
+func (c crd) Healthy() error { return nil }
+func (c crd) Stop() error    { return nil }

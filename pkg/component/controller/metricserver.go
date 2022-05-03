@@ -235,8 +235,8 @@ spec:
   versionPriority: 100
 `
 
-// MetricServer is the reconciler implementation for metrics server
-type MetricServer struct {
+// metricServer is the reconciler implementation for metrics server
+type metricServer struct {
 	log               *logrus.Entry
 	clusterConfig     *v1beta1.ClusterConfig
 	tickerDone        context.CancelFunc
@@ -251,26 +251,23 @@ type metricsConfig struct {
 	MEMRequest string
 }
 
-var _ component.Component = &MetricServer{}
-var _ component.ReconcilerComponent = &MetricServer{}
-
 // NewMetricServer creates new MetricServer reconciler
-func NewMetricServer(k0sVars constant.CfgVars, kubeClientFactory k8sutil.ClientFactoryInterface) (*MetricServer, error) {
+func NewMetricServer(k0sVars constant.CfgVars, kubeClientFactory k8sutil.ClientFactoryInterface) component.ReconcilerComponent {
 	log := logrus.WithFields(logrus.Fields{"component": "metricServer"})
-	return &MetricServer{
+	return &metricServer{
 		log:               log,
 		K0sVars:           k0sVars,
 		kubeClientFactory: kubeClientFactory,
-	}, nil
+	}
 }
 
 // Init does nothing
-func (m *MetricServer) Init(_ context.Context) error {
+func (m *metricServer) Init(_ context.Context) error {
 	return nil
 }
 
 // Run runs the metric server reconciler
-func (m *MetricServer) Run(ctx context.Context) error {
+func (m *metricServer) Run(ctx context.Context) error {
 	ctx, m.tickerDone = context.WithCancel(ctx)
 
 	msDir := path.Join(m.K0sVars.ManifestsDir, "metricserver")
@@ -317,7 +314,7 @@ func (m *MetricServer) Run(ctx context.Context) error {
 }
 
 // Stop stops the reconciler
-func (m *MetricServer) Stop() error {
+func (m *metricServer) Stop() error {
 	if m.tickerDone != nil {
 		m.tickerDone()
 	}
@@ -325,7 +322,7 @@ func (m *MetricServer) Stop() error {
 }
 
 // Reconcile detects changes in configuration and applies them to the component
-func (m *MetricServer) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterConfig) error {
+func (m *metricServer) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterConfig) error {
 	logrus.Debug("reconcile method called for: MetricServer")
 	// We just store the last known config, the main reconciler ticker will reconcile config based on number of nodes etc.
 	m.clusterConfig = clusterConfig
@@ -333,14 +330,14 @@ func (m *MetricServer) Reconcile(_ context.Context, clusterConfig *v1beta1.Clust
 }
 
 // Healthy is the health-check interface
-func (m *MetricServer) Healthy() error { return nil }
+func (m *metricServer) Healthy() error { return nil }
 
 // Mostly for calculating the resource needs based on node numbers. From https://github.com/kubernetes-sigs/metrics-server#scaling :
 // Starting from v0.5.0 Metrics Server comes with default resource requests that should guarantee good performance for most cluster configurations up to 100 nodes:
 // - 100m core of CPU
 // - 300MiB of memory
 // So that's 10m CPU and 30MiB mem per 10 nodes
-func (m *MetricServer) getConfig(ctx context.Context) (metricsConfig, error) {
+func (m *metricServer) getConfig(ctx context.Context) (metricsConfig, error) {
 	if m.clusterConfig == nil {
 		return metricsConfig{}, fmt.Errorf("cluster config not available yet")
 	}

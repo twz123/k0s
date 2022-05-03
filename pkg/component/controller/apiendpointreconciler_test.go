@@ -47,8 +47,7 @@ func TestBasicReconcilerWithNoLeader(t *testing.T) {
 		},
 	}
 
-	r := NewEndpointReconciler(&DummyLeaderElector{Leader: false}, fakeFactory)
-	r.clusterConfig = config
+	r := newAPIEndpointReconciler(fakeFactory, false, config)
 
 	ctx := context.TODO()
 	assert.NoError(t, r.Init(ctx))
@@ -74,8 +73,7 @@ func TestBasicReconcilerWithNoExistingEndpoint(t *testing.T) {
 		},
 	}
 
-	r := NewEndpointReconciler(&DummyLeaderElector{Leader: true}, fakeFactory)
-	r.clusterConfig = config
+	r := newAPIEndpointReconciler(fakeFactory, true, config)
 
 	ctx := context.TODO()
 	assert.NoError(t, r.Init(ctx))
@@ -111,8 +109,7 @@ func TestBasicReconcilerWithEmptyEndpointSubset(t *testing.T) {
 		},
 	}
 
-	r := NewEndpointReconciler(&DummyLeaderElector{Leader: true}, fakeFactory)
-	r.clusterConfig = config
+	r := newAPIEndpointReconciler(fakeFactory, true, config)
 
 	assert.NoError(t, r.Init(ctx))
 
@@ -154,8 +151,8 @@ func TestReconcilerWithNoNeedForUpdate(t *testing.T) {
 			},
 		},
 	}
-	r := NewEndpointReconciler(&DummyLeaderElector{Leader: true}, fakeFactory)
-	r.clusterConfig = config
+
+	r := newAPIEndpointReconciler(fakeFactory, true, config)
 
 	assert.NoError(t, r.Init(ctx))
 
@@ -198,8 +195,8 @@ func TestReconcilerWithNeedForUpdate(t *testing.T) {
 			},
 		},
 	}
-	r := NewEndpointReconciler(&DummyLeaderElector{Leader: true}, fakeFactory)
-	r.clusterConfig = config
+
+	r := newAPIEndpointReconciler(fakeFactory, true, config)
 
 	assert.NoError(t, r.Init(ctx))
 
@@ -215,4 +212,10 @@ func verifyEndpointAddresses(t *testing.T, expectedAddresses []string, fakeFacto
 	assert.Equal(t, expectedAddresses, endpointAddressesToStrings(ep.Subsets[0].Addresses))
 
 	return ep
+}
+
+func newAPIEndpointReconciler(fakeFactory testutil.FakeClientFactory, leader bool, config *v1beta1.ClusterConfig) *apiEndpointReconciler {
+	r := NewEndpointReconciler(&DummyLeaderElector{Leader: leader}, fakeFactory).(*apiEndpointReconciler)
+	r.clusterConfig = config
+	return r
 }
