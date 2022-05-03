@@ -27,23 +27,21 @@ import (
 	"github.com/k0sproject/k0s/pkg/constant"
 )
 
-// SystemRBAC implements system RBAC reconciler
-type SystemRBAC struct {
+// systemRBAC implements system RBAC reconciler
+type systemRBAC struct {
 	manifestDir string
 }
 
 // NewSystemRBAC creates new system level RBAC reconciler
 func NewSystemRBAC(manifestDir string) component.Component {
-	return &SystemRBAC{manifestDir}
+	return &systemRBAC{manifestDir}
 }
 
 // Init does nothing
-func (s *SystemRBAC) Init(_ context.Context) error {
-	return nil
-}
+func (s *systemRBAC) Init(context.Context) error { return nil }
 
 // Run reconciles the k0s related system RBAC rules
-func (s *SystemRBAC) Run(_ context.Context) error {
+func (s *systemRBAC) Run(context.Context) error {
 	rbacDir := path.Join(s.manifestDir, "bootstraprbac")
 	err := dir.Init(rbacDir, constant.ManifestsDirMode)
 	if err != nil {
@@ -62,10 +60,8 @@ func (s *SystemRBAC) Run(_ context.Context) error {
 	return nil
 }
 
-// Stop does currently nothing
-func (s *SystemRBAC) Stop() error {
-	return nil
-}
+func (s *systemRBAC) Healthy() error { return nil }
+func (s *systemRBAC) Stop() error    { return nil }
 
 const bootstrapRBACTemplate = `
 apiVersion: rbac.authorization.k8s.io/v1
@@ -107,6 +103,3 @@ subjects:
   kind: Group
   name: system:nodes
 `
-
-// Health-check interface
-func (s *SystemRBAC) Healthy() error { return nil }

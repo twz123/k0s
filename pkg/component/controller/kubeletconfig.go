@@ -40,12 +40,8 @@ import (
 	k8sutil "github.com/k0sproject/k0s/pkg/kubernetes"
 )
 
-// Dummy checks so we catch easily if we miss some interface implementation
-var _ component.ReconcilerComponent = &KubeletConfig{}
-var _ component.Component = &KubeletConfig{}
-
-// KubeletConfig is the reconciler for generic kubelet configs
-type KubeletConfig struct {
+// kubeletConfig is the reconciler for generic kubelet configs
+type kubeletConfig struct {
 	kubeClientFactory k8sutil.ClientFactoryInterface
 
 	log              *logrus.Entry
@@ -54,33 +50,22 @@ type KubeletConfig struct {
 }
 
 // NewKubeletConfig creates new KubeletConfig reconciler
-func NewKubeletConfig(k0sVars constant.CfgVars, clientFactory k8sutil.ClientFactoryInterface) (*KubeletConfig, error) {
+func NewKubeletConfig(k0sVars constant.CfgVars, clientFactory k8sutil.ClientFactoryInterface) component.ReconcilerComponent {
 	log := logrus.WithFields(logrus.Fields{"component": "kubeletconfig"})
-	return &KubeletConfig{
+	return &kubeletConfig{
 		kubeClientFactory: clientFactory,
 		log:               log,
 		k0sVars:           k0sVars,
-	}, nil
+	}
 }
 
-// Init does nothing
-func (k *KubeletConfig) Init(_ context.Context) error {
-	return nil
-}
-
-// Stop does nothign, nothing actually running
-func (k *KubeletConfig) Stop() error {
-	return nil
-}
-
-// Run dumps the needed manifest objects
-func (k *KubeletConfig) Run(_ context.Context) error {
-
-	return nil
-}
+func (k *kubeletConfig) Init(context.Context) error { return nil }
+func (k *kubeletConfig) Run(context.Context) error  { return nil }
+func (k *kubeletConfig) Healthy() error             { return nil }
+func (k *kubeletConfig) Stop() error                { return nil }
 
 // Reconcile detects changes in configuration and applies them to the component
-func (k *KubeletConfig) Reconcile(ctx context.Context, clusterSpec *v1beta1.ClusterConfig) error {
+func (k *kubeletConfig) Reconcile(ctx context.Context, clusterSpec *v1beta1.ClusterConfig) error {
 	k.log.Debug("reconcile method called for: KubeletConfig")
 	// Check if we actually need to reconcile anything
 	defaultProfilesExist, err := k.defaultProfilesExist(ctx)
@@ -105,7 +90,7 @@ func (k *KubeletConfig) Reconcile(ctx context.Context, clusterSpec *v1beta1.Clus
 	return nil
 }
 
-func (k *KubeletConfig) defaultProfilesExist(ctx context.Context) (bool, error) {
+func (k *kubeletConfig) defaultProfilesExist(ctx context.Context) (bool, error) {
 	c, err := k.kubeClientFactory.GetClient()
 	if err != nil {
 		return false, err
@@ -120,7 +105,7 @@ func (k *KubeletConfig) defaultProfilesExist(ctx context.Context) (bool, error) 
 	return true, nil
 }
 
-func (k *KubeletConfig) createProfiles(clusterSpec *v1beta1.ClusterConfig) (*bytes.Buffer, error) {
+func (k *kubeletConfig) createProfiles(clusterSpec *v1beta1.ClusterConfig) (*bytes.Buffer, error) {
 	dnsAddress, err := clusterSpec.Spec.Network.DNSAddress()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get DNS address for kubelet config: %v", err)
@@ -169,7 +154,7 @@ func (k *KubeletConfig) createProfiles(clusterSpec *v1beta1.ClusterConfig) (*byt
 	return manifest, nil
 }
 
-func (k *KubeletConfig) save(data []byte) error {
+func (k *kubeletConfig) save(data []byte) error {
 	kubeletDir := path.Join(k.k0sVars.ManifestsDir, "kubelet")
 	err := dir.Init(kubeletDir, constant.ManifestsDirMode)
 	if err != nil {
@@ -185,7 +170,7 @@ func (k *KubeletConfig) save(data []byte) error {
 
 type unstructuredYamlObject map[string]interface{}
 
-func (k *KubeletConfig) writeConfigMapWithProfile(w io.Writer, name string, profile unstructuredYamlObject) error {
+func (k *kubeletConfig) writeConfigMapWithProfile(w io.Writer, name string, profile unstructuredYamlObject) error {
 	profileYaml, err := yaml.Marshal(profile)
 	if err != nil {
 		return err
@@ -208,7 +193,7 @@ func formatProfileName(name string) string {
 	return fmt.Sprintf("kubelet-config-%s-%s", name, constant.KubernetesMajorMinorVersion)
 }
 
-func (k *KubeletConfig) writeRbacRoleBindings(w io.Writer, configMapNames []string) error {
+func (k *kubeletConfig) writeRbacRoleBindings(w io.Writer, configMapNames []string) error {
 	tw := templatewriter.TemplateWriter{
 		Name:     "kubelet-config-rbac",
 		Template: rbacRoleAndBindingsManifestTemplate,
@@ -330,6 +315,3 @@ func mergeProfiles(a *unstructuredYamlObject, b unstructuredYamlObject) (unstruc
 	}
 	return *a, nil
 }
-
-// Health-check interface
-func (k *KubeletConfig) Healthy() error { return nil }

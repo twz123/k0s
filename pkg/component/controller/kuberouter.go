@@ -28,8 +28,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// KubeRouter implements the kube-router reconciler component
-type KubeRouter struct {
+// kubeRouter implements the kube-router reconciler component
+type kubeRouter struct {
 	log *logrus.Entry
 
 	saver          manifestsSaver
@@ -37,8 +37,7 @@ type KubeRouter struct {
 	k0sVars        constant.CfgVars
 }
 
-var _ component.Component = &KubeRouter{}
-var _ component.ReconcilerComponent = &KubeRouter{}
+var _ component.ReconcilerComponent = (*kubeRouter)(nil)
 
 type kubeRouterConfig struct {
 	MTU               int
@@ -51,26 +50,22 @@ type kubeRouterConfig struct {
 }
 
 // NewKubeRouter creates new KubeRouter reconciler component
-func NewKubeRouter(k0sVars constant.CfgVars, manifestsSaver manifestsSaver) (*KubeRouter, error) {
+func NewKubeRouter(k0sVars constant.CfgVars, manifestsSaver manifestsSaver) component.ReconcilerComponent {
 	log := logrus.WithFields(logrus.Fields{"component": "kube-router"})
-	return &KubeRouter{
+	return &kubeRouter{
 		saver:   manifestsSaver,
 		log:     log,
 		k0sVars: k0sVars,
-	}, nil
+	}
 }
 
-// Init does nothing
-func (k *KubeRouter) Init(_ context.Context) error { return nil }
-
-// Healthy is a no-op check
-func (k *KubeRouter) Healthy() error { return nil }
-
-// Stop no-op as nothing running
-func (k *KubeRouter) Stop() error { return nil }
+func (k *kubeRouter) Init(context.Context) error { return nil }
+func (k *kubeRouter) Run(context.Context) error  { return nil }
+func (k *kubeRouter) Healthy() error             { return nil }
+func (k *kubeRouter) Stop() error                { return nil }
 
 // Reconcile detects changes in configuration and applies them to the component
-func (k *KubeRouter) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterConfig) error {
+func (k *kubeRouter) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterConfig) error {
 	logrus.Debug("reconcile method called for: KubeRouter")
 	if clusterConfig.Spec.Network.Provider != constant.CNIProviderKubeRouter {
 		return nil
@@ -112,13 +107,6 @@ func (k *KubeRouter) Reconcile(_ context.Context, clusterConfig *v1beta1.Cluster
 	if err != nil {
 		return errors.Wrap(err, "error writing kube-router manifests, will NOT retry")
 	}
-	return nil
-}
-
-// Run runs the kube-router reconciler
-func (k *KubeRouter) Run(_ context.Context) error {
-	k.log.Info("starting to dump manifests")
-
 	return nil
 }
 

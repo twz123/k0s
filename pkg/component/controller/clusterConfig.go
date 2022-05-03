@@ -46,8 +46,8 @@ var (
 	getOpts      = v1.GetOptions{TypeMeta: resourceType}
 )
 
-// ClusterConfigReconciler reconciles a ClusterConfig object
-type ClusterConfigReconciler struct {
+// clusterConfigReconciler reconciles a ClusterConfig object
+type clusterConfigReconciler struct {
 	YamlConfig        *v1beta1.ClusterConfig
 	ComponentManager  *component.Manager
 	KubeClientFactory kubeutil.ClientFactoryInterface
@@ -61,7 +61,7 @@ type ClusterConfigReconciler struct {
 }
 
 // NewClusterConfigReconciler creates a new clusterConfig reconciler
-func NewClusterConfigReconciler(leaderElector LeaderElector, k0sVars constant.CfgVars, mgr *component.Manager, s manifestsSaver, kubeClientFactory kubeutil.ClientFactoryInterface, configSource clusterconfig.ConfigSource) (*ClusterConfigReconciler, error) {
+func NewClusterConfigReconciler(leaderElector LeaderElector, k0sVars constant.CfgVars, mgr *component.Manager, s manifestsSaver, kubeClientFactory kubeutil.ClientFactoryInterface, configSource clusterconfig.ConfigSource) (component.Component, error) {
 	loadingRules := config.ClientConfigLoadingRules{K0sVars: k0sVars}
 	cfg, err := loadingRules.ParseRuntimeConfig()
 	if err != nil {
@@ -73,7 +73,7 @@ func NewClusterConfigReconciler(leaderElector LeaderElector, k0sVars constant.Cf
 		return nil, err
 	}
 
-	return &ClusterConfigReconciler{
+	return &clusterConfigReconciler{
 		ComponentManager:  mgr,
 		YamlConfig:        cfg,
 		KubeClientFactory: kubeClientFactory,
@@ -86,7 +86,7 @@ func NewClusterConfigReconciler(leaderElector LeaderElector, k0sVars constant.Cf
 	}, nil
 }
 
-func (r *ClusterConfigReconciler) Init(_ context.Context) error {
+func (r *clusterConfigReconciler) Init(_ context.Context) error {
 	// If we do not need to store the config in API we do not need the CRDs either
 	if !r.configSource.NeedToStoreInitialConfig() {
 		return nil
@@ -98,7 +98,7 @@ func (r *ClusterConfigReconciler) Init(_ context.Context) error {
 	return nil
 }
 
-func (r *ClusterConfigReconciler) Run(ctx context.Context) error {
+func (r *clusterConfigReconciler) Run(ctx context.Context) error {
 	if r.configSource.NeedToStoreInitialConfig() {
 		// We need to wait until we either succees getting the object or creating it
 		err := wait.Poll(1*time.Second, 20*time.Second, func() (done bool, err error) {
@@ -160,17 +160,15 @@ func (r *ClusterConfigReconciler) Run(ctx context.Context) error {
 }
 
 // Stop stops
-func (r *ClusterConfigReconciler) Stop() error {
+func (r *clusterConfigReconciler) Stop() error {
 	// Nothing really to stop, the main ConfigSource "watch" channel go-routine is stopped
 	// via the main Context's Done channel in the Run function
 	return nil
 }
 
-func (r *ClusterConfigReconciler) Healthy() error {
-	return nil
-}
+func (r *clusterConfigReconciler) Healthy() error { return nil }
 
-func (r *ClusterConfigReconciler) reportStatus(ctx context.Context, config *v1beta1.ClusterConfig, reconcileError error) {
+func (r *clusterConfigReconciler) reportStatus(ctx context.Context, config *v1beta1.ClusterConfig, reconcileError error) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		r.log.Error("failed to get hostname:", err)
@@ -215,7 +213,7 @@ func (r *ClusterConfigReconciler) reportStatus(ctx context.Context, config *v1be
 	}
 }
 
-func (r *ClusterConfigReconciler) copyRunningConfigToCR(baseCtx context.Context) (*v1beta1.ClusterConfig, error) {
+func (r *clusterConfigReconciler) copyRunningConfigToCR(baseCtx context.Context) (*v1beta1.ClusterConfig, error) {
 	ctx, cancel := context.WithTimeout(baseCtx, 5*time.Second)
 	defer cancel()
 	clusterWideConfig := r.YamlConfig.GetClusterWideConfig().StripDefaults().CRValidator()
@@ -232,7 +230,7 @@ func (r *ClusterConfigReconciler) copyRunningConfigToCR(baseCtx context.Context)
 	return clusterConfig, nil
 }
 
-func (r *ClusterConfigReconciler) writeCRD() error {
+func (r *clusterConfigReconciler) writeCRD() error {
 	crd, err := static.AssetDir("manifests/v1beta1/CustomResourceDefinition")
 	if err != nil {
 		r.log.Errorf("error retrieving api-config manifests: %s. will retry", err.Error())

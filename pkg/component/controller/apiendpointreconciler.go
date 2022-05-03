@@ -32,12 +32,8 @@ import (
 	k8sutil "github.com/k0sproject/k0s/pkg/kubernetes"
 )
 
-// Dummy checks so we catch easily if we miss some interface implementation
-var _ component.Component = &APIEndpointReconciler{}
-var _ component.ReconcilerComponent = &APIEndpointReconciler{}
-
-// APIEndpointReconciler is the component to reconcile in-cluster API address endpoint based from externalName
-type APIEndpointReconciler struct {
+// apiEndpointReconciler is the component to reconcile in-cluster API address endpoint based from externalName
+type apiEndpointReconciler struct {
 	clusterConfig *v1beta1.ClusterConfig
 
 	logger *logrus.Entry
@@ -48,8 +44,8 @@ type APIEndpointReconciler struct {
 }
 
 // NewEndpointReconciler creates new endpoint reconciler
-func NewEndpointReconciler(leaderElector LeaderElector, kubeClientFactory k8sutil.ClientFactoryInterface) *APIEndpointReconciler {
-	return &APIEndpointReconciler{
+func NewEndpointReconciler(leaderElector LeaderElector, kubeClientFactory k8sutil.ClientFactoryInterface) component.ReconcilerComponent {
+	return &apiEndpointReconciler{
 		leaderElector:     leaderElector,
 		stopCh:            make(chan struct{}),
 		kubeClientFactory: kubeClientFactory,
@@ -58,12 +54,12 @@ func NewEndpointReconciler(leaderElector LeaderElector, kubeClientFactory k8suti
 }
 
 // Init initializes the APIEndpointReconciler
-func (a *APIEndpointReconciler) Init(_ context.Context) error {
+func (a *apiEndpointReconciler) Init(_ context.Context) error {
 	return nil
 }
 
 // Run runs the main loop for reconciling the externalAddress
-func (a *APIEndpointReconciler) Run(ctx context.Context) error {
+func (a *apiEndpointReconciler) Run(ctx context.Context) error {
 
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
@@ -86,21 +82,21 @@ func (a *APIEndpointReconciler) Run(ctx context.Context) error {
 }
 
 // Stop stops the reconciler
-func (a *APIEndpointReconciler) Stop() error {
+func (a *apiEndpointReconciler) Stop() error {
 	close(a.stopCh)
 	return nil
 }
 
 // Reconcile detects changes in configuration and applies them to the component
-func (a *APIEndpointReconciler) Reconcile(ctx context.Context, cfg *v1beta1.ClusterConfig) error {
+func (a *apiEndpointReconciler) Reconcile(ctx context.Context, cfg *v1beta1.ClusterConfig) error {
 	a.clusterConfig = cfg
 	return a.reconcileEndpoints(ctx)
 }
 
 // Healthy dummy implementation
-func (a *APIEndpointReconciler) Healthy() error { return nil }
+func (a *apiEndpointReconciler) Healthy() error { return nil }
 
-func (a *APIEndpointReconciler) reconcileEndpoints(ctx context.Context) error {
+func (a *apiEndpointReconciler) reconcileEndpoints(ctx context.Context) error {
 	if a.clusterConfig == nil {
 		return nil
 	}
@@ -140,18 +136,14 @@ func (a *APIEndpointReconciler) reconcileEndpoints(ctx context.Context) error {
 	}
 
 	if len(ep.Subsets) == 0 || needsUpdate(ipStrings, ep) {
-		ep.Subsets = []corev1.EndpointSubset{
-			corev1.EndpointSubset{
-				Addresses: stringsToEndpointAddresses(ipStrings),
-				Ports: []corev1.EndpointPort{
-					corev1.EndpointPort{
-						Name:     "https",
-						Protocol: "TCP",
-						Port:     int32(a.clusterConfig.Spec.API.Port),
-					},
-				},
-			},
-		}
+		ep.Subsets = []corev1.EndpointSubset{{
+			Addresses: stringsToEndpointAddresses(ipStrings),
+			Ports: []corev1.EndpointPort{{
+				Name:     "https",
+				Protocol: "TCP",
+				Port:     int32(a.clusterConfig.Spec.API.Port),
+			}},
+		}}
 
 		_, err := epClient.Update(ctx, ep, v1.UpdateOptions{})
 		if err != nil {
@@ -162,7 +154,7 @@ func (a *APIEndpointReconciler) reconcileEndpoints(ctx context.Context) error {
 	return nil
 }
 
-func (a *APIEndpointReconciler) createEndpoint(ctx context.Context, addresses []string) error {
+func (a *apiEndpointReconciler) createEndpoint(ctx context.Context, addresses []string) error {
 	ep := &corev1.Endpoints{
 		TypeMeta: v1.TypeMeta{
 			Kind:       "Endpoints",
@@ -171,18 +163,14 @@ func (a *APIEndpointReconciler) createEndpoint(ctx context.Context, addresses []
 		ObjectMeta: v1.ObjectMeta{
 			Name: "kubernetes",
 		},
-		Subsets: []corev1.EndpointSubset{
-			corev1.EndpointSubset{
-				Addresses: stringsToEndpointAddresses(addresses),
-				Ports: []corev1.EndpointPort{
-					corev1.EndpointPort{
-						Name:     "https",
-						Protocol: "TCP",
-						Port:     int32(a.clusterConfig.Spec.API.Port),
-					},
-				},
-			},
-		},
+		Subsets: []corev1.EndpointSubset{{
+			Addresses: stringsToEndpointAddresses(addresses),
+			Ports: []corev1.EndpointPort{{
+				Name:     "https",
+				Protocol: "TCP",
+				Port:     int32(a.clusterConfig.Spec.API.Port),
+			}},
+		}},
 	}
 
 	c, err := a.kubeClientFactory.GetClient()

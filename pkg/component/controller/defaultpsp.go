@@ -30,32 +30,29 @@ import (
 	"github.com/k0sproject/k0s/pkg/constant"
 )
 
-// DefaultPSP implements system RBAC reconciler
+// defaultPSP implements system RBAC reconciler
 /* It always creates two sets of PSP rules:
 	- 00-k0s-privileged: allows "privileged" stuff (host namespaces, privileged etc.) to be running
 	- 99-k0s-restricted: more restricted rules, usually suitable for "normal" workloads
 Depending on user config, we select either of the above rule sets to be the default
 */
-type DefaultPSP struct {
+type defaultPSP struct {
 	k0sVars        constant.CfgVars
 	manifestDir    string
 	previousPolicy string
 }
 
-var _ component.Component = &DefaultPSP{}
-var _ component.ReconcilerComponent = &DefaultPSP{}
-
 // NewDefaultPSP creates new system level RBAC reconciler
-func NewDefaultPSP(k0sVars constant.CfgVars) (*DefaultPSP, error) {
+func NewDefaultPSP(k0sVars constant.CfgVars) component.ReconcilerComponent {
 	manifestDir := path.Join(k0sVars.ManifestsDir, "defaultpsp")
-	return &DefaultPSP{
+	return &defaultPSP{
 		k0sVars:     k0sVars,
 		manifestDir: manifestDir,
-	}, nil
+	}
 }
 
 // Init does currently nothing
-func (d *DefaultPSP) Init(_ context.Context) error {
+func (d *defaultPSP) Init(_ context.Context) error {
 	err := dir.Init(d.manifestDir, constant.ManifestsDirMode)
 	if err != nil {
 		return err
@@ -64,17 +61,17 @@ func (d *DefaultPSP) Init(_ context.Context) error {
 }
 
 // Run reconciles the k0s default PSP rules
-func (d *DefaultPSP) Run(_ context.Context) error {
+func (d *defaultPSP) Run(_ context.Context) error {
 	return nil
 }
 
 // Stop does currently nothing
-func (d *DefaultPSP) Stop() error {
+func (d *defaultPSP) Stop() error {
 	return nil
 }
 
 // Reconcile detects changes in configuration and applies them to the component
-func (d *DefaultPSP) Reconcile(_ctx context.Context, clusterConfig *v1beta1.ClusterConfig) error {
+func (d *defaultPSP) Reconcile(_ctx context.Context, clusterConfig *v1beta1.ClusterConfig) error {
 	log := logrus.WithField("component", "DefaultPSP")
 	log.Debug("reconcile method called for: DefaultPSP")
 	if d.previousPolicy == clusterConfig.Spec.PodSecurityPolicy.DefaultPolicy {
@@ -242,4 +239,4 @@ subjects:
 `
 
 // Health-check interface
-func (d *DefaultPSP) Healthy() error { return nil }
+func (d *defaultPSP) Healthy() error { return nil }

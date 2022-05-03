@@ -31,8 +31,8 @@ import (
 	"github.com/k0sproject/k0s/pkg/constant"
 )
 
-// KubeProxy is the component implementation to manage kube-proxy
-type KubeProxy struct {
+// kubeProxy is the component implementation to manage kube-proxy
+type kubeProxy struct {
 	log            *logrus.Entry
 	nodeConf       *v1beta1.ClusterConfig
 	K0sVars        constant.CfgVars
@@ -40,32 +40,26 @@ type KubeProxy struct {
 	manifestDir    string
 }
 
-var _ component.Component = &KubeProxy{}
-var _ component.ReconcilerComponent = &KubeProxy{}
-
 // NewKubeProxy creates new KubeProxy component
-func NewKubeProxy(configFile string, k0sVars constant.CfgVars, nodeConfig *v1beta1.ClusterConfig) (*KubeProxy, error) {
+func NewKubeProxy(configFile string, k0sVars constant.CfgVars, nodeConfig *v1beta1.ClusterConfig) component.ReconcilerComponent {
 	log := logrus.WithFields(logrus.Fields{"component": "kubeproxy"})
 	proxyDir := path.Join(k0sVars.ManifestsDir, "kubeproxy")
-	return &KubeProxy{
+	return &kubeProxy{
 		log:            log,
 		nodeConf:       nodeConfig,
 		K0sVars:        k0sVars,
 		previousConfig: proxyConfig{},
 		manifestDir:    proxyDir,
-	}, nil
+	}
 }
 
-// Init does nothing
-func (k *KubeProxy) Init(_ context.Context) error {
-	return nil
-}
-
-// Run runs the kube-proxy reconciler
-func (k *KubeProxy) Run(_ context.Context) error { return nil }
+func (k *kubeProxy) Init(context.Context) error { return nil }
+func (k *kubeProxy) Run(context.Context) error  { return nil }
+func (k *kubeProxy) Healthy() error             { return nil }
+func (k *kubeProxy) Stop() error                { return nil }
 
 // Reconcile detects changes in configuration and applies them to the component
-func (k *KubeProxy) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterConfig) error {
+func (k *kubeProxy) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterConfig) error {
 	if clusterConfig.Spec.Network.KubeProxy.Disabled {
 		return os.RemoveAll(k.manifestDir)
 	}
@@ -96,12 +90,7 @@ func (k *KubeProxy) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterC
 	return nil
 }
 
-// Stop stop the reconcilier
-func (k *KubeProxy) Stop() error {
-	return nil
-}
-
-func (k *KubeProxy) getConfig(clusterConfig *v1beta1.ClusterConfig) (proxyConfig, error) {
+func (k *kubeProxy) getConfig(clusterConfig *v1beta1.ClusterConfig) (proxyConfig, error) {
 	cfg := proxyConfig{
 		ClusterCIDR:          clusterConfig.Spec.Network.BuildPodCIDR(),
 		ControlPlaneEndpoint: clusterConfig.Spec.API.APIAddressURL(),
@@ -325,6 +314,3 @@ spec:
       nodeSelector:
         kubernetes.io/os: linux
 `
-
-// Health-check interface
-func (k *KubeProxy) Healthy() error { return nil }

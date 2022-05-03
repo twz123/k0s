@@ -246,11 +246,8 @@ spec:
 
 const HostsPerExtraReplica = 10.0
 
-var _ component.Component = &CoreDNS{}
-var _ component.ReconcilerComponent = &CoreDNS{}
-
-// CoreDNS is the component implementation to manage CoreDNS
-type CoreDNS struct {
+// coreDNS is the component implementation to manage CoreDNS
+type coreDNS struct {
 	client                 kubernetes.Interface
 	log                    *logrus.Entry
 	manifestDir            string
@@ -269,7 +266,7 @@ type coreDNSConfig struct {
 }
 
 // NewCoreDNS creates new instance of CoreDNS component
-func NewCoreDNS(k0sVars constant.CfgVars, clientFactory k8sutil.ClientFactoryInterface) (*CoreDNS, error) {
+func NewCoreDNS(k0sVars constant.CfgVars, clientFactory k8sutil.ClientFactoryInterface) (component.ReconcilerComponent, error) {
 	manifestDir := path.Join(k0sVars.ManifestsDir, "coredns")
 
 	client, err := clientFactory.GetClient()
@@ -277,7 +274,7 @@ func NewCoreDNS(k0sVars constant.CfgVars, clientFactory k8sutil.ClientFactoryInt
 		return nil, err
 	}
 	log := logrus.WithFields(logrus.Fields{"component": "coredns"})
-	return &CoreDNS{
+	return &coreDNS{
 		client:      client,
 		log:         log,
 		K0sVars:     k0sVars,
@@ -286,12 +283,12 @@ func NewCoreDNS(k0sVars constant.CfgVars, clientFactory k8sutil.ClientFactoryInt
 }
 
 // Init does nothing
-func (c *CoreDNS) Init(_ context.Context) error {
+func (c *coreDNS) Init(_ context.Context) error {
 	return dir.Init(c.manifestDir, constant.ManifestsDirMode)
 }
 
 // Run runs the CoreDNS reconciler component
-func (c *CoreDNS) Run(ctx context.Context) error {
+func (c *coreDNS) Run(ctx context.Context) error {
 	ctx, c.stopFunc = context.WithCancel(ctx)
 
 	go func() {
@@ -318,7 +315,7 @@ func (c *CoreDNS) Run(ctx context.Context) error {
 	return nil
 }
 
-func (c *CoreDNS) getConfig(ctx context.Context, clusterConfig *v1beta1.ClusterConfig) (coreDNSConfig, error) {
+func (c *coreDNS) getConfig(ctx context.Context, clusterConfig *v1beta1.ClusterConfig) (coreDNSConfig, error) {
 	dns, err := clusterConfig.Spec.Network.DNSAddress()
 	if err != nil {
 		return coreDNSConfig{}, err
@@ -354,7 +351,7 @@ func replicaCount(nodeCount int) int {
 }
 
 // Stop stops the CoreDNS reconciler
-func (c *CoreDNS) Stop() error {
+func (c *coreDNS) Stop() error {
 	if c.stopFunc != nil {
 		logrus.Debug("closing coreDNS component context")
 		c.stopFunc()
@@ -363,7 +360,7 @@ func (c *CoreDNS) Stop() error {
 }
 
 // Reconcile detects changes in configuration and applies them to the component
-func (c *CoreDNS) Reconcile(ctx context.Context, clusterConfig *v1beta1.ClusterConfig) error {
+func (c *coreDNS) Reconcile(ctx context.Context, clusterConfig *v1beta1.ClusterConfig) error {
 	logrus.Debug("reconcile method called for: CoreDNS")
 	cfg, err := c.getConfig(ctx, clusterConfig)
 	if err != nil {
@@ -389,4 +386,4 @@ func (c *CoreDNS) Reconcile(ctx context.Context, clusterConfig *v1beta1.ClusterC
 }
 
 // Health-check interface
-func (c *CoreDNS) Healthy() error { return nil }
+func (c *coreDNS) Healthy() error { return nil }

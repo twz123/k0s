@@ -34,8 +34,7 @@ var k0sVars = constant.GetConfig("")
 func Test_KubeletConfig(t *testing.T) {
 	dnsAddr, _ := cfg.Spec.Network.DNSAddress()
 	t.Run("default_profile_only", func(t *testing.T) {
-		k, err := NewKubeletConfig(k0sVars, testutil.NewFakeClientFactory())
-		require.NoError(t, err)
+		k := NewKubeletConfig(k0sVars, testutil.NewFakeClientFactory()).(*kubeletConfig)
 
 		t.Log("starting to run...")
 		buf, err := k.createProfiles(cfg)
@@ -68,7 +67,9 @@ func Test_KubeletConfig(t *testing.T) {
 		), profile["clusterDomain"])
 	})
 	t.Run("with_user_provided_profiles", func(t *testing.T) {
-		k := defaultConfigWithUserProvidedProfiles(t)
+		defaultConfigWithUserProvidedProfiles(t)
+		k := NewKubeletConfig(k0sVars, testutil.NewFakeClientFactory()).(*kubeletConfig)
+
 		buf, err := k.createProfiles(cfg)
 		require.NoError(t, err)
 		manifestYamls := strings.Split(strings.TrimSuffix(buf.String(), "---"), "---")[1:]
@@ -115,10 +116,7 @@ func Test_KubeletConfig(t *testing.T) {
 	})
 }
 
-func defaultConfigWithUserProvidedProfiles(t *testing.T) *KubeletConfig {
-	k, err := NewKubeletConfig(k0sVars, testutil.NewFakeClientFactory())
-	require.NoError(t, err)
-
+func defaultConfigWithUserProvidedProfiles(t *testing.T) {
 	cfgProfileX := map[string]interface{}{
 		"authentication": map[string]interface{}{
 			"anonymous": map[string]interface{}{
@@ -127,9 +125,8 @@ func defaultConfigWithUserProvidedProfiles(t *testing.T) *KubeletConfig {
 		},
 	}
 	wcx, err := json.Marshal(cfgProfileX)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+
 	cfg.Spec.WorkerProfiles = append(cfg.Spec.WorkerProfiles,
 		config.WorkerProfile{
 			Name:   "profile_XXX",
@@ -146,9 +143,7 @@ func defaultConfigWithUserProvidedProfiles(t *testing.T) *KubeletConfig {
 	}
 
 	wcy, err := json.Marshal(cfgProfileY)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	cfg.Spec.WorkerProfiles = append(cfg.Spec.WorkerProfiles,
 		config.WorkerProfile{
@@ -156,7 +151,6 @@ func defaultConfigWithUserProvidedProfiles(t *testing.T) *KubeletConfig {
 			Config: wcy,
 		},
 	)
-	return k
 }
 
 func requireConfigMap(t *testing.T, spec string, name string) {

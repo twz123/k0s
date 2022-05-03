@@ -50,7 +50,7 @@ type csrRecognizer struct {
 	successMessage string
 }
 
-type CSRApprover struct {
+type csrApprover struct {
 	L    *logrus.Entry
 	stop context.CancelFunc
 
@@ -64,7 +64,7 @@ type CSRApprover struct {
 func NewCSRApprover(c *v1beta1.ClusterConfig, leaderElector LeaderElector, kubeClientFactory k8sutil.ClientFactoryInterface) component.Component {
 	d := atomic.Value{}
 	d.Store(true)
-	return &CSRApprover{
+	return &csrApprover{
 		ClusterConfig:     c,
 		leaderElector:     leaderElector,
 		KubeClientFactory: kubeClientFactory,
@@ -72,16 +72,16 @@ func NewCSRApprover(c *v1beta1.ClusterConfig, leaderElector LeaderElector, kubeC
 	}
 }
 
-func (a *CSRApprover) Healthy() error { return nil }
+func (a *csrApprover) Healthy() error { return nil }
 
 // Stop stops the CSRApprover
-func (a *CSRApprover) Stop() error {
+func (a *csrApprover) Stop() error {
 	a.stop()
 	return nil
 }
 
 // Init initializes the component needs
-func (a *CSRApprover) Init(_ context.Context) error {
+func (a *csrApprover) Init(_ context.Context) error {
 	var err error
 	a.clientset, err = a.KubeClientFactory.GetClient()
 	if err != nil {
@@ -92,7 +92,7 @@ func (a *CSRApprover) Init(_ context.Context) error {
 }
 
 // Run every 10 seconds checks for newly issued CSRs and approves them
-func (a *CSRApprover) Run(ctx context.Context) error {
+func (a *csrApprover) Run(ctx context.Context) error {
 	ctx, a.stop = context.WithCancel(ctx)
 	go func() {
 		defer a.stop()
@@ -116,7 +116,7 @@ func (a *CSRApprover) Run(ctx context.Context) error {
 }
 
 // Majority of this code has been adapted from https://github.com/kontena/kubelet-rubber-stamp
-func (a *CSRApprover) approveCSR(ctx context.Context) error {
+func (a *csrApprover) approveCSR(ctx context.Context) error {
 	if !a.leaderElector.IsLeader() {
 		a.L.Debug("not the leader, can't approve certificates")
 		return nil
@@ -173,7 +173,7 @@ func (a *CSRApprover) approveCSR(ctx context.Context) error {
 	return nil
 }
 
-func (a *CSRApprover) authorize(ctx context.Context, csr *v1.CertificateSigningRequest, rattrs authorization.ResourceAttributes) (bool, error) {
+func (a *csrApprover) authorize(ctx context.Context, csr *v1.CertificateSigningRequest, rattrs authorization.ResourceAttributes) (bool, error) {
 	extra := make(map[string]authorization.ExtraValue)
 	for k, v := range csr.Spec.Extra {
 		extra[k] = authorization.ExtraValue(v)
@@ -197,7 +197,7 @@ func (a *CSRApprover) authorize(ctx context.Context, csr *v1.CertificateSigningR
 	return sar.Status.Allowed, nil
 }
 
-func (a *CSRApprover) recognizers() []csrRecognizer {
+func (a *csrApprover) recognizers() []csrRecognizer {
 	recognizers := []csrRecognizer{
 		{
 			recognize:      a.isNodeServingCert,
@@ -208,7 +208,7 @@ func (a *CSRApprover) recognizers() []csrRecognizer {
 	return recognizers
 }
 
-func (a *CSRApprover) isNodeServingCert(csr *v1.CertificateSigningRequest, x509cr *x509.CertificateRequest) bool {
+func (a *csrApprover) isNodeServingCert(csr *v1.CertificateSigningRequest, x509cr *x509.CertificateRequest) bool {
 	if !reflect.DeepEqual([]string{"system:nodes"}, x509cr.Subject.Organization) {
 		a.L.Warningf("Org does not match: %s", x509cr.Subject.Organization)
 		return false

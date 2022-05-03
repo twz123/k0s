@@ -42,8 +42,7 @@ func TestCalicoManifests(t *testing.T) {
 	t.Run("must_write_crd_during_bootstrap", func(t *testing.T) {
 		saver := inMemorySaver{}
 		crdSaver := inMemorySaver{}
-		calico, err := NewCalico(k0sVars, crdSaver, saver)
-		require.NoError(t, err)
+		calico := NewCalico(k0sVars, crdSaver, saver)
 		require.NoError(t, calico.Run(context.Background()))
 		require.NoError(t, calico.Stop())
 
@@ -56,8 +55,7 @@ func TestCalicoManifests(t *testing.T) {
 	t.Run("must_write_only_non_crd_on_change", func(t *testing.T) {
 		saver := inMemorySaver{}
 		crdSaver := inMemorySaver{}
-		calico, err := NewCalico(k0sVars, crdSaver, saver)
-		require.NoError(t, err)
+		calico := NewCalico(k0sVars, crdSaver, saver).(*calico)
 
 		_ = calico.processConfigChanges(calicoConfig{})
 
@@ -71,8 +69,7 @@ func TestCalicoManifests(t *testing.T) {
 		clusterConfig.Spec.Network.Calico.EnableWireguard = true
 		saver := inMemorySaver{}
 		crdSaver := inMemorySaver{}
-		calico, err := NewCalico(k0sVars, crdSaver, saver)
-		require.NoError(t, err)
+		calico := NewCalico(k0sVars, crdSaver, saver).(*calico)
 		cfg, err := calico.getConfig(clusterConfig)
 		require.NoError(t, err)
 		_ = calico.processConfigChanges(cfg)
@@ -88,8 +85,7 @@ func TestCalicoManifests(t *testing.T) {
 		clusterConfig.Spec.Network.Calico.EnableWireguard = false
 		saver := inMemorySaver{}
 		crdSaver := inMemorySaver{}
-		calico, err := NewCalico(k0sVars, crdSaver, saver)
-		require.NoError(t, err)
+		calico := NewCalico(k0sVars, crdSaver, saver).(*calico)
 
 		cfg, err := calico.getConfig(clusterConfig)
 		require.NoError(t, err)
@@ -107,8 +103,7 @@ func TestCalicoManifests(t *testing.T) {
 			clusterConfig.Spec.Network.Calico.IPAutodetectionMethod = "somemethod"
 			saver := inMemorySaver{}
 			crdSaver := inMemorySaver{}
-			calico, err := NewCalico(k0sVars, crdSaver, saver)
-			require.NoError(t, err)
+			calico := NewCalico(k0sVars, crdSaver, saver).(*calico)
 			templateContext, err := calico.getConfig(clusterConfig)
 			require.NoError(t, err)
 			require.Equal(t, clusterConfig.Spec.Network.Calico.IPAutodetectionMethod, templateContext.IPAutodetectionMethod)
@@ -129,8 +124,7 @@ func TestCalicoManifests(t *testing.T) {
 			clusterConfig.Spec.Network.Calico.IPv6AutodetectionMethod = "anothermethod"
 			saver := inMemorySaver{}
 			crdSaver := inMemorySaver{}
-			calico, err := NewCalico(k0sVars, crdSaver, saver)
-			require.NoError(t, err)
+			calico := NewCalico(k0sVars, crdSaver, saver).(*calico)
 			templateContext, err := calico.getConfig(clusterConfig)
 			require.NoError(t, err)
 			require.Equal(t, clusterConfig.Spec.Network.Calico.IPAutodetectionMethod, templateContext.IPAutodetectionMethod)

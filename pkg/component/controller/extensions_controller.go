@@ -44,7 +44,7 @@ import (
 )
 
 // Helm watch for Chart crd
-type ExtensionsController struct {
+type extensionsController struct {
 	saver         manifestsSaver
 	L             *logrus.Entry
 	helm          *helm.Commands
@@ -52,12 +52,9 @@ type ExtensionsController struct {
 	leaderElector LeaderElector
 }
 
-var _ component.Component = &ExtensionsController{}
-var _ component.ReconcilerComponent = &ExtensionsController{}
-
 // NewExtensionsController builds new HelmAddons
-func NewExtensionsController(s manifestsSaver, k0sVars constant.CfgVars, kubeClientFactory kubeutil.ClientFactoryInterface, leaderElector LeaderElector) *ExtensionsController {
-	return &ExtensionsController{
+func NewExtensionsController(s manifestsSaver, k0sVars constant.CfgVars, kubeClientFactory kubeutil.ClientFactoryInterface, leaderElector LeaderElector) component.ReconcilerComponent {
+	return &extensionsController{
 		saver:         s,
 		L:             logrus.WithFields(logrus.Fields{"component": "extensions_controller"}),
 		helm:          helm.NewCommands(k0sVars),
@@ -71,7 +68,7 @@ const (
 )
 
 // Run runs the extensions controller
-func (ec *ExtensionsController) Reconcile(ctx context.Context, clusterConfig *k0sAPI.ClusterConfig) error {
+func (ec *extensionsController) Reconcile(ctx context.Context, clusterConfig *k0sAPI.ClusterConfig) error {
 	ec.L.Info("Extensions reconcilation started")
 	defer ec.L.Info("Extensions reconcilation finished")
 
@@ -113,7 +110,7 @@ func addOpenEBSHelmExtension(helmSpec *k0sAPI.HelmExtensions) *k0sAPI.HelmExtens
 // reconcileHelmExtensions creates instance of Chart CR for each chart of the config file
 // it also reconciles repositories settings
 // the actual helm install/update/delete management is done by ChartReconciler structure
-func (ec *ExtensionsController) reconcileHelmExtensions(helmSpec *k0sAPI.HelmExtensions) error {
+func (ec *extensionsController) reconcileHelmExtensions(helmSpec *k0sAPI.HelmExtensions) error {
 	if helmSpec == nil {
 		return nil
 	}
@@ -266,7 +263,7 @@ func (cr *ChartReconciler) updateStatus(ctx context.Context, chart v1beta1.Chart
 	}
 }
 
-func (ec *ExtensionsController) addRepo(repo k0sAPI.Repository) error {
+func (ec *extensionsController) addRepo(repo k0sAPI.Repository) error {
 	return ec.helm.AddRepository(repo)
 }
 
@@ -290,13 +287,11 @@ spec:
 
 const finalizerName = "helm.k0sproject.io/uninstall-helm-release"
 
-// Init
-func (ec *ExtensionsController) Init(_ context.Context) error {
+func (ec *extensionsController) Init(_ context.Context) error {
 	return nil
 }
 
-// Run
-func (ec *ExtensionsController) Run(ctx context.Context) error {
+func (ec *extensionsController) Run(ctx context.Context) error {
 	config, err := clientcmd.BuildConfigFromFlags("", ec.kubeConfig)
 	if err != nil {
 		return fmt.Errorf("can't build controller-runtime controller for helm extensions: %w", err)
@@ -357,12 +352,5 @@ func (ec *ExtensionsController) Run(ctx context.Context) error {
 	return nil
 }
 
-// Stop
-func (ec *ExtensionsController) Stop() error {
-	return nil
-}
-
-// Healthy
-func (ec *ExtensionsController) Healthy() error {
-	return nil
-}
+func (ec *extensionsController) Healthy() error { return nil }
+func (ec *extensionsController) Stop() error    { return nil }

@@ -39,8 +39,8 @@ const (
 	pushGatewayName = "k0s-pushgateway"
 )
 
-// Metrics is the reconciler implementation for metrics server
-type Metrics struct {
+// metrics is the reconciler implementation for metrics server
+type metrics struct {
 	hostname      string
 	log           *logrus.Entry
 	clusterConfig *v1beta1.ClusterConfig
@@ -51,11 +51,8 @@ type Metrics struct {
 	restClient    rest.Interface
 }
 
-var _ component.Component = &Metrics{}
-var _ component.ReconcilerComponent = &Metrics{}
-
 // NewMetrics creates new Metrics reconciler
-func NewMetrics(k0sVars constant.CfgVars, saver manifestsSaver, clientCF kubernetes.ClientFactoryInterface) (*Metrics, error) {
+func NewMetrics(k0sVars constant.CfgVars, saver manifestsSaver, clientCF kubernetes.ClientFactoryInterface) (component.ReconcilerComponent, error) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		return nil, err
@@ -67,7 +64,7 @@ func NewMetrics(k0sVars constant.CfgVars, saver manifestsSaver, clientCF kuberne
 		return nil, fmt.Errorf("error getting REST client for metrics: %w", err)
 	}
 
-	return &Metrics{
+	return &metrics{
 		hostname:   hostname,
 		log:        log,
 		K0sVars:    k0sVars,
@@ -77,7 +74,7 @@ func NewMetrics(k0sVars constant.CfgVars, saver manifestsSaver, clientCF kuberne
 }
 
 // Init does nothing
-func (m *Metrics) Init(_ context.Context) error {
+func (m *metrics) Init(_ context.Context) error {
 	var j *job
 	j, err := m.newJob("kube-scheduler", "https://localhost:10259/metrics")
 	if err != nil {
@@ -95,7 +92,7 @@ func (m *Metrics) Init(_ context.Context) error {
 }
 
 // Run runs the metric server reconciler
-func (m *Metrics) Run(ctx context.Context) error {
+func (m *metrics) Run(ctx context.Context) error {
 	ctx, m.tickerDone = context.WithCancel(ctx)
 
 	for _, j := range m.jobs {
@@ -106,7 +103,7 @@ func (m *Metrics) Run(ctx context.Context) error {
 }
 
 // Stop stops the reconciler
-func (m *Metrics) Stop() error {
+func (m *metrics) Stop() error {
 	if m.tickerDone != nil {
 		m.tickerDone()
 	}
@@ -114,7 +111,7 @@ func (m *Metrics) Stop() error {
 }
 
 // Reconcile detects changes in configuration and applies them to the component
-func (m *Metrics) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterConfig) error {
+func (m *metrics) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterConfig) error {
 	m.log.Debug("reconcile method called for: Metrics")
 
 	if m.clusterConfig == nil || clusterConfig.Spec.Images.PushGateway.URI() != m.clusterConfig.Spec.Images.PushGateway.URI() {
@@ -147,7 +144,7 @@ func (m *Metrics) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterCon
 }
 
 // Healthy is the health-check interface
-func (m *Metrics) Healthy() error { return nil }
+func (m *metrics) Healthy() error { return nil }
 
 type job struct {
 	scrapeURL     string
@@ -159,7 +156,7 @@ type job struct {
 	restClient    rest.Interface
 }
 
-func (m *Metrics) newJob(name, scrapeURL string) (*job, error) {
+func (m *metrics) newJob(name, scrapeURL string) (*job, error) {
 	certFile := path.Join(m.K0sVars.CertRootDir, "admin.crt")
 	keyFile := path.Join(m.K0sVars.CertRootDir, "admin.key")
 
