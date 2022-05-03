@@ -206,7 +206,10 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 		})
 	}
 
-	var leaderElector controller.LeaderElector
+	var leaderElector interface {
+		controller.LeaderElector
+		component.Component
+	}
 
 	// One leader elector per controller
 	if !c.SingleNode {
@@ -551,13 +554,7 @@ func (c *CmdOpts) createClusterReconcilers(ctx context.Context, cf kubernetes.Cl
 	}
 
 	if !stringslice.Contains(c.DisableComponents, constant.SystemRbacComponentName) {
-
-		systemRBAC, err := controller.NewSystemRBAC(c.K0sVars.ManifestsDir)
-		if err != nil {
-			logrus.Warnf("failed to initialize system RBAC reconciler: %s", err.Error())
-			return err
-		}
-		reconcilers["systemRBAC"] = systemRBAC
+		reconcilers["systemRBAC"] = controller.NewSystemRBAC(c.K0sVars.ManifestsDir)
 	}
 
 	if !stringslice.Contains(c.DisableComponents, constant.NodeRoleComponentName) {
