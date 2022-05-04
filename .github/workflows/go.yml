@@ -129,6 +129,10 @@ jobs:
         run: |
           make EMBEDDED_BINS_BUILDMODE=none check-unit
 
+      - name: Check go.mod/go.sum consistency
+        run: |
+          go mod tidy && git diff --exit-code
+
       - name: Validate OCI images manifests
         run: make check-image-validity
   
