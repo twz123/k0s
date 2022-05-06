@@ -293,9 +293,6 @@ require (
 
 // backported from k8s upstream, as a project which uses etcd, containerd and grpc at the same time, they have already selected versions which don't provide any interface compile time errors
 replace (
-	github.com/containerd/continuity => github.com/containerd/continuity v0.1.0
-	github.com/containerd/ttrpc => github.com/containerd/ttrpc v1.0.2
-	github.com/containerd/typeurl => github.com/containerd/typeurl v1.0.1
 	github.com/docker/distribution => github.com/docker/distribution v2.8.1+incompatible
 	github.com/docker/docker => github.com/docker/docker v20.10.12+incompatible
 	github.com/opencontainers/go-digest => github.com/opencontainers/go-digest v1.0.0
