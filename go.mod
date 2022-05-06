@@ -69,7 +69,6 @@ require (
 	github.com/benbjohnson/clock v1.1.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bgentry/speakeasy v0.1.0 // indirect
-	github.com/bits-and-blooms/bitset v1.2.0 // indirect
 	github.com/blang/semver v3.5.1+incompatible // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/census-instrumentation/opencensus-proto v0.3.0 // indirect
@@ -293,14 +292,17 @@ require (
 
 // backported from k8s upstream, as a project which uses etcd, containerd and grpc at the same time, they have already selected versions which don't provide any interface compile time errors
 replace (
+	// https://github.com/kubernetes/kubernetes/blob/v1.24.0/go.mod#L220-L221
 	github.com/docker/distribution => github.com/docker/distribution v2.8.1+incompatible
 	github.com/docker/docker => github.com/docker/docker v20.10.12+incompatible
-	github.com/opencontainers/go-digest => github.com/opencontainers/go-digest v1.0.0
-	github.com/opencontainers/image-spec => github.com/opencontainers/image-spec v1.0.2-0.20211117181255-693428a734f5
-	github.com/opencontainers/runc => github.com/opencontainers/runc v1.1.1
-	github.com/opencontainers/runtime-spec => github.com/opencontainers/runtime-spec v1.0.3-0.20210326190908-1c3f411f0417
-	github.com/opencontainers/selinux => github.com/opencontainers/selinux v1.8.2
-	github.com/weaveworks/footloose => github.com/ncopa/footloose v0.0.0-20220210144732-fe970537b890
+
+	// github.com/opencontainers/go-digest => github.com/opencontainers/go-digest v1.0.0
+	// github.com/opencontainers/image-spec => github.com/opencontainers/image-spec v1.0.2-0.20211117181255-693428a734f5
+	// github.com/opencontainers/runc => github.com/opencontainers/runc v1.1.1
+	// github.com/opencontainers/runtime-spec => github.com/opencontainers/runtime-spec v1.0.3-0.20210326190908-1c3f411f0417
+	// github.com/opencontainers/selinux => github.com/opencontainers/selinux v1.8.2
+
+	// https://github.com/kubernetes/kubernetes/blob/v1.24.0/go.mod#L394-L405
 	go.opentelemetry.io/contrib => go.opentelemetry.io/contrib v0.20.0
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc => go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.20.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp => go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.20.0
@@ -320,3 +322,6 @@ replace (
 	// TODO: replace with a k0s helm fork
 	helm.sh/helm/v3 => github.com/s0j/helm/v3 v3.8.3-beta.0
 )
+
+// https://github.com/weaveworks/footloose/pull/272
+replace github.com/weaveworks/footloose => github.com/ncopa/footloose v0.0.0-20220210144732-fe970537b890
