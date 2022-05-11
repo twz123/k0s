@@ -69,17 +69,173 @@ type Component interface {
 //                                           ╰――――(Stop)――╯
 type ReconcilerComponent interface {
 	Component
+	Reconcilable
+}
 
+type Reconcilable interface {
 	// Reconcile aligns the actual state of this component with the desired cluster
 	// configuration. Reconcile may only be called after Init and before Stop.
 	Reconcile(context.Context, *v1beta1.ClusterConfig) error
+}
+
+type Stoppable interface {
+	Stop() error
+}
+
+type Created[S Started, I Initialized[S]] interface {
+	Stoppable
+	Initialize(context.Context) (I, error)
+}
+
+type Initialized[S Started] interface {
+	Stoppable
+	Start(context.Context) (S, error)
+}
+
+type ReconcilableInitialized[S ReconcilableStarted] interface {
+	Initialized[S]
+	Reconcilable
+}
+
+type Started interface {
+	Stoppable
+	Healthy() error
+}
+
+type ReconcilableStarted interface {
+	Started
+	Reconcilable
 }
 
 var ErrNotYetInitialized = errors.New("not yet initialized")
 var ErrAlreadyInitialized = errors.New("already initialized")
 var ErrNotYetRunning = errors.New("not yet running")
 var ErrAlreadyRunning = errors.New("already running")
+var ErrNotYetStarted = errors.New("not yet started")
+var ErrAlreadyStarted = errors.New("already started")
 var ErrAlreadyStopped = errors.New("already stopped")
+
+func IntoComponent[C Created[S, I], I Initialized[S], S Started](created C) Component {
+	return &legacyComponent[C, I, S]{inner: created}
+}
+
+func IntoReconcilerComponent[C Created[S, I], I ReconcilableInitialized[S], S ReconcilableStarted](created C) ReconcilerComponent {
+	return &recoLegacyComponent[C, I, S]{
+		legacyComponent[C, I, S]{inner: created},
+	}
+}
+
+type legacyComponent[C Created[S, I], I Initialized[S], S Started] struct {
+	mu    sync.Mutex
+	inner any
+}
+
+type recoLegacyComponent[
+	C Created[S, I],
+	I ReconcilableInitialized[S],
+	S ReconcilableStarted,
+] struct {
+	legacyComponent[C, I, S]
+}
+
+func (c *legacyComponent[C, I, S]) Init(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	switch inner := c.inner.(type) {
+	case C:
+		initialized, err := inner.Initialize(ctx)
+		if err != nil {
+			return err
+		}
+
+		c.inner = initialized
+		return nil
+
+	case I:
+		return ErrAlreadyInitialized
+
+	case S:
+		return ErrAlreadyStarted
+
+	default:
+		return ErrAlreadyStopped
+	}
+}
+
+func (c *legacyComponent[C, I, S]) Run(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	switch inner := c.inner.(type) {
+	case C:
+		return ErrNotYetInitialized
+
+	case I:
+		started, err := inner.Start(ctx)
+		if err != nil {
+			return err
+		}
+
+		c.inner = started
+		return nil
+
+	case S:
+		return ErrAlreadyStarted
+
+	default:
+		return ErrAlreadyStopped
+	}
+}
+
+func (c *legacyComponent[C, I, S]) Healthy() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	switch inner := c.inner.(type) {
+	case C, I:
+		return ErrNotYetStarted
+
+	case S:
+		return inner.Healthy()
+
+	default:
+		return ErrAlreadyStopped
+	}
+}
+
+func (c *legacyComponent[C, I, S]) Stop() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if inner, ok := c.inner.(Stoppable); ok {
+		if err := inner.Stop(); err != nil {
+			return err
+		}
+	}
+
+	c.inner = nil
+	return nil
+}
+
+func (c *recoLegacyComponent[C, I, S]) Reconcile(ctx context.Context, cfg *v1beta1.ClusterConfig) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	switch inner := c.inner.(type) {
+	case C:
+		return ErrNotYetInitialized
+
+	case I:
+		return inner.Reconcile(ctx, cfg)
+
+	case S:
+		return inner.Reconcile(ctx, cfg)
+
+	default:
+		return ErrAlreadyStopped
+	}
+}
 
 type ComponentSkeleton[C, I, R any] struct {
 	Initialize        func(context.Context, C, *v1beta1.ClusterSpec) (I, error)
