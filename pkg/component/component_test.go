@@ -25,14 +25,14 @@ import (
 
 type x struct{ initCalled, startCalled, healthyCalled, stopCalled int }
 
-func (x *x) Initialize(context.Context) (*x, error) { x.initCalled++; return x, nil }
-func (x *x) Start(context.Context) (*x, error)      { x.startCalled++; return x, nil }
-func (x *x) Healthy() (err error)                   { x.healthyCalled++; return }
-func (x *x) Stop() (err error)                      { x.stopCalled++; return }
+func (x *x) Initialize(context.Context) (Initialized[Started], error) { x.initCalled++; return x, nil }
+func (x *x) Start(context.Context) (Started, error)                   { x.startCalled++; return x, nil }
+func (x *x) Healthy() (err error)                                     { x.healthyCalled++; return }
+func (x *x) Stop() (err error)                                        { x.stopCalled++; return }
 
 func TestXxx(t *testing.T) {
 	inner := x{}
-	underTest := IntoComponent[*x, *x, *x](&inner)
+	underTest := IntoComponent(&inner)
 
 	assert := assert.New(t)
 

@@ -82,18 +82,20 @@ type Stoppable interface {
 	Stop() error
 }
 
-type Created[S Started, I Initialized[S]] interface {
+type Created[I Initialized[S], S Started] interface {
 	Stoppable
 	Initialize(context.Context) (I, error)
 }
+
+type ReconcilableCreated = Created[ReconcilableInitialized, ReconcilableStarted]
 
 type Initialized[S Started] interface {
 	Stoppable
 	Start(context.Context) (S, error)
 }
 
-type ReconcilableInitialized[S ReconcilableStarted] interface {
-	Initialized[S]
+type ReconcilableInitialized interface {
+	Initialized[ReconcilableStarted]
 	Reconcilable
 }
 
@@ -115,27 +117,23 @@ var ErrNotYetStarted = errors.New("not yet started")
 var ErrAlreadyStarted = errors.New("already started")
 var ErrAlreadyStopped = errors.New("already stopped")
 
-func IntoComponent[C Created[S, I], I Initialized[S], S Started](created C) Component {
-	return &legacyComponent[C, I, S]{inner: created}
+func IntoComponent(created Created[Initialized[Started], Started]) Component {
+	return &legacyComponent[Created[Initialized[Started], Started], Initialized[Started], Started]{inner: created}
 }
 
-func IntoReconcilerComponent[C Created[S, I], I ReconcilableInitialized[S], S ReconcilableStarted](created C) ReconcilerComponent {
-	return &recoLegacyComponent[C, I, S]{
-		legacyComponent[C, I, S]{inner: created},
+func IntoReconcilerComponent(created ReconcilableCreated) ReconcilerComponent {
+	return &recoLegacyComponent{
+		legacyComponent[ReconcilableCreated, ReconcilableInitialized, ReconcilableStarted]{inner: created},
 	}
 }
 
-type legacyComponent[C Created[S, I], I Initialized[S], S Started] struct {
+type legacyComponent[C Created[I, S], I Initialized[S], S Started] struct {
 	mu    sync.Mutex
 	inner any
 }
 
-type recoLegacyComponent[
-	C Created[S, I],
-	I ReconcilableInitialized[S],
-	S ReconcilableStarted,
-] struct {
-	legacyComponent[C, I, S]
+type recoLegacyComponent struct {
+	legacyComponent[ReconcilableCreated, ReconcilableInitialized, ReconcilableStarted]
 }
 
 func (c *legacyComponent[C, I, S]) Init(ctx context.Context) error {
@@ -218,18 +216,18 @@ func (c *legacyComponent[C, I, S]) Stop() error {
 	return nil
 }
 
-func (c *recoLegacyComponent[C, I, S]) Reconcile(ctx context.Context, cfg *v1beta1.ClusterConfig) error {
+func (c *recoLegacyComponent) Reconcile(ctx context.Context, cfg *v1beta1.ClusterConfig) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	switch inner := c.inner.(type) {
-	case C:
+	case ReconcilableCreated:
 		return ErrNotYetInitialized
 
-	case I:
+	case ReconcilableInitialized:
 		return inner.Reconcile(ctx, cfg)
 
-	case S:
+	case ReconcilableStarted:
 		return inner.Reconcile(ctx, cfg)
 
 	default:
