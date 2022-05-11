@@ -20,18 +20,19 @@ import (
 	"context"
 	"testing"
 
+	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/stretchr/testify/assert"
 )
 
-type x struct{ initCalled, startCalled, healthyCalled, stopCalled int }
+type ic struct{ initCalled, startCalled, healthyCalled, stopCalled int }
 
-func (x *x) Initialize(context.Context) (Initialized[Started], error) { x.initCalled++; return x, nil }
-func (x *x) Start(context.Context) (Started, error)                   { x.startCalled++; return x, nil }
-func (x *x) Healthy() (err error)                                     { x.healthyCalled++; return }
-func (x *x) Stop() (err error)                                        { x.stopCalled++; return }
+func (x *ic) Initialize(context.Context) (Initialized[Started], error) { x.initCalled++; return x, nil }
+func (x *ic) Start(context.Context) (Started, error)                   { x.startCalled++; return x, nil }
+func (x *ic) Healthy() (err error)                                     { x.healthyCalled++; return }
+func (x *ic) Stop() (err error)                                        { x.stopCalled++; return }
 
-func TestXxx(t *testing.T) {
-	inner := x{}
+func TestIntoComponent(t *testing.T) {
+	inner := ic{}
 	underTest := IntoComponent(&inner)
 
 	assert := assert.New(t)
@@ -113,4 +114,113 @@ func TestXxx(t *testing.T) {
 	assert.Equal(1, inner.startCalled)
 	assert.Equal(1, inner.healthyCalled)
 	assert.Equal(1, inner.stopCalled)
+}
+
+func TestSkel(t *testing.T) {
+	assert := assert.New(t)
+
+	type state struct{ called, healthyCalled, stopCalled int }
+	createdState := state{}
+	initState := state{}
+	runState := state{}
+
+	skel := ComponentSkeleton[*state, *state, *state]{
+		Initialize: func(ctx context.Context, s *state, cc *v1beta1.ClusterConfig) (*state, error) {
+			assert.Same(&createdState, s)
+			initState.called++
+			return &initState, nil
+		},
+		Run: func(ctx context.Context, s *state, cc *v1beta1.ClusterConfig) (*state, error) {
+			assert.Same(&initState, s)
+			runState.called++
+			return &runState, nil
+		},
+		Healthy: func(s *state) error {
+			assert.Same(&runState, s)
+			s.healthyCalled++
+			return nil
+		},
+		StopAfterCreation: func(s *state) error {
+			assert.Same(&createdState, s)
+			s.stopCalled++
+			return nil
+		},
+		StopAfterInit: func(s *state) error {
+			assert.Same(&initState, s)
+			s.stopCalled++
+			return nil
+		},
+		StopWhenRunning: func(s *state) error {
+			assert.Same(&runState, s)
+			s.stopCalled++
+			return nil
+		},
+	}
+
+	underTest := skel.Create(&createdState)
+
+	assert.Same(ErrNotYetInitialized, underTest.Run(context.TODO()))
+	assert.Equal(state{0, 0, 0}, createdState)
+	assert.Equal(state{0, 0, 0}, initState)
+	assert.Equal(state{0, 0, 0}, runState)
+
+	assert.Same(ErrNotYetRunning, underTest.Healthy())
+	assert.Equal(state{0, 0, 0}, createdState)
+	assert.Equal(state{0, 0, 0}, initState)
+	assert.Equal(state{0, 0, 0}, runState)
+
+	assert.NoError(underTest.Init(context.TODO()))
+	assert.Equal(state{0, 0, 0}, createdState)
+	assert.Equal(state{1, 0, 0}, initState)
+	assert.Equal(state{0, 0, 0}, runState)
+
+	assert.Same(ErrAlreadyInitialized, underTest.Init(context.TODO()))
+	assert.Equal(state{0, 0, 0}, createdState)
+	assert.Equal(state{1, 0, 0}, initState)
+	assert.Equal(state{0, 0, 0}, runState)
+
+	assert.Same(ErrNotYetRunning, underTest.Healthy())
+	assert.Equal(state{0, 0, 0}, createdState)
+	assert.Equal(state{1, 0, 0}, initState)
+	assert.Equal(state{0, 0, 0}, runState)
+
+	assert.NoError(underTest.Run(context.TODO()))
+	assert.Equal(state{0, 0, 0}, createdState)
+	assert.Equal(state{1, 0, 0}, initState)
+	assert.Equal(state{1, 0, 0}, runState)
+
+	assert.Same(ErrAlreadyRunning, underTest.Init(context.TODO()))
+	assert.Equal(state{0, 0, 0}, createdState)
+	assert.Equal(state{1, 0, 0}, initState)
+	assert.Equal(state{1, 0, 0}, runState)
+
+	assert.NoError(underTest.Healthy())
+	assert.Equal(state{0, 0, 0}, createdState)
+	assert.Equal(state{1, 0, 0}, initState)
+	assert.Equal(state{1, 1, 0}, runState)
+
+	assert.NoError(underTest.Stop())
+	assert.Equal(state{0, 0, 0}, createdState)
+	assert.Equal(state{1, 0, 0}, initState)
+	assert.Equal(state{1, 1, 1}, runState)
+
+	assert.Same(ErrAlreadyStopped, underTest.Init(context.TODO()))
+	assert.Equal(state{0, 0, 0}, createdState)
+	assert.Equal(state{1, 0, 0}, initState)
+	assert.Equal(state{1, 1, 1}, runState)
+
+	assert.Same(ErrAlreadyStopped, underTest.Run(context.TODO()))
+	assert.Equal(state{0, 0, 0}, createdState)
+	assert.Equal(state{1, 0, 0}, initState)
+	assert.Equal(state{1, 1, 1}, runState)
+
+	assert.Same(ErrAlreadyStopped, underTest.Healthy())
+	assert.Equal(state{0, 0, 0}, createdState)
+	assert.Equal(state{1, 0, 0}, initState)
+	assert.Equal(state{1, 1, 1}, runState)
+
+	assert.NoError(underTest.Stop())
+	assert.Equal(state{0, 0, 0}, createdState)
+	assert.Equal(state{1, 0, 0}, initState)
+	assert.Equal(state{1, 1, 1}, runState)
 }

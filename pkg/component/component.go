@@ -236,40 +236,40 @@ func (c *recoLegacyComponent) Reconcile(ctx context.Context, cfg *v1beta1.Cluste
 }
 
 type ComponentSkeleton[C, I, R any] struct {
-	Initialize        func(context.Context, C, *v1beta1.ClusterSpec) (I, error)
-	Run               func(context.Context, I, *v1beta1.ClusterSpec) (R, error)
-	Reconcile         func(context.Context, R, *v1beta1.ClusterSpec) error
+	Initialize        func(context.Context, C, *v1beta1.ClusterConfig) (I, error)
+	Run               func(context.Context, I, *v1beta1.ClusterConfig) (R, error)
+	Reconcile         func(context.Context, R, *v1beta1.ClusterConfig) error
 	Healthy           func(R) error
 	StopAfterCreation func(C) error
 	StopAfterInit     func(I) error
-	stopWhenRunning   func(R) error
+	StopWhenRunning   func(R) error
 }
 
 func (skel ComponentSkeleton[C, I, R]) Create(state C) Component {
 	if skel.Reconcile == nil {
 		return &component[C, I, R]{
-			inner: createdComponent[C, I, R]{
+			inner: componentCreated[C, I, R]{
 				state,
 				skel.Initialize,
 				skel.Run,
 				skel.Healthy,
 				skel.StopAfterCreation,
 				skel.StopAfterInit,
-				skel.stopWhenRunning,
+				skel.StopWhenRunning,
 			},
 		}
 	}
 
 	return &reconcileComponent[C, I, R]{
 		component[C, I, R]{
-			inner: createdComponent[C, I, R]{
+			inner: componentCreated[C, I, R]{
 				state,
 				skel.Initialize,
 				skel.Run,
 				skel.Healthy,
 				skel.StopAfterCreation,
 				skel.StopAfterInit,
-				skel.stopWhenRunning,
+				skel.StopWhenRunning,
 			},
 		},
 		skel.Reconcile,
@@ -283,49 +283,49 @@ type component[C, I, R any] struct {
 
 type reconcileComponent[C, I, R any] struct {
 	component[C, I, R]
-	reconcile func(context.Context, R, *v1beta1.ClusterSpec) error
+	reconcile func(context.Context, R, *v1beta1.ClusterConfig) error
 }
 
-func (c *reconcileComponent[C, I, R]) Reconcile(ctx context.Context, spec *v1beta1.ClusterSpec) error {
+func (c *reconcileComponent[C, I, R]) Reconcile(ctx context.Context, cfg *v1beta1.ClusterConfig) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	switch inner := c.inner.(type) {
-	case createdComponent[C, I, R]:
+	case componentCreated[C, I, R]:
 		return ErrNotYetRunning
 
-	case initializedComponent[I, R]:
+	case ComponentInitialized[I, R]:
 		return ErrNotYetRunning
 
-	case runningComponent[R]:
-		return c.reconcile(ctx, inner.state, spec)
+	case componentRunning[R]:
+		return c.reconcile(ctx, inner.state, cfg)
 
 	default:
 		return ErrAlreadyStopped
 	}
 }
 
-type createdComponent[C, I, R any] struct {
+type componentCreated[C, I, R any] struct {
 	state C
 
-	initialize        func(context.Context, C, *v1beta1.ClusterSpec) (I, error)
-	run               func(context.Context, I, *v1beta1.ClusterSpec) (R, error)
+	initialize        func(context.Context, C, *v1beta1.ClusterConfig) (I, error)
+	run               func(context.Context, I, *v1beta1.ClusterConfig) (R, error)
 	healthy           func(R) error
 	stopAfterCreation func(C) error
 	stopAfterInit     func(I) error
 	stopWhenRunning   func(R) error
 }
 
-type initializedComponent[I, R any] struct {
+type ComponentInitialized[I, R any] struct {
 	state I
 
-	run             func(context.Context, I, *v1beta1.ClusterSpec) (R, error)
+	run             func(context.Context, I, *v1beta1.ClusterConfig) (R, error)
 	healthy         func(R) error
 	stopAfterInit   func(I) error
 	stopWhenRunning func(R) error
 }
 
-type runningComponent[R any] struct {
+type componentRunning[R any] struct {
 	state R
 
 	healthy         func(R) error
@@ -336,24 +336,24 @@ func (c *component[C, I, R]) Init(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	var spec *v1beta1.ClusterSpec
-	if theSpec, ok := ctx.Value("clusterSpec").(*v1beta1.ClusterSpec); ok {
-		spec = theSpec
+	var cfg *v1beta1.ClusterConfig
+	if cfgFromCtx, ok := ctx.Value("clusterConfig").(*v1beta1.ClusterConfig); ok {
+		cfg = cfgFromCtx
 	}
 
 	switch inner := c.inner.(type) {
-	case createdComponent[C, I, R]:
+	case componentCreated[C, I, R]:
 		var initialized I
 
 		if inner.initialize != nil {
 			var err error
-			initialized, err = inner.initialize(ctx, inner.state, spec)
+			initialized, err = inner.initialize(ctx, inner.state, cfg)
 			if err != nil {
 				return err
 			}
 		}
 
-		c.inner = initializedComponent[I, R]{
+		c.inner = ComponentInitialized[I, R]{
 			initialized,
 			inner.run,
 			inner.healthy,
@@ -363,10 +363,10 @@ func (c *component[C, I, R]) Init(ctx context.Context) error {
 
 		return nil
 
-	case initializedComponent[I, R]:
+	case ComponentInitialized[I, R]:
 		return ErrAlreadyInitialized
 
-	case runningComponent[R]:
+	case componentRunning[R]:
 		return ErrAlreadyRunning
 
 	default:
@@ -378,27 +378,27 @@ func (c *component[C, I, R]) Run(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	var spec *v1beta1.ClusterSpec
-	if theSpec, ok := ctx.Value("clusterSpec").(*v1beta1.ClusterSpec); ok {
-		spec = theSpec
+	var cfg *v1beta1.ClusterConfig
+	if cfgFromCtx, ok := ctx.Value("clusterConfig").(*v1beta1.ClusterConfig); ok {
+		cfg = cfgFromCtx
 	}
 
 	switch inner := c.inner.(type) {
-	case createdComponent[C, I, R]:
+	case componentCreated[C, I, R]:
 		return ErrNotYetInitialized
 
-	case initializedComponent[I, R]:
+	case ComponentInitialized[I, R]:
 		var running R
 
 		if inner.run != nil {
 			var err error
-			running, err = inner.run(ctx, inner.state, spec)
+			running, err = inner.run(ctx, inner.state, cfg)
 			if err != nil {
 				return err
 			}
 		}
 
-		c.inner = runningComponent[R]{
+		c.inner = componentRunning[R]{
 			running,
 			inner.healthy,
 			inner.stopWhenRunning,
@@ -406,7 +406,7 @@ func (c *component[C, I, R]) Run(ctx context.Context) error {
 
 		return nil
 
-	case runningComponent[R]:
+	case componentRunning[R]:
 		return ErrAlreadyRunning
 
 	default:
@@ -419,13 +419,10 @@ func (c *component[C, I, R]) Healthy() error {
 	defer c.mu.Unlock()
 
 	switch state := c.inner.(type) {
-	case createdComponent[C, I, R]:
-		return ErrNotYetInitialized
-
-	case initializedComponent[I, R]:
+	case componentCreated[C, I, R], ComponentInitialized[I, R]:
 		return ErrNotYetRunning
 
-	case runningComponent[R]:
+	case componentRunning[R]:
 		if state.healthy != nil {
 			return state.healthy(state.state)
 		}
@@ -441,7 +438,7 @@ func (c *component[C, I, R]) Stop() error {
 	defer c.mu.Unlock()
 
 	switch state := c.inner.(type) {
-	case createdComponent[C, I, R]:
+	case componentCreated[C, I, R]:
 		if state.stopAfterCreation != nil {
 			if err := state.stopAfterCreation(state.state); err != nil {
 				return err
@@ -451,7 +448,7 @@ func (c *component[C, I, R]) Stop() error {
 		c.inner = nil
 		return nil
 
-	case initializedComponent[I, R]:
+	case ComponentInitialized[I, R]:
 		if state.stopAfterInit != nil {
 			if err := state.stopAfterInit(state.state); err != nil {
 				return err
@@ -461,7 +458,7 @@ func (c *component[C, I, R]) Stop() error {
 		c.inner = nil
 		return nil
 
-	case runningComponent[R]:
+	case componentRunning[R]:
 		if state.stopWhenRunning != nil {
 			if err := state.stopWhenRunning(state.state); err != nil {
 				return err
@@ -472,7 +469,7 @@ func (c *component[C, I, R]) Stop() error {
 		return nil
 
 	default:
-		return ErrAlreadyStopped
+		return nil // already stopped
 	}
 }
 
