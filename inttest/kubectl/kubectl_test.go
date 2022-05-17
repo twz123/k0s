@@ -17,9 +17,11 @@ limitations under the License.
 package kubectl
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/k0sproject/k0s/inttest/common"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -27,9 +29,9 @@ type KubectlSuite struct {
 	common.FootlooseSuite
 }
 
-const pluginContent = `#!/bin/bash
+const pluginContent = `#!/usr/bin/env sh
 
-echo "foo-plugin"
+echo foo-plugin
 `
 
 func (s *KubectlSuite) TestEmbeddedKubectl() {
@@ -37,7 +39,7 @@ func (s *KubectlSuite) TestEmbeddedKubectl() {
 	s.PutFile(s.ControllerNode(0), "/bin/kubectl-foo", pluginContent)
 
 	ssh, err := s.SSH(s.ControllerNode(0))
-	s.Require().NoError(err)
+	s.Require().NoError(err, "failed to SSH into controller")
 	defer ssh.Disconnect()
 
 	_, err = ssh.ExecWithOutput("chmod +x /bin/kubectl-foo")
@@ -50,89 +52,88 @@ func (s *KubectlSuite) TestEmbeddedKubectl() {
 	tests := []struct {
 		Name    string
 		Command string
-		Check   func(output string, err error)
+		Check   func(t *testing.T, output string, err error)
 	}{
 		{
 			Name:    "full subcommand name",
 			Command: "k0s kubectl version",
-			Check: func(output string, e error) {
-				s.Require().NoError(e)
-				s.Require().Contains(output, "Client Version: version.Info")
+			Check: func(t *testing.T, output string, e error) {
+				assert.Contains(t, output, "Client Version: version.Info")
 			},
 		},
 		{
 			Name:    "short subcommand name",
 			Command: "k0s kc version",
-			Check: func(output string, e error) {
-				s.Require().NoError(e)
-				s.Require().Contains(output, "Client Version: version.Info")
+			Check: func(t *testing.T, output string, e error) {
+				assert.Contains(t, output, "Client Version: version.Info")
 			},
 		},
 		{
 			Name:    "full command arguments",
 			Command: "k0s kubectl version -v 8",
-			Check: func(output string, e error) {
-				s.Require().NoError(e)
+			Check: func(t *testing.T, output string, e error) {
 				// Check for debug log messages
-				s.Require().Contains(output, "round_trippers.go")
+				assert.True(t, strings.Contains(output, "round_trippers.go"))
 			},
 		},
 		{
 			Name:    "short command arguments",
 			Command: "k0s kc version -v 8",
-			Check: func(output string, e error) {
-				s.Require().NoError(e)
+			Check: func(t *testing.T, output string, e error) {
 				// Check for debug log messages
-				s.Require().Contains(output, "round_trippers.go")
+				assert.True(t, strings.Contains(output, "round_trippers.go"))
 			},
 		},
 		{
 			Name:    "full command plugin loader",
 			Command: "k0s kubectl foo",
-			Check: func(output string, e error) {
-				s.Require().NoError(e)
-				s.Require().Equal("foo-plugin", output, "Unexpected output: %v", output)
+			Check: func(t *testing.T, output string, e error) {
+				assert.Equal(t, output, "foo-plugin")
 			},
 		},
 		{
 			Name:    "short command plugin loader",
 			Command: "k0s kc foo",
-			Check: func(output string, e error) {
-				s.Require().NoError(e)
-				s.Require().Equal("foo-plugin", output, "Unexpected output: %v", output)
+			Check: func(t *testing.T, output string, e error) {
+				assert.Equal(t, output, "foo-plugin")
 			},
 		},
-
 		{
 			Name:    "symlink command",
 			Command: "kubectl version",
-			Check: func(output string, e error) {
-				s.Require().NoError(e)
-				s.Require().Contains(output, "Client Version: version.Info")
+			Check: func(t *testing.T, output string, e error) {
+				assert.Contains(t, output, "Client Version: version.Info")
 			},
 		},
 		{
 			Name:    "symlink arguments",
 			Command: "kubectl version -v 8",
-			Check: func(output string, e error) {
-				s.Require().NoError(e)
+			Check: func(t *testing.T, output string, e error) {
 				// Check for debug log messages
-				s.Require().Contains(output, "round_trippers.go")
+				assert.Contains(t, output, "round_trippers.go")
 			},
 		},
 		{
 			Name:    "symlink plugin loader",
 			Command: "k0s kubectl foo",
-			Check: func(output string, e error) {
-				s.Require().NoError(e)
-				s.Require().Equal("foo-plugin", output, "Unexpected output: %v", output)
+			Check: func(t *testing.T, output string, e error) {
+				assert.Equal(t, "foo-plugin", output)
 			},
 		},
 	}
 	for _, test := range tests {
-		s.T().Logf("Trying %s with command `%s`", test.Name, test.Command)
-		output, err := ssh.ExecWithOutput(test.Command)
-		test.Check(output, err)
+		s.T().Run(test.Name, func(t *testing.T) {
+			t.Log("Executing", test.Command)
+			output, err := ssh.ExecWithOutput(test.Command)
+			t.Cleanup(func() {
+				if t.Failed() {
+					t.Log("Error: ", err)
+					t.Log("Output: ", output)
+				}
+			})
+			assert.NoError(t, err)
+			test.Check(t, output, err)
+		})
 	}
 }
 
