@@ -21,56 +21,49 @@ import (
 	"os"
 	"time"
 
-	"github.com/k0sproject/k0s/pkg/kubernetes"
-
+	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/component"
+	"github.com/k0sproject/k0s/pkg/constant"
 
-	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
-	"github.com/k0sproject/k0s/pkg/constant"
+	"github.com/sirupsen/logrus"
 )
 
 type reconcilingEventReporter struct {
 	log logrus.FieldLogger
 
-	receiver      component.Reconcilable
-	clientFactory kubernetes.ClientFactoryInterface
+	kubeClient kubernetes.Interface
+	receiver   component.Reconcilable
 }
 
 // NewReconcilingEventReporter reconciles its receiver and reports the outcome
 // as a ConfigReconciling Kubernetes event.
-func NewReconcilingEventReporter(receiver component.Reconcilable, clientFactory kubernetes.ClientFactoryInterface) component.Reconcilable {
+func NewReconcilingEventReporter(kubeClient kubernetes.Interface, receiver component.Reconcilable) component.Reconcilable {
 	return &reconcilingEventReporter{
 		log: logrus.WithFields(logrus.Fields{"component": "reconciling_event_reporter"}),
 
-		receiver:      receiver,
-		clientFactory: clientFactory,
+		kubeClient: kubeClient,
+		receiver:   receiver,
 	}
 }
 
-func (r *reconcilingEventReporter) Reconcile(ctx context.Context, cc *v1beta1.ClusterConfig) error {
-	err := r.receiver.Reconcile(ctx, cc)
+func (r *reconcilingEventReporter) Reconcile(ctx context.Context, config *v1beta1.ClusterConfig) error {
+	err := r.receiver.Reconcile(ctx, config)
 
 	timeout, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	r.reportStatus(timeout, cc, err)
+	r.reportStatus(timeout, config, err)
 	return err
 }
 
 func (r *reconcilingEventReporter) reportStatus(ctx context.Context, config *v1beta1.ClusterConfig, reconcileError error) {
-	client, err := r.clientFactory.GetClient()
-	if err != nil {
-		r.log.WithError(err).Error("Failed to get Kubernetes client")
-		return
-	}
-
 	hostname, err := os.Hostname()
 	if err != nil {
-		r.log.WithError(err).Warn("failed to get hostname")
+		r.log.WithError(err).Warn("Failed to get hostname")
 		hostname = ""
 	}
 
@@ -104,7 +97,7 @@ func (r *reconcilingEventReporter) reportStatus(ctx context.Context, config *v1b
 		e.Message = "Successfully reconciled cluster config"
 		e.Type = corev1.EventTypeNormal
 	}
-	_, err = client.CoreV1().Events(constant.ClusterConfigNamespace).Create(ctx, e, metav1.CreateOptions{})
+	_, err = r.kubeClient.CoreV1().Events(constant.ClusterConfigNamespace).Create(ctx, e, metav1.CreateOptions{})
 	if err != nil {
 		r.log.WithError(err).Errorf("Failed to create ConfigReconciling event (%s: %s)", e.Reason, e.Message)
 	}

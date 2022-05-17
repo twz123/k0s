@@ -25,7 +25,6 @@ import (
 	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
-	"github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/k0sproject/k0s/static"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -38,10 +37,10 @@ import (
 type clusterConfigBootstrapper struct {
 	log logrus.FieldLogger
 
-	k0sVars       constant.CfgVars
-	clientFactory kubernetes.ClientFactoryInterface
-	leaderElector LeaderElector
-	saver         manifestsSaver
+	k0sVars      constant.CfgVars
+	configClient k0sclient.ClusterConfigInterface
+	isLeader     func() bool
+	saver        manifestsSaver
 }
 
 // NewClusterConfigBootstrapper unpacks k0s's CRD manifests and ensures that the
@@ -49,17 +48,17 @@ type clusterConfigBootstrapper struct {
 // if it doesn't exist already.
 func NewClusterConfigBootstrapper(
 	k0sVars constant.CfgVars,
-	clientFactory kubernetes.ClientFactoryInterface,
-	leaderElector LeaderElector,
+	configClient k0sclient.ClusterConfigInterface,
+	isLeader func() bool,
 	saver manifestsSaver,
 ) component.Component {
 	return &clusterConfigBootstrapper{
 		log: logrus.WithFields(logrus.Fields{"component": "cluster_config_bootstrapper"}),
 
-		k0sVars:       k0sVars,
-		clientFactory: clientFactory,
-		leaderElector: leaderElector,
-		saver:         saver,
+		k0sVars:      k0sVars,
+		configClient: configClient,
+		isLeader:     isLeader,
+		saver:        saver,
 	}
 }
 
@@ -102,16 +101,11 @@ func (b *clusterConfigBootstrapper) unpackCRDs() error {
 }
 
 func (b *clusterConfigBootstrapper) bootstrapConfigObject(ctx context.Context) error {
-	configClient, err := b.clientFactory.GetConfigClient()
-	if err != nil {
-		return err
-	}
-
 	var localConfig *v1beta1.ClusterConfig
 
 	// We need to wait until we either verified the existence of the cluster config object, or we succeed in creating it.
 	return wait.PollWithContext(ctx, 1*time.Second, 20*time.Second, func(ctx context.Context) (bool, error) {
-		if exists, err := configObjectExists(ctx, configClient); err != nil {
+		if exists, err := configObjectExists(ctx, b.configClient); err != nil {
 			b.log.WithError(err).Error("Failed to verify existence of the cluster config object")
 			return false, nil
 		} else if exists {
@@ -128,12 +122,12 @@ func (b *clusterConfigBootstrapper) bootstrapConfigObject(ctx context.Context) e
 			localConfig = parsedConfig.GetClusterWideConfig().StripDefaults().CRValidator()
 		}
 
-		if !b.leaderElector.IsLeader() {
+		if !b.isLeader() {
 			b.log.Info("I am not the leader, not creating cluster config object")
 			return true, nil
 		}
 
-		err = createConfigObject(ctx, configClient, localConfig)
+		err := createConfigObject(ctx, b.configClient, localConfig)
 		if err != nil {
 			b.log.WithError(err).Error("Failed to create cluster config object")
 			return false, nil
@@ -144,11 +138,11 @@ func (b *clusterConfigBootstrapper) bootstrapConfigObject(ctx context.Context) e
 	})
 }
 
-func configObjectExists(ctx context.Context, client k0sclient.ClusterConfigInterface) (bool, error) {
+func configObjectExists(ctx context.Context, configClient k0sclient.ClusterConfigInterface) (bool, error) {
 	timeout, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	_, err := client.Get(timeout, constant.ClusterConfigObjectName, metav1.GetOptions{})
+	_, err := configClient.Get(timeout, constant.ClusterConfigObjectName, metav1.GetOptions{})
 	if err == nil {
 		return true, nil
 	}
