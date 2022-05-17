@@ -65,16 +65,16 @@ func (n *Network) Validate() []error {
 
 	_, _, err := net.ParseCIDR(n.PodCIDR)
 	if err != nil {
-		errors = append(errors, fmt.Errorf("invalid pod CIDR %s", n.PodCIDR))
+		errors = append(errors, fmt.Errorf("invalid pod CIDR: %s", n.PodCIDR))
 	}
 
 	_, _, err = net.ParseCIDR(n.ServiceCIDR)
 	if err != nil {
-		errors = append(errors, fmt.Errorf("invalid service CIDR %s", n.ServiceCIDR))
+		errors = append(errors, fmt.Errorf("invalid service CIDR: %s", n.ServiceCIDR))
 	}
 
 	if !govalidator.IsDNSName(n.ClusterDomain) {
-		errors = append(errors, fmt.Errorf("invalid clusterDomain %s", n.ClusterDomain))
+		errors = append(errors, fmt.Errorf("invalid clusterDomain: %s", n.ClusterDomain))
 	}
 
 	if n.DualStack.Enabled {
@@ -83,11 +83,11 @@ func (n *Network) Validate() []error {
 		}
 		_, _, err := net.ParseCIDR(n.DualStack.IPv6PodCIDR)
 		if err != nil {
-			errors = append(errors, fmt.Errorf("invalid pod IPv6 CIDR %s", n.DualStack.IPv6PodCIDR))
+			errors = append(errors, fmt.Errorf("invalid IPv6 pod CIDR: %s", n.DualStack.IPv6PodCIDR))
 		}
 		_, _, err = net.ParseCIDR(n.DualStack.IPv6ServiceCIDR)
 		if err != nil {
-			errors = append(errors, fmt.Errorf("invalid service IPv6 CIDR %s", n.DualStack.IPv6ServiceCIDR))
+			errors = append(errors, fmt.Errorf("invalid IPv6 service CIDR: %s", n.DualStack.IPv6ServiceCIDR))
 		}
 	}
 	errors = append(errors, n.KubeProxy.Validate()...)
@@ -98,7 +98,7 @@ func (n *Network) Validate() []error {
 func (n *Network) DNSAddress() (string, error) {
 	_, ipnet, err := net.ParseCIDR(n.ServiceCIDR)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse service CIDR %s: %w", n.ServiceCIDR, err)
+		return "", fmt.Errorf("failed to parse service CIDR %q: %w", n.ServiceCIDR, err)
 	}
 
 	address := ipnet.IP.To4()
@@ -130,14 +130,14 @@ func (n *Network) InternalAPIAddresses() ([]string, error) {
 
 	parsedCIDRs, err := utilnet.ParseCIDRs(cidrs)
 	if err != nil {
-		return nil, fmt.Errorf("can't parse service cidr to build internal API address: %w", err)
+		return nil, fmt.Errorf("failed to parse service CIDR to build internal API address: %w", err)
 	}
 
 	stringifiedAddresses := make([]string, len(parsedCIDRs))
 	for i, ip := range parsedCIDRs {
 		apiIP, err := utilnet.GetIndexedIP(ip, 1)
 		if err != nil {
-			return nil, fmt.Errorf("can't build internal API address: %v", err)
+			return nil, fmt.Errorf("failed to build internal API address: %w", err)
 		}
 		stringifiedAddresses[i] = apiIP.String()
 	}

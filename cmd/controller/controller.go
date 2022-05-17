@@ -445,9 +445,11 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 		}
 		c.ClusterComponents.Add(ctx, clusterconfig.NewAPIConfigSource(
 			configClient,
-			clusterconfig.NewReconcilingEventReporter(
+			clusterconfig.ReportReconcilingEvent(
 				kubeClient,
-				c.ClusterComponents,
+				clusterconfig.EnsureValid(
+					c.ClusterComponents,
+				),
 			),
 		))
 	}

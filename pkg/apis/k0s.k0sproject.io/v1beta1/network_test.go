@@ -235,7 +235,7 @@ func (s *NetworkSuite) TestValidation() {
 		errors := n.Validate()
 		s.NotNil(errors)
 		s.Len(errors, 1)
-		s.Contains(errors[0].Error(), "invalid clusterDomain .invalid-cluster-domain")
+		s.Contains(errors[0].Error(), "invalid clusterDomain: .invalid-cluster-domain")
 	})
 
 	s.T().Run("invalid_ipv6_service_cidr", func(t *testing.T) {
@@ -251,7 +251,7 @@ func (s *NetworkSuite) TestValidation() {
 		errors := n.Validate()
 		s.NotNil(errors)
 		s.Len(errors, 1)
-		s.Contains(errors[0].Error(), "invalid service IPv6 CIDR")
+		s.Contains(errors[0].Error(), "invalid IPv6 service CIDR")
 	})
 
 	s.T().Run("invalid_ipv6_pod_cidr", func(t *testing.T) {
@@ -267,7 +267,7 @@ func (s *NetworkSuite) TestValidation() {
 		errors := n.Validate()
 		s.NotNil(errors)
 		s.Len(errors, 1)
-		s.Contains(errors[0].Error(), "invalid pod IPv6 CIDR")
+		s.Contains(errors[0].Error(), "invalid IPv6 pod CIDR")
 	})
 
 	s.T().Run("invalid_mode_for_kube_proxy", func(t *testing.T) {
