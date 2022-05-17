@@ -44,8 +44,9 @@ type apiConfigSource struct {
 	lastReconciledVersion string
 }
 
-// NewAPIConfigSource polls the API server periodically for changes to the global
-// cluster config object and, if it changed, reconciles its receiver with it.
+// NewAPIConfigSource returns a component that polls the API server periodically
+// for changes to the global cluster config object and, if it changed,
+// reconciles its receiver with it.
 func NewAPIConfigSource(configClient k0sclient.ClusterConfigInterface, receiver component.Reconcilable) component.Component {
 	return &apiConfigSource{
 		log: logrus.WithField("component", "api_config_source"),
