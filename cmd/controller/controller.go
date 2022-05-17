@@ -294,38 +294,6 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 		}
 	}()
 
-	var configSource clusterconfig.ConfigSource
-	// For backwards compatibility, use file as config source by default
-	if c.EnableDynamicConfig {
-		configSource, err = clusterconfig.NewAPIConfigSource(adminClientFactory)
-	} else {
-		configSource, err = clusterconfig.NewStaticSource(c.ClusterConfig)
-	}
-	if err != nil {
-		return err
-	}
-	defer configSource.Stop()
-
-	if !stringslice.Contains(c.DisableComponents, constant.APIConfigComponentName) {
-		apiConfigSaver, err := controller.NewManifestsSaver("api-config", c.K0sVars.DataDir)
-		if err != nil {
-			return fmt.Errorf("failed to initialize api-config manifests saver: %w", err)
-		}
-
-		cfgReconciler, err := controller.NewClusterConfigReconciler(
-			leaderElector,
-			c.K0sVars,
-			c.ClusterComponents,
-			apiConfigSaver,
-			adminClientFactory,
-			configSource,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to initialize cluster-config reconciler: %w", err)
-		}
-		c.ClusterComponents.Add(ctx, cfgReconciler)
-	}
-
 	if !stringslice.Contains(c.DisableComponents, constant.HelmComponentName) {
 		helmSaver, err := controller.NewManifestsSaver("helm", c.K0sVars.DataDir)
 		if err != nil {
@@ -451,6 +419,36 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 		KubeClientFactory: adminClientFactory,
 	})
 
+	useAPIConfig := c.EnableDynamicConfig && !stringslice.Contains(c.DisableComponents, constant.APIConfigComponentName)
+	if useAPIConfig {
+		configClient, err := adminClientFactory.GetConfigClient()
+		if err != nil {
+			return fmt.Errorf("failed to get k0s config client: %w", err)
+		}
+		apiConfigSaver, err := controller.NewManifestsSaver("api-config", c.K0sVars.DataDir)
+		if err != nil {
+			return fmt.Errorf("failed to initialize api-config manifests saver: %w", err)
+		}
+		c.ClusterComponents.Add(ctx, controller.NewClusterConfigBootstrapper(
+			c.K0sVars,
+			configClient,
+			leaderElector.IsLeader,
+			apiConfigSaver,
+		))
+
+		kubeClient, err := adminClientFactory.GetClient()
+		if err != nil {
+			return fmt.Errorf("failed to get Kubernetes client: %w", err)
+		}
+		c.ClusterComponents.Add(ctx, clusterconfig.NewAPIConfigSource(
+			configClient,
+			clusterconfig.NewReconcilingEventReporter(
+				kubeClient,
+				c.ClusterComponents,
+			),
+		))
+	}
+
 	perfTimer.Checkpoint("starting-cluster-components-init")
 	// init Cluster components
 	if err := c.ClusterComponents.Init(ctx); err != nil {
@@ -472,8 +470,14 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 		}
 	}()
 
-	// At this point all the components should be initialized and running, thus we can release the config for reconcilers
-	go configSource.Release(ctx)
+	// If k0s is not reconciling itself based on the cluster config, reconcile
+	// all components once using the local config.
+	if !useAPIConfig {
+		err = c.ClusterComponents.Reconcile(ctx, c.ClusterConfig)
+		if err != nil {
+			return fmt.Errorf("failed to reconcile cluster components with local config: %w", err)
+		}
+	}
 
 	var workerErr error
 	if c.EnableWorker {
