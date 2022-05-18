@@ -31,7 +31,6 @@ type LeaderElector interface {
 	IsLeader() bool
 	AddAcquiredLeaseCallback(fn func())
 	AddLostLeaseCallback(fn func())
-	component.Component
 }
 
 type leaderElector struct {
@@ -47,7 +46,10 @@ type leaderElector struct {
 }
 
 // NewLeaderElector creates new leader elector
-func NewLeaderElector(kubeClientFactory kubeutil.ClientFactoryInterface) LeaderElector {
+func NewLeaderElector(kubeClientFactory kubeutil.ClientFactoryInterface) interface {
+	LeaderElector
+	component.Component
+} {
 	d := atomic.Value{}
 	d.Store(false)
 	return &leaderElector{

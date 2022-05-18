@@ -120,8 +120,6 @@ func NewControllerCmd() *cobra.Command {
 }
 
 func (c *CmdOpts) startController(ctx context.Context) error {
-	c.NodeComponents = component.NewManager()
-	c.ClusterComponents = component.NewManager()
 
 	perfTimer := performance.NewTimer("controller-start").Buffer().Start()
 
@@ -158,106 +156,96 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 		}
 	}
 
-	logrus.Infof("using api address: %s", c.NodeConfig.Spec.API.Address)
-	logrus.Infof("using listen port: %d", c.NodeConfig.Spec.API.Port)
-	logrus.Infof("using sans: %s", c.NodeConfig.Spec.API.SANs)
+	logrus.Infof("using API address: %s:%d", c.NodeConfig.Spec.API.Address, c.NodeConfig.Spec.API.Port)
+	logrus.Infof("using SANs: %s", c.NodeConfig.Spec.API.SANs)
 	dnsAddress, err := c.NodeConfig.Spec.Network.DNSAddress()
 	if err != nil {
 		return err
 	}
 	logrus.Infof("DNS address: %s", dnsAddress)
-	var storageBackend component.Component
+
+	var nodeComponents component.ManagerBuilder
 
 	switch c.NodeConfig.Spec.Storage.Type {
 	case v1beta1.KineStorageType:
-		storageBackend = &controller.Kine{
+		nodeComponents.Add(&controller.Kine{
 			Config:  c.NodeConfig.Spec.Storage.Kine,
 			K0sVars: c.K0sVars,
-		}
+		})
 	case v1beta1.EtcdStorageType:
-		storageBackend = &controller.Etcd{
+		nodeComponents.Add(&controller.Etcd{
 			CertManager: certificateManager,
 			Config:      c.NodeConfig.Spec.Storage.Etcd,
 			JoinClient:  joinClient,
 			K0sVars:     c.K0sVars,
 			LogLevel:    c.Logging["etcd"],
-		}
+		})
 	default:
 		return fmt.Errorf("invalid storage type: %s", c.NodeConfig.Spec.Storage.Type)
 	}
+
 	logrus.Infof("using storage backend %s", c.NodeConfig.Spec.Storage.Type)
-	c.NodeComponents.Add(ctx, storageBackend)
 
 	// common factory to get the admin kube client that's needed in many components
 	adminClientFactory := kubernetes.NewAdminClientFactory(c.K0sVars)
 	enableKonnectivity := !c.SingleNode && !stringslice.Contains(c.DisableComponents, constant.KonnectivityServerComponentName)
-	c.NodeComponents.Add(ctx, &controller.APIServer{
+	nodeComponents.Add(&controller.APIServer{
 		ClusterConfig:      c.NodeConfig,
 		K0sVars:            c.K0sVars,
 		LogLevel:           c.Logging["kube-apiserver"],
-		Storage:            storageBackend,
 		EnableKonnectivity: enableKonnectivity,
 	})
 
 	if !c.SingleNode {
-		c.NodeComponents.Add(ctx, &controller.K0sControllersLeaseCounter{
+		nodeComponents.Add(&controller.K0sControllersLeaseCounter{
 			ClusterConfig:     c.NodeConfig,
 			KubeClientFactory: adminClientFactory,
 		})
 	}
 
-	var leaderElector controller.LeaderElector
+	var leaderElector interface {
+		controller.LeaderElector
+		component.Component
+	}
 
 	// One leader elector per controller
-	if !c.SingleNode {
-		leaderElector = controller.NewLeaderElector(adminClientFactory)
+	if c.SingleNode {
+		leaderElector = controller.SingleLeader()
 	} else {
-		leaderElector = &controller.DummyLeaderElector{Leader: true}
+		leaderElector = controller.NewLeaderElector(adminClientFactory)
 	}
-	c.NodeComponents.Add(ctx, leaderElector)
+	nodeComponents.Add(leaderElector)
 
-	c.NodeComponents.Add(ctx, &applier.Manager{
+	nodeComponents.Add(&applier.Manager{
 		K0sVars:           c.K0sVars,
 		KubeClientFactory: adminClientFactory,
 		LeaderElector:     leaderElector,
 	})
 
 	if !c.SingleNode && !stringslice.Contains(c.DisableComponents, constant.ControlAPIComponentName) {
-		c.NodeComponents.Add(ctx, &controller.K0SControlAPI{
+		nodeComponents.Add(&controller.K0SControlAPI{
 			ConfigPath: c.CfgFile,
 			K0sVars:    c.K0sVars,
 		})
 	}
 
-	if c.NodeConfig.Spec.API.TunneledNetworkingMode {
-		c.ClusterComponents.Add(ctx, controller.NewTunneledEndpointReconciler(leaderElector,
-			adminClientFactory))
-	}
-
-	if c.NodeConfig.Spec.API.ExternalAddress != "" && !c.NodeConfig.Spec.API.TunneledNetworkingMode {
-		c.ClusterComponents.Add(ctx, controller.NewEndpointReconciler(
+	if !stringslice.Contains(c.DisableComponents, constant.CsrApproverComponentName) {
+		nodeComponents.Add(controller.NewCSRApprover(
+			c.NodeConfig,
 			leaderElector,
 			adminClientFactory,
 		))
 	}
-	if !stringslice.Contains(c.DisableComponents, constant.CsrApproverComponentName) {
-		c.NodeComponents.Add(ctx, controller.NewCSRApprover(c.NodeConfig,
-			leaderElector,
-			adminClientFactory))
-	}
 
 	if c.EnableK0sCloudProvider {
-		c.NodeComponents.Add(
-			ctx,
-			controller.NewK0sCloudProvider(
-				c.K0sVars.AdminKubeConfigPath,
-				c.K0sCloudProviderUpdateFrequency,
-				c.K0sCloudProviderPort,
-			),
-		)
+		nodeComponents.Add(controller.NewK0sCloudProvider(
+			c.K0sVars.AdminKubeConfigPath,
+			c.K0sCloudProviderUpdateFrequency,
+			c.K0sCloudProviderPort,
+		))
 	}
 
-	c.NodeComponents.Add(ctx, &status.Status{
+	nodeComponents.Add(&status.Status{
 		StatusInformation: install.K0sStatus{
 			Pid:           os.Getpid(),
 			Role:          "controller",
@@ -283,7 +271,8 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 
 	perfTimer.Checkpoint("starting-node-component-init")
 	// init Node components
-	if err := c.NodeComponents.Init(ctx); err != nil {
+	nodeManager := nodeComponents.Build("nodeManager")
+	if err := nodeManager.Init(ctx); err != nil {
 		return err
 	}
 	perfTimer.Checkpoint("finished-node-component-init")
@@ -291,28 +280,42 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 	perfTimer.Checkpoint("starting-node-components")
 
 	// Start components
-	err = c.NodeComponents.Start(ctx)
-	perfTimer.Checkpoint("finished-starting-node-components")
+	err = nodeManager.Run(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to start controller node components: %w", err)
 	}
 	defer func() {
-		// Stop components
-		if stopErr := c.NodeComponents.Stop(); stopErr != nil {
-			logrus.Errorf("error while stopping node component %s", stopErr)
-		} else {
-			logrus.Info("all node components stopped")
+		if err := nodeManager.Stop(); err != nil {
+			logrus.WithError(err).Error("Failed to stop node components")
 		}
 	}()
+	perfTimer.Checkpoint("finished-starting-node-components")
+
+	var clusterComponents component.ManagerBuilder
 
 	// in-cluster component reconcilers
-	err = c.createClusterReconcilers(ctx, adminClientFactory)
-	if err != nil {
-		return fmt.Errorf("failed to start reconcilers: %w", err)
+	if reconcilers, err := c.createClusterReconcilers(ctx, adminClientFactory); err == nil {
+		clusterComponents.Add(reconcilers)
+	} else {
+		return fmt.Errorf("failed to create cluster reconcilers: %w", err)
+	}
+
+	if c.NodeConfig.Spec.API.TunneledNetworkingMode {
+		clusterComponents.Add(controller.NewTunneledEndpointReconciler(
+			leaderElector,
+			adminClientFactory,
+		))
+	}
+
+	if c.NodeConfig.Spec.API.ExternalAddress != "" && !c.NodeConfig.Spec.API.TunneledNetworkingMode {
+		clusterComponents.Add(controller.NewEndpointReconciler(
+			leaderElector,
+			adminClientFactory,
+		))
 	}
 
 	if enableKonnectivity {
-		c.ClusterComponents.Add(ctx, &controller.Konnectivity{
+		clusterComponents.Add(&controller.Konnectivity{
 			SingleNode:        c.SingleNode,
 			LogLevel:          c.Logging[constant.KonnectivityServerComponentName],
 			K0sVars:           c.K0sVars,
@@ -321,14 +324,14 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 		})
 	}
 	if !stringslice.Contains(c.DisableComponents, constant.KubeSchedulerComponentName) {
-		c.ClusterComponents.Add(ctx, &controller.Scheduler{
+		clusterComponents.Add(&controller.Scheduler{
 			LogLevel:   c.Logging[constant.KubeSchedulerComponentName],
 			K0sVars:    c.K0sVars,
 			SingleNode: c.SingleNode,
 		})
 	}
 	if !stringslice.Contains(c.DisableComponents, constant.KubeControllerManagerComponentName) {
-		c.ClusterComponents.Add(ctx, &controller.Manager{
+		clusterComponents.Add(&controller.Manager{
 			LogLevel:   c.Logging[constant.KubeControllerManagerComponentName],
 			K0sVars:    c.K0sVars,
 			SingleNode: c.SingleNode,
@@ -336,7 +339,7 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 
 	}
 
-	c.ClusterComponents.Add(ctx, &telemetry.Component{
+	clusterComponents.Add(&telemetry.Component{
 		Version:           build.Version,
 		K0sVars:           c.K0sVars,
 		KubeClientFactory: adminClientFactory,
@@ -344,7 +347,8 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 
 	perfTimer.Checkpoint("starting-cluster-components-init")
 	// init Cluster components
-	if err := c.ClusterComponents.Init(ctx); err != nil {
+	clusterManager := clusterComponents.Build("clusterManager")
+	if err := clusterManager.Init(ctx); err != nil {
 		return err
 	}
 	perfTimer.Checkpoint("finished cluster-component-init")
@@ -371,23 +375,22 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 	}()
 
 	// start Bootstrapping Reconcilers
-	err = c.startBootstrapReconcilers(ctx, adminClientFactory, leaderElector, cfgSource)
+	err = c.startBootstrapReconcilers(ctx, clusterManager.(*component.Manager), adminClientFactory, leaderElector, cfgSource)
 	if err != nil {
 		return fmt.Errorf("failed to start bootstrapping reconcilers: %w", err)
 	}
 
-	err = c.startClusterComponents(ctx)
+	err = clusterManager.Run(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to start cluster components: %w", err)
 	}
-	perfTimer.Checkpoint("finished-starting-cluster-components")
 	defer func() {
-		// Stop Cluster components
-		if stopErr := c.ClusterComponents.Stop(); stopErr != nil {
-			logrus.Errorf("error while stopping node component %s", stopErr)
+		if err := clusterManager.Stop(); err != nil {
+			logrus.WithError(err).Error("Failed to stop cluster components")
 		}
-		logrus.Info("all cluster components stopped")
 	}()
+
+	perfTimer.Checkpoint("finished-starting-cluster-components")
 
 	// At this point all the components should be initialized and running, thus we can release the config for reconcilers
 	go cfgSource.Release(ctx)
@@ -415,11 +418,7 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 	return os.Remove(c.CfgFile)
 }
 
-func (c *CmdOpts) startClusterComponents(ctx context.Context) error {
-	return c.ClusterComponents.Start(ctx)
-}
-
-func (c *CmdOpts) startBootstrapReconcilers(ctx context.Context, cf kubernetes.ClientFactoryInterface, leaderElector controller.LeaderElector, configSource clusterconfig.ConfigSource) error {
+func (c *CmdOpts) startBootstrapReconcilers(ctx context.Context, clusterComponents *component.Manager, cf kubernetes.ClientFactoryInterface, leaderElector controller.LeaderElector, configSource clusterconfig.ConfigSource) error {
 	reconcilers := make(map[string]component.Component)
 
 	if !stringslice.Contains(c.DisableComponents, constant.APIConfigComponentName) {
@@ -430,7 +429,7 @@ func (c *CmdOpts) startBootstrapReconcilers(ctx context.Context, cf kubernetes.C
 			return err
 		}
 
-		cfgReconciler, err := controller.NewClusterConfigReconciler(leaderElector, c.K0sVars, c.ClusterComponents, manifestSaver, cf, configSource)
+		cfgReconciler, err := controller.NewClusterConfigReconciler(leaderElector, c.K0sVars, clusterComponents.Reconcile, manifestSaver, cf, configSource)
 		if err != nil {
 			logrus.Warnf("failed to initialize cluster-config reconciler: %s", err.Error())
 			return err
@@ -447,7 +446,7 @@ func (c *CmdOpts) startBootstrapReconcilers(ctx context.Context, cf kubernetes.C
 		}
 		reconcilers["helmCrd"] = controller.NewCRD(manifestsSaver)
 		extensionsController := controller.NewExtensionsController(manifestsSaver, c.K0sVars, cf, leaderElector)
-		c.ClusterComponents.Add(ctx, extensionsController)
+		clusterComponents.NotSoGoodAdd(extensionsController)
 	}
 
 	// Start all reconcilers
@@ -469,67 +468,69 @@ func (c *CmdOpts) startBootstrapReconcilers(ctx context.Context, cf kubernetes.C
 	return nil
 }
 
-func (c *CmdOpts) createClusterReconcilers(ctx context.Context, cf kubernetes.ClientFactoryInterface) error {
-
-	reconcilers := make(map[string]component.Component)
+func (c *CmdOpts) createClusterReconcilers(ctx context.Context, cf kubernetes.ClientFactoryInterface) (component.Component, error) {
+	var reconcilers component.ManagerBuilder
 
 	if !stringslice.Contains(c.DisableComponents, constant.DefaultPspComponentName) {
 		defaultPSP, err := controller.NewDefaultPSP(c.K0sVars)
 		if err != nil {
-			return fmt.Errorf("failed to initialize default PSP reconciler: %s", err.Error())
+			return nil, fmt.Errorf("failed to initialize default PSP reconciler: %s", err.Error())
 		}
-		reconcilers["default-psp"] = defaultPSP
+		reconcilers.Add(defaultPSP)
 	}
 
 	if !stringslice.Contains(c.DisableComponents, constant.KubeProxyComponentName) {
 		proxy, err := controller.NewKubeProxy(c.CfgFile, c.K0sVars, c.NodeConfig)
 		if err != nil {
-			return fmt.Errorf("failed to initialize kube-proxy reconciler: %s", err.Error())
+			return nil, fmt.Errorf("failed to initialize kube-proxy reconciler: %s", err.Error())
 
 		}
-		reconcilers["kube-proxy"] = proxy
+		reconcilers.Add(proxy)
 	}
 
 	if !stringslice.Contains(c.DisableComponents, constant.CoreDNSComponentname) {
 		coreDNS, err := controller.NewCoreDNS(c.K0sVars, cf)
 		if err != nil {
-			return fmt.Errorf("failed to initialize CoreDNS reconciler: %s", err.Error())
+			return nil, fmt.Errorf("failed to initialize CoreDNS reconciler: %s", err.Error())
 		}
-		reconcilers["coredns"] = coreDNS
+		reconcilers.Add(coreDNS)
 	}
 
 	if !stringslice.Contains(c.DisableComponents, constant.NetworkProviderComponentName) {
 		logrus.Infof("initializing network reconcilers")
-		if err := c.initCalico(reconcilers); err != nil {
-			logrus.Warnf("failed to initialize network reconciler: %s", err.Error())
+		if calico, err := c.initCalico(); err == nil {
+			reconcilers.Add(calico)
+		} else {
+			logrus.WithError(err).Warn("Failed to create Calico reconciler")
 		}
-		if err := c.initKubeRouter(reconcilers); err != nil {
-			logrus.Warnf("failed to initialize network reconciler: %s", err.Error())
+		if kubeRouter, err := c.initKubeRouter(); err == nil {
+			reconcilers.Add(kubeRouter)
+		} else {
+			logrus.WithError(err).Warn("Failed to create Kube-Router reconciler")
 		}
 	}
 
 	if !stringslice.Contains(c.DisableComponents, constant.MetricsServerComponentName) {
-
 		metricServer, err := controller.NewMetricServer(c.K0sVars, cf)
 		if err != nil {
 			logrus.Warnf("failed to initialize metrics-server reconciler: %s", err.Error())
-			return err
+			return nil, err
 		}
-		reconcilers["metricServer"] = metricServer
+		reconcilers.Add(metricServer)
 	}
 
 	if c.EnableMetricsScraper {
 		metricsSaver, err := controller.NewManifestsSaver("metrics", c.K0sVars.DataDir)
 		if err != nil {
 			logrus.Warnf("failed to initialize metrics manifests saver: %s", err.Error())
-			return err
+			return nil, err
 		}
 		metricServer, err := controller.NewMetrics(c.K0sVars, metricsSaver, cf)
 		if err != nil {
 			logrus.Warnf("failed to initialize metrics reconciler: %s", err.Error())
-			return err
+			return nil, err
 		}
-		reconcilers["metrics"] = metricServer
+		reconcilers.Add(metricServer)
 	}
 
 	if !stringslice.Contains(c.DisableComponents, constant.KubeletConfigComponentName) {
@@ -537,9 +538,9 @@ func (c *CmdOpts) createClusterReconcilers(ctx context.Context, cf kubernetes.Cl
 		kubeletConfig, err := controller.NewKubeletConfig(c.K0sVars, cf)
 		if err != nil {
 			logrus.Warnf("failed to initialize kubelet config reconciler: %s", err.Error())
-			return err
+			return nil, err
 		}
-		reconcilers["kubeletConfig"] = kubeletConfig
+		reconcilers.Add(kubeletConfig)
 	}
 
 	if !stringslice.Contains(c.DisableComponents, constant.SystemRbacComponentName) {
@@ -547,9 +548,9 @@ func (c *CmdOpts) createClusterReconcilers(ctx context.Context, cf kubernetes.Cl
 		systemRBAC, err := controller.NewSystemRBAC(c.K0sVars.ManifestsDir)
 		if err != nil {
 			logrus.Warnf("failed to initialize system RBAC reconciler: %s", err.Error())
-			return err
+			return nil, err
 		}
-		reconcilers["systemRBAC"] = systemRBAC
+		reconcilers.Add(systemRBAC)
 	}
 
 	if !stringslice.Contains(c.DisableComponents, constant.NodeRoleComponentName) {
@@ -557,58 +558,42 @@ func (c *CmdOpts) createClusterReconcilers(ctx context.Context, cf kubernetes.Cl
 		nodeRole, err := controller.NewNodeRole(c.K0sVars, cf)
 		if err != nil {
 			logrus.Warnf("failed to initialize node label reconciler: %s", err.Error())
-			return err
+			return nil, err
 		}
-		reconcilers["roleLabeler"] = nodeRole
+		reconcilers.Add(nodeRole)
 	}
 
-	// Init and add all components to clusterComponents manager
-	for name, comp := range reconcilers {
-		err := comp.Init(ctx)
-		if err != nil {
-			logrus.Infof("failed to initialize %s, component may not work properly: %v", name, err)
-		}
-		logrus.Infof("adding %s as clusterComponent so it'll be reconciled based on config object changes", name)
-		c.ClusterComponents.Add(ctx, comp)
-	}
-	return nil
+	return reconcilers.Build("reconcilers"), nil
 }
 
-func (c *CmdOpts) initCalico(reconcilers map[string]component.Component) error {
-	calicoSaver, err := controller.NewManifestsSaver("calico", c.K0sVars.DataDir)
+func (c *CmdOpts) initCalico() (component.Component, error) {
+	saver, err := controller.NewManifestsSaver("calico", c.K0sVars.DataDir)
 	if err != nil {
-		logrus.Warnf("failed to initialize reconcilers manifests saver: %s", err.Error())
-		return err
+		return nil, err
 	}
-	calicoInitSaver, err := controller.NewManifestsSaver("calico_init", c.K0sVars.DataDir)
+	initSaver, err := controller.NewManifestsSaver("calico_init", c.K0sVars.DataDir)
 	if err != nil {
-		logrus.Warnf("failed to initialize reconcilers manifests saver: %s", err.Error())
-		return err
+		return nil, err
 	}
-	calico, err := controller.NewCalico(c.K0sVars, calicoInitSaver, calicoSaver)
+	calico, err := controller.NewCalico(c.K0sVars, initSaver, saver)
 	if err != nil {
-		logrus.Warnf("failed to initialize calico reconciler: %s", err.Error())
-		return err
+		return nil, err
 	}
-	reconcilers["calico"] = calico
 
-	return nil
+	return calico, nil
 }
 
-func (c *CmdOpts) initKubeRouter(reconcilers map[string]component.Component) error {
-	mfSaver, err := controller.NewManifestsSaver("kuberouter", c.K0sVars.DataDir)
+func (c *CmdOpts) initKubeRouter() (component.Component, error) {
+	saver, err := controller.NewManifestsSaver("kuberouter", c.K0sVars.DataDir)
 	if err != nil {
-		logrus.Warnf("failed to initialize kube-router manifests saver: %s", err.Error())
-		return err
+		return nil, err
 	}
-	kubeRouter, err := controller.NewKubeRouter(c.K0sVars, mfSaver)
+	kubeRouter, err := controller.NewKubeRouter(c.K0sVars, saver)
 	if err != nil {
-		logrus.Warnf("failed to initialize kube-router reconciler: %s", err.Error())
-		return err
+		return nil, err
 	}
-	reconcilers["kube-router"] = kubeRouter
 
-	return nil
+	return kubeRouter, nil
 }
 
 func (c *CmdOpts) startControllerWorker(ctx context.Context, profile string) error {

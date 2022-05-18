@@ -15,33 +15,47 @@ limitations under the License.
 */
 package controller
 
-import "context"
+import (
+	"context"
 
-type DummyLeaderElector struct {
-	Leader    bool
+	"github.com/k0sproject/k0s/pkg/component"
+)
+
+func NoOpLeaderElector() LeaderElector {
+	return &noOpLeader{}
+}
+
+func SingleLeader() interface {
+	LeaderElector
+	component.Component
+} {
+	return &singleLeader{}
+}
+
+type noOpLeader struct{}
+
+func (*noOpLeader) IsLeader() bool                  { return false }
+func (*noOpLeader) AddAcquiredLeaseCallback(func()) {}
+func (*noOpLeader) AddLostLeaseCallback(func())     {}
+
+type singleLeader struct {
+	noOpLeader
+	component.NoOpComponent
+
 	callbacks []func()
 }
 
-func (l *DummyLeaderElector) Init(_ context.Context) error { return nil }
-func (l *DummyLeaderElector) Stop() error                  { return nil }
-func (l *DummyLeaderElector) IsLeader() bool               { return l.Leader }
-func (l *DummyLeaderElector) Reconcile() error             { return nil }
-func (l *DummyLeaderElector) Healthy() error               { return nil }
+func (*singleLeader) IsLeader() bool { return true }
 
-func (l *DummyLeaderElector) AddAcquiredLeaseCallback(fn func()) {
-	l.callbacks = append(l.callbacks, fn)
+func (l *singleLeader) AddAcquiredLeaseCallback(fn func()) {
+	if fn != nil {
+		l.callbacks = append(l.callbacks, fn)
+	}
 }
 
-func (l *DummyLeaderElector) AddLostLeaseCallback(func()) {}
-
-func (l *DummyLeaderElector) Run(_ context.Context) error {
-	if !l.Leader {
-		return nil
-	}
+func (l *singleLeader) Run(_ context.Context) error {
 	for _, fn := range l.callbacks {
-		if fn != nil {
-			fn()
-		}
+		fn()
 	}
 	return nil
 }

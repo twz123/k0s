@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/avast/retry-go"
@@ -309,19 +310,24 @@ func (ec *ExtensionsController) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("can't build controller-runtime controller for helm extensions: %w", err)
 	}
-	if err := retry.Do(func() error {
-		_, err := mgr.GetRESTMapper().RESTMapping(schema.GroupKind{
-			Group: v1beta1.GroupVersion.Group,
-			Kind:  "Chart",
-		})
-		if err != nil {
-			ec.L.Warn("Extensions CRD is not yet ready, waiting before starting ExtensionsController")
-			return err
-		}
-		ec.L.Info("Extensions CRD is ready, going nuts")
-		return nil
-	}, retry.Context(ctx)); err != nil {
-		return fmt.Errorf("can't start ExtensionsReconciler, helm CRD is not registred, check CRD registration reconciler: %w", err)
+	if err := retry.Do(
+		func() error {
+			_, err := mgr.GetRESTMapper().RESTMapping(schema.GroupKind{
+				Group: v1beta1.GroupVersion.Group,
+				Kind:  "Chart",
+			})
+			if err != nil {
+				ec.L.Warn("Extensions CRD is not yet ready, waiting before starting ExtensionsController")
+				return err
+			}
+			ec.L.Info("Extensions CRD is ready, going nuts")
+			return nil
+		},
+		retry.Context(ctx),
+		retry.Attempts(math.MaxUint),
+		retry.LastErrorOnly(true),
+	); err != nil {
+		return fmt.Errorf("can't start ExtensionsReconciler, helm CRD is not registered, check CRD registration reconciler: %w", err)
 	}
 	// examples say to not use GetScheme in production, but it is unclear at the moment
 	// which scheme should be in use

@@ -25,8 +25,6 @@ import (
 	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/k0sproject/k0s/static"
 
-	"github.com/k0sproject/k0s/pkg/component"
-
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -46,12 +44,14 @@ var (
 	getOpts      = v1.GetOptions{TypeMeta: resourceType}
 )
 
+type ReconcileFn func(context.Context, *v1beta1.ClusterConfig) error
+
 // ClusterConfigReconciler reconciles a ClusterConfig object
 type ClusterConfigReconciler struct {
 	YamlConfig        *v1beta1.ClusterConfig
-	ComponentManager  *component.Manager
 	KubeClientFactory kubeutil.ClientFactoryInterface
 
+	reconcile     ReconcileFn
 	configClient  cfgClient.ClusterConfigInterface
 	kubeConfig    string
 	leaderElector LeaderElector
@@ -61,7 +61,7 @@ type ClusterConfigReconciler struct {
 }
 
 // NewClusterConfigReconciler creates a new clusterConfig reconciler
-func NewClusterConfigReconciler(leaderElector LeaderElector, k0sVars constant.CfgVars, mgr *component.Manager, s manifestsSaver, kubeClientFactory kubeutil.ClientFactoryInterface, configSource clusterconfig.ConfigSource) (*ClusterConfigReconciler, error) {
+func NewClusterConfigReconciler(leaderElector LeaderElector, k0sVars constant.CfgVars, reconcile ReconcileFn, s manifestsSaver, kubeClientFactory kubeutil.ClientFactoryInterface, configSource clusterconfig.ConfigSource) (*ClusterConfigReconciler, error) {
 	loadingRules := config.ClientConfigLoadingRules{K0sVars: k0sVars}
 	cfg, err := loadingRules.ParseRuntimeConfig()
 	if err != nil {
@@ -74,9 +74,9 @@ func NewClusterConfigReconciler(leaderElector LeaderElector, k0sVars constant.Cf
 	}
 
 	return &ClusterConfigReconciler{
-		ComponentManager:  mgr,
 		YamlConfig:        cfg,
 		KubeClientFactory: kubeClientFactory,
+		reconcile:         reconcile,
 		kubeConfig:        k0sVars.AdminKubeConfigPath,
 		leaderElector:     leaderElector,
 		log:               logrus.WithFields(logrus.Fields{"component": "clusterConfig-reconciler"}),
@@ -149,7 +149,7 @@ func (r *ClusterConfigReconciler) Run(ctx context.Context) error {
 				if len(errors) > 0 {
 					err = fmt.Errorf("failed to validate config: %v", errors)
 				} else {
-					err = r.ComponentManager.Reconcile(ctx, cfg)
+					err = r.reconcile(ctx, cfg)
 				}
 				r.reportStatus(statusCtx, cfg, err)
 				if err != nil {

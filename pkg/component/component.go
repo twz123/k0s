@@ -72,3 +72,12 @@ type ReconcilerComponent interface {
 	// configuration. Reconcile may only be called after Init and before Stop.
 	Reconcile(context.Context, *v1beta1.ClusterConfig) error
 }
+
+type NoOpComponent struct{}
+
+var _ Component = (*NoOpComponent)(nil)
+
+func (*NoOpComponent) Init(context.Context) error { return nil }
+func (*NoOpComponent) Run(context.Context) error  { return nil }
+func (*NoOpComponent) Healthy() error             { return nil }
+func (*NoOpComponent) Stop() error                { return nil }

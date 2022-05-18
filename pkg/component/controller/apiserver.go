@@ -33,17 +33,16 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/users"
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/assets"
-	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/supervisor"
 )
 
 // APIServer implement the component interface to run kube api
 type APIServer struct {
-	ClusterConfig      *v1beta1.ClusterConfig
-	K0sVars            constant.CfgVars
-	LogLevel           string
-	Storage            component.Component
+	ClusterConfig *v1beta1.ClusterConfig
+	K0sVars       constant.CfgVars
+	LogLevel      string
+	// Storage            component.Component
 	EnableKonnectivity bool
 	gid                int
 	supervisor         supervisor.Supervisor

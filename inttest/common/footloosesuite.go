@@ -592,10 +592,10 @@ func (s *FootlooseSuite) GetKubeConfig(node string, k0sKubeconfigArgs ...string)
 	}
 	defer ssh.Disconnect()
 
-	kubeConfigCmd := fmt.Sprintf("%s kubeconfig admin %s 2>/dev/null", s.K0sFullPath, strings.Join(k0sKubeconfigArgs, " "))
+	kubeConfigCmd := fmt.Sprintf("%s kubeconfig admin %s", s.K0sFullPath, strings.Join(k0sKubeconfigArgs, " "))
 	kubeConf, err := ssh.ExecWithOutput(kubeConfigCmd)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to execute %q: %w: %q", kubeConfigCmd, err, kubeConf)
 	}
 	cfg, err := clientcmd.RESTConfigFromKubeConfig([]byte(kubeConf))
 	s.Require().NoError(err)

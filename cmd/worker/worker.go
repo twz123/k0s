@@ -116,23 +116,23 @@ func (c *CmdOpts) StartWorker(ctx context.Context) error {
 		return err
 	}
 
-	componentManager := component.NewManager()
+	var components component.ManagerBuilder
 	if runtime.GOOS == "windows" && c.CriSocket == "" {
 		return fmt.Errorf("windows worker needs to have external CRI")
 	}
 	if c.CriSocket == "" {
-		componentManager.Add(ctx, &worker.ContainerD{
+		components.Add(&worker.ContainerD{
 			LogLevel: c.Logging["containerd"],
 			K0sVars:  c.K0sVars,
 		})
 	}
 
-	componentManager.Add(ctx, worker.NewOCIBundleReconciler(c.K0sVars))
+	components.Add(worker.NewOCIBundleReconciler(c.K0sVars))
 	if c.WorkerProfile == "default" && runtime.GOOS == "windows" {
 		c.WorkerProfile = "default-windows"
 	}
 
-	componentManager.Add(ctx, &worker.Kubelet{
+	components.Add(&worker.Kubelet{
 		CRISocket:           c.CriSocket,
 		EnableCloudProvider: c.CloudProvider,
 		K0sVars:             c.K0sVars,
@@ -148,12 +148,12 @@ func (c *CmdOpts) StartWorker(ctx context.Context) error {
 		if c.TokenArg == "" {
 			return fmt.Errorf("no join-token given, which is required for windows bootstrap")
 		}
-		componentManager.Add(ctx, &worker.KubeProxy{
+		components.Add(&worker.KubeProxy{
 			K0sVars:   c.K0sVars,
 			LogLevel:  c.Logging["kube-proxy"],
 			CIDRRange: c.CIDRRange,
 		})
-		componentManager.Add(ctx, &worker.CalicoInstaller{
+		components.Add(&worker.CalicoInstaller{
 			Token:      c.TokenArg,
 			APIAddress: c.APIServer,
 			CIDRRange:  c.CIDRRange,
@@ -162,7 +162,7 @@ func (c *CmdOpts) StartWorker(ctx context.Context) error {
 	}
 
 	if !c.SingleNode && !c.EnableWorker {
-		componentManager.Add(ctx, &status.Status{
+		components.Add(&status.Status{
 			StatusInformation: install.K0sStatus{
 				Pid:           os.Getpid(),
 				Role:          "worker",
@@ -176,13 +176,16 @@ func (c *CmdOpts) StartWorker(ctx context.Context) error {
 			Socket: config.StatusSocket,
 		})
 	}
+
+	workerManager := components.Build("workerManager")
+
 	// extract needed components
-	if err := componentManager.Init(ctx); err != nil {
+	if err := workerManager.Init(ctx); err != nil {
 		return err
 	}
 
 	worker.KernelSetup()
-	err = componentManager.Start(ctx)
+	err = workerManager.Run(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to start worker components: %w", err)
 	}
@@ -191,8 +194,8 @@ func (c *CmdOpts) StartWorker(ctx context.Context) error {
 	logrus.Info("Shutting down k0s worker")
 
 	// Stop components
-	if err := componentManager.Stop(); err != nil {
-		logrus.WithError(err).Error("error while stoping component manager")
+	if err := workerManager.Stop(); err != nil {
+		logrus.WithError(err).Error("error while stoping worker components")
 	}
 	return nil
 }

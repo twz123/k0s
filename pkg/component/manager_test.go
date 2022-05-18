@@ -18,12 +18,9 @@ package component
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 type Fake struct {
@@ -31,7 +28,7 @@ type Fake struct {
 	RunErr       error
 	StopErr      error
 	ReconcileErr error
-	HealthyErr   error
+	HealthyFn    func() error
 
 	InitCalled    bool
 	RunCalled     bool
@@ -55,116 +52,175 @@ func (f *Fake) Stop() error {
 func (f *Fake) Reconcile() error { return nil }
 func (f *Fake) Healthy() error {
 	f.HealthyCalled = true
-	return f.HealthyErr
+	if f.HealthyFn != nil {
+		return f.HealthyFn()
+	}
+	return nil
 }
 
 func TestManagerSuccess(t *testing.T) {
-	m := NewManager()
-	require.NotNil(t, m)
+	var components ManagerBuilder
 
-	ctx := context.Background()
 	f1 := &Fake{}
-	m.Add(ctx, f1)
-
 	f2 := &Fake{}
-	m.Add(ctx, f2)
 
-	require.NoError(t, m.Init(ctx))
-	require.True(t, f1.InitCalled)
-	require.True(t, f2.InitCalled)
+	components.Add(f1)
+	components.Add(f2)
 
-	require.NoError(t, m.Start(ctx))
-	require.True(t, f1.RunCalled)
-	require.True(t, f2.RunCalled)
-	require.True(t, f1.HealthyCalled)
-	require.True(t, f2.HealthyCalled)
+	underTest := components.Build("underTest")
+	err := underTest.Init(context.Background())
 
-	require.NoError(t, m.Stop())
-	require.True(t, f1.StopCalled)
-	require.True(t, f2.StopCalled)
+	assert := assert.New(t)
+	assert.NoError(err)
+	assert.True(f1.InitCalled)
+	assert.True(f2.InitCalled)
+
+	err = underTest.Run(context.Background())
+
+	assert.NoError(err)
+	assert.True(f1.RunCalled)
+	assert.True(f2.RunCalled)
+	assert.True(f1.HealthyCalled)
+	assert.True(f2.HealthyCalled)
+
+	err = underTest.Stop()
+
+	assert.NoError(err)
+	assert.True(f1.StopCalled)
+	assert.True(f2.StopCalled)
 }
 
 func TestManagerInitFail(t *testing.T) {
-	m := NewManager()
-	require.NotNil(t, m)
+	var components ManagerBuilder
 
-	ctx := context.Background()
-	f1 := &Fake{
-		InitErr: fmt.Errorf("failed"),
+	f1 := &Fake{InitErr: assert.AnError}
+	f2 := &Fake{InitErr: assert.AnError}
+
+	components.Add(f1)
+	components.Add(f2)
+
+	underTest := components.Build("underTest")
+	err := underTest.Init(context.Background())
+
+	if assert.Error(t, err) {
+		var componentErr *Error
+		if assert.True(t, errors.As(err, &componentErr), "expected a component.Error, got %v", err) {
+			assert.Condition(t, func() bool {
+				// Init runs concurrently, so both components may win the race
+				return componentErr.Component == f1 || componentErr.Component == f2
+			}, "expected component to be either f1 or f2")
+			assert.Same(t, assert.AnError, componentErr.Err)
+		}
 	}
-	m.Add(ctx, f1)
 
-	f2 := &Fake{}
-	m.Add(ctx, f2)
-
-	require.Error(t, m.Init(ctx))
-
-	// all init should be called even if any fails
-	require.True(t, f1.InitCalled)
-	require.True(t, f2.InitCalled)
-}
-
-func TestManagerRunFail(t *testing.T) {
-	m := NewManager()
-	require.NotNil(t, m)
-
-	ctx := context.Background()
-
-	f1 := &Fake{}
-	m.Add(ctx, f1)
-
-	f2 := &Fake{
-		RunErr: fmt.Errorf("failed"),
-	}
-	m.Add(ctx, f2)
-
-	f3 := &Fake{}
-	m.Add(ctx, f3)
-
-	require.Error(t, m.Start(ctx))
-	require.True(t, f1.RunCalled)
-	require.True(t, f2.RunCalled)
-	require.False(t, f3.RunCalled)
-
-	require.True(t, f1.HealthyCalled)
-	require.False(t, f2.HealthyCalled)
-	require.False(t, f3.HealthyCalled)
-
-	require.True(t, f1.StopCalled)
-	require.False(t, f2.StopCalled)
-	require.False(t, f3.StopCalled)
+	// all stops should be called when a single init fails
+	assert.True(t, f1.StopCalled)
+	assert.True(t, f2.StopCalled)
 }
 
 func TestManagerHealthyFail(t *testing.T) {
-	m := NewManager()
-	require.NotNil(t, m)
-	m.HealthyTimeout = 1 * time.Millisecond
-
-	ctx := context.Background()
+	var components ManagerBuilder
 
 	f1 := &Fake{}
-	m.Add(ctx, f1)
+	f2 := &Fake{HealthyFn: func() error { return assert.AnError }}
 
-	f2 := &Fake{
-		HealthyErr: fmt.Errorf("failed"),
+	components.Add(f1)
+	components.Add(f2)
+
+	underTest := components.Build("underTest")
+	err := underTest.Healthy()
+
+	if assert.Error(t, err) {
+		var componentErr *Error
+		if assert.True(t, errors.As(err, &componentErr), "expected a component.Error, got %v", err) {
+			assert.Same(t, f2, componentErr.Component)
+			assert.Same(t, assert.AnError, componentErr.Err)
+		}
 	}
-	m.Add(ctx, f2)
 
+	// no stops should be called when health checks fail
+	assert.False(t, f1.StopCalled)
+	assert.False(t, f2.StopCalled)
+}
+
+func TestManagerRunFail(t *testing.T) {
+	var components ManagerBuilder
+
+	f1 := &Fake{}
+	f2 := &Fake{RunErr: assert.AnError}
 	f3 := &Fake{}
-	m.Add(ctx, f3)
 
-	require.Error(t, m.Start(ctx))
-	require.True(t, f1.RunCalled)
-	require.True(t, f2.RunCalled)
-	require.False(t, f3.RunCalled)
+	components.Add(f1)
+	components.Add(f2)
+	components.Add(f3)
 
-	require.True(t, f1.HealthyCalled)
-	require.True(t, f2.HealthyCalled)
-	require.False(t, f3.HealthyCalled)
+	underTest := components.Build("underTest")
+	err := underTest.Run(context.Background())
 
-	require.True(t, f1.StopCalled)
-	require.True(t, f2.StopCalled)
-	require.False(t, f3.StopCalled)
+	if assert.Error(t, err) {
+		var componentErr *Error
+		if assert.True(t, errors.As(err, &componentErr), "expected a component.Error") {
+			assert.Same(t, f2, componentErr.Component)
+			assert.Contains(t, componentErr.Err.Error(), "failed to run: ")
+			assert.Same(t, assert.AnError, errors.Unwrap(componentErr.Err))
+		}
+	}
+
+	assert := assert.New(t)
+	assert.True(f1.RunCalled)
+	assert.True(f2.RunCalled)
+	assert.False(f3.RunCalled)
+
+	assert.True(f1.HealthyCalled)
+	assert.False(f2.HealthyCalled)
+	assert.False(f3.HealthyCalled)
+
+	assert.True(f1.StopCalled)
+	assert.True(f2.StopCalled)
+	assert.True(f3.StopCalled)
+}
+
+func TestManagerRunHealthyFail(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var components ManagerBuilder
+
+	f1 := &Fake{}
+	f2 := &Fake{
+		HealthyFn: func() error {
+			cancel()
+			return assert.AnError
+		},
+	}
+	f3 := &Fake{}
+
+	components.Add(f1)
+	components.Add(f2)
+	components.Add(f3)
+
+	underTest := components.Build("underTest")
+	err := underTest.Run(ctx)
+
+	if assert.Error(t, err) {
+		var componentErr *Error
+		if assert.True(t, errors.As(err, &componentErr), "expected a component.Error, got %v", err) {
+			assert.Equal(t, f2, componentErr.Component)
+			assert.Contains(t, componentErr.Err.Error(), "unhealthy: ")
+			assert.Same(t, assert.AnError, errors.Unwrap(componentErr.Err))
+		}
+	}
+
+	assert := assert.New(t)
+	assert.True(f1.RunCalled)
+	assert.True(f2.RunCalled)
+	assert.False(f3.RunCalled)
+
+	assert.True(f1.HealthyCalled)
+	assert.True(f2.HealthyCalled)
+	assert.False(f3.HealthyCalled)
+
+	assert.True(f1.StopCalled)
+	assert.True(f2.StopCalled)
+	assert.True(f3.StopCalled)
 }
 
 func TestError(t *testing.T) {
