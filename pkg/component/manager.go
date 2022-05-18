@@ -20,12 +20,13 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/performance"
+
 	"github.com/sirupsen/logrus"
+	"go.uber.org/multierr"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -52,7 +53,7 @@ func (m *Manager) Add(ctx context.Context, component Component) {
 	m.Components = append(m.Components, component)
 	if isReconcileComponent(component) && m.lastReconciledConfig != nil {
 		if err := m.reconcileComponent(ctx, component, m.lastReconciledConfig); err != nil {
-			logrus.Warnf("component reconciler failed: %v", err)
+			logrus.WithError(err).Warn("component reconciler failed")
 		}
 	}
 }
@@ -62,12 +63,14 @@ func (m *Manager) Init(ctx context.Context) error {
 	g, _ := errgroup.WithContext(ctx)
 
 	for _, comp := range m.Components {
-		compName := reflect.TypeOf(comp).Elem().Name()
-		logrus.Infof("initializing %v", compName)
+		logrus.Info("initializing ", componentName(comp))
 		c := comp
 		// init this async
 		g.Go(func() error {
-			return c.Init(ctx)
+			if err := c.Init(ctx); err != nil {
+				return &Error{c, err}
+			}
+			return nil
 		})
 	}
 	err := g.Wait()
@@ -78,18 +81,18 @@ func (m *Manager) Init(ctx context.Context) error {
 func (m *Manager) Start(ctx context.Context) error {
 	perfTimer := performance.NewTimer("component-start").Buffer().Start()
 	for _, comp := range m.Components {
-		compName := reflect.TypeOf(comp).Elem().Name()
+		compName := componentName(comp)
 		perfTimer.Checkpoint(fmt.Sprintf("running-%s", compName))
-		logrus.Infof("starting %v", compName)
+		logrus.Info("starting ", compName)
 		if err := comp.Run(ctx); err != nil {
 			_ = m.Stop()
-			return err
+			return &Error{comp, fmt.Errorf("failed to run: %w", err)}
 		}
 		m.started.PushFront(comp)
 		perfTimer.Checkpoint(fmt.Sprintf("running-%s-done", compName))
 		if err := waitForHealthy(ctx, comp, compName, m.HealthyTimeout); err != nil {
 			_ = m.Stop()
-			return err
+			return &Error{comp, fmt.Errorf("unhealthy: %w", err)}
 		}
 	}
 	perfTimer.Output()
@@ -98,72 +101,53 @@ func (m *Manager) Start(ctx context.Context) error {
 
 // Stop stops all managed components
 func (m *Manager) Stop() error {
-	var ret error
+	var errs []error
 	var next *list.Element
 
 	for e := m.started.Front(); e != nil; e = next {
 		component := e.Value.(Component)
-		name := reflect.TypeOf(component).Elem().Name()
 
 		if err := component.Stop(); err != nil {
-			logrus.Errorf("failed to stop component %s: %s", name, err.Error())
-			if ret == nil {
-				ret = fmt.Errorf("failed to stop components")
-			}
+			errs = append(errs, &Error{component, err})
 		} else {
-			logrus.Infof("stopped component %s", name)
+			logrus.Info("stopped component ", componentName(component))
 		}
 
 		next = e.Next()
 		m.started.Remove(e)
 	}
-	return ret
-}
 
-// ReconcileError is just a wrapper for possible many errors
-type ReconcileError struct {
-	Errors []error
-}
-
-// Error returns the stringified error message
-func (r ReconcileError) Error() string {
-	messages := make([]string, len(r.Errors))
-	for i, e := range r.Errors {
-		messages[i] = e.Error()
-	}
-	return strings.Join(messages, "\n")
+	return multierr.Combine(errs...)
 }
 
 // Reconcile reconciles all managed components
 func (m *Manager) Reconcile(ctx context.Context, cfg *v1beta1.ClusterConfig) error {
-	errors := make([]error, 0)
-	var ret error
+	var errs []error
 	logrus.Infof("starting component reconciling for %d components", len(m.Components))
 	for _, component := range m.Components {
 		if err := m.reconcileComponent(ctx, component, cfg); err != nil {
-			errors = append(errors, err)
+			errs = append(errs, &Error{component, err})
 		}
 	}
 	m.lastReconciledConfig = cfg
-	if len(errors) > 0 {
-		ret = ReconcileError{
-			Errors: errors,
-		}
+
+	if len(errs) > 0 {
+		logrus.Debug("all components reconciled")
 	}
-	logrus.Debugf("all component reconciled, result: %v", ret)
-	return ret
+
+	return multierr.Combine(errs...)
 }
 
 func (m *Manager) reconcileComponent(ctx context.Context, component Component, cfg *v1beta1.ClusterConfig) error {
 	clusterComponent, ok := component.(ReconcilerComponent)
-	compName := reflect.TypeOf(component).String()
+	compName := componentName(component)
 	if !ok {
 		logrus.Debugf("%s does not implement the ReconcileComponent interface --> not reconciling it", compName)
 		return nil
 	}
 	logrus.Infof("starting to reconcile %s", compName)
 	if err := clusterComponent.Reconcile(ctx, cfg); err != nil {
-		logrus.Errorf("failed to reconcile component %s: %s", compName, err.Error())
+		logrus.WithError(err).Errorf("failed to reconcile component %s", compName)
 		return err
 	}
 	return nil
@@ -186,7 +170,7 @@ func waitForHealthy(ctx context.Context, comp Component, name string, timeout ti
 	for {
 		logrus.Debugf("checking %s for health", name)
 		if err := comp.Healthy(); err != nil {
-			logrus.Debugf("health-check: %s not yet healthy: %v", name, err)
+			logrus.WithError(err).Debugf("health-check: %s not yet healthy", name)
 		} else {
 			return nil
 		}
@@ -198,4 +182,26 @@ func waitForHealthy(ctx context.Context, comp Component, name string, timeout ti
 			return fmt.Errorf("%s health-check timed out", name)
 		}
 	}
+}
+
+func componentName(component Component) string {
+	return reflect.TypeOf(component).Elem().Name()
+}
+
+type Error struct {
+	Component Component
+	Err       error
+}
+
+func (e *Error) Error() string {
+	var name any
+	if e.Component != nil {
+		name = componentName(e.Component)
+	}
+
+	return fmt.Sprintf("%v: %s", name, e.Err.Error())
+}
+
+func (e *Error) Unwrap() error {
+	return e.Err
 }

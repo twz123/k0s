@@ -17,10 +17,12 @@ package component
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -163,4 +165,18 @@ func TestManagerHealthyFail(t *testing.T) {
 	require.True(t, f1.StopCalled)
 	require.True(t, f2.StopCalled)
 	require.False(t, f3.StopCalled)
+}
+
+func TestError(t *testing.T) {
+	innerErr := errors.New("inner")
+
+	var err error = &Error{nil, innerErr}
+
+	t.Run("Error", func(t *testing.T) {
+		assert.Equal(t, "<nil>: inner", err.Error())
+	})
+
+	t.Run("Unwrap", func(t *testing.T) {
+		assert.Same(t, innerErr, errors.Unwrap(err))
+	})
 }
