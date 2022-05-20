@@ -37,20 +37,16 @@ func NewStaticSource(staticConfig *v1beta1.ClusterConfig) (ConfigSource, error) 
 	}, nil
 }
 
-func (s *staticSource) Release(_ context.Context) error {
+func (s *staticSource) Release(context.Context) {
 	logrus.WithField("component", "static-config-source").Debug("sending static config via channel")
 	s.resultChan <- s.staticConfig
-	return nil
 }
 
 func (s *staticSource) ResultChan() <-chan *v1beta1.ClusterConfig {
 	return s.resultChan
 }
 
-func (s *staticSource) Stop() error {
-	// Nothing to stop
-	return nil
-}
+func (*staticSource) Stop() {}
 
 func (s *staticSource) NeedToStoreInitialConfig() bool {
 	return false

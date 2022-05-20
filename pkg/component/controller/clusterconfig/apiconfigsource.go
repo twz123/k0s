@@ -49,7 +49,7 @@ func NewAPIConfigSource(kubeClientFactory kubeutil.ClientFactoryInterface) (Conf
 	return a, nil
 }
 
-func (a *apiConfigSource) Release(ctx context.Context) error {
+func (a *apiConfigSource) Release(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
@@ -65,18 +65,16 @@ func (a *apiConfigSource) Release(ctx context.Context) error {
 			}
 		}
 	}()
-	return nil
 }
 
 func (a *apiConfigSource) ResultChan() <-chan *v1beta1.ClusterConfig {
 	return a.resultChan
 }
 
-func (a apiConfigSource) Stop() error {
+func (a apiConfigSource) Stop() {
 	if a.resultChan != nil {
 		close(a.resultChan)
 	}
-	return nil
 }
 
 func (a *apiConfigSource) NeedToStoreInitialConfig() bool {
