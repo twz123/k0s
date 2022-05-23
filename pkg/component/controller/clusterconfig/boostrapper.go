@@ -13,13 +13,14 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-package controller
+package clusterconfig
 
 import (
 	"context"
 	"fmt"
 	"time"
 
+	"github.com/k0sproject/k0s/internal/pkg/file"
 	k0sclient "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/clientset/typed/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/component"
@@ -34,39 +35,39 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type clusterConfigBootstrapper struct {
+type bootstrapper struct {
 	log logrus.FieldLogger
 
 	k0sVars      constant.CfgVars
 	configClient k0sclient.ClusterConfigInterface
 	isLeader     func() bool
-	saver        manifestsSaver
+	manifestDir  file.Sink
 }
 
-// NewClusterConfigBootstrapper unpacks k0s's CRD manifests and ensures that the
-// global cluster config object exists, creating it from the local configuration
-// if it doesn't exist already.
-func NewClusterConfigBootstrapper(
+// NewBootstrapper returns a component that unpacks k0s's CRD manifests and
+// ensures that the global cluster config object exists, creating it from the
+// local configuration if it doesn't exist already.
+func NewBootstrapper(
 	k0sVars constant.CfgVars,
 	configClient k0sclient.ClusterConfigInterface,
 	isLeader func() bool,
-	saver manifestsSaver,
+	manifestDir file.Sink,
 ) component.Component {
-	return &clusterConfigBootstrapper{
-		log: logrus.WithFields(logrus.Fields{"component": "cluster_config_bootstrapper"}),
+	return &bootstrapper{
+		log: logrus.WithFields(logrus.Fields{"component": "clusterconfig_bootstrapper"}),
 
 		k0sVars:      k0sVars,
 		configClient: configClient,
 		isLeader:     isLeader,
-		saver:        saver,
+		manifestDir:  manifestDir,
 	}
 }
 
-func (b *clusterConfigBootstrapper) Init(context.Context) error {
+func (b *bootstrapper) Init(context.Context) error {
 	return b.unpackCRDs()
 }
 
-func (b *clusterConfigBootstrapper) Run(ctx context.Context) error {
+func (b *bootstrapper) Run(ctx context.Context) error {
 	err := b.bootstrapConfigObject(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to bootstrap cluster config object: %v", err)
@@ -75,10 +76,10 @@ func (b *clusterConfigBootstrapper) Run(ctx context.Context) error {
 	return err
 }
 
-func (*clusterConfigBootstrapper) Healthy() error { return nil }
-func (*clusterConfigBootstrapper) Stop() error    { return nil }
+func (*bootstrapper) Healthy() error { return nil }
+func (*bootstrapper) Stop() error    { return nil }
 
-func (b *clusterConfigBootstrapper) unpackCRDs() error {
+func (b *bootstrapper) unpackCRDs() error {
 	const manifestDir = "manifests/v1beta1/CustomResourceDefinition"
 
 	manifestNames, err := static.AssetDir(manifestDir)
@@ -91,7 +92,7 @@ func (b *clusterConfigBootstrapper) unpackCRDs() error {
 		if err != nil {
 			return fmt.Errorf("failed to load CRD manifest %q: %w", manifestName, err)
 		}
-		err = b.saver.Save(manifestName, content)
+		err = b.manifestDir.Save(manifestName, content)
 		if err != nil {
 			return fmt.Errorf("failed to save CRD manifest %q: %w", manifestName, err)
 		}
@@ -100,7 +101,7 @@ func (b *clusterConfigBootstrapper) unpackCRDs() error {
 	return nil
 }
 
-func (b *clusterConfigBootstrapper) bootstrapConfigObject(ctx context.Context) error {
+func (b *bootstrapper) bootstrapConfigObject(ctx context.Context) error {
 	var localConfig *v1beta1.ClusterConfig
 
 	// We need to wait until we either verified the existence of the cluster config object, or we succeed in creating it.
