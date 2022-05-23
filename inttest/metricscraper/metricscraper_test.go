@@ -34,7 +34,7 @@ type MetricScraperSuite struct {
 }
 
 func (s *MetricScraperSuite) TestK0sGetsUp() {
-	s.NoError(s.InitController(0, "--single", "--enable-metrics-scraper"))
+	s.NoError(s.InitController(0, "--single", "--debug", "--enable-metrics-scraper"))
 
 	kc, err := s.KubeClient(s.ControllerNode(0))
 	s.Require().NoError(err)
