@@ -18,17 +18,23 @@ package clusterconfig
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
+	"github.com/k0sproject/k0s/pkg/component"
+	"go.uber.org/multierr"
 )
 
-type ConfigSource interface {
-	// Release allows the config source to start sending config updates
-	Release(context.Context)
-	// ResultChan provides the result channel where config updates are pushed by the source on it is released
-	ResultChan() <-chan *v1beta1.ClusterConfig
-	// Stop stops sending config events
-	Stop()
-	// NeedToStoreInitialConfig tells the configsource user if the initial config should be stored in the api or not
-	NeedToStoreInitialConfig() bool
+// EnsureValid reconciles its receiver, forwarding only valid cluster
+// configurations to it. Any invalid cluster configurations will be rejected by
+// returning an error and not forwarded to the receiver.
+func EnsureValid(receiver component.Reconcilable) component.ReconcileFn {
+	return func(ctx context.Context, config *v1beta1.ClusterConfig) error {
+		err := multierr.Combine(config.Validate()...)
+		if err != nil {
+			return fmt.Errorf("failed to validate config: %w", err)
+		}
+
+		return receiver.Reconcile(ctx, config)
+	}
 }

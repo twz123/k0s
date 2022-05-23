@@ -18,80 +18,123 @@ package clusterconfig
 
 import (
 	"context"
+	"errors"
+	"sync"
+	"sync/atomic"
 	"time"
 
-	cfgClient "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/clientset/typed/k0s.k0sproject.io/v1beta1"
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
+	k0sclient "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/clientset/typed/k0s.k0sproject.io/v1beta1"
+	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/constant"
-	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"github.com/sirupsen/logrus"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var _ ConfigSource = (*apiConfigSource)(nil)
-
 type apiConfigSource struct {
-	configClient cfgClient.ClusterConfigInterface
-	resultChan   chan *v1beta1.ClusterConfig
+	log logrus.FieldLogger
 
-	lastKnownVersion string
+	configClient k0sclient.ClusterConfigInterface
+	receiver     component.Reconcilable
+
+	wg                    sync.WaitGroup
+	cancel                context.CancelFunc
+	lastOutcome           atomic.Value
+	lastReconciledVersion string
 }
 
-func NewAPIConfigSource(kubeClientFactory kubeutil.ClientFactoryInterface) (ConfigSource, error) {
-	configClient, err := kubeClientFactory.GetConfigClient()
-	if err != nil {
-		return nil, err
-	}
-	a := &apiConfigSource{
+// NewAPIConfigSource returns a component that polls the API server periodically
+// for changes to the global cluster config object and, if it changed,
+// reconciles its receiver with it.
+func NewAPIConfigSource(configClient k0sclient.ClusterConfigInterface, receiver component.Reconcilable) component.Component {
+	return &apiConfigSource{
+		log: logrus.WithField("component", "api_config_source"),
+
 		configClient: configClient,
-		resultChan:   make(chan *v1beta1.ClusterConfig),
+		receiver:     receiver,
 	}
-	return a, nil
 }
 
-func (a *apiConfigSource) Release(ctx context.Context) {
+func (*apiConfigSource) Init(context.Context) error { return nil }
+
+func (a *apiConfigSource) Run(context.Context) (err error) {
+	if a.cancel != nil {
+		return errors.New("already running")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	a.cancel = cancel
+
+	a.wg.Add(1)
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
+		defer func() {
+			ticker.Stop()
+			a.wg.Done()
+		}()
+
 		for {
 			select {
 			case <-ticker.C:
-				err := a.getAndSendConfig(ctx)
-				if err != nil {
-					logrus.Errorf("failed to source and propagate cluster config: %v", err)
-				}
+				a.pollAndReconcile(ctx)
+
 			case <-ctx.Done():
 				return
 			}
 		}
 	}()
-}
-
-func (a *apiConfigSource) ResultChan() <-chan *v1beta1.ClusterConfig {
-	return a.resultChan
-}
-
-func (a apiConfigSource) Stop() {
-	if a.resultChan != nil {
-		close(a.resultChan)
-	}
-}
-
-func (a *apiConfigSource) NeedToStoreInitialConfig() bool {
-	return true
-}
-
-func (a *apiConfigSource) getAndSendConfig(ctx context.Context) error {
-	cfg, err := a.configClient.Get(ctx, constant.ClusterConfigObjectName, v1.GetOptions{})
-	if err != nil {
-		return err
-	}
-	// Push changes only when the config actually changes
-	if a.lastKnownVersion == cfg.ResourceVersion {
-		return nil
-	}
-	a.lastKnownVersion = cfg.ResourceVersion
-	a.resultChan <- cfg
 
 	return nil
+}
+
+func (a *apiConfigSource) Healthy() error {
+	errPtr := a.lastOutcome.Load()
+	if errPtr == nil {
+		return errors.New("not yet reconciled")
+	}
+	return *errPtr.(*error)
+}
+
+func (a *apiConfigSource) Stop() error {
+	cancel := a.cancel
+	if cancel != nil {
+		cancel()
+	}
+
+	a.wg.Wait()
+	return nil
+}
+
+func (a *apiConfigSource) pollAndReconcile(ctx context.Context) {
+	// Poll the cluster config
+	timeout, cancelTimeout := context.WithTimeout(ctx, 10*time.Second)
+	cfg, err := a.configClient.Get(timeout, constant.ClusterConfigObjectName, metav1.GetOptions{})
+	cancelTimeout()
+	if err != nil {
+		a.log.WithError(err).Errorf(
+			"Failed to poll for changes to global cluster config, last reconciled version is %q",
+			a.lastReconciledVersion,
+		)
+		a.lastOutcome.Store(&err)
+		return
+	}
+
+	currentVersion := cfg.ResourceVersion
+
+	// Push changes only when the config actually changes
+	if a.lastReconciledVersion == currentVersion {
+		return
+	}
+
+	err = a.receiver.Reconcile(ctx, cfg)
+	if err == nil {
+		a.log.Debugf(
+			"Successfully reconciled global cluster config from version %q to %q",
+			a.lastReconciledVersion, currentVersion,
+		)
+
+		a.lastReconciledVersion = currentVersion
+	}
+	a.lastOutcome.Store(&err)
 }

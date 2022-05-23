@@ -22,6 +22,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/k0sproject/k0s/inttest/common"
@@ -79,21 +81,24 @@ func (s *ConfigSuite) TestK0sGetsUp() {
 
 	s.T().Run("changing cni should fail", func(t *testing.T) {
 		originalConfig, err := cfgClient.Get(context.Background(), "k0s", metav1.GetOptions{})
-		s.NoError(err)
+		assert.NoError(t, err)
 		newConfig := originalConfig.DeepCopy()
 		newConfig.Spec.Network.Provider = constant.CNIProviderCalico
 		newConfig.Spec.Network.Calico = v1beta1.DefaultCalico()
 		newConfig.Spec.Network.KubeRouter = nil
-		_, err = cfgClient.Update(context.Background(), newConfig, metav1.UpdateOptions{})
-		s.NoError(err)
+		updatedConfig, err := cfgClient.Update(context.Background(), newConfig, metav1.UpdateOptions{})
+		require.NoError(t, err)
+		t.Log("Updated cluster config, resource version is", updatedConfig.ResourceVersion)
 
 		// Check that we see proper event for failed reconcile
 		event, err := s.waitForReconcileEvent(eventWatch)
-		s.NoError(err)
+		require.NoError(t, err)
 
-		s.Equal("Warning", event.Type)
-		s.Equal("FailedReconciling", event.Reason)
-		s.Equal("cannot change CNI provider from kuberouter to calico", event.Message)
+		t.Logf("the event is %+v", event)
+		assert.Equal(t, updatedConfig.ResourceVersion, event.InvolvedObject.ResourceVersion)
+		assert.Equal(t, "Warning", event.Type)
+		assert.Equal(t, "FailedReconciling", event.Reason)
+		assert.Equal(t, "cannot change CNI provider from kuberouter to calico", event.Message)
 	})
 
 	s.T().Run("setting bad ip address should fail", func(t *testing.T) {
@@ -102,21 +107,24 @@ func (s *ConfigSuite) TestK0sGetsUp() {
 		newConfig := originalConfig.DeepCopy()
 		newConfig.Spec.Network = v1beta1.DefaultNetwork()
 		newConfig.Spec.Network.PodCIDR = "invalid ip address"
-		_, err = cfgClient.Update(context.Background(), newConfig, metav1.UpdateOptions{})
-		s.NoError(err)
+		updatedConfig, err := cfgClient.Update(context.Background(), newConfig, metav1.UpdateOptions{})
+		require.NoError(t, err)
+		t.Log("Updated cluster config, resource version is", updatedConfig.ResourceVersion)
 
 		// Check that we see proper event for failed reconcile
 		event, err := s.waitForReconcileEvent(eventWatch)
-		s.NoError(err)
+		require.NoError(t, err)
 
-		s.T().Logf("the event is %+v", event)
-		s.Equal("Warning", event.Type)
-		s.Equal("FailedReconciling", event.Reason)
+		t.Logf("the event is %+v", event)
+		assert.Equal(t, updatedConfig.ResourceVersion, event.InvolvedObject.ResourceVersion)
+		assert.Equal(t, "Warning", event.Type)
+		assert.Equal(t, "FailedReconciling", event.Reason)
+		assert.Equal(t, "failed to validate config: invalid pod CIDR invalid ip address", event.Message)
 	})
 
 	s.T().Run("changing kuberouter MTU should work", func(t *testing.T) {
 		originalConfig, err := cfgClient.Get(context.Background(), "k0s", metav1.GetOptions{})
-		s.NoError(err)
+		assert.NoError(t, err)
 		newConfig := originalConfig.DeepCopy()
 		newConfig.Spec.Network = v1beta1.DefaultNetwork()
 		newConfig.Spec.Network.KubeRouter.AutoMTU = false
@@ -126,15 +134,21 @@ func (s *ConfigSuite) TestK0sGetsUp() {
 		cml, err := kc.CoreV1().ConfigMaps("kube-system").List(context.Background(), metav1.ListOptions{
 			FieldSelector: fields.OneTermEqualSelector("metadata.name", "kube-router-cfg").String(),
 		})
-		s.NoError(err)
+		assert.NoError(t, err)
 
-		_, err = cfgClient.Update(context.Background(), newConfig, metav1.UpdateOptions{})
-		s.NoError(err)
+		updatedConfig, err := cfgClient.Update(context.Background(), newConfig, metav1.UpdateOptions{})
+		require.NoError(t, err)
+		t.Log("Updated cluster config, resource version is", updatedConfig.ResourceVersion)
+
 		event, err := s.waitForReconcileEvent(eventWatch)
-		s.NoError(err)
+		require.NoError(t, err)
 
-		s.Equal("Normal", event.Type)
-		s.Equal("SuccessfulReconcile", event.Reason)
+		t.Logf("the event is %+v", event)
+		assert.Equal(t, updatedConfig.ResourceVersion, event.InvolvedObject.ResourceVersion)
+		assert.Equal(t, "Normal", event.Type)
+		assert.Equal(t, "SuccessfulReconcile", event.Reason)
+		assert.Equal(t, "successfully reconciled cluster config", event.Message)
+
 		// Verify MTU setting have been propagated properly
 		// It takes a while to actually apply the changes through stack applier
 		// Start the watch only from last version so we only get changed cm(s) and not the original one
@@ -142,15 +156,15 @@ func (s *ConfigSuite) TestK0sGetsUp() {
 			FieldSelector:   fields.OneTermEqualSelector("metadata.name", "kube-router-cfg").String(),
 			ResourceVersion: cml.ResourceVersion,
 		})
-		s.NoError(err)
+		require.NoError(t, err)
 		defer w.Stop()
 		timeout := time.After(20 * time.Second)
 		select {
 		case e := <-w.ResultChan():
 			cm := e.Object.(*v1.ConfigMap)
 			cniConf := cm.Data["cni-conf.json"]
-			s.Contains(cniConf, `"mtu": 1300`)
-			s.Contains(cniConf, `"auto-mtu": false`)
+			assert.Contains(t, cniConf, `"mtu": 1300`)
+			assert.Contains(t, cniConf, `"auto-mtu": false`)
 		case <-timeout:
 			t.FailNow()
 		}

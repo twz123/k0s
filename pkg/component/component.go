@@ -67,8 +67,18 @@ type Component interface {
 //                                           ╰――――(Stop)――╯
 type ReconcilerComponent interface {
 	Component
+	Reconcilable
+}
 
+type Reconcilable interface {
 	// Reconcile aligns the actual state of this component with the desired cluster
 	// configuration. Reconcile may only be called after Init and before Stop.
 	Reconcile(context.Context, *v1beta1.ClusterConfig) error
+}
+
+// ReconcileFn wraps a func inside a Reconcilable.
+type ReconcileFn func(context.Context, *v1beta1.ClusterConfig) error
+
+func (fn ReconcileFn) Reconcile(ctx context.Context, config *v1beta1.ClusterConfig) error {
+	return fn(ctx, config)
 }
