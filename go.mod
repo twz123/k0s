@@ -65,7 +65,7 @@ require (
 	k8s.io/kube-aggregator v0.24.0
 	k8s.io/kubectl v0.24.0
 	k8s.io/kubelet v0.24.0
-	k8s.io/mount-utils v0.24.0
+	k8s.io/mount-utils v0.24.1
 	k8s.io/utils v0.0.0-20220210201930-3a6ce19ff2f9
 )
 
