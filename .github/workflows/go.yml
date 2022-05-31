@@ -80,6 +80,9 @@ jobs:
           path: |
             build/cache/go/mod
 
+      - name: Fetch tags
+        run: git fetch --tags
+
       - name: Build
         run: make build TARGET_OS='${{ matrix.target }}'
 
