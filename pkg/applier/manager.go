@@ -17,14 +17,17 @@ package applier
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/pkg/component/controller"
 	"github.com/k0sproject/k0s/pkg/constant"
-	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/sirupsen/logrus"
@@ -33,16 +36,15 @@ import (
 // Manager is the Component interface wrapper for Applier
 type Manager struct {
 	K0sVars           constant.CfgVars
-	KubeClientFactory kubeutil.ClientFactoryInterface
+	KubeClientFactory kubernetes.ClientFactoryInterface
 
-	// client               kubernetes.Interface
-	applier       Applier
-	bundlePath    string
-	cancelWatcher context.CancelFunc
+	bundleDir     string
+	cancelWatcher atomic.Value
 	log           *logrus.Entry
-	stacks        map[string]stack
 
+	leaderMu      sync.Mutex
 	LeaderElector controller.LeaderElector
+	stopped       bool
 }
 
 type stack = struct {
@@ -50,117 +52,171 @@ type stack = struct {
 	*StackApplier
 }
 
+type stacks = map[string]stack
+
 // Init initializes the Manager
 func (m *Manager) Init(ctx context.Context) error {
-	err := dir.Init(m.K0sVars.ManifestsDir, constant.ManifestsDirMode)
-	if err != nil {
-		return fmt.Errorf("failed to create manifest bundle dir %s: %w", m.K0sVars.ManifestsDir, err)
-	}
 	m.log = logrus.WithField("component", "applier-manager")
-	m.stacks = make(map[string]stack)
-	m.bundlePath = m.K0sVars.ManifestsDir
 
-	m.applier = NewApplier(m.K0sVars.ManifestsDir, m.KubeClientFactory)
-
-	m.LeaderElector.AddAcquiredLeaseCallback(func() {
-		watcherCtx, cancel := context.WithCancel(ctx)
-		m.cancelWatcher = cancel
-		go func() {
-			_ = m.runWatchers(watcherCtx)
-		}()
-	})
-	m.LeaderElector.AddLostLeaseCallback(func() {
-		if m.cancelWatcher != nil {
-			m.cancelWatcher()
-		}
-	})
+	m.bundleDir = m.K0sVars.ManifestsDir
+	err := dir.Init(m.bundleDir, constant.ManifestsDirMode)
+	if err != nil {
+		return fmt.Errorf("failed to create bundle dir %s: %w", m.bundleDir, err)
+	}
 
 	return err
 }
 
 // Run runs the Manager
-func (m *Manager) Run(_ context.Context) error {
+func (m *Manager) Run(context.Context) error {
+	m.LeaderElector.AddAcquiredLeaseCallback(func() {
+		m.leaderMu.Lock()
+		defer m.leaderMu.Unlock()
+
+		if !m.stopped {
+			watcherCtx, cancel := context.WithCancel(context.Background())
+			if m.swapCancel(cancel) {
+				m.log.Info("Cancelled stacks")
+			}
+			m.log.Info("Acquired lease, running stacks")
+			go m.loopStacks(watcherCtx)
+		}
+	})
+
+	m.LeaderElector.AddLostLeaseCallback(func() {
+		m.leaderMu.Lock()
+		defer m.leaderMu.Unlock()
+
+		if m.swapCancel(nil) {
+			m.log.Info("Lost lease, stopped stacks")
+		}
+	})
+
 	return nil
 }
+
+// Health-check interface
+func (m *Manager) Healthy() error { return nil }
 
 // Stop stops the Manager
 func (m *Manager) Stop() error {
-	if m.cancelWatcher != nil {
-		m.cancelWatcher()
+	m.leaderMu.Lock()
+	m.stopped = true
+	swapped := m.swapCancel(nil)
+	m.leaderMu.Unlock()
+
+	if swapped {
+		m.log.Info("Stopped")
 	}
+
 	return nil
 }
 
-// Reconcile reconciles the Manager
-func (m *Manager) Reconcile() error {
-	logrus.Debug("reconcile method called for: Manager")
-	return nil
+func (m *Manager) swapCancel(new context.CancelFunc) bool {
+	if old, ok := m.cancelWatcher.Swap(&new).(*context.CancelFunc); ok && *old != nil {
+		(*old)()
+		return true
+	}
+
+	return false
 }
 
-func (m *Manager) runWatchers(ctx context.Context) error {
-	log := logrus.WithField("component", "applier-manager")
+func (m *Manager) loopStacks(ctx context.Context) {
+	for ctx.Err() == nil {
+		if err := m.runStacks(ctx); err != nil {
+			m.log.WithError(err).Error("Failed to run stacks")
+		}
+
+		timer := time.NewTimer(10 * time.Second)
+		select {
+		case <-timer.C:
+			m.log.Info("Restarting")
+			continue
+		case <-ctx.Done():
+			timer.Stop()
+			break
+		}
+
+	}
+
+	m.log.Info("Stacks done")
+}
+
+func (m *Manager) runStacks(ctx context.Context) error {
+	stacks := make(stacks)
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.WithError(err).Error("failed to create watcher")
-		return err
+		return fmt.Errorf("failed to create watcher: %w", err)
 	}
 	defer watcher.Close()
 
-	err = watcher.Add(m.bundlePath)
+	err = watcher.Add(m.bundleDir)
 	if err != nil {
-		log.Warnf("Failed to start watcher: %s", err.Error())
+		return fmt.Errorf("failed to watch %q: %w", m.bundleDir, err)
 	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	// Add all directories after the bundle dir has been added to the watcher.
 	// Doing it the other way round introduces a race condition when directories
 	// get created after the initial listing but before the watch starts.
-
-	dirs, err := dir.GetAll(m.bundlePath)
-	if err != nil {
-		return err
-	}
-
-	for _, dir := range dirs {
-		m.createStack(ctx, path.Join(m.bundlePath, dir))
+	if dirs, err := dir.GetAll(m.bundleDir); err == nil {
+		for _, dir := range dirs {
+			if err := m.createStack(runCtx, stacks, path.Join(m.bundleDir, dir)); err != nil {
+				return fmt.Errorf("failed to create stack for %q: %w", dir, err)
+			}
+		}
+	} else {
+		return fmt.Errorf("failed to list all bundle directories in %q: %w", m.bundleDir, err)
 	}
 
 	for {
 		select {
 		case err, ok := <-watcher.Errors:
 			if !ok {
-				return err
+				return errors.New("error channel closed")
 			}
 
-			log.Warnf("watch error: %s", err.Error())
+			m.log.WithError(err).Warn("Error while watching directory")
+
 		case event, ok := <-watcher.Events:
 			if !ok {
-				return nil
+				return errors.New("event channel closed")
 			}
+
 			switch event.Op {
 			case fsnotify.Create:
-				if dir.IsDirectory(event.Name) {
-					m.createStack(ctx, event.Name)
+				if !dir.IsDirectory(event.Name) {
+					continue
 				}
+				if err := m.createStack(runCtx, stacks, event.Name); err != nil {
+					return err
+				}
+
 			case fsnotify.Remove:
-				m.removeStack(ctx, event.Name)
+				m.deleteStack(runCtx, stacks, event.Name)
+
+			default:
+				m.log.Debug("Ignoring ", event)
 			}
-		case <-ctx.Done():
-			log.Info("manifest watcher done")
+
+		case <-runCtx.Done():
 			return nil
 		}
 	}
 }
 
-func (m *Manager) createStack(ctx context.Context, name string) {
-	// safeguard in case the fswatcher would trigger an event for an already existing stack
-	if _, ok := m.stacks[name]; ok {
-		return
+func (m *Manager) createStack(ctx context.Context, stacks stacks, name string) error {
+	// safeguard in case the fswatcher would trigger an event for an already existing watcher
+	if _, ok := stacks[name]; ok {
+		return nil
 	}
 
 	stackCtx, cancelStack := context.WithCancel(ctx)
 	stack := stack{cancelStack, NewStackApplier(name, m.KubeClientFactory)}
-	m.stacks[name] = stack
+	stacks[name] = stack
 
 	go func() {
 		log := m.log.WithField("stack", name)
@@ -179,27 +235,25 @@ func (m *Manager) createStack(ctx context.Context, name string) {
 			}
 		}
 	}()
+
+	return nil
 }
 
-func (m *Manager) removeStack(ctx context.Context, name string) {
-	stack, ok := m.stacks[name]
+func (m *Manager) deleteStack(ctx context.Context, stacks stacks, name string) {
+	log := m.log.WithField("stack", name)
+
+	stack, ok := stacks[name]
 	if !ok {
-		m.log.
-			WithField("path", name).
-			Debug("attempted to remove non-existent stack, probably not a directory")
+		m.log.Debug("Attempted to delete non-existent stack, probably not a directory")
 		return
 	}
 
-	delete(m.stacks, name)
+	delete(stacks, name)
 	stack.CancelFunc()
 
-	log := m.log.WithField("stack", name)
-	if err := stack.DeleteStack(ctx); err == nil {
-		log.Info("Stack deleted successfully")
-	} else {
+	if err := stack.DeleteStack(ctx); err != nil {
 		log.WithError(err).Error("Failed to delete stack")
+	} else {
+		log.Info("Stack deleted successfully")
 	}
 }
-
-// Health-check interface
-func (m *Manager) Healthy() error { return nil }

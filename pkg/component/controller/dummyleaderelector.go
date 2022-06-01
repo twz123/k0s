@@ -15,26 +15,50 @@ limitations under the License.
 */
 package controller
 
-import "context"
+import (
+	"context"
+	"errors"
+	"sync"
+	"sync/atomic"
+)
 
 type DummyLeaderElector struct {
-	Leader    bool
+	Leader bool
+
+	mu        sync.Mutex
+	state     uint32
 	callbacks []func()
 }
 
-func (l *DummyLeaderElector) Init(_ context.Context) error { return nil }
-func (l *DummyLeaderElector) Stop() error                  { return nil }
-func (l *DummyLeaderElector) IsLeader() bool               { return l.Leader }
-func (l *DummyLeaderElector) Reconcile() error             { return nil }
-func (l *DummyLeaderElector) Healthy() error               { return nil }
+const (
+	dummyLeaderElectorCreated uint32 = iota
+	dummyLeaderElectorRunning
+	dummyLeaderElectorStopped
+)
+
+func (l *DummyLeaderElector) IsLeader() bool { return l.Leader }
 
 func (l *DummyLeaderElector) AddAcquiredLeaseCallback(fn func()) {
-	l.callbacks = append(l.callbacks, fn)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if atomic.LoadUint32(&l.state) == dummyLeaderElectorRunning {
+		fn()
+	} else {
+		l.callbacks = append(l.callbacks, fn)
+	}
 }
 
 func (l *DummyLeaderElector) AddLostLeaseCallback(func()) {}
 
-func (l *DummyLeaderElector) Run(_ context.Context) error {
+func (l *DummyLeaderElector) Run(context.Context) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if !atomic.CompareAndSwapUint32(&l.state, dummyLeaderElectorCreated, dummyLeaderElectorRunning) {
+		return errors.New("cannot run")
+	}
+
 	if !l.Leader {
 		return nil
 	}
@@ -43,5 +67,23 @@ func (l *DummyLeaderElector) Run(_ context.Context) error {
 			fn()
 		}
 	}
+
+	return nil
+}
+
+func (l *DummyLeaderElector) Init(context.Context) error { return nil }
+
+func (l *DummyLeaderElector) Healthy() error {
+	if atomic.LoadUint32(&l.state) != dummyLeaderElectorRunning {
+		return errors.New("not running")
+	}
+
+	return nil
+}
+
+func (l *DummyLeaderElector) Stop() error {
+	l.mu.Lock()
+	atomic.StoreUint32(&l.state, dummyLeaderElectorStopped)
+	l.mu.Unlock()
 	return nil
 }

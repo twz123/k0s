@@ -68,18 +68,15 @@ func (a *apiConfigSource) Run(context.Context) (err error) {
 
 	a.wg.Add(1)
 	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		defer func() {
-			ticker.Stop()
-			a.wg.Done()
-		}()
+		defer a.wg.Done()
 
-		for {
+		for timer := time.NewTimer(0 * time.Second); ; timer.Reset(5 * time.Second) {
 			select {
-			case <-ticker.C:
+			case <-timer.C:
 				a.pollAndReconcile(ctx)
 
 			case <-ctx.Done():
+				timer.Stop()
 				return
 			}
 		}

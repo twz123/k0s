@@ -23,6 +23,7 @@ import (
 	"path"
 	"path/filepath"
 
+	"github.com/avast/retry-go"
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/pkg/kubernetes"
 
@@ -33,7 +34,6 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
-	"k8s.io/client-go/util/retry"
 
 	"github.com/sirupsen/logrus"
 )
@@ -96,22 +96,24 @@ func (a *Applier) init() error {
 }
 
 // just a wrapper for the retry as we need to init "lazily" from both apply and delete directions
-func (a *Applier) lazyInit() error {
-	if a.client == nil || a.discoveryClient == nil {
-		err := retry.OnError(retry.DefaultBackoff, func(err error) bool {
-			return true
-		}, a.init)
-		if err != nil {
-			return err
-		}
+func (a *Applier) lazyInit(ctx context.Context) (err error) {
+	if a.client != nil && a.discoveryClient != nil {
+		return nil
 	}
 
-	return nil
+	return retry.Do(
+		a.init,
+		retry.OnRetry(func(attempt uint, err error) {
+			a.log.WithError(err).Debugf("Retrying lazy initialization after backoff, attempt #%d", attempt)
+		}),
+		retry.Context(ctx),
+		retry.LastErrorOnly(true),
+	)
 }
 
 // Apply resources
 func (a *Applier) Apply(ctx context.Context) error {
-	err := a.lazyInit()
+	err := a.lazyInit(ctx)
 	if err != nil {
 		return err
 	}
@@ -145,7 +147,7 @@ func (a *Applier) Apply(ctx context.Context) error {
 
 // Delete deletes the entire stack by applying it with empty set of resources
 func (a *Applier) Delete(ctx context.Context) error {
-	err := a.lazyInit()
+	err := a.lazyInit(ctx)
 	if err != nil {
 		return err
 	}

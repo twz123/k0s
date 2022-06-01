@@ -94,7 +94,7 @@ func (s *ConfigSuite) TestK0sGetsUp() {
 		event, err := s.waitForReconcileEvent(eventWatch)
 		require.NoError(t, err)
 
-		t.Logf("the event is %+v", event)
+		t.Logf("The event is %+v", event)
 		assert.Equal(t, updatedConfig.ResourceVersion, event.InvolvedObject.ResourceVersion)
 		assert.Equal(t, "Warning", event.Type)
 		assert.Equal(t, "FailedReconciling", event.Reason)
@@ -115,7 +115,7 @@ func (s *ConfigSuite) TestK0sGetsUp() {
 		event, err := s.waitForReconcileEvent(eventWatch)
 		require.NoError(t, err)
 
-		t.Logf("the event is %+v", event)
+		t.Logf("The event is %+v", event)
 		assert.Equal(t, updatedConfig.ResourceVersion, event.InvolvedObject.ResourceVersion)
 		assert.Equal(t, "Warning", event.Type)
 		assert.Equal(t, "FailedReconciling", event.Reason)
@@ -134,7 +134,8 @@ func (s *ConfigSuite) TestK0sGetsUp() {
 		cml, err := kc.CoreV1().ConfigMaps("kube-system").List(context.Background(), metav1.ListOptions{
 			FieldSelector: fields.OneTermEqualSelector("metadata.name", "kube-router-cfg").String(),
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
+		t.Log("Current resource version of kube-router-cfg ConfigMap is ", cml.ResourceVersion)
 
 		updatedConfig, err := cfgClient.Update(context.Background(), newConfig, metav1.UpdateOptions{})
 		require.NoError(t, err)
@@ -143,7 +144,7 @@ func (s *ConfigSuite) TestK0sGetsUp() {
 		event, err := s.waitForReconcileEvent(eventWatch)
 		require.NoError(t, err)
 
-		t.Logf("the event is %+v", event)
+		t.Logf("The event is %+v", event)
 		assert.Equal(t, updatedConfig.ResourceVersion, event.InvolvedObject.ResourceVersion)
 		assert.Equal(t, "Normal", event.Type)
 		assert.Equal(t, "SuccessfulReconcile", event.Reason)
@@ -158,7 +159,7 @@ func (s *ConfigSuite) TestK0sGetsUp() {
 		})
 		require.NoError(t, err)
 		defer w.Stop()
-		timeout := time.After(20 * time.Second)
+		timeout := time.After(20 * time.Minute)
 		select {
 		case e := <-w.ResultChan():
 			cm := e.Object.(*v1.ConfigMap)
@@ -166,7 +167,7 @@ func (s *ConfigSuite) TestK0sGetsUp() {
 			assert.Contains(t, cniConf, `"mtu": 1300`)
 			assert.Contains(t, cniConf, `"auto-mtu": false`)
 		case <-timeout:
-			t.FailNow()
+			assert.Fail(t, "timed out waiting for change of kube-router-cfg ConfigMap")
 		}
 	})
 }
