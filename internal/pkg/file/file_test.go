@@ -16,9 +16,10 @@ limitations under the License.
 package file
 
 import (
+	"fmt"
 	"os"
-	"path"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -35,7 +36,7 @@ func TestExists(t *testing.T) {
 		t.Errorf("test non-existing: got %t, wanted %t", got, want)
 	}
 
-	existingFileName := path.Join(dir, "existing")
+	existingFileName := filepath.Join(dir, "existing")
 	require.NoError(t, os.WriteFile(existingFileName, []byte{}, 0644))
 
 	// test existing
@@ -57,4 +58,65 @@ func TestExists(t *testing.T) {
 		t.Errorf("test existing tempfile %s: got %t, wanted %t", existingFileName, got, want)
 	}
 
+}
+
+func TestIsDottedBaseName(t *testing.T) {
+	roots := []struct {
+		name   string
+		dotted DottedBaseName
+		prefix string
+	}{
+		{"absolute", NotDotted, "/rooted/path/"},
+		{"relative", RelativeBase, ""},
+	}
+
+	if runtime.GOOS == "windows" {
+		roots[0].prefix = `C:\rooted\path\`
+	}
+
+	paths := []struct {
+		name, path string
+		dotted     DottedBaseName
+		skip       int
+	}{
+		{"Empty", "", NotDotted, 1},
+		{"Dot", ".", RelativeBase, 1},
+		{"DotDot", "..", RelativeBase, 2},
+		{"DotDotDot", "...", Dotted, 0},
+		{"A", "A", NotDotted, 0},
+		{"DotA", ".A", Dotted, 0},
+		{"ADot", "A.", NotDotted, 0},
+	}
+
+	assert.Equal(t, "...", filepath.Join("...", "."))
+	assert.Equal(t, "...", filepath.Base("..."))
+
+	for _, root := range roots {
+		for _, dir := range paths {
+			for _, file := range paths {
+				t.Run(fmt.Sprintf("%s_%sDir_%sFile", root.name, dir.name, file.name), func(t *testing.T) {
+					expectedDotted := file.dotted
+					if file.skip > 0 {
+						expectedDotted = dir.dotted
+						if file.skip+dir.skip > 1 {
+							expectedDotted = root.dotted
+						}
+					}
+
+					path := root.prefix
+					if dir.path != "" {
+						path += dir.path
+						path += string(filepath.Separator)
+					}
+					path += file.path
+
+					dotted := IsDottedBaseName(path)
+					t.Logf("%v := IsDottedBaseName(%q)", dotted, path)
+					if expectedDotted != dotted {
+						assert.Fail(t, dotted.String(), "Expected %q to be %v", path, expectedDotted)
+					}
+				})
+			}
+		}
+	}
 }

@@ -23,7 +23,9 @@ import (
 	"path"
 	"path/filepath"
 
-	"github.com/sirupsen/logrus"
+	"github.com/k0sproject/k0s/internal/pkg/file"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
+
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/cli-runtime/pkg/resource"
@@ -33,7 +35,7 @@ import (
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/util/retry"
 
-	"github.com/k0sproject/k0s/pkg/kubernetes"
+	"github.com/sirupsen/logrus"
 )
 
 // manifestFilePattern is the glob pattern that all applicable manifest files need to match.
@@ -113,10 +115,12 @@ func (a *Applier) Apply(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	files, err := filepath.Glob(path.Join(a.Dir, manifestFilePattern))
+
+	files, err := a.listFiles()
 	if err != nil {
 		return err
 	}
+
 	resources, err := a.parseFiles(files)
 	if err != nil {
 		return err
@@ -183,6 +187,23 @@ func (a *Applier) parseFiles(files []string) ([]*unstructured.Unstructured, erro
 	}
 
 	return resources, nil
+}
+
+func (a *Applier) listFiles() ([]string, error) {
+	matches, err := filepath.Glob(path.Join(a.Dir, manifestFilePattern))
+	if err != nil {
+		return nil, err
+	}
+
+	// filter out hidden files
+	var filtered []string
+	for _, match := range matches {
+		if file.IsDottedBaseName(match) == file.NotDotted {
+			filtered = append(filtered, match)
+		}
+	}
+
+	return filtered, nil
 }
 
 type restClientGetter struct {

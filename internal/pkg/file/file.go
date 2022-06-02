@@ -18,9 +18,14 @@ package file
 
 import (
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
+	"strconv"
 
+	"github.com/google/renameio/v2"
 	"github.com/k0sproject/k0s/internal/pkg/users"
+	"go.uber.org/multierr"
 )
 
 // Exists checks if a file exists and is not a directory before we
@@ -31,6 +36,49 @@ func Exists(fileName string) bool {
 		return false
 	}
 	return !info.IsDir()
+}
+
+type DottedBaseName int
+
+const (
+	// NotDotted indicates that a path is not considered to be hidden on
+	// Unix-like operating systems, i.e. it doesn't start with a dot.
+	NotDotted DottedBaseName = iota + 1
+
+	// Dotted indicates that a path is considered to be hidden on Unix-like
+	// operating systems, i.e. it starts with a dot.
+	Dotted
+
+	// RelativeBase indicates that it cannot be decided if the path is
+	// considered to be hidden on Unix-like operating systems or not, since it's
+	// base name is relative.
+	RelativeBase
+)
+
+func (d DottedBaseName) String() string {
+	switch d {
+	case NotDotted:
+		return "NotDotted"
+	case Dotted:
+		return "Dotted"
+	case RelativeBase:
+		return "RelativeBase"
+	}
+
+	return strconv.FormatInt(int64(d), 10)
+}
+
+// IsDottedBaseName checks if the given path is considered to be hidden on
+// Unix-like operating systems, i.e. if its base name starts with a dot.
+func IsDottedBaseName(path string) DottedBaseName {
+	base := filepath.Base(filepath.Clean(path))
+	if base == "." || base == ".." {
+		return RelativeBase
+	}
+	if base[0] == '.' {
+		return Dotted
+	}
+	return NotDotted
 }
 
 // Chown changes file/dir mode
@@ -83,4 +131,31 @@ func WriteTmpFile(data string, prefix string) (path string, err error) {
 	}
 
 	return tmpFile.Name(), nil
+}
+
+func WriteContentAtomically(fileName string, content []byte, perm os.FileMode) error {
+	return WriteAtomically(fileName, perm, func(file io.Writer) error {
+		_, err := file.Write(content)
+		return err
+	})
+}
+
+func WriteAtomically(fileName string, perm os.FileMode, write func(file io.Writer) error) (err error) {
+	file, err := renameio.NewPendingFile(
+		fileName,
+		renameio.WithTempDir(filepath.Base(fileName)),
+		renameio.WithPermissions(perm),
+	)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err = multierr.Append(err, file.Cleanup())
+	}()
+
+	if err := write(file); err != nil {
+		return err
+	}
+
+	return file.CloseAtomicallyReplace()
 }

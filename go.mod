@@ -18,6 +18,7 @@ require (
 	github.com/evanphx/json-patch v4.12.0+incompatible
 	github.com/fsnotify/fsnotify v1.5.4
 	github.com/go-openapi/jsonpointer v0.19.5
+	github.com/google/renameio/v2 v2.0.0
 	github.com/gorilla/mux v1.8.0
 	github.com/imdario/mergo v0.3.13
 	github.com/k0sproject/dig v0.2.0
@@ -68,6 +69,8 @@ require (
 	k8s.io/mount-utils v0.24.1
 	k8s.io/utils v0.0.0-20220210201930-3a6ce19ff2f9
 )
+
+require go.uber.org/multierr v1.8.0
 
 require (
 	bitbucket.org/creachadair/shell v0.0.6 // indirect
@@ -255,7 +258,6 @@ require (
 	go.opentelemetry.io/proto/otlp v0.11.0 // indirect
 	go.starlark.net v0.0.0-20200306205701-8dd3e2ee1dd5 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
-	go.uber.org/multierr v1.8.0 // indirect
 	golang.org/x/mod v0.6.0-dev.0.20220106191415-9b9b3d81d5e3 // indirect
 	golang.org/x/net v0.0.0-20220425223048-2871e0cb64e4 // indirect
 	golang.org/x/oauth2 v0.0.0-20220223155221-ee480838109b // indirect
