@@ -30,31 +30,51 @@ import (
 
 // The LeasePool represents a single lease accessed by multiple clients (considered part of the "pool")
 type LeasePool struct {
-	events *LeaseEvents
-	config LeaseConfiguration
+	name   string
 	client kubernetes.Interface
+	config LeaseConfiguration
 }
 
-// LeaseEvents contains channels to inform the consumer when a lease is acquired and lost
-type LeaseEvents struct {
-	AcquiredLease chan struct{}
-	LostLease     chan struct{}
-}
+// LeaderCallback is the function that will be called whenever the lease pool
+// gets the lease. The given context will be cancelled when the lease is lost.
+type LeaderCallback = func(context.Context)
 
-// The LeaseConfiguration allows passing through various options to customise the lease.
+// The LeaseConfiguration allows passing through various options to customize the lease.
 type LeaseConfiguration struct {
-	name          string
+	log           logrus.FieldLogger
 	identity      string
 	namespace     string
 	duration      time.Duration
 	renewDeadline time.Duration
 	retryPeriod   time.Duration
-	log           *logrus.Entry
-	ctx           context.Context
 }
 
 // A LeaseOpt is a function that modifies a LeaseConfiguration
-type LeaseOpt func(config LeaseConfiguration) LeaseConfiguration
+type LeaseOpt = func(config LeaseConfiguration) LeaseConfiguration
+
+// WithLogger allows the consumer to pass a different logrus entry with additional context
+func WithLogger(logger logrus.FieldLogger) LeaseOpt {
+	return func(config LeaseConfiguration) LeaseConfiguration {
+		config.log = logger
+		return config
+	}
+}
+
+// WithIdentity sets the identity of the lease holder
+func WithIdentity(identity string) LeaseOpt {
+	return func(config LeaseConfiguration) LeaseConfiguration {
+		config.identity = identity
+		return config
+	}
+}
+
+// WithNamespace specifies which namespace the lease should be created in, defaults to kube-node-lease
+func WithNamespace(namespace string) LeaseOpt {
+	return func(config LeaseConfiguration) LeaseConfiguration {
+		config.namespace = namespace
+		return config
+	}
+}
 
 // WithDuration sets the duration of the lease (for new leases)
 func WithDuration(duration time.Duration) LeaseOpt {
@@ -80,52 +100,27 @@ func WithRetryPeriod(retryPeriod time.Duration) LeaseOpt {
 	}
 }
 
-// WithLogger allows the consumer to pass a different logrus entry with additional context
-func WithLogger(logger *logrus.Entry) LeaseOpt {
-	return func(config LeaseConfiguration) LeaseConfiguration {
-		config.log = logger
-		return config
-	}
-}
-
-// WithContext allows the consumer to pass its own context, for example a cancelable context
-func WithContext(ctx context.Context) LeaseOpt {
-	return func(config LeaseConfiguration) LeaseConfiguration {
-		config.ctx = ctx
-		return config
-	}
-}
-
-// WithIdentity sets the identity of the lease holder
-func WithIdentity(identity string) LeaseOpt {
-	return func(config LeaseConfiguration) LeaseConfiguration {
-		config.identity = identity
-		return config
-	}
-}
-
-// WithNamespace specifies which namespace the lease should be created in, defaults to kube-node-lease
-func WithNamespace(namespace string) LeaseOpt {
-	return func(config LeaseConfiguration) LeaseConfiguration {
-		config.namespace = namespace
-		return config
-	}
-}
-
 // NewLeasePool creates a new LeasePool struct to interact with a lease
 func NewLeasePool(client kubernetes.Interface, name string, opts ...LeaseOpt) (*LeasePool, error) {
-
 	leaseConfig := LeaseConfiguration{
-		log:           logrus.NewEntry(logrus.StandardLogger()),
 		duration:      60 * time.Second,
 		renewDeadline: 15 * time.Second,
 		retryPeriod:   5 * time.Second,
-		ctx:           context.TODO(),
 		namespace:     "kube-node-lease",
-		name:          name,
 	}
 
-	// we default to the machine ID unless the user explicitly set an identity
+	for _, opt := range opts {
+		leaseConfig = opt(leaseConfig)
+	}
+
+	if leaseConfig.log == nil {
+		leaseConfig.log = logrus.StandardLogger().
+			WithField("component", "lease_pool").
+			WithField("namespace", leaseConfig.namespace).
+			WithField("name", name)
+	}
+
+	// we default to the machine ID unless the user explicitly sets an identity
 	if leaseConfig.identity == "" {
 		machineID, err := machineid.Generate()
 
@@ -136,54 +131,18 @@ func NewLeasePool(client kubernetes.Interface, name string, opts ...LeaseOpt) (*
 		leaseConfig.identity = machineID.ID()
 	}
 
-	for _, opt := range opts {
-		leaseConfig = opt(leaseConfig)
-	}
-
 	return &LeasePool{
+		name:   name,
 		client: client,
-		events: nil,
 		config: leaseConfig,
 	}, nil
 }
 
-type watchOptions struct {
-	channels *LeaseEvents
-}
-
-// WatchOpt is a callback that alters the watchOptions configuration
-type WatchOpt func(options watchOptions) watchOptions
-
-// WithOutputChannels allows us to pass through channels with
-// a size greater than 0, which makes testing a lot easier.
-func WithOutputChannels(channels *LeaseEvents) WatchOpt {
-	return func(options watchOptions) watchOptions {
-		options.channels = channels
-		return options
-	}
-}
-
-// Watch is the primary function of LeasePool, and starts the leader election process
-func (p *LeasePool) Watch(opts ...WatchOpt) (*LeaseEvents, context.CancelFunc, error) {
-	if p.events != nil {
-		return p.events, nil, nil
-	}
-
-	watchOptions := watchOptions{
-		channels: &LeaseEvents{
-			AcquiredLease: make(chan struct{}),
-			LostLease:     make(chan struct{}),
-		},
-	}
-	for _, opt := range opts {
-		watchOptions = opt(watchOptions)
-	}
-
-	p.events = watchOptions.channels
-
+// Run is the primary function of LeasePool, running the leader election process.
+func (p *LeasePool) Run(ctx context.Context, callback LeaderCallback) error {
 	lock := &resourcelock.LeaseLock{
 		LeaseMeta: metav1.ObjectMeta{
-			Name:      p.config.name,
+			Name:      p.name,
 			Namespace: p.config.namespace,
 		},
 		Client: p.client.CoordinationV1(),
@@ -191,6 +150,7 @@ func (p *LeasePool) Watch(opts ...WatchOpt) (*LeaseEvents, context.CancelFunc, e
 			Identity: p.config.identity,
 		},
 	}
+
 	lec := leaderelection.LeaderElectionConfig{
 		Lock:            lock,
 		ReleaseOnCancel: true,
@@ -199,31 +159,27 @@ func (p *LeasePool) Watch(opts ...WatchOpt) (*LeaseEvents, context.CancelFunc, e
 		RetryPeriod:     p.config.retryPeriod,
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(ctx context.Context) {
-				log.Info("acquired leader lease")
-				p.events.AcquiredLease <- struct{}{}
+				log.Info("Acquired leader lease")
+				go callback(ctx)
 			},
 			OnStoppedLeading: func() {
-				log.Info("lost leader lease")
-				p.events.LostLease <- struct{}{}
+				log.Info("Lost leader lease")
 			},
 			OnNewLeader: nil,
 		},
 	}
 	le, err := leaderelection.NewLeaderElector(lec)
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 	if lec.WatchDog != nil {
 		lec.WatchDog.SetLeaderElection(le)
 	}
 
-	ctx, cancel := context.WithCancel(p.config.ctx)
+	for ctx.Err() == nil {
+		logrus.Info("XOXO")
+		le.Run(ctx)
+	}
 
-	go func() {
-		for ctx.Err() == nil {
-			le.Run(ctx)
-		}
-	}()
-
-	return p.events, cancel, nil
+	return nil
 }
