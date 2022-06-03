@@ -21,7 +21,7 @@ require (
 	github.com/gorilla/mux v1.8.0
 	github.com/imdario/mergo v0.3.13
 	github.com/k0sproject/dig v0.2.0
-	github.com/k0sproject/k0sctl v0.12.6
+	github.com/k0sproject/k0sctl v0.13.0
 	github.com/kardianos/service v1.2.1-0.20210728001519-a323c3813bc7
 	github.com/logrusorgru/aurora/v3 v3.0.0
 	github.com/mitchellh/go-homedir v1.1.0
@@ -158,7 +158,7 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0 // indirect
-	github.com/hashicorp/go-version v1.3.0 // indirect
+	github.com/hashicorp/go-version v1.4.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/huandu/xstrings v1.3.2 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
@@ -168,6 +168,7 @@ require (
 	github.com/jonboulle/clockwork v0.3.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
+	github.com/k0sproject/version v0.3.0 // indirect
 	github.com/kisielk/sqlstruct v0.0.0-20201105191214-5f3e10d3ab46 // indirect
 	github.com/klauspost/compress v1.13.6 // indirect
 	github.com/kr/pretty v0.3.0 // indirect
