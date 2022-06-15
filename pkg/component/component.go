@@ -56,6 +56,13 @@ type Component interface {
 	Stop() error
 }
 
+// Reconcilable is implemented by components that can react to state changes.
+type Reconcilable[T any] interface {
+	// Reconcile informs this Component about some updated desired state T, so
+	// that it can reconcile its internal state accordingly.
+	Reconcile(context.Context, T) error
+}
+
 // ReconcilerComponent defines the component interface that is reconciled based
 // on changes on the global config CR object changes.
 //
@@ -72,3 +79,5 @@ type ReconcilerComponent interface {
 	// configuration. Reconcile may only be called after Init and before Stop.
 	Reconcile(context.Context, *v1beta1.ClusterConfig) error
 }
+
+var _ Reconcilable[*v1beta1.ClusterConfig] = (ReconcilerComponent)(nil)

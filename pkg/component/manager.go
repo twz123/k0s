@@ -20,12 +20,12 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/performance"
 	"github.com/sirupsen/logrus"
+	"go.uber.org/multierr"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -50,9 +50,10 @@ func NewManager() *Manager {
 // Add adds a component to the manager
 func (m *Manager) Add(ctx context.Context, component Component) {
 	m.Components = append(m.Components, component)
-	if isReconcileComponent(component) && m.lastReconciledConfig != nil {
-		if err := m.reconcileComponent(ctx, component, m.lastReconciledConfig); err != nil {
-			logrus.Warnf("component reconciler failed: %v", err)
+
+	if reconcilable, ok := component.(ReconcilerComponent); ok && m.lastReconciledConfig != nil {
+		if err := reconcilable.Reconcile(ctx, m.lastReconciledConfig); err != nil {
+			logrus.WithError(err).Warnf("Failed to reconcile %s during addition", reflect.TypeOf(component))
 		}
 	}
 }
@@ -120,58 +121,34 @@ func (m *Manager) Stop() error {
 	return ret
 }
 
-// ReconcileError is just a wrapper for possible many errors
-type ReconcileError struct {
-	Errors []error
-}
-
-// Error returns the stringified error message
-func (r ReconcileError) Error() string {
-	messages := make([]string, len(r.Errors))
-	for i, e := range r.Errors {
-		messages[i] = e.Error()
-	}
-	return strings.Join(messages, "\n")
-}
-
 // Reconcile reconciles all managed components
 func (m *Manager) Reconcile(ctx context.Context, cfg *v1beta1.ClusterConfig) error {
-	errors := make([]error, 0)
-	var ret error
-	logrus.Infof("starting component reconciling for %d components", len(m.Components))
-	for _, component := range m.Components {
-		if err := m.reconcileComponent(ctx, component, cfg); err != nil {
-			errors = append(errors, err)
-		}
-	}
+	err := Reconcile(ctx, m, cfg)
 	m.lastReconciledConfig = cfg
-	if len(errors) > 0 {
-		ret = ReconcileError{
-			Errors: errors,
+	return err
+}
+
+func Reconcile[T any](ctx context.Context, m *Manager, state T) error {
+	var errors []error
+
+	logrus.Infof("Starting to reconcile %d components", len(m.Components))
+	for _, component := range m.Components {
+		compType := reflect.TypeOf(component)
+		reconcilable, ok := component.(Reconcilable[T])
+		if !ok {
+			logrus.Debug(compType, "cannot be reconciled over", reflect.TypeOf(state))
+			continue
+		}
+
+		logrus.Info("Reconciling", compType)
+		if err := reconcilable.Reconcile(ctx, state); err != nil {
+			logrus.WithError(err).Debug("Failed to reconcile", compType)
+			return err
 		}
 	}
-	logrus.Debugf("all component reconciled, result: %v", ret)
-	return ret
-}
 
-func (m *Manager) reconcileComponent(ctx context.Context, component Component, cfg *v1beta1.ClusterConfig) error {
-	clusterComponent, ok := component.(ReconcilerComponent)
-	compName := reflect.TypeOf(component).String()
-	if !ok {
-		logrus.Debugf("%s does not implement the ReconcileComponent interface --> not reconciling it", compName)
-		return nil
-	}
-	logrus.Infof("starting to reconcile %s", compName)
-	if err := clusterComponent.Reconcile(ctx, cfg); err != nil {
-		logrus.Errorf("failed to reconcile component %s: %s", compName, err.Error())
-		return err
-	}
-	return nil
-}
-
-func isReconcileComponent(component Component) bool {
-	_, ok := component.(ReconcilerComponent)
-	return ok
+	logrus.Infof("Done reconciling %d components", len(m.Components))
+	return multierr.Combine(errors...)
 }
 
 // waitForHealthy waits until the component is healthy and returns true upon success. If a timeout occurs, it returns false
