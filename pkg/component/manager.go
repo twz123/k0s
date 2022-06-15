@@ -26,6 +26,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/performance"
 	"github.com/sirupsen/logrus"
+	"go.uber.org/multierr"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -77,22 +78,47 @@ func (m *Manager) Init(ctx context.Context) error {
 // Start starts all managed components
 func (m *Manager) Start(ctx context.Context) error {
 	perfTimer := performance.NewTimer("component-start").Buffer().Start()
+
+	startCtx, cancelStartCtx := context.WithCancel(ctx)
+
 	for _, comp := range m.Components {
 		compName := reflect.TypeOf(comp).Elem().Name()
 		perfTimer.Checkpoint(fmt.Sprintf("running-%s", compName))
 		logrus.Infof("starting %v", compName)
-		if err := comp.Run(ctx); err != nil {
-			_ = m.Stop()
-			return err
+
+		runCh := make(chan error)
+		go func() {
+			defer close(runCh)
+			runCh <- comp.Run(startCtx)
+		}()
+
+		select {
+		case err := <-runCh:
+			if err != nil {
+				cancelStartCtx()
+				return multierr.Append(err, m.Stop())
+			}
+
+		case <-time.After(m.HealthyTimeout):
+			cancelStartCtx()
+			logrus.Errorf("Timed out while waiting for %s to start", compName)
+			err := <-runCh
+			if err == nil {
+				err = comp.Stop()
+			}
+			return multierr.Append(fmt.Errorf("%s didn't start in time", compName), err)
 		}
+
 		m.started.PushFront(comp)
 		perfTimer.Checkpoint(fmt.Sprintf("running-%s-done", compName))
-		if err := waitForHealthy(ctx, comp, compName, m.HealthyTimeout); err != nil {
-			_ = m.Stop()
-			return err
-		}
 	}
 	perfTimer.Output()
+
+	// Pacify go vet lostcancel check: startCtx is only used to conditionally
+	// cancel if some timeouts aren't met. It should otherwise just live as long
+	// as its parent.
+	_ = cancelStartCtx
+
 	return nil
 }
 
@@ -172,35 +198,4 @@ func (m *Manager) reconcileComponent(ctx context.Context, component Component, c
 func isReconcileComponent(component Component) bool {
 	_, ok := component.(ReconcilerComponent)
 	return ok
-}
-
-// waitForHealthy waits until the component is healthy and returns true upon success. If a timeout occurs, it returns false
-func waitForHealthy(ctx context.Context, comp Component, name string, timeout time.Duration) error {
-	healthz, ok := comp.(Healthz)
-	if !ok {
-		return nil
-	}
-
-	ctx, cancelFunction := context.WithTimeout(ctx, timeout)
-
-	// clear up context after timeout
-	defer cancelFunction()
-
-	// loop forever, until the context is canceled or until etcd is healthy
-	ticker := time.NewTicker(100 * time.Millisecond)
-	for {
-		logrus.Debugf("checking %s for health", name)
-		if err := healthz.Healthy(); err != nil {
-			logrus.Debugf("health-check: %s not yet healthy: %v", name, err)
-		} else {
-			return nil
-		}
-
-		select {
-		case <-ticker.C:
-			continue
-		case <-ctx.Done():
-			return fmt.Errorf("%s health-check timed out", name)
-		}
-	}
 }

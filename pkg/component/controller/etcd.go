@@ -24,11 +24,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/avast/retry-go"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
+	retryutil "github.com/k0sproject/k0s/internal/pkg/retry"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
 	"github.com/k0sproject/k0s/internal/pkg/users"
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
@@ -55,7 +57,6 @@ type Etcd struct {
 }
 
 var _ component.Component = (*Etcd)(nil)
-var _ component.Healthz = (*Etcd)(nil)
 
 // Init extracts the needed binaries
 func (e *Etcd) Init(_ context.Context) error {
@@ -205,7 +206,18 @@ func (e *Etcd) Run(ctx context.Context) error {
 		KeepEnvPrefix: true,
 	}
 
-	return e.supervisor.Supervise()
+	err = e.supervisor.Supervise()
+	if err != nil {
+		return err
+	}
+
+	// Block until etcd becomes healthy...
+	return retryutil.UntilDone(ctx, func(ctx context.Context) error {
+		logrus.WithField("component", "etcd").Debug("checking etcd endpoint for health")
+		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+		defer cancel()
+		return etcd.CheckEtcdReady(ctx, e.K0sVars.CertRootDir, e.K0sVars.EtcdCertDir, e.Config)
+	}, retry.DelayType(retry.FixedDelay))
 }
 
 // Stop stops etcd
@@ -277,15 +289,6 @@ func (e *Etcd) setupCerts(ctx context.Context) error {
 	})
 
 	return eg.Wait()
-}
-
-// Health-check interface
-func (e *Etcd) Healthy() error {
-	logrus.WithField("component", "etcd").Debug("checking etcd endpoint for health")
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
-	err := etcd.CheckEtcdReady(ctx, e.K0sVars.CertRootDir, e.K0sVars.EtcdCertDir, e.Config)
-	return err
 }
 
 func detectUnsupportedEtcdArch() error {

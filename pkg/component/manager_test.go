@@ -17,42 +17,43 @@ package component
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type Fake struct {
 	InitErr      error
-	RunErr       error
+	RunFunc      func(context.Context) error
 	StopErr      error
 	ReconcileErr error
-	HealthyErr   error
 
-	InitCalled    bool
-	RunCalled     bool
-	StopCalled    bool
-	HealthyCalled bool
+	InitCalled bool
+	RunCalled  bool
+	StopCalled bool
 }
 
 func (f *Fake) Init(_ context.Context) error {
 	f.InitCalled = true
 	return f.InitErr
 }
-func (f *Fake) Run(_ context.Context) error {
+
+func (f *Fake) Run(ctx context.Context) error {
 	f.RunCalled = true
-	return f.RunErr
+	if f.RunFunc != nil {
+		return f.RunFunc(ctx)
+	}
+
+	return nil
 }
 
 func (f *Fake) Stop() error {
 	f.StopCalled = true
 	return f.StopErr
-}
-func (f *Fake) Healthy() error {
-	f.HealthyCalled = true
-	return f.HealthyErr
 }
 
 func TestManagerSuccess(t *testing.T) {
@@ -73,8 +74,6 @@ func TestManagerSuccess(t *testing.T) {
 	require.NoError(t, m.Start(ctx))
 	require.True(t, f1.RunCalled)
 	require.True(t, f2.RunCalled)
-	require.True(t, f1.HealthyCalled)
-	require.True(t, f2.HealthyCalled)
 
 	require.NoError(t, m.Stop())
 	require.True(t, f1.StopCalled)
@@ -111,7 +110,7 @@ func TestManagerRunFail(t *testing.T) {
 	m.Add(ctx, f1)
 
 	f2 := &Fake{
-		RunErr: fmt.Errorf("failed"),
+		RunFunc: func(ctx context.Context) error { return assert.AnError },
 	}
 	m.Add(ctx, f2)
 
@@ -122,44 +121,48 @@ func TestManagerRunFail(t *testing.T) {
 	require.True(t, f1.RunCalled)
 	require.True(t, f2.RunCalled)
 	require.False(t, f3.RunCalled)
-
-	require.True(t, f1.HealthyCalled)
-	require.False(t, f2.HealthyCalled)
-	require.False(t, f3.HealthyCalled)
 
 	require.True(t, f1.StopCalled)
 	require.False(t, f2.StopCalled)
 	require.False(t, f3.StopCalled)
 }
 
-func TestManagerHealthyFail(t *testing.T) {
+func TestManagerStartTimeout(t *testing.T) {
 	m := NewManager()
+	m.HealthyTimeout = 300 * time.Millisecond
 	require.NotNil(t, m)
-	m.HealthyTimeout = 1 * time.Millisecond
 
-	ctx := context.Background()
+	ctx := context.TODO()
 
-	f1 := &Fake{}
-	m.Add(ctx, f1)
-
-	f2 := &Fake{
-		HealthyErr: fmt.Errorf("failed"),
+	f := &Fake{
+		RunFunc: func(ctx context.Context) error { <-ctx.Done(); return nil },
 	}
-	m.Add(ctx, f2)
+	m.Add(ctx, f)
 
-	f3 := &Fake{}
-	m.Add(ctx, f3)
+	err := m.Start(ctx)
+	if assert.Error(t, err) {
+		assert.Equal(t, "Fake didn't start in time", err.Error())
+	}
+	assert.True(t, f.RunCalled)
+	assert.True(t, f.StopCalled)
+}
 
-	require.Error(t, m.Start(ctx))
-	require.True(t, f1.RunCalled)
-	require.True(t, f2.RunCalled)
-	require.False(t, f3.RunCalled)
+func TestManagerStartTimeoutErr(t *testing.T) {
+	m := NewManager()
+	m.HealthyTimeout = 300 * time.Millisecond
+	require.NotNil(t, m)
 
-	require.True(t, f1.HealthyCalled)
-	require.True(t, f2.HealthyCalled)
-	require.False(t, f3.HealthyCalled)
+	ctx := context.TODO()
 
-	require.True(t, f1.StopCalled)
-	require.True(t, f2.StopCalled)
-	require.False(t, f3.StopCalled)
+	f := &Fake{
+		RunFunc: func(ctx context.Context) error { <-ctx.Done(); return errors.New("Fake.Run() failed") },
+	}
+	m.Add(ctx, f)
+
+	err := m.Start(ctx)
+	if assert.Error(t, err) {
+		assert.Equal(t, "Fake didn't start in time; Fake.Run() failed", err.Error())
+	}
+	assert.True(t, f.RunCalled)
+	assert.False(t, f.StopCalled)
 }

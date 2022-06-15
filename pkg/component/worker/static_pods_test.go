@@ -194,12 +194,6 @@ func TestStaticPods_Lifecycle(t *testing.T) {
 		require.Equal(t, "static_pods component is not yet initialized", err.Error())
 	})
 
-	t.Run("health_check_fails_without_init", func(t *testing.T) {
-		err := underTest.Healthy()
-		require.Error(t, err)
-		require.Equal(t, "static_pods component is not yet running", err.Error())
-	})
-
 	t.Run("fails_to_stop_without_init", func(t *testing.T) {
 		err := underTest.Stop()
 		require.Error(t, err)
@@ -221,12 +215,6 @@ func TestStaticPods_Lifecycle(t *testing.T) {
 		_, err := underTest.ManifestURL()
 		require.Error(t, err)
 		assert.Equal(t, "static_pods component is not yet running", err.Error())
-	})
-
-	t.Run("health_check_fails_before_run", func(t *testing.T) {
-		err := underTest.Healthy()
-		require.Error(t, err)
-		require.Equal(t, "static_pods component is not yet running", err.Error())
 	})
 
 	t.Run("stop_before_run_fails", func(t *testing.T) {
@@ -260,15 +248,6 @@ func TestStaticPods_Lifecycle(t *testing.T) {
 		err := underTest.Run(ctx)
 		require.Error(t, err)
 		assert.Equal(t, "static_pods component is already running", err.Error())
-	})
-
-	t.Run("health_check_works", func(t *testing.T) {
-		err := underTest.Healthy()
-		assert.NoError(t, err)
-		lastLog := logs.LastEntry()
-		require.Equal(t, "Answering health check", lastLog.Message)
-		assert.Contains(t, lastLog.Data["local_addr"], "127.0.0.1")
-		assert.Contains(t, lastLog.Data["remote_addr"], "127.0.0.1")
 	})
 
 	t.Run("serves_content", func(t *testing.T) {
@@ -306,12 +285,6 @@ func TestStaticPods_Lifecycle(t *testing.T) {
 
 	t.Run("stops", func(t *testing.T) {
 		require.NoError(t, underTest.Stop())
-	})
-
-	t.Run("health_check_fails_after_stopped", func(t *testing.T) {
-		err := underTest.Healthy()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "connection refused")
 	})
 
 	t.Run("does_not_serve_content_anymore", func(t *testing.T) {

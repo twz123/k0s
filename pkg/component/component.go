@@ -51,14 +51,6 @@ type Component interface {
 	Stop() error
 }
 
-// Healthz represents a component that can be checked for its health.
-type Healthz interface {
-	// Healthy performs a health check and indicates that the component is
-	// running and functional. Whenever this is not the case, a non-nil error is
-	// returned.
-	Healthy() error
-}
-
 // ReconcilerComponent defines the component interface that is reconciled based
 // on changes on the global config CR object changes.
 //

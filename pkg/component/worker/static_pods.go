@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net"
 	"net/http"
 	"strings"
@@ -30,7 +29,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/avast/retry-go"
 	"github.com/gorilla/mux"
 	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/sirupsen/logrus"
@@ -100,8 +98,6 @@ type staticPods struct {
 	stopSignal  context.CancelFunc
 	stopped     sync.WaitGroup
 }
-
-var _ component.Healthz = (*staticPods)(nil)
 
 // NewStaticPods creates a new static_pods component.
 func NewStaticPods() interface {
@@ -371,11 +367,15 @@ func (s *staticPods) Run(ctx context.Context) error {
 		err := srv.Serve(listener)
 
 		// As long as the server isn't closed, try to restart it.
+	loop:
 		for notClosed(err) {
-			err = retry.Do(func() error {
+			select {
+			case <-time.After(1 * time.Second):
 				log.WithError(err).Error("HTTP server terminated, restarting ...")
-				return srv.ListenAndServe()
-			}, retry.RetryIf(notClosed), retry.Attempts(math.MaxUint))
+				err = srv.ListenAndServe()
+			case <-ctx.Done():
+				break loop
+			}
 		}
 
 		log.Info("HTTP server closed")
@@ -402,15 +402,6 @@ func newStaticPodsServer(log logrus.FieldLogger, contentFn func() []byte) (*http
 			if _, err := w.Write(content); err != nil {
 				log.WithError(err).Warn("Failed to write HTTP response")
 			}
-		}),
-	)
-
-	// Internal health check.
-	router.Path("/manifests/_healthz").Methods("GET").Handler(
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			log := log.WithField("remote_addr", r.RemoteAddr)
-			log.Debugf("Answering health check")
-			w.WriteHeader(http.StatusNoContent)
 		}),
 	)
 
@@ -474,32 +465,6 @@ func (s *staticPods) Stop() error {
 	s.stopped.Wait()
 	s.contentPtr.Store([]byte{})
 
-	return nil
-}
-
-// Health-check interface
-func (s *staticPods) Healthy() error {
-	url, err := s.ManifestURL()
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/_healthz", url), nil)
-	if err != nil {
-		return err
-	}
-
-	ctx, cancel := context.WithTimeout(context.TODO(), 3*time.Second)
-	defer cancel()
-
-	resp, err := http.DefaultClient.Do(req.WithContext(ctx))
-	if err != nil {
-		return err
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("unexpected HTTP response status: %s", resp.Status)
-	}
 	return nil
 }
 

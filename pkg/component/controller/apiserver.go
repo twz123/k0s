@@ -25,9 +25,12 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
+	"github.com/avast/retry-go"
 	"github.com/sirupsen/logrus"
 
+	retryutil "github.com/k0sproject/k0s/internal/pkg/retry"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
 	"github.com/k0sproject/k0s/internal/pkg/templatewriter"
 	"github.com/k0sproject/k0s/internal/pkg/users"
@@ -51,7 +54,6 @@ type APIServer struct {
 }
 
 var _ component.Component = (*APIServer)(nil)
-var _ component.Healthz = (*APIServer)(nil)
 
 var apiDefaultArgs = map[string]string{
 	"allow-privileged":                   "true",
@@ -90,7 +92,7 @@ func (a *APIServer) Init(_ context.Context) error {
 }
 
 // Run runs kube api
-func (a *APIServer) Run(_ context.Context) error {
+func (a *APIServer) Run(ctx context.Context) error {
 	logrus.Info("Starting kube-apiserver")
 	args := stringmap.StringMap{
 		"advertise-address":                a.ClusterConfig.Spec.API.Address,
@@ -172,7 +174,39 @@ func (a *APIServer) Run(_ context.Context) error {
 	}
 	a.supervisor.Args = append(a.supervisor.Args, etcdArgs...)
 
-	return a.supervisor.Supervise()
+	err = a.supervisor.Supervise()
+	if err != nil {
+		return err
+	}
+
+	// Block until API server becomes healthy...
+	client, err := a.newHTTPClient()
+	if err != nil {
+		return err
+	}
+	client.Timeout = 1 * time.Second
+	req, err := http.NewRequest("GET", fmt.Sprintf("https://localhost:%d/readyz?verbose", a.ClusterConfig.Spec.API.Port), nil)
+	if err != nil {
+		return err
+	}
+
+	return retryutil.UntilDone(ctx, func(ctx context.Context) error {
+		resp, err := client.Do(req.WithContext(ctx))
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			if logrus.IsLevelEnabled(logrus.DebugLevel) {
+				body, err := io.ReadAll(resp.Body)
+				if err == nil {
+					logrus.Debugf("API server /readyz output:\n%s", string(body))
+				}
+			}
+			return fmt.Errorf("expected 200 for api server ready check, got %d", resp.StatusCode)
+		}
+		return nil
+	}, retry.DelayType(retry.FixedDelay))
 }
 
 func (a *APIServer) writeKonnectivityConfig() error {
@@ -197,19 +231,19 @@ func (a *APIServer) Stop() error {
 	return a.supervisor.Stop()
 }
 
-// Health-check interface
-func (a *APIServer) Healthy() error {
-	// Load client cert so the api can authenitcate the request.
+// newHTTPClient returns a HTTP client that is prepared to talk to this APIServer.
+func (a *APIServer) newHTTPClient() (*http.Client, error) {
+	// Load client cert so the api can authenticate the request.
 	certFile := path.Join(a.K0sVars.CertRootDir, "admin.crt")
 	keyFile := path.Join(a.K0sVars.CertRootDir, "admin.key")
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// Load CA cert
 	caCert, err := os.ReadFile(path.Join(a.K0sVars.CertRootDir, "ca.crt"))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	caCertPool := x509.NewCertPool()
 	caCertPool.AppendCertsFromPEM(caCert)
@@ -221,20 +255,7 @@ func (a *APIServer) Healthy() error {
 	tr := &http.Transport{
 		TLSClientConfig: tlsConfig,
 	}
-	client := &http.Client{Transport: tr}
-	resp, err := client.Get(fmt.Sprintf("https://localhost:%d/readyz?verbose", a.ClusterConfig.Spec.API.Port))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, err := io.ReadAll(resp.Body)
-		if err == nil {
-			logrus.Debugf("api server readyz output:\n %s", string(body))
-		}
-		return fmt.Errorf("expected 200 for api server ready check, got %d", resp.StatusCode)
-	}
-	return nil
+	return &http.Client{Transport: tr}, nil
 }
 
 func getEtcdArgs(storage *v1beta1.StorageSpec, k0sVars constant.CfgVars) ([]string, error) {
