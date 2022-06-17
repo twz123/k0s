@@ -52,6 +52,7 @@ type Kubelet struct {
 	EnableCloudProvider bool
 	K0sVars             constant.CfgVars
 	KubeletConfigClient *KubeletConfigClient
+	StaticPods          StaticPods
 	LogLevel            string
 	Profile             string
 	dataDir             string
@@ -71,6 +72,7 @@ type kubeletConfig struct {
 	KubeletCgroups     string
 	CgroupsPerQOS      bool
 	ResolvConf         string
+	StaticPodURL       string
 }
 
 // Init extracts the needed binaries
@@ -115,11 +117,17 @@ func (k *Kubelet) Init(_ context.Context) error {
 func (k *Kubelet) Start(ctx context.Context) error {
 	cmd := "kubelet"
 
+	staticPodURL, err := k.StaticPods.ManifestURL()
+	if err != nil {
+		return err
+	}
+
 	kubeletConfigData := kubeletConfig{
 		ClientCAFile:       filepath.Join(k.K0sVars.CertRootDir, "ca.crt"),
 		VolumePluginDir:    k.K0sVars.KubeletVolumePluginDir,
 		KubeReservedCgroup: "system.slice",
 		KubeletCgroups:     "/system.slice/containerd.service",
+		StaticPodURL:       staticPodURL,
 	}
 	if runtime.GOOS == "windows" {
 		cmd = "kubelet.exe"
@@ -184,7 +192,7 @@ func (k *Kubelet) Start(ctx context.Context) error {
 		args["--cloud-provider"] = "external"
 	}
 
-	// Handle the extra args as last so they can be used to overrride some k0s "hardcodings"
+	// Handle the extra args as last so they can be used to override some k0s "hardcodings"
 	if k.ExtraArgs != "" {
 		extras := flags.Split(k.ExtraArgs)
 		args.Merge(extras)
@@ -199,7 +207,7 @@ func (k *Kubelet) Start(ctx context.Context) error {
 		Args:    args.ToArgs(),
 	}
 
-	err := retry.Do(func() error {
+	err = retry.Do(func() error {
 		kubeletconfig, err := k.KubeletConfigClient.Get(ctx, k.Profile)
 		if err != nil {
 			logrus.Warnf("failed to get initial kubelet config with join token: %s", err.Error())
@@ -245,6 +253,7 @@ func (k *Kubelet) prepareLocalKubeletConfig(kubeletconfig string, kubeletConfigD
 	kubeletConfiguration.KubeletCgroups = kubeletConfigData.KubeletCgroups
 	kubeletConfiguration.ResolverConfig = pointer.String(kubeletConfigData.ResolvConf)
 	kubeletConfiguration.CgroupsPerQOS = pointer.Bool(kubeletConfigData.CgroupsPerQOS)
+	kubeletConfiguration.StaticPodURL = kubeletConfigData.StaticPodURL
 
 	if len(k.Taints) > 0 {
 		var taints []corev1.Taint

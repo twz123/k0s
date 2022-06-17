@@ -136,11 +136,16 @@ func (c *CmdOpts) StartWorker(ctx context.Context) error {
 		c.WorkerProfile = "default-windows"
 	}
 
+	staticPods := worker.NewStaticPods()
+
+	componentManager.Add(ctx, staticPods)
+
 	componentManager.Add(ctx, &worker.Kubelet{
 		CRISocket:           c.CriSocket,
 		EnableCloudProvider: c.CloudProvider,
 		K0sVars:             c.K0sVars,
 		KubeletConfigClient: kubeletConfigClient,
+		StaticPods:          staticPods,
 		LogLevel:            c.Logging["kubelet"],
 		Profile:             c.WorkerProfile,
 		Labels:              c.Labels,
