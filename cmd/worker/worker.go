@@ -144,6 +144,9 @@ func (c *Command) Start(ctx context.Context) error {
 		c.WorkerProfile = "default-windows"
 	}
 
+	staticPods := worker.NewStaticPods()
+	componentManager.Add(ctx, staticPods)
+
 	{
 		kubeletConfiguration, err := workerConfig.KubeletConfiguration()
 		if err != nil {
@@ -156,6 +159,7 @@ func (c *Command) Start(ctx context.Context) error {
 			K0sVars:             c.K0sVars,
 			Kubeconfig:          kubeletKubeconfig,
 			Configuration:       kubeletConfiguration,
+			StaticPods:          staticPods,
 			LogLevel:            c.Logging["kubelet"],
 			Labels:              c.Labels,
 			Taints:              c.Taints,
