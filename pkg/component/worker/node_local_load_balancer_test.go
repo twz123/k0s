@@ -164,15 +164,6 @@ func TestNodeLocalLoadBalancer_Lifecycle(t *testing.T) {
 		assert.Equal(t, "node_local_load_balancer component is not yet running (initialized)", err.Error())
 	})
 
-	t.Run("run_without_reconcile_fails", func(runT *testing.T) {
-		err := underTest.Run(context.TODO())
-		if assert.Error(t, err) {
-			assert.Equal(t, "node_local_load_balancer: cannot run: not yet reconciled", err.Error())
-		} else {
-			assert.NoError(t, underTest.Stop())
-		}
-	})
-
 	t.Run("reconciles", func(runT *testing.T) {
 		err := underTest.Reconcile(context.TODO(), &clusterConfig)
 		assert.NoError(t, err)
