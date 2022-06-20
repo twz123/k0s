@@ -19,17 +19,16 @@ package worker
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
-	"net"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"text/template"
+	"time"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
@@ -39,30 +38,30 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/utils/pointer"
 
 	"github.com/sirupsen/logrus"
 )
 
-type NodeLocalLoadBalancer interface {
-	UpdateAPIServers(apiServers []string)
-}
-
-type nodeLocalLoadBalancer struct {
+type NodeLocalLoadBalancer struct {
 	log logrus.FieldLogger
+
+	configClient *KubeletConfigClient
 
 	mu            sync.Mutex
 	apiServersPtr atomic.Value
 	statePtr      atomic.Value
 }
 
+var _ component.Component = (*NodeLocalLoadBalancer)(nil)
+
 // NewNodeLocalLoadBalancer creates a new node_local_load_balancer component.
-func NewNodeLocalLoadBalancer(cfg *constant.CfgVars, staticPods StaticPods) interface {
-	component.ReconcilerComponent
-	NodeLocalLoadBalancer
-} {
-	nllb := &nodeLocalLoadBalancer{
+func NewNodeLocalLoadBalancer(cfg *constant.CfgVars, configClient *KubeletConfigClient, staticPods StaticPods) *NodeLocalLoadBalancer {
+	nllb := &NodeLocalLoadBalancer{
 		log: logrus.WithFields(logrus.Fields{"component": "node_local_load_balancer"}),
+
+		configClient: configClient,
 	}
 
 	nllb.apiServersPtr.Store([]string{})
@@ -70,11 +69,7 @@ func NewNodeLocalLoadBalancer(cfg *constant.CfgVars, staticPods StaticPods) inte
 	return nllb
 }
 
-func (n *nodeLocalLoadBalancer) UpdateAPIServers(apiServers []string) {
-	n.apiServersPtr.Store(append([]string(nil), apiServers...))
-}
-
-func (n *nodeLocalLoadBalancer) Init(context.Context) error {
+func (n *NodeLocalLoadBalancer) Init(context.Context) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -86,7 +81,7 @@ func (n *nodeLocalLoadBalancer) Init(context.Context) error {
 	}
 }
 
-func (n *nodeLocalLoadBalancer) Run(ctx context.Context) error {
+func (n *NodeLocalLoadBalancer) Run(ctx context.Context) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -100,7 +95,7 @@ func (n *nodeLocalLoadBalancer) Run(ctx context.Context) error {
 	}
 }
 
-func (n *nodeLocalLoadBalancer) Stop() error {
+func (n *NodeLocalLoadBalancer) Stop() error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -111,6 +106,7 @@ func (n *nodeLocalLoadBalancer) Stop() error {
 	case *nllbInitialized:
 		return n.stop(state.nllbConfig)
 	case *nllbRunning:
+		state.stop()
 		return n.stop(state.nllbConfig)
 	case *nllbStopped:
 		return nil
@@ -119,7 +115,7 @@ func (n *nodeLocalLoadBalancer) Stop() error {
 	}
 }
 
-func (n *nodeLocalLoadBalancer) Healthy() error {
+func (n *NodeLocalLoadBalancer) Healthy() error {
 	switch state := n.state().(type) {
 	default:
 		return fmt.Errorf("node_local_load_balancer component is not yet running (%s)", state)
@@ -127,23 +123,6 @@ func (n *nodeLocalLoadBalancer) Healthy() error {
 		return n.healthy(state)
 	case *nllbStopped:
 		return fmt.Errorf("node_local_load_balancer component is already %s", state)
-	}
-}
-
-func (n *nodeLocalLoadBalancer) Reconcile(_ context.Context, cfg *v1beta1.ClusterConfig) error {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	switch state := n.state().(type) {
-	case *nllbInitialized:
-		return n.reconcile(state.nllbConfig, &state.nllbPodSpec, cfg.Spec)
-	case *nllbRunning:
-		if err := n.reconcile(state.nllbConfig, &state.nllbPodSpec, cfg.Spec); err != nil {
-			return err
-		}
-		return n.provision(state)
-	default:
-		return fmt.Errorf("node_local_load_balancer: cannot reconcile: %s", state)
 	}
 }
 
@@ -156,44 +135,51 @@ type nllbHostPort struct {
 	Port uint16
 }
 
-func parseHostPort(address string, defaultPort uint16) (*nllbHostPort, error) {
-	host, portStr, err := net.SplitHostPort(address)
-	if err != nil {
-		if defaultPort != 0 {
-			addrErr := &net.AddrError{}
-			if errors.As(err, &addrErr) && addrErr.Err == "missing port in address" {
-				return &nllbHostPort{addrErr.Addr, defaultPort}, nil
-			}
-		}
+// func parseHostPort(address string, defaultPort uint16) (*nllbHostPort, error) {
+// 	host, portStr, err := net.SplitHostPort(address)
+// 	if err != nil {
+// 		if defaultPort != 0 {
+// 			addrErr := &net.AddrError{}
+// 			if errors.As(err, &addrErr) && addrErr.Err == "missing port in address" {
+// 				return &nllbHostPort{addrErr.Addr, defaultPort}, nil
+// 			}
+// 		}
 
-		return nil, err
-	}
+// 		return nil, err
+// 	}
 
-	port, err := strconv.ParseUint(portStr, 10, 16)
-	if err != nil {
-		return nil, fmt.Errorf("invalid port number: %q: %w", portStr, err)
-	}
+// 	port, err := strconv.ParseUint(portStr, 10, 16)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("invalid port number: %q: %w", portStr, err)
+// 	}
 
-	return &nllbHostPort{host, uint16(port)}, nil
-}
+// 	return &nllbHostPort{host, uint16(port)}, nil
+// }
 
 type nllbConfig struct {
 	configDir       string
 	loadBalancerPod StaticPod
 }
 
-type nllbPodSpec struct {
-	Image      v1beta1.ImageSpec
-	LocalAddr  string
-	LBPort     uint16
-	APIServers []nllbHostPort
+type nllbRecoState struct {
+	Shared struct {
+		LBPort uint16
+	}
+
+	LoadBalancer struct {
+		UpstreamServers []nllbHostPort
+	}
+
+	pod struct {
+		image v1beta1.ImageSpec
+	}
 }
 
-func (n *nodeLocalLoadBalancer) state() nllbState {
+func (n *NodeLocalLoadBalancer) state() nllbState {
 	return *n.statePtr.Load().(*nllbState)
 }
 
-func (n *nodeLocalLoadBalancer) store(state nllbState) {
+func (n *NodeLocalLoadBalancer) store(state nllbState) {
 	n.statePtr.Store(&state)
 }
 
@@ -208,14 +194,13 @@ func (*nllbCreated) String() string {
 
 type nllbInitialized struct {
 	*nllbConfig
-	*nllbPodSpec
 }
 
 func (*nllbInitialized) String() string {
 	return "initialized"
 }
 
-func (n *nodeLocalLoadBalancer) init(state *nllbCreated) error {
+func (n *NodeLocalLoadBalancer) init(state *nllbCreated) error {
 	configDir := filepath.Join(state.dataDir, "nllb")
 
 	for _, folder := range []struct {
@@ -254,105 +239,115 @@ func (n *nodeLocalLoadBalancer) init(state *nllbCreated) error {
 			configDir:       configDir,
 			loadBalancerPod: loadBalancerPod,
 		},
-		nil,
-	}
-
-	// FIXME pretend reconciliation
-	if err := n.reconcile(initialized.nllbConfig, &initialized.nllbPodSpec, &v1beta1.ClusterSpec{
-		API: &v1beta1.APISpec{
-			Address: "127.0.0.1:6443",
-		},
-		Images: v1beta1.DefaultClusterImages(),
-	}); err != nil {
-		loadBalancerPod.Drop()
-		return err
 	}
 
 	n.store(initialized)
 	return nil
 }
 
-func (n *nodeLocalLoadBalancer) reconcile(c *nllbConfig, podSpec **nllbPodSpec, cluster *v1beta1.ClusterSpec) error {
-	apiServer, err := parseHostPort(cluster.API.Address, 6443)
-	if err != nil {
-		return fmt.Errorf("invalid API server address: %q: %w", cluster.API.Address, err)
+func (n *NodeLocalLoadBalancer) run(state *nllbInitialized) error {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	updates := make(chan nllbUpdateFunc)
+	reconcileDone := make(chan struct{})
+	watchDone := make(chan struct{})
+
+	running := &nllbRunning{state, func() {
+		cancel()
+		<-watchDone
+		close(updates)
+		<-reconcileDone
+	}}
+
+	go func() {
+		defer close(reconcileDone)
+		n.reconcile(running.nllbConfig, updates)
+	}()
+
+	// FIXME needs to come from reconciliation
+	updates <- func(state *nllbRecoState) {
+		state.Shared.LBPort = 7443
+		state.LoadBalancer.UpstreamServers = []nllbHostPort{{"127.0.0.1", 6443}}
+		state.pod.image = v1beta1.DefaultClusterImages().EnvoyProxy
 	}
 
-	if *podSpec == nil {
-		*podSpec = &nllbPodSpec{
-			// FIXME
-			LocalAddr: "127.0.0.1",
-			LBPort:    7443,
-		}
-	}
-
-	var needsUpdate bool
-	if (*podSpec).Image != cluster.Images.EnvoyProxy {
-		(*podSpec).Image = cluster.Images.EnvoyProxy
-		needsUpdate = true
-	}
-	if !reflect.DeepEqual((*podSpec).APIServers, []nllbHostPort{*apiServer}) {
-		(*podSpec).APIServers = []nllbHostPort{*apiServer}
-		needsUpdate = true
-	}
-
-	if !needsUpdate {
-		n.log.Debugf("Envoy configuration up to date")
-		return nil
-	}
-
-	envoyDir := filepath.Join(c.configDir, "envoy")
-	if err := func() error {
-		newEnvoyConfigFile, err := n.createNewEnvoyConfigFile(envoyDir, *podSpec)
-		if err != nil {
-			return err
-		}
-
-		err = os.Rename(newEnvoyConfigFile, filepath.Join(envoyDir, "envoy.yaml"))
-		if err != nil {
-			return multierr.Append(err, os.Remove(newEnvoyConfigFile))
-		}
-
-		return nil
-	}(); err != nil {
-		return fmt.Errorf("failed to replace envoy configuration: %w", err)
-	}
-
-	n.log.Info("Envoy configuration file replaced with an updated version")
-	return nil
-}
-
-func (n *nodeLocalLoadBalancer) run(state *nllbInitialized) error {
-	running := &nllbRunning{state}
-
-	if running.nllbPodSpec != nil {
-		if err := n.provision(running); err != nil {
-			return fmt.Errorf("node_local_load_balancer: cannot run: %w", err)
-		}
-	}
+	go func() {
+		defer close(watchDone)
+		wait.UntilWithContext(ctx, func(ctx context.Context) {
+			err := n.configClient.WatchAPIServers(ctx, func(endpoints *corev1.Endpoints) error {
+				n.updateAPIServers(endpoints, updates)
+				return nil
+			})
+			if err != nil {
+				n.log.WithError(err).Error("Failed to watch for API server addresses")
+			}
+		}, 10*time.Second)
+	}()
 
 	n.store(running)
+
 	return nil
 }
 
 type nllbRunning struct {
 	*nllbInitialized
+	stop func()
 }
 
 func (*nllbRunning) String() string {
 	return "running"
 }
 
+type nllbUpdateFunc func(*nllbRecoState)
+
+func (n *NodeLocalLoadBalancer) reconcile(c *nllbConfig, updates <-chan nllbUpdateFunc) {
+	for state := (nllbRecoState{}); ; {
+		updateFunc, ok := <-updates
+		if !ok {
+			return
+		}
+
+		oldState := state
+		updateFunc(&state)
+
+		changed := state.Shared != oldState.Shared
+
+		if changed || reflect.DeepEqual(state.LoadBalancer, oldState.LoadBalancer) {
+			n.updateLoadBalancerConfig(c, &state)
+		}
+
+		if changed || state.pod != oldState.pod {
+			n.provision(c, &state)
+		}
+	}
+}
+
+func (n *NodeLocalLoadBalancer) updateLoadBalancerConfig(c *nllbConfig, state *nllbRecoState) {
+	envoyDir := filepath.Join(c.configDir, "envoy")
+	newEnvoyConfigFile, err := n.createNewEnvoyConfigFile(envoyDir, state)
+	if err != nil {
+		n.log.WithError(err).Error("Failed to create updated Envoy configuration")
+	}
+
+	err = os.Rename(newEnvoyConfigFile, filepath.Join(envoyDir, "envoy.yaml"))
+	if err != nil {
+		err = multierr.Append(err, os.Remove(newEnvoyConfigFile))
+		n.log.WithError(err).Error("Failed to replace Envoy configuration file")
+	}
+
+	n.log.Info("Load balancer configuration updated")
+}
+
 // admin:
 //   address:
-//     socket_address: { address: {{ printf "%q" .LocalAddr }}, port_value: {{ .AdminPort }} }
+//     socket_address: { address: 127.0.0.1, port_value: {{ .AdminPort }} }
 
 var envoyBootstrapConfig = template.Must(template.New("Bootstrap").Parse(`
 static_resources:
   listeners:
   - name: apiserver
     address:
-      socket_address: { address: {{ printf "%q" .LocalAddr }}, port_value: {{ .LBPort }} }
+      socket_address: { address: 127.0.0.1, port_value: {{ .Shared.LBPort }} }
     filter_chains:
     - filters:
       - name: envoy.filters.network.tcp_proxy
@@ -369,7 +364,7 @@ static_resources:
       cluster_name: apiserver
       endpoints:
       - lb_endpoints:
-        {{- range .APIServers }}
+        {{- range .LoadBalancer.UpstreamServers }}
         - endpoint:
             address:
               socket_address:
@@ -385,13 +380,7 @@ static_resources:
       unhealthy_threshold: 5
 `))
 
-func (n *nodeLocalLoadBalancer) provision(state *nllbRunning) error {
-	podSpec := state.nllbPodSpec
-
-	if podSpec == nil {
-		return errors.New("not yet reconciled")
-	}
-
+func (n *NodeLocalLoadBalancer) provision(c *nllbConfig, state *nllbRecoState) error {
 	manifest := corev1.Pod{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "v1",
@@ -408,7 +397,7 @@ func (n *nodeLocalLoadBalancer) provision(state *nllbRunning) error {
 			},
 			Containers: []corev1.Container{{
 				Name:  "nllb",
-				Image: podSpec.Image.URI(),
+				Image: state.pod.image.URI(),
 				Ports: []corev1.ContainerPort{
 					{Name: "nllb", ContainerPort: 80, Protocol: corev1.ProtocolTCP},
 				},
@@ -431,7 +420,7 @@ func (n *nodeLocalLoadBalancer) provision(state *nllbRunning) error {
 					TimeoutSeconds:   3,
 					ProbeHandler: corev1.ProbeHandler{
 						TCPSocket: &corev1.TCPSocketAction{
-							Host: "127.0.0.1", Port: intstr.FromInt(int(podSpec.LBPort)),
+							Host: "127.0.0.1", Port: intstr.FromInt(int(state.Shared.LBPort)),
 						},
 					},
 				},
@@ -440,7 +429,7 @@ func (n *nodeLocalLoadBalancer) provision(state *nllbRunning) error {
 				Name: "envoy-config",
 				VolumeSource: corev1.VolumeSource{
 					HostPath: &corev1.HostPathVolumeSource{
-						Path: filepath.Join(state.configDir, "envoy"),
+						Path: filepath.Join(c.configDir, "envoy"),
 						Type: (*corev1.HostPathType)(pointer.String(string(corev1.HostPathDirectory))),
 					},
 				}},
@@ -448,7 +437,7 @@ func (n *nodeLocalLoadBalancer) provision(state *nllbRunning) error {
 		},
 	}
 
-	if err := state.loadBalancerPod.SetManifest(manifest); err != nil {
+	if err := c.loadBalancerPod.SetManifest(manifest); err != nil {
 		return err
 	}
 
@@ -456,9 +445,9 @@ func (n *nodeLocalLoadBalancer) provision(state *nllbRunning) error {
 	return nil
 }
 
-func (n *nodeLocalLoadBalancer) createNewEnvoyConfigFile(dir string, reconciled *nllbPodSpec) (string, error) {
+func (n *NodeLocalLoadBalancer) createNewEnvoyConfigFile(dir string, state *nllbRecoState) (string, error) {
 	var envoyConfig bytes.Buffer
-	if err := envoyBootstrapConfig.Execute(&envoyConfig, reconciled); err != nil {
+	if err := envoyBootstrapConfig.Execute(&envoyConfig, state); err != nil {
 		return "", fmt.Errorf("failed to generate envoy configuration: %w", err)
 	}
 
@@ -482,11 +471,59 @@ func (n *nodeLocalLoadBalancer) createNewEnvoyConfigFile(dir string, reconciled 
 		return "", multierr.Append(err, os.Remove(newConfigFile))
 	}
 
-	n.log.Debugf("Wrote new envoy configuration: %s", newConfigFile, envoyConfig)
+	n.log.Debugf("Wrote new Envoy configuration: %s: %s", newConfigFile, envoyConfig)
 	return newConfigFile, nil
 }
 
-func (n *nodeLocalLoadBalancer) healthy(state *nllbRunning) error {
+func (n *NodeLocalLoadBalancer) updateAPIServers(endpoints *corev1.Endpoints, updates chan<- nllbUpdateFunc) {
+	apiServers := []nllbHostPort{}
+	for sIdx, subset := range endpoints.Subsets {
+		var ports []uint16
+		for _, port := range subset.Ports {
+			// FIXME: is a more sophisticated port detection required?
+			// E.g. does the service object need to be inspected?
+			if port.Protocol == corev1.ProtocolTCP && port.Name == "https" {
+				if port.Port > 0 && port.Port <= math.MaxUint16 {
+					ports = append(ports, uint16(port.Port))
+				}
+			}
+		}
+
+		if len(ports) < 1 {
+			n.log.Warnf("No suitable ports found in subset %d: %+#v", sIdx, subset.Ports)
+			continue
+		}
+
+		for aIdx, address := range subset.Addresses {
+			host := address.IP
+			if host == "" {
+				host = address.Hostname
+			}
+			if host == "" {
+				n.log.Warnf("Failed to get host from address %d/%d: %+#v", sIdx, aIdx, address)
+				continue
+			}
+
+			for _, port := range ports {
+				apiServers = append(apiServers, nllbHostPort{host, port})
+			}
+		}
+	}
+
+	if len(apiServers) < 1 {
+		// Never update the API servers with an empty list. This cannot
+		// be right in any case, and would never recover.
+		n.log.Warn("No API server addresses discovered")
+		return
+	}
+
+	updates <- func(state *nllbRecoState) {
+		n.log.Debug("Updating API server addresses:", apiServers)
+		state.LoadBalancer.UpstreamServers = apiServers
+	}
+}
+
+func (n *NodeLocalLoadBalancer) healthy(state *nllbRunning) error {
 	// req, err := http.NewRequest(http.MethodGet, healthCheckURL, nil)
 	// if err != nil {
 	// 	return fmt.Errorf("node_local_load_balancer: health check failed: %w", err)
@@ -507,7 +544,7 @@ func (n *nodeLocalLoadBalancer) healthy(state *nllbRunning) error {
 	return nil
 }
 
-func (n *nodeLocalLoadBalancer) stop(config *nllbConfig) error {
+func (n *NodeLocalLoadBalancer) stop(config *nllbConfig) error {
 	config.loadBalancerPod.Drop()
 
 	configFile := filepath.Join(config.configDir, "envoy", "envoy.yaml")

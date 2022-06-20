@@ -193,7 +193,7 @@ func (c *CmdOpts) StartWorker(ctx context.Context) error {
 		CertManager: certManager,
 	})
 
-	componentManager.Add(ctx, worker.NewNodeLocalLoadBalancer(&c.K0sVars, staticPods))
+	componentManager.Add(ctx, worker.NewNodeLocalLoadBalancer(&c.K0sVars, kubeletConfigClient, staticPods))
 
 	// extract needed components
 	if err := componentManager.Init(ctx); err != nil {

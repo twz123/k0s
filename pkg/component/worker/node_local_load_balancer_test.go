@@ -25,8 +25,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
-	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -37,13 +35,13 @@ import (
 )
 
 func TestNodeLocalLoadBalancer_ConfigMgmt(t *testing.T) {
-	newTestInstance := func(dataDir string) component.ReconcilerComponent {
+	newTestInstance := func(dataDir string) *NodeLocalLoadBalancer {
 		staticPod := new(nllbStaticPodMock)
 		staticPod.On("Drop").Return()
 
 		staticPods := new(nllbStaticPodsMock)
 		staticPods.On("ClaimStaticPod", mock.Anything, mock.Anything).Return(staticPod, nil)
-		return NewNodeLocalLoadBalancer(&constant.CfgVars{DataDir: dataDir}, staticPods)
+		return NewNodeLocalLoadBalancer(&constant.CfgVars{DataDir: dataDir}, nil, staticPods)
 	}
 
 	t.Run("configDir", func(t *testing.T) {
@@ -90,9 +88,13 @@ func TestNodeLocalLoadBalancer_ConfigMgmt(t *testing.T) {
 
 		// when
 		underTest := newTestInstance(dataDir)
+		t.Cleanup(func() {
+			assert.NoError(t, underTest.Stop())
+			assert.NoFileExists(t, envoyConfig)
+		})
 		err := underTest.Init(context.TODO())
 		require.NoError(t, err)
-		err = underTest.Reconcile(context.TODO(), v1beta1.DefaultClusterConfig(nil))
+		err = underTest.Run(context.TODO())
 		require.NoError(t, err)
 
 		// then
@@ -103,12 +105,6 @@ func TestNodeLocalLoadBalancer_ConfigMgmt(t *testing.T) {
 			assert.NoError(t, yaml.Unmarshal(configBytes, &yamlConfig), "invalid YAML in config file")
 		}
 
-		// when
-		err = underTest.Stop()
-
-		// then
-		assert.NoError(t, err)
-		assert.NoFileExists(t, envoyConfig)
 	})
 }
 
@@ -116,24 +112,14 @@ func TestNodeLocalLoadBalancer_Lifecycle(t *testing.T) {
 	log, _ := test.NewNullLogger()
 	log.SetLevel(logrus.DebugLevel)
 
-	clusterConfig := v1beta1.ClusterConfig{
-		Spec: v1beta1.DefaultClusterSpec(),
-	}
-
 	staticPod := new(nllbStaticPodMock)
 	staticPod.On("SetManifest", mock.Anything).Return(nil)
 	staticPod.On("Drop", mock.Anything).Return()
 	staticPods := new(nllbStaticPodsMock)
 	staticPods.On("ClaimStaticPod", mock.Anything, mock.Anything).Return(staticPod, nil)
 
-	underTest := NewNodeLocalLoadBalancer(&constant.CfgVars{DataDir: t.TempDir()}, staticPods)
-	underTest.(*nodeLocalLoadBalancer).log = log
-
-	t.Run("fails_to_reconcile_before_init", func(t *testing.T) {
-		err := underTest.Reconcile(context.TODO(), &clusterConfig)
-		require.Error(t, err)
-		assert.Equal(t, "node_local_load_balancer: cannot reconcile: created", err.Error())
-	})
+	underTest := NewNodeLocalLoadBalancer(&constant.CfgVars{DataDir: t.TempDir()}, nil, staticPods)
+	underTest.log = log
 
 	t.Run("fails_to_run_without_init", func(t *testing.T) {
 		err := underTest.Run(context.TODO())
@@ -164,11 +150,6 @@ func TestNodeLocalLoadBalancer_Lifecycle(t *testing.T) {
 		assert.Equal(t, "node_local_load_balancer component is not yet running (initialized)", err.Error())
 	})
 
-	t.Run("reconciles", func(runT *testing.T) {
-		err := underTest.Reconcile(context.TODO(), &clusterConfig)
-		assert.NoError(t, err)
-	})
-
 	t.Run("runs", func(runT *testing.T) {
 		if assert.NoError(runT, underTest.Run(context.TODO())) {
 			t.Cleanup(func() { assert.NoError(t, underTest.Stop()) })
@@ -179,11 +160,6 @@ func TestNodeLocalLoadBalancer_Lifecycle(t *testing.T) {
 		err := underTest.Run(context.TODO())
 		require.Error(t, err)
 		assert.Equal(t, "node_local_load_balancer component is already running", err.Error())
-	})
-
-	t.Run("another_reconcile", func(runT *testing.T) {
-		err := underTest.Reconcile(context.TODO(), &clusterConfig)
-		assert.NoError(t, err)
 	})
 
 	t.Run("stops", func(t *testing.T) {
@@ -198,12 +174,6 @@ func TestNodeLocalLoadBalancer_Lifecycle(t *testing.T) {
 		err := underTest.Init(context.TODO())
 		require.Error(t, err)
 		assert.Equal(t, "node_local_load_balancer component is already stopped", err.Error())
-	})
-
-	t.Run("reconcile_after_stop_fails", func(t *testing.T) {
-		err := underTest.Reconcile(context.TODO(), &clusterConfig)
-		require.Error(t, err)
-		assert.Equal(t, "node_local_load_balancer: cannot reconcile: stopped", err.Error())
 	})
 
 	t.Run("rerun_fails", func(t *testing.T) {
@@ -253,7 +223,9 @@ func TestNodeLocalLoadBalancer_EnvoyBootstrapConfig_Template(t *testing.T) {
 		{"two", 2, []nllbHostPort{{"foo", 16}, {"bar", 17}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			assert.NoError(t, envoyBootstrapConfig.Execute(&buf, &nllbPodSpec{APIServers: test.servers}))
+			var state nllbRecoState
+			state.LoadBalancer.UpstreamServers = test.servers
+			assert.NoError(t, envoyBootstrapConfig.Execute(&buf, &state))
 			t.Logf("rendered: %s", buf.String())
 
 			var parsed jo
