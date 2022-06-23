@@ -55,11 +55,10 @@ const (
 	PidFileMode = 0644
 	// ManifestsDirMode is the expected directory permissions for ManifestsDir
 	ManifestsDirMode = 0755
-
 	// KineDBDirMode is the expected directory permissions for the Kine DB
 	KineDBDirMode = 0750
 
-	// User accounts for services
+	/* User accounts for services */
 
 	// EtcdUser defines the user to use for running etcd process
 	EtcdUser = "etcd"
@@ -71,9 +70,12 @@ const (
 	SchedulerUser = "kube-scheduler"
 	// KonnectivityServerUser deinfes the user to use for konnectivity-server
 	KonnectivityServerUser = "konnectivity-server"
+
 	// KubernetesMajorMinorVersion defines the current embedded major.minor version info
 	KubernetesMajorMinorVersion = "1.25"
-	// Image Constants
+
+	/* Image Constants */
+
 	KonnectivityImage                  = "quay.io/k0sproject/apiserver-network-proxy-agent"
 	KonnectivityImageVersion           = "0.0.32-k0s1"
 	PushGatewayImage                   = "quay.io/k0sproject/pushgateway-ttl"
@@ -97,7 +99,8 @@ const (
 	OpenEBSRepository                  = "https://openebs.github.io/charts"
 	OpenEBSVersion                     = "3.0.3"
 
-	// Controller component names
+	/* Controller component names */
+
 	APIConfigComponentName             = "api-config"
 	ControlAPIComponentName            = "control-api"
 	CoreDNSComponentname               = "coredns"
@@ -107,12 +110,14 @@ const (
 	KubeControllerManagerComponentName = "kube-controller-manager"
 	KubeProxyComponentName             = "kube-proxy"
 	KubeSchedulerComponentName         = "kube-scheduler"
-	KubeletConfigComponentName         = "kubelet-config"
-	MetricsServerComponentName         = "metrics-server"
-	NetworkProviderComponentName       = "network-provider"
-	SystemRbacComponentName            = "system-rbac"
-	NodeRoleComponentName              = "node-role"
-	AutopilotComponentName             = "autopilot"
+	// Deprecated: replaced by worker-config
+	KubeletConfigComponentName   = "kubelet-config"
+	WorkerConfigComponentName    = "worker-config"
+	MetricsServerComponentName   = "metrics-server"
+	NetworkProviderComponentName = "network-provider"
+	SystemRbacComponentName      = "system-rbac"
+	NodeRoleComponentName        = "node-role"
+	AutopilotComponentName       = "autopilot"
 
 	// ClusterConfigNamespace is the namespace where we expect to find the ClusterConfig CRs
 	ClusterConfigNamespace  = "kube-system"

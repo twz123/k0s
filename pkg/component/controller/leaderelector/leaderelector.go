@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controller
+package leaderelector
 
 import (
 	"context"
@@ -27,8 +27,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// LeaderElector is the common leader elector component to manage each controller leader status
-type LeaderElector interface {
+// Interface is the common leader elector component to manage each controller leader status
+type Interface interface {
 	IsLeader() bool
 	AddAcquiredLeaseCallback(fn func())
 	AddLostLeaseCallback(fn func())
@@ -46,7 +46,7 @@ type LeasePoolLeaderElector struct {
 	lostLeaseCallbacks     []func()
 }
 
-var _ LeaderElector = (*LeasePoolLeaderElector)(nil)
+var _ Interface = (*LeasePoolLeaderElector)(nil)
 var _ component.Component = (*LeasePoolLeaderElector)(nil)
 
 // NewLeasePoolLeaderElector creates new leader elector using a Kubernetes lease pool.

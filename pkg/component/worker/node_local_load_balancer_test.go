@@ -94,7 +94,7 @@ func TestNodeLocalLoadBalancer_ConfigMgmt(t *testing.T) {
 		})
 		err := underTest.Init(context.TODO())
 		require.NoError(t, err)
-		err = underTest.Run(context.TODO())
+		err = underTest.Start(context.TODO())
 		require.NoError(t, err)
 
 		// then
@@ -122,7 +122,7 @@ func TestNodeLocalLoadBalancer_Lifecycle(t *testing.T) {
 	underTest.log = log
 
 	t.Run("fails_to_run_without_init", func(t *testing.T) {
-		err := underTest.Run(context.TODO())
+		err := underTest.Start(context.TODO())
 		require.Error(t, err)
 		require.Equal(t, "node_local_load_balancer component is not yet initialized (created)", err.Error())
 	})
@@ -151,13 +151,13 @@ func TestNodeLocalLoadBalancer_Lifecycle(t *testing.T) {
 	})
 
 	t.Run("runs", func(runT *testing.T) {
-		if assert.NoError(runT, underTest.Run(context.TODO())) {
+		if assert.NoError(runT, underTest.Start(context.TODO())) {
 			t.Cleanup(func() { assert.NoError(t, underTest.Stop()) })
 		}
 	})
 
 	t.Run("another_run_fails", func(t *testing.T) {
-		err := underTest.Run(context.TODO())
+		err := underTest.Start(context.TODO())
 		require.Error(t, err)
 		assert.Equal(t, "node_local_load_balancer component is already running", err.Error())
 	})
@@ -177,7 +177,7 @@ func TestNodeLocalLoadBalancer_Lifecycle(t *testing.T) {
 	})
 
 	t.Run("rerun_fails", func(t *testing.T) {
-		err := underTest.Run(context.TODO())
+		err := underTest.Start(context.TODO())
 		require.Error(t, err)
 		assert.Equal(t, "node_local_load_balancer component is already stopped", err.Error())
 	})

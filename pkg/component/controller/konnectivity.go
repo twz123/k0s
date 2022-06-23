@@ -36,7 +36,6 @@ import (
 	"github.com/k0sproject/k0s/pkg/assets"
 	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/constant"
-	k8sutil "github.com/k0sproject/k0s/pkg/kubernetes"
 	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/k0sproject/k0s/pkg/supervisor"
 )
@@ -47,7 +46,7 @@ type Konnectivity struct {
 	LogLevel   string
 	SingleNode bool
 	// used for lease lock
-	KubeClientFactory k8sutil.ClientFactoryInterface
+	KubeClientFactory kubeutil.ClientFactoryInterface
 	NodeConfig        *v1beta1.ClusterConfig
 
 	supervisor          *supervisor.Supervisor

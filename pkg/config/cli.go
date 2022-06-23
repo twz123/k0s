@@ -173,6 +173,7 @@ func AvailableComponents() []string {
 		constant.HelmComponentName,
 		constant.MetricsServerComponentName,
 		constant.KubeletConfigComponentName,
+		constant.WorkerConfigComponentName,
 		constant.SystemRbacComponentName,
 	}
 }

@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"strings"
 	"testing"
 	"time"
 
@@ -32,6 +31,7 @@ import (
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -67,7 +67,7 @@ func TestGetConfigFromFile(t *testing.T) {
 	loadingRules := ClientConfigLoadingRules{
 		RuntimeConfigPath: nonExistentPath(t),
 	}
-	err := loadingRules.InitRuntimeConfig(constant.GetConfig(""))
+	err := loadingRules.InitRuntimeConfig(constant.GetConfig(t.TempDir()))
 	if err != nil {
 		t.Fatalf("failed to initialize k0s config: %s", err.Error())
 	}
@@ -114,7 +114,7 @@ spec:
 	loadingRules := ClientConfigLoadingRules{
 		RuntimeConfigPath: nonExistentPath(t),
 	}
-	err := loadingRules.InitRuntimeConfig(constant.GetConfig(""))
+	err := loadingRules.InitRuntimeConfig(constant.GetConfig(t.TempDir()))
 	if err != nil {
 		t.Fatalf("failed to initialize k0s config: %s", err.Error())
 	}
@@ -150,7 +150,7 @@ func TestConfigFromDefaults(t *testing.T) {
 	loadingRules := ClientConfigLoadingRules{
 		RuntimeConfigPath: nonExistentPath(t),
 	}
-	err := loadingRules.InitRuntimeConfig(constant.GetConfig(""))
+	err := loadingRules.InitRuntimeConfig(constant.GetConfig(t.TempDir()))
 	if err != nil {
 		t.Fatalf("failed to initialize k0s config: %s", err.Error())
 	}
@@ -194,7 +194,7 @@ func TestNodeConfigWithAPIConfig(t *testing.T) {
 		Nodeconfig:        true,
 	}
 
-	err := loadingRules.InitRuntimeConfig(constant.GetConfig(""))
+	err := loadingRules.InitRuntimeConfig(constant.GetConfig(t.TempDir()))
 	if err != nil {
 		t.Fatalf("failed to initialize k0s config: %s", err.Error())
 	}
@@ -236,7 +236,8 @@ spec:
 		RuntimeConfigPath: nonExistentPath(t),
 		Nodeconfig:        true,
 	}
-	k0sVars := constant.GetConfig("")
+	tempDir := t.TempDir()
+	k0sVars := constant.GetConfig(tempDir)
 	k0sVars.DefaultStorageType = "kine"
 
 	err := loadingRules.InitRuntimeConfig(k0sVars)
@@ -253,22 +254,10 @@ spec:
 		t.Fatal("received an empty config! failing")
 	}
 
-	testCases := []struct {
-		name     string
-		got      string
-		expected string
-	}{
-		{"Storage_Type", cfg.Spec.Storage.Type, "kine"},
-		{"Kine_DataSource", cfg.Spec.Storage.Kine.DataSource, "sqlite:///var/lib/k0s/db/state.db"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(fmt.Sprintf("%s eq %s", tc.name, tc.expected), func(t *testing.T) {
-			if !strings.Contains(tc.got, tc.expected) {
-				t.Fatalf("expected to read '%s' for the %s test value. Got: %s", tc.expected, tc.name, tc.got)
-			}
-		})
-	}
+	assert.Equal(t, "kine", cfg.Spec.Storage.Type, "Storage type mismatch")
+	assert.Contains(t, cfg.Spec.Storage.Kine.DataSource,
+		fmt.Sprintf("sqlite://%s/db/state.db", tempDir),
+		"Data source mismatch")
 }
 
 func TestSingleNodeConfigWithEtcd(t *testing.T) {
@@ -283,7 +272,7 @@ spec:
 		RuntimeConfigPath: nonExistentPath(t),
 		Nodeconfig:        true,
 	}
-	k0sVars := constant.GetConfig("")
+	k0sVars := constant.GetConfig(t.TempDir())
 	k0sVars.DefaultStorageType = "kine"
 
 	err := loadingRules.InitRuntimeConfig(k0sVars)
@@ -331,7 +320,7 @@ func TestAPIConfig(t *testing.T) {
 		RuntimeConfigPath: nonExistentPath(t),
 		APIClient:         client.K0sV1beta1(),
 	}
-	err = loadingRules.InitRuntimeConfig(constant.GetConfig(""))
+	err = loadingRules.InitRuntimeConfig(constant.GetConfig(t.TempDir()))
 	if err != nil {
 		t.Fatalf("failed to initialize k0s config: %s", err.Error())
 	}

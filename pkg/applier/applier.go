@@ -139,7 +139,6 @@ func (a *Applier) Delete(ctx context.Context) error {
 	}
 	stack := Stack{
 		Name:      a.Name,
-		Resources: []*unstructured.Unstructured{},
 		Client:    a.client,
 		Discovery: a.discoveryClient,
 	}

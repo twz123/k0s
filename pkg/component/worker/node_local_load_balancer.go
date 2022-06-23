@@ -32,6 +32,7 @@ import (
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
+	"github.com/k0sproject/k0s/pkg/applier"
 	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/constant"
 	"go.uber.org/multierr"
@@ -81,7 +82,7 @@ func (n *NodeLocalLoadBalancer) Init(context.Context) error {
 	}
 }
 
-func (n *NodeLocalLoadBalancer) Run(ctx context.Context) error {
+func (n *NodeLocalLoadBalancer) Start(ctx context.Context) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -89,7 +90,7 @@ func (n *NodeLocalLoadBalancer) Run(ctx context.Context) error {
 	case *nllbCreated:
 		return fmt.Errorf("node_local_load_balancer component is not yet initialized (%s)", state)
 	case *nllbInitialized:
-		return n.run(state)
+		return n.start(state)
 	default:
 		return fmt.Errorf("node_local_load_balancer component is already %s", state)
 	}
@@ -105,21 +106,21 @@ func (n *NodeLocalLoadBalancer) Stop() error {
 		return nil
 	case *nllbInitialized:
 		return n.stop(state.nllbConfig)
-	case *nllbRunning:
+	case *nllbStarted:
 		state.stop()
 		return n.stop(state.nllbConfig)
 	case *nllbStopped:
 		return nil
 	default:
-		return fmt.Errorf("node_local_load_balancer component is not yet running (%s)", state)
+		return fmt.Errorf("node_local_load_balancer component is not yet started (%s)", state)
 	}
 }
 
 func (n *NodeLocalLoadBalancer) Healthy() error {
 	switch state := n.state().(type) {
 	default:
-		return fmt.Errorf("node_local_load_balancer component is not yet running (%s)", state)
-	case *nllbRunning:
+		return fmt.Errorf("node_local_load_balancer component is not yet started (%s)", state)
+	case *nllbStarted:
 		return n.healthy(state)
 	case *nllbStopped:
 		return fmt.Errorf("node_local_load_balancer component is already %s", state)
@@ -245,14 +246,14 @@ func (n *NodeLocalLoadBalancer) init(state *nllbCreated) error {
 	return nil
 }
 
-func (n *NodeLocalLoadBalancer) run(state *nllbInitialized) error {
+func (n *NodeLocalLoadBalancer) start(state *nllbInitialized) error {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	updates := make(chan nllbUpdateFunc)
 	reconcileDone := make(chan struct{})
 	watchDone := make(chan struct{})
 
-	running := &nllbRunning{state, func() {
+	started := &nllbStarted{state, func() {
 		cancel()
 		<-watchDone
 		close(updates)
@@ -261,7 +262,7 @@ func (n *NodeLocalLoadBalancer) run(state *nllbInitialized) error {
 
 	go func() {
 		defer close(reconcileDone)
-		n.reconcile(running.nllbConfig, updates)
+		n.reconcile(started.nllbConfig, updates)
 	}()
 
 	// FIXME needs to come from reconciliation
@@ -284,18 +285,18 @@ func (n *NodeLocalLoadBalancer) run(state *nllbInitialized) error {
 		}, 10*time.Second)
 	}()
 
-	n.store(running)
+	n.store(started)
 
 	return nil
 }
 
-type nllbRunning struct {
+type nllbStarted struct {
 	*nllbInitialized
 	stop func()
 }
 
-func (*nllbRunning) String() string {
-	return "running"
+func (*nllbStarted) String() string {
+	return "started"
 }
 
 type nllbUpdateFunc func(*nllbRecoState)
@@ -389,6 +390,7 @@ func (n *NodeLocalLoadBalancer) provision(c *nllbConfig, state *nllbRecoState) e
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "nllb",
 			Namespace: "kube-system",
+			Labels:    applier.CommonLabels("nllb"),
 		},
 		Spec: corev1.PodSpec{
 			HostNetwork: true,
@@ -523,7 +525,7 @@ func (n *NodeLocalLoadBalancer) updateAPIServers(endpoints *corev1.Endpoints, up
 	}
 }
 
-func (n *NodeLocalLoadBalancer) healthy(state *nllbRunning) error {
+func (n *NodeLocalLoadBalancer) healthy(state *nllbStarted) error {
 	// req, err := http.NewRequest(http.MethodGet, healthCheckURL, nil)
 	// if err != nil {
 	// 	return fmt.Errorf("node_local_load_balancer: health check failed: %w", err)

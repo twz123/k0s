@@ -46,7 +46,7 @@ spec:
   api:
     externalAddress: 10.0.0.86
 `
-	configGetter := testutil.NewConfigGetter(s.T(), yamlData, false, constant.GetConfig(""))
+	configGetter := testutil.NewConfigGetter(s.T(), yamlData, false, constant.GetConfig(s.T().TempDir()))
 	cfg := configGetter.FakeConfigFromFile()
 
 	caCert := `
