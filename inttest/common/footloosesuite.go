@@ -39,6 +39,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/k0sproject/k0s/internal/pkg/file"
 	apclient "github.com/k0sproject/k0s/pkg/apis/autopilot.k0sproject.io/v1beta2/clientset"
 	extclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 
@@ -1066,7 +1067,6 @@ func (s *FootlooseSuite) initializeFootlooseClusterInDir(dir string) error {
 	if binPath == "" {
 		return errors.New("failed to locate k0s binary: K0S_PATH environment variable not set")
 	}
-	airgapPath := os.Getenv("K0S_IMAGES_BUNDLE")
 
 	fileInfo, err := os.Stat(binPath)
 	if err != nil {
@@ -1089,7 +1089,7 @@ func (s *FootlooseSuite) initializeFootlooseClusterInDir(dir string) error {
 		},
 	}
 
-	if airgapPath != "" {
+	if airgapPath := os.Getenv("K0S_IMAGES_BUNDLE"); file.Exists(airgapPath) {
 		volumes = append(volumes, config.Volume{
 			Type:        "bind",
 			Source:      airgapPath,

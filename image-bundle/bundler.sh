@@ -1,41 +1,37 @@
-#!/bin/sh
-set -x
+#!/usr/bin/env sh
 
-OUTPUT=${OUTPUT:-"/hostdir/bundle.tar"}
-K0S_BINARY=${K0S_BINARY:-"k0s"}
-CTR_BIN=${CTR_BIN:-"ctr"}
-CONTAINERD_RUN_SOCKET=${CONTAINERD_RUN_SOCKET:-"/run/containerd/containerd.sock"}
-CTR_CMD="${CTR_BIN} --namespace bundle_builder --address ${CONTAINERD_RUN_SOCKET}"
+set -eu
 
-function get_images() {
-  cat /image.list | xargs
+containerd </dev/null >&2 &
+#shellcheck disable=SC2064
+trap "kill -- $! && wait -- $!" INT EXIT
+
+while ! ctr version </dev/null >/dev/null; do
+  kill -0 $!
+  echo containerd not yet available >&2
+  sleep 1
+done
+
+echo containerd up
+
+set --
+
+while read -r image; do
+  echo Fetching content of "$image" ... >&2
+  out="$(ctr content fetch --platform "$TARGET_PLATFORM" -- "$image")" || {
+    code=$?
+    echo "$out" >&2
+    exit $code
+  }
+
+  set -- "$@" "$image"
+done
+
+[ -n "$*" ] || {
+  echo No images provided via STDIN! >&2
+  exit 1
 }
 
-function ensure_images() {
-  for image in $(get_images); do
-    ${CTR_CMD} content fetch --platform ${TARGET_PLATFORM} $image
-  done
-}
-
-function pack_images() {
-  IMAGES=$(get_images)
-
-  ${CTR_CMD} images export --platform ${TARGET_PLATFORM} $OUTPUT $IMAGES
-}
-
-function build_bundle() {
-  ensure_images
-  pack_images
-}
-
-if [ -z "${TARGET_PLATFORM}" ]; then
-  echo "TARGET_PLATFORM must be set via env!!!"
-  exit 1 
-fi
-
-containerd &
-
-build_bundle
-
-# Stop containerd
-kill $(pidof containerd)
+echo Exporting images ... >&2
+ctr images export --platform "$TARGET_PLATFORM" -- - "$@"
+echo Images exported. >&2
