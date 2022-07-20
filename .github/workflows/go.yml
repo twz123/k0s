@@ -101,7 +101,7 @@ jobs:
         if: matrix.airgap-image-bundle
         run: |
           make airgap-images.txt
-          echo ::set-output name=${{ matrix.target }}-hash::${{ hashFiles('airgap-images.txt', 'image-bundle/*') }}
+          echo ::set-output name=${{ matrix.target }}-hash::${{ hashFiles('airgap-images.txt', 'image-bundler/*') }}
 
       - name: Cache airgap image bundle
         id: cache-airgap-image-bundle
@@ -114,13 +114,6 @@ jobs:
       - name: Create airgap image bundle
         if: matrix.airgap-image-bundle && steps.cache-airgap-image-bundle.outputs.cache-hit != 'true'
         run: make ${{ matrix.airgap-image-bundle }}
-
-      # - name: Upload airgap image bundle
-      #   if: matrix.airgap-image-bundle
-      #   uses: actions/upload-artifact@v3
-      #   with:
-      #     name: ${{ matrix.airgap-image-bundle }}
-      #     path: ${{ matrix.airgap-image-bundle }}
 
   unittest:
     name: Unit test
@@ -239,12 +232,6 @@ jobs:
         with:
           key: airgap-image-bundle-linux-amd64.tar-${{ needs.build.outputs.airgap-image-bundle-hash-linux }}
           path: airgap-image-bundle-linux-amd64.tar
-
-      # - name: Download airgap image bundle
-      #   if: contains(matrix.smoke-suite, 'airgap')
-      #   uses: actions/download-artifact@v3
-      #   with:
-      #     name: airgap-image-bundle-linux-amd64.tar
 
       - name: Run inttest
         env:

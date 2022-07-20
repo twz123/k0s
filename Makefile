@@ -223,7 +223,7 @@ airgap-image-bundle-linux-arm.tar: .k0sbuild.image-bundler.stamp airgap-images.t
 	    exit $$code ; \
 	  }
 
-.k0sbuild.image-bundler.stamp: image-bundle/*
+.k0sbuild.image-bundler.stamp: image-bundler/*
 	docker build -t k0sbuild.image-bundler image-bundle
 	touch -- '$@'
 
@@ -253,13 +253,13 @@ clean-docker-image:
 	-docker rmi k0sbuild.docker-image.k0s -f
 	-rm -f .k0sbuild.docker-image.k0s
 
-clean-airgap-image-bundle:
+clean-airgap-image-bundles:
 	-docker rmi -f k0sbuild.image-bundler.k0s
 	-rm airgap-images.txt .k0sbuild.image-bundler.stamp
 	-rm airgap-image-bundle-linux-amd64.tar airgap-image-bundle-linux-arm64.tar airgap-image-bundle-linux-arm.tar
 
 .PHONY: clean
-clean: clean-gocache clean-docker-image clean-airgap-image-bundle
+clean: clean-gocache clean-docker-image clean-airgap-image-bundles
 	-rm -f pkg/assets/zz_generated_offsets_*.go k0s k0s.exe .bins.*stamp bindata* static/gen_manifests.go
 	-rm -rf $(K0S_GO_BUILD_CACHE) 
 	-find pkg/apis -type f \( -name .client-gen.stamp -or -name .controller-gen.stamp \) -delete
