@@ -4,7 +4,7 @@ set -eu
 
 containerd </dev/null >&2 &
 #shellcheck disable=SC2064
-trap ": kill -- $! && wait -- $!" INT EXIT
+trap "{ kill -- $! && wait -- $!; } || true" INT EXIT
 
 while ! ctr version </dev/null >/dev/null; do
   kill -0 $!

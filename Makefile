@@ -224,7 +224,7 @@ airgap-image-bundle-linux-arm.tar: .k0sbuild.image-bundler.stamp airgap-images.t
 	  }
 
 .k0sbuild.image-bundler.stamp: image-bundler/*
-	docker build -t k0sbuild.image-bundler image-bundle
+	docker build -t k0sbuild.image-bundler image-bundler
 	touch -- '$@'
 
 .PHONY: $(smoketests)
