@@ -38,9 +38,12 @@ jobs:
         include:
           - target: linux
             build-docker-image: k0sbuild
-            airgap-image-bundle: 'airgap-image-bundle-linux-amd64.tar'
+            airgap-image-bundle: airgap-image-bundle-linux-amd64.tar
           - target: windows
             binary-suffix: .exe
+
+    outputs:
+      airgap-image-bundle-hash-linux: ${{ steps.create-airgap-image-list.outputs.linux-hash }}
 
     steps:
       - name: Check out code into the Go module directory
@@ -94,28 +97,30 @@ jobs:
           path: k0s${{ matrix.binary-suffix }}
 
       - name: Create airgap image list
+        id: create-airgap-image-list
         if: matrix.airgap-image-bundle
         run: |
           make airgap-images.txt
+          echo ::set-output name=${{ matrix.target }}-hash::${{ hashFiles('airgap-images.txt', 'image-bundle/*') }}
 
       - name: Cache airgap image bundle
         id: cache-airgap-image-bundle
         if: matrix.airgap-image-bundle
         uses: actions/cache@v3
         with:
-          key: ${{ matrix.airgap-image-bundle }}-${{ hashFiles('airgap-images.txt', 'image-bundle/*') }}
+          key: ${{ matrix.airgap-image-bundle }}-${{ steps.create-airgap-image-list.outputs[format('{0}-hash', matrix.target)] }}
           path: ${{ matrix.airgap-image-bundle }}
 
       - name: Create airgap image bundle
         if: matrix.airgap-image-bundle && steps.cache-airgap-image-bundle.outputs.cache-hit != 'true'
         run: make ${{ matrix.airgap-image-bundle }}
 
-      - name: Upload airgap image bundle
-        if: matrix.airgap-image-bundle
-        uses: actions/upload-artifact@v3
-        with:
-          name: ${{ matrix.airgap-image-bundle }}
-          path: ${{ matrix.airgap-image-bundle }}
+      # - name: Upload airgap image bundle
+      #   if: matrix.airgap-image-bundle
+      #   uses: actions/upload-artifact@v3
+      #   with:
+      #     name: ${{ matrix.airgap-image-bundle }}
+      #     path: ${{ matrix.airgap-image-bundle }}
 
   unittest:
     name: Unit test
@@ -222,19 +227,31 @@ jobs:
         with:
           name: k0s
 
-      - name: Download airgap image bundle
-        if: contains(matrix.smoke-suite, 'airgap')
-        uses: actions/download-artifact@v3
-        with:
-          name: airgap-image-bundle-linux-amd64.tar
-
       - name: k0s sysinfo
         run: |
           chmod +x k0s
           ./k0s sysinfo
 
+      - name: Cache airgap image bundle
+        id: cache-airgap-image-bundle
+        if: contains(matrix.smoke-suite, 'airgap')
+        uses: actions/cache@v3
+        with:
+          key: airgap-image-bundle-linux-amd64.tar-${{ needs.build.outputs.airgap-image-bundle-hash-linux }}
+          path: airgap-image-bundle-linux-amd64.tar
+
+      # - name: Download airgap image bundle
+      #   if: contains(matrix.smoke-suite, 'airgap')
+      #   uses: actions/download-artifact@v3
+      #   with:
+      #     name: airgap-image-bundle-linux-amd64.tar
+
       - name: Run inttest
-        run: make -C inttest ${{ matrix.smoke-suite }}
+        env:
+          NEEDS_AIRGAP_IMAGE_BUNDLE: ${{ contains(matrix.smoke-suite, 'airgap') }}
+        run: |
+          [ "$NEEDS_AIRGAP_IMAGE_BUNDLE" != true ] || [ -f airgap-image-bundle-linux-amd64.tar ]
+          make -C inttest ${{ matrix.smoke-suite }}
 
       - name: Collect test logs
         if: failure()
