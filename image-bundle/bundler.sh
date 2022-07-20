@@ -12,7 +12,7 @@ while ! ctr version </dev/null >/dev/null; do
   sleep 1
 done
 
-echo containerd up
+echo containerd up >&2
 
 set --
 

@@ -67,9 +67,8 @@ const (
 	etcdNodeNameFormat         = "etcd%d"
 	updateServerNodeNameFormat = "updateserver%d"
 
-	defaultK0sBinaryFullPath   = "/usr/local/bin/k0s"
-	k0sBindMountFullPath       = "/dist/k0s"
-	k0sAirgapBindMountFullPath = "/dist/bundle.tar"
+	defaultK0sBinaryFullPath = "/usr/local/bin/k0s"
+	k0sBindMountFullPath     = "/dist/k0s"
 )
 
 // FootlooseSuite defines all the common stuff we need to be able to run k0s testing on footloose.
@@ -83,18 +82,19 @@ type FootlooseSuite struct {
 
 	/* config knobs (initialized via `initializeDefaults`) */
 
-	ControllerCount       int
-	ControllerUmask       int
-	ExtraVolumes          []config.Volume
-	K0sFullPath           string
-	K0sAPIExternalPort    int
-	KonnectivityAdminPort int
-	KonnectivityAgentPort int
-	KubeAPIExternalPort   int
-	WithExternalEtcd      bool
-	WithLB                bool
-	WorkerCount           int
-	WithUpdateServer      bool
+	ControllerCount              int
+	ControllerUmask              int
+	ExtraVolumes                 []config.Volume
+	K0sFullPath                  string
+	AirgapImageBundleMountPoints []string
+	K0sAPIExternalPort           int
+	KonnectivityAdminPort        int
+	KonnectivityAgentPort        int
+	KubeAPIExternalPort          int
+	WithExternalEtcd             bool
+	WithLB                       bool
+	WorkerCount                  int
+	WithUpdateServer             bool
 
 	/* context and cancellation */
 
@@ -1089,13 +1089,22 @@ func (s *FootlooseSuite) initializeFootlooseClusterInDir(dir string) error {
 		},
 	}
 
-	if airgapPath := os.Getenv("K0S_IMAGES_BUNDLE"); file.Exists(airgapPath) {
-		volumes = append(volumes, config.Volume{
-			Type:        "bind",
-			Source:      airgapPath,
-			Destination: k0sAirgapBindMountFullPath,
-			ReadOnly:    true,
-		})
+	if len(s.AirgapImageBundleMountPoints) > 0 {
+		airgapPath, ok := os.LookupEnv("K0S_IMAGES_BUNDLE")
+		if !ok {
+			return errors.New("cannot bind-moint airgap image bundle, environment variable K0S_IMAGES_BUNDLE not set")
+		} else if !file.Exists(airgapPath) {
+			return fmt.Errorf("cannot bind-moint airgap image bundle, no such file: %q", airgapPath)
+		}
+
+		for _, dest := range s.AirgapImageBundleMountPoints {
+			volumes = append(volumes, config.Volume{
+				Type:        "bind",
+				Source:      airgapPath,
+				Destination: dest,
+				ReadOnly:    true,
+			})
+		}
 	}
 
 	// Ensure that kernel config is available in the footloose boxes.
@@ -1354,13 +1363,13 @@ func (s *FootlooseSuite) OpenRCLaunchDelegate() *LaunchDelegate {
 func (s *FootlooseSuite) CreateNetwork(name string) error {
 	_ = s.DestroyNetwork(name)
 
-	cmd := exec.Command("/usr/bin/docker", "network", "create", name)
+	cmd := exec.Command("docker", "network", "create", name)
 	return cmd.Run()
 }
 
 // DestroyNetwork removes a docker network with the provided name.
 func (s *FootlooseSuite) DestroyNetwork(name string) error {
-	cmd := exec.Command("/usr/bin/docker", "network", "rm", name)
+	cmd := exec.Command("docker", "network", "rm", name)
 	return cmd.Run()
 }
 

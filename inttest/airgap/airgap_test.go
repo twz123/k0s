@@ -17,12 +17,10 @@ package airgap
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
-	"github.com/weaveworks/footloose/pkg/config"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/k0sproject/k0s/inttest/common"
@@ -110,13 +108,8 @@ func TestAirgapSuite(t *testing.T) {
 		common.FootlooseSuite{
 			ControllerCount: 1,
 			WorkerCount:     1,
-			ExtraVolumes: []config.Volume{
-				{
-					Type:        "bind",
-					Source:      os.Getenv("K0S_IMAGES_BUNDLE"),
-					Destination: "/var/lib/k0s/images/bundle.tar",
-				},
-			},
+
+			AirgapImageBundleMountPoints: []string{"/var/lib/k0s/images/bundle.tar"},
 		},
 	}
 	suite.Run(t, &s)
