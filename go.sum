@@ -2238,8 +2238,8 @@ k8s.io/kubectl v0.25.0-rc.0/go.mod h1:LqShdqUP5S2pG2f7/rnN2WDvWH4iEE1JSUnRKcb+yJ
 k8s.io/kubelet v0.25.0-rc.0 h1:tnWBu7gZJM61DXZwUrGtGbPkZWoO7XHuGZEbi1QpQjw=
 k8s.io/kubelet v0.25.0-rc.0/go.mod h1:FM+1zDQwCbgWLYnmxxqv/cTYYE37MJO1JTWwFT3OqFc=
 k8s.io/kubernetes v1.13.0/go.mod h1:ocZa8+6APFNC2tX1DZASIbocyYT5jHzqFVsY5aoB7Jk=
-k8s.io/kubernetes v1.25.0-rc.0 h1:e+yZYIA3etE0mXv62+wi+3N3n5a2pWE7gwqT2PBwf7g=
-k8s.io/kubernetes v1.25.0-rc.0/go.mod h1:UdtILd5Zg1vGZvShiO1EYOqmjzM2kZOG1hzwQnM5JxY=
+k8s.io/kubernetes v1.26.0-alpha.0 h1:GDb69Cog72XPFGe4fN9JfvBCO8kYG8D70dOwIGSYYjw=
+k8s.io/kubernetes v1.26.0-alpha.0/go.mod h1:UdtILd5Zg1vGZvShiO1EYOqmjzM2kZOG1hzwQnM5JxY=
 k8s.io/metrics v0.25.0-rc.0 h1:UtLC6ZY5ZYMgjMPbq9jw5xt8Avxh/3Bgmb+F3kqqrIw=
 k8s.io/metrics v0.25.0-rc.0/go.mod h1:WhunmFV68HFNuuvSYohG7b0HNf6WXuvlhFAeGdsosDY=
 k8s.io/mount-utils v0.25.0-rc.0 h1:0oquIFvWHHEq9yrxWG28XIk/mlyyB9S83FUrPEMsn1g=

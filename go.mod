@@ -69,7 +69,7 @@ require (
 	k8s.io/kube-aggregator v0.25.0-rc.0
 	k8s.io/kubectl v0.25.0-rc.0
 	k8s.io/kubelet v0.25.0-rc.0
-	k8s.io/kubernetes v1.25.0-rc.0
+	k8s.io/kubernetes v1.26.0-alpha.0
 	k8s.io/mount-utils v0.25.0-rc.0
 	k8s.io/utils v0.0.0-20220728103510-ee6ede2d64ed
 	sigs.k8s.io/controller-runtime v0.12.3
