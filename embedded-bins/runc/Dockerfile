@@ -35,4 +35,3 @@ RUN make \
 
 FROM scratch
 COPY --from=build /go/src/github.com/opencontainers/runc/runc /bin/runc
-CMD ["/bin/runc"]

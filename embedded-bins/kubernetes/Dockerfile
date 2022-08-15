@@ -1,15 +1,9 @@
 ARG BUILDIMAGE
 FROM $BUILDIMAGE AS build
 
-ARG VERSION
-ARG BUILD_GO_TAGS
-ARG BUILD_GO_CGO_ENABLED
-ARG BUILD_GO_FLAGS
-ARG BUILD_GO_LDFLAGS
-ARG BUILD_GO_LDFLAGS_EXTRA
 ENV GOPATH=/go
-ENV COMMANDS="kubelet kube-apiserver kube-scheduler kube-controller-manager"
 
+ARG VERSION
 RUN apk add build-base git go-bindata linux-headers rsync grep coreutils bash
 
 RUN mkdir -p $GOPATH/src/github.com/kubernetes/kubernetes
@@ -19,20 +13,25 @@ WORKDIR /go/src/github.com/kubernetes/kubernetes
 RUN go version
 RUN \
 	set -e; \
+	set -e; \
+	if [ "${TARGET_OS}" = windows ]; then \
+		commands='kubelet kube-proxy'; \
+		binarySuffix=.exe; \
+		export KUBE_BUILD_PLATFORMS=windows/amd64; \
+	else \
+		commands='kubelet kube-apiserver kube-scheduler kube-controller-manager'; \
+		binarySuffix=; \
+	fi; \
 	# Ensure that all of the binaries are built with CGO \
 	if [ ${BUILD_GO_CGO_ENABLED:-0} -eq 1 ]; then \
-		export KUBE_CGO_OVERRIDES="${COMMANDS}"; \
+		export KUBE_CGO_OVERRIDES="${commands}"; \
 	fi; \
-	for cmd in $COMMANDS; do \
-		export KUBE_GIT_VERSION="v$VERSION+k0s"; \
+	mkdir /out; \
+	export KUBE_GIT_VERSION="v$VERSION+k0s"; \
+	for cmd in $commands; do \
 		make GOFLAGS="${BUILD_GO_FLAGS} -tags=${BUILD_GO_TAGS}" GOLDFLAGS="${BUILD_GO_LDFLAGS_EXTRA}" WHAT=cmd/$cmd; \
+		mv /go/src/github.com/kubernetes/kubernetes/_output/local/bin/*/*/$cmd$binarySuffix /out/; \
 	done
 
 FROM scratch
-COPY --from=build \
-	/go/src/github.com/kubernetes/kubernetes/_output/local/bin/linux/*/kubelet \
-	/go/src/github.com/kubernetes/kubernetes/_output/local/bin/linux/*/kube-apiserver \
-	/go/src/github.com/kubernetes/kubernetes/_output/local/bin/linux/*/kube-scheduler \
-	/go/src/github.com/kubernetes/kubernetes/_output/local/bin/linux/*/kube-controller-manager \
-	/bin/
-CMD ["/bin/kubelet"]
+COPY --from=build out/* /bin/

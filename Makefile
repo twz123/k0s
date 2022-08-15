@@ -91,6 +91,9 @@ BUILD_GO_LDFLAGS_EXTRA = -extldflags=-static
 build: k0s
 endif
 
+linux_bins = $(addprefix embedded-bins/staging/linux/bin/,$(embedded_linux_bins))
+windows_bins = $(addprefix embedded-bins/staging/windows/bin/,$(embedded_windows_bins))
+
 .PHONY: all
 all: k0s k0s.exe
 
@@ -106,6 +109,9 @@ $(K0S_GO_BUILD_CACHE):
 
 go.sum: go.mod .k0sbuild.docker-image.k0s
 	$(GO) mod tidy && touch -c -- '$@'
+
+$(linux_bins) $(windows_bins):
+	$(MAKE) -C embedded-bins $(patsubst embedded-bins/%,%,$@)
 
 codegen_targets += pkg/apis/helm.k0sproject.io/v1beta1/.controller-gen.stamp
 pkg/apis/helm.k0sproject.io/v1beta1/.controller-gen.stamp: $(shell find pkg/apis/helm.k0sproject.io/v1beta1/  -maxdepth 1 -type f -name \*.go)
@@ -171,12 +177,12 @@ pkg/assets/zz_generated_offsets_linux.go pkg/assets/zz_generated_offsets_windows
 	rm -f bindata_$(zz_os) && touch bindata_$(zz_os)
 	$(print_empty_generated_offsets) > $@
 else
-pkg/assets/zz_generated_offsets_linux.go: .bins.linux.stamp
-pkg/assets/zz_generated_offsets_windows.go: .bins.windows.stamp
-pkg/assets/zz_generated_offsets_linux.go pkg/assets/zz_generated_offsets_windows.go: .k0sbuild.docker-image.k0s go.sum
+pkg/assets/zz_generated_offsets_linux.go: $(linux_bins)
+pkg/assets/zz_generated_offsets_windows.go: $(windows_bins)
+pkg/assets/zz_generated_offsets_linux.go pkg/assets/zz_generated_offsets_windows.go: .k0sbuild.docker-image.k0s go.sum hack/gen-bindata/*
 	GOOS=${GOHOSTOS} $(GO) run hack/gen-bindata/main.go -o bindata_$(zz_os) -pkg assets \
-	     -gofile pkg/assets/zz_generated_offsets_$(zz_os).go \
-	     -prefix embedded-bins/staging/$(zz_os)/ embedded-bins/staging/$(zz_os)/bin
+	  -gofile pkg/assets/zz_generated_offsets_$(zz_os).go \
+	  $(foreach bin,$($(zz_os)_bins),$(bin):bin/$(notdir $(bin)))
 endif
 
 # needed for unit tests on macos
@@ -196,10 +202,6 @@ k0s.exe k0s: $(GO_SRCS) $(codegen_targets) go.sum
 		&& rm -f $@.code \
 		&& chmod +x $@.tmp \
 		&& mv $@.tmp $@
-
-.bins.windows.stamp .bins.linux.stamp: embedded-bins/Makefile.variables
-	$(MAKE) -C embedded-bins buildmode=$(EMBEDDED_BINS_BUILDMODE) TARGET_OS=$(patsubst .bins.%.stamp,%,$@)
-	touch $@
 
 .PHONY: codegen
 codegen: $(codegen_targets)

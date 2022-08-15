@@ -1,26 +1,52 @@
 include Makefile.variables
 
-GOOS ?= linux
-export GOOS
-
-TARGET_OS ?= linux
-export TARGET_OS
-
-bindir = staging/${TARGET_OS}/bin
-posix_bins = runc kubelet containerd containerd-shim containerd-shim-runc-v1 containerd-shim-runc-v2 kube-apiserver kube-scheduler kube-controller-manager etcd kine konnectivity-server xtables-legacy-multi
-windows_bins = kubelet.exe kube-proxy.exe
-buildmode = docker
-
-
-
+.PHONY: all
 ifeq ($(TARGET_OS),windows)
-bins = ${windows_bins}
+all: $(addprefix staging/windows/bin/,$(embedded_windows_bins))
 else
-bins = ${posix_bins}
+all: $(addprefix staging/linux/bin/,$(embedded_linux_bins))
 endif
 
-.PHONY: all
-all: $(addprefix $(bindir)/, $(bins))
+define build_bin =
+staging/$(1)/bin/$(2): .container.$(patsubst %/,%,$(dir $(2))).$(1)
+	mkdir -p $$(@D)
+	docker export $$(shell cat -- $$<) | tar -C $$(@D) -xv --strip-components 1 bin/$$(@F)
+	touch -c -- $$@
+endef
+$(foreach bin,$(embedded_linux_bins),$(eval $(call build_bin,linux,$(bin))))
+$(foreach bin,$(embedded_windows_bins),$(eval $(call build_bin,windows,$(bin))))
+
+arg_if_nonempty = $(if $($(1)_build_$(2)),--build-arg BUILD_$(3)=$($(1)_build_$(2)),)
+define build_container =
+.docker-image.$(2).$(1).stamp: $(2)/Dockerfile
+	docker build -t k0sbuild.docker-image.$(2).$(1) \
+	  --build-arg TARGET_OS=$(1) \
+	  --build-arg VERSION=$$($(2)_version) \
+	  --build-arg BUILDIMAGE=$$(or $$($(2)_buildimage),golang:$$(go_version)-alpine$$(alpine_image_version)) \
+	  $$(call arg_if_nonempty,$(2),go_tags,GO_TAGS) \
+	  $$(call arg_if_nonempty,$(2),go_cgo_enabled,GO_CGO_ENABLED) \
+	  $$(call arg_if_nonempty,$(2),go_cgo_cflags,GO_CGO_CFLAGS) \
+	  $$(call arg_if_nonempty,$(2),shim_go_cgo_enabled,SHIM_GO_CGO_ENABLED) \
+	  $$(call arg_if_nonempty,$(2),go_flags,GO_FLAGS) \
+	  $$(call arg_if_nonempty,$(2),go_ldflags,GO_LDFLAGS) \
+	  $$(call arg_if_nonempty,$(2),go_ldflags_extra,GO_LDFLAGS_EXTRA) \
+	  - <$(2)/Dockerfile
+	trap 'echo Interrupted' INT && \
+	  docker images -q k0sbuild.docker-image.$(2).$(1):latest > $$@.tmp || { \
+	    code=$$$$?; rm -f $$@.tmp; exit $$$$code; \
+	  }
+	mv $$@.tmp $$@
+
+.container.$(2).$(1): .docker-image.$(2).$(1).stamp
+	trap 'echo Interrupted' INT && \
+	  docker create --entrypoint=/dev/null $$(shell cat -- $$<) > $$@.tmp || { \
+	    code=$$$$?; rm -f $$@.tmp; exit $$$$code; \
+	  }
+	mv $$@.tmp $$@
+endef
+images_for = $(sort $(foreach bin,$(1),$(patsubst %/,%,$(dir $(bin)))))
+$(foreach image,$(call images_for,$(embedded_linux_bins)),$(eval $(call build_container,linux,$(image))))
+$(foreach image,$(call images_for,$(embedded_windows_bins)),$(eval $(call build_container,windows,$(image))))
 
 .PHONY: clean
 clean:
@@ -35,55 +61,3 @@ clean:
 		fi; \
 	done
 	rm -rf staging .tmp/* *.tmp
-
-$(bindir):
-	mkdir -p $@
-
-dockerfiles := $(wildcard */Dockerfile)
-images := $(patsubst %/Dockerfile,%,$(dockerfiles))
-
-containers: $(images:%=.container.%)
-docker-images: $(images:%=.docker-image.%.stamp)
-
-$(bindir)/runc: .container.runc
-$(bindir)/containerd $(bindir)/containerd-shim $(bindir)/containerd-shim-runc-v1 $(bindir)/containerd-shim-runc-v2: .container.containerd
-$(bindir)/etcd: .container.etcd
-$(bindir)/kine: .container.kine
-$(bindir)/konnectivity-server: .container.konnectivity
-$(bindir)/kubelet $(bindir)/kube-apiserver $(bindir)/kube-scheduler $(bindir)/kube-controller-manager: .container.kubernetes
-$(bindir)/xtables-legacy-multi: .container.iptables
-
-$(bindir)/kubelet.exe $(bindir)/kube-proxy.exe: .container.kubernetes.windows
-
-$(addprefix $(bindir)/, $(bins)): | $(bindir)
-	docker export $$(cat $<) | tar -C $(dir $(bindir)) -xv bin/$(notdir $@) && touch $@
-
-.container.%: .docker-image.%.stamp
-	docker create k0sbuild$(basename $<) > $@.tmp
-	mv $@.tmp $@
-
-.container.%.windows: .docker-image.%.windows.stamp
-	docker create k0sbuild$(basename $<) > $@.tmp
-	mv $@.tmp $@
-
-.docker-image.%.stamp: %/Dockerfile Makefile.variables
-	docker build -t k0sbuild$(basename $@) \
-		--build-arg VERSION=$($(patsubst %/Dockerfile,%,$<)_version) \
-		--build-arg BUILDIMAGE=$($(patsubst %/Dockerfile,%,$<)_buildimage) \
-		--build-arg BUILD_GO_TAGS=$($(patsubst %/Dockerfile,%,$<)_build_go_tags) \
-		--build-arg BUILD_GO_CGO_ENABLED=$($(patsubst %/Dockerfile,%,$<)_build_go_cgo_enabled) \
-		--build-arg BUILD_GO_CGO_CFLAGS=$($(patsubst %/Dockerfile,%,$<)_build_go_cgo_cflags) \
-		--build-arg BUILD_SHIM_GO_CGO_ENABLED=$($(patsubst %/Dockerfile,%,$<)_build_shim_go_cgo_enabled) \
-		--build-arg BUILD_GO_FLAGS=$($(patsubst %/Dockerfile,%,$<)_build_go_flags) \
-		--build-arg BUILD_GO_LDFLAGS=$($(patsubst %/Dockerfile,%,$<)_build_go_ldflags) \
-		--build-arg BUILD_GO_LDFLAGS_EXTRA=$($(patsubst %/Dockerfile,%,$<)_build_go_ldflags_extra) \
-		-f $< .
-	touch $@
-
-.docker-image.%.windows.stamp: %/Dockerfile.windows Makefile.variables
-	docker build -t k0sbuild$(basename $@) \
-		--build-arg VERSION=$($(patsubst %/Dockerfile.windows,%,$<)_version) \
-		--build-arg BUILDIMAGE=$($(patsubst %/Dockerfile.windows,%,$<)_buildimage) \
-		-f $< .
-	touch $@
-

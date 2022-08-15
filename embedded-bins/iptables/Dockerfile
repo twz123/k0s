@@ -8,6 +8,7 @@ RUN apk add build-base git file curl \
 RUN curl -L https://www.netfilter.org/projects/iptables/files/iptables-$VERSION.tar.bz2 \
 	| tar -C / -jx
 
+ARG TARGET_OS
 RUN cd /iptables-$VERSION && CFLAGS="-Os" ./configure --sysconfdir=/etc --disable-shared --disable-nftables --without-kernel --disable-devel
 
 RUN make -j$(nproc) -C /iptables-$VERSION LDFLAGS=-all-static
@@ -19,5 +20,3 @@ RUN scanelf -Rn /usr/local && file /usr/local/sbin/*
 FROM scratch
 COPY --from=build /usr/local/sbin/xtables-legacy-multi \
 	/bin/xtables-legacy-multi
-
-CMD ["/bin/xtables-legacy-multi"]

@@ -20,157 +20,207 @@ limitations under the License.
 package main
 
 import (
+	"bytes"
 	"compress/gzip"
+	"errors"
 	"flag"
 	"fmt"
+	"go/format"
 	"io"
-	"log"
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
-	"sync"
 	"text/template"
+
+	"golang.org/x/sync/errgroup"
 )
 
 var Usage = func() {
-	fmt.Fprintf(os.Stderr, "Usage: %s [options] <directories>\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "Usage: %s [options] <fileSpecs>\n", os.Args[0])
 	flag.PrintDefaults()
 }
 
 type fileInfo struct {
 	Name                       string
-	Path                       string
-	TempFile                   string
 	Offset, Size, OriginalSize int64
 }
 
-func compressFiles(prefix string) []fileInfo {
-	var tmpFiles []fileInfo
+func compressFiles(destDir string) ([]*fileInfo, error) {
+	var tmpFiles []*fileInfo
+	g := new(errgroup.Group)
+	for argPos, fileSpec := range flag.Args() {
+		var sourceSpec, destSpec string
+		parts := strings.Split(fileSpec, ":")
+		switch len(parts) {
+		case 1:
+			sourceSpec = fileSpec
+			destSpec = fileSpec + ".gz"
+		case 2:
+			sourceSpec = parts[0]
+			destSpec = parts[1] + ".gz"
+		default:
+			return nil, fmt.Errorf("more than one colon in argument %d: %q", argPos+1, fileSpec)
+		}
 
-	// compress the files
-	var wg sync.WaitGroup
-	for _, dir := range flag.Args() {
-		files, err := os.ReadDir(dir)
+		info, err := os.Stat(sourceSpec)
 		if err != nil {
-			log.Fatal(err)
+			return nil, err
 		}
-		for _, f := range files {
-			tmpf, err := os.CreateTemp("", f.Name())
-			if err != nil {
-				log.Fatal(err)
-			}
 
-			info, err := f.Info()
-			if err != nil {
-				log.Fatal(err)
-			}
-			filePath := path.Join(dir, f.Name())
-			name := strings.TrimPrefix(filePath, prefix) + ".gz"
-			tmpFiles = append(tmpFiles, fileInfo{
-				Name:         name,
-				Path:         filePath,
-				TempFile:     tmpf.Name(),
-				OriginalSize: info.Size(),
-			})
+		originalSize := info.Size()
 
-			gz, err := gzip.NewWriterLevel(tmpf, gzip.BestCompression)
-			if err != nil {
-				log.Fatal(err)
-			}
+		tmpFiles = append(tmpFiles, &fileInfo{
+			Name:         destSpec,
+			OriginalSize: originalSize,
+		})
 
-			inf, err := os.Open(filePath)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			wg.Add(1)
-			go func(wg *sync.WaitGroup) {
-				size, err := io.Copy(gz, inf)
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				fi, err := tmpf.Stat()
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				inf.Close()
-				gz.Close()
-				fmt.Fprintf(os.Stderr, "%s: %d/%d MiB\n", name, fi.Size()/(1024*1024), size/(1024*1024))
-				wg.Done()
-			}(&wg)
+		dstPath := filepath.Join(destDir, destSpec)
+		err = os.MkdirAll(filepath.Dir(dstPath), 0777)
+		if err != nil {
+			return nil, err
 		}
+		g.Go(func() error {
+			copiedBytes, err := func() (int64, error) {
+				inf, err := os.Open(sourceSpec)
+				if err != nil {
+					return 0, err
+				}
+				defer inf.Close()
+
+				outf, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0666)
+				if err != nil {
+					return 0, err
+				}
+				defer outf.Close()
+
+				gz, err := gzip.NewWriterLevel(outf, gzip.BestCompression)
+				if err != nil {
+					return 0, err
+				}
+				defer gz.Close()
+
+				return io.Copy(gz, inf)
+			}()
+			if err != nil {
+				return err
+			}
+			if copiedBytes != originalSize {
+				return fmt.Errorf("expected file size of %q was %d, but %d bytes were copied", sourceSpec, originalSize, copiedBytes)
+			}
+
+			fi, err := os.Stat(dstPath)
+			if err != nil {
+				return err
+			}
+
+			fmt.Fprintf(os.Stderr, "%s: %d/%d MiB\n", destSpec, fi.Size()/(1024*1024), originalSize/(1024*1024))
+			return nil
+		})
 	}
-	wg.Wait()
-	return tmpFiles
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	return tmpFiles, nil
 }
 
-func main() {
-	var prefix, pkg, outfile, gofile string
+func writeBinData(tmpFiles []*fileInfo, dir string, outf io.Writer) (int64, error) {
+	var offset int64
 
-	var bindata []fileInfo
+	for _, t := range tmpFiles {
+		inf, err := os.Open(filepath.Join(dir, t.Name))
+		if err != nil {
+			return 0, err
+		}
 
-	flag.StringVar(&prefix, "prefix", "", "Optional path prefix to strip off asset names.")
+		copiedBytes, err := io.Copy(outf, inf)
+		inf.Close()
+		if err != nil {
+			return 0, err
+		}
+
+		t.Offset = offset
+		t.Size = copiedBytes
+
+		offset += copiedBytes
+	}
+
+	return offset, nil
+}
+
+func generateBindata() error {
+	var pkg, binDataPath, goFilePath string
+
 	flag.StringVar(&pkg, "pkg", "main", "Package name to use in the generated code.")
-	flag.StringVar(&outfile, "o", "./bindata", "Optional name of the output file to be generated.")
-	flag.StringVar(&gofile, "gofile", "./bindata.go", "Optional name of the go file to be generated.")
+	flag.StringVar(&binDataPath, "o", "./bindata", "Optional name of the output file to be generated.")
+	flag.StringVar(&goFilePath, "gofile", "./bindata.go", "Optional name of the go file to be generated.")
 	flag.Parse()
 
 	if flag.NArg() == 0 {
-		Usage()
-		os.Exit(1)
+		return errors.New("no arguments given")
 	}
 
-	tmpFiles := compressFiles(prefix)
-
-	outf, err := os.Create(outfile)
+	dir, err := os.MkdirTemp("", "k0sbuild-gen-bindata-")
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("failed to create temporary directory: %w", err)
 	}
-	defer outf.Close()
+	defer os.RemoveAll(dir)
 
-	var offset int64 = 0
-
-	fmt.Fprintf(os.Stderr, "Writing %s...\n", outfile)
-	for _, t := range tmpFiles {
-		inf, err := os.Open(t.TempFile)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		size, err := io.Copy(outf, inf)
-		inf.Close()
-		if err != nil {
-			log.Fatal(err)
-		}
-		os.Remove(t.TempFile)
-
-		t.Offset = offset
-		t.Size = size
-		bindata = append(bindata, t)
-
-		offset += size
-	}
-
-	f, err := os.Create(gofile)
+	tmpFiles, err := compressFiles(dir)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	defer f.Close()
 
-	packageTemplate.Execute(f, struct {
+	binDataFile, err := os.Create(binDataPath)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "Writing %s...\n", binDataPath)
+	binDataSize, err := writeBinData(tmpFiles, dir, binDataFile)
+	binDataFile.Close()
+	if err != nil {
+		os.Remove(binDataPath)
+		return err
+	}
+
+	var goCodeBytes bytes.Buffer
+	err = packageTemplate.Execute(&goCodeBytes, struct {
 		OutFile     string
 		Pkg         string
-		BinData     []fileInfo
+		BinData     []*fileInfo
 		BinDataSize int64
 	}{
-		OutFile:     outfile,
+		OutFile:     binDataPath,
 		Pkg:         pkg,
-		BinData:     bindata,
-		BinDataSize: offset,
+		BinData:     tmpFiles,
+		BinDataSize: binDataSize,
 	})
 
+	goCode, err := format.Source(goCodeBytes.Bytes())
+	if err != nil {
+		return err
+	}
+
+	goFile, err := os.Create(goFilePath)
+	if err != nil {
+		return err
+	}
+	_, err = goFile.Write(goCode)
+	goFile.Close()
+	if err != nil {
+		os.Remove(goFilePath)
+		return err
+	}
+
+	return nil
+}
+
+func main() {
+	if err := generateBindata(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
 }
 
 var packageTemplate = template.Must(template.New("").Parse(`// Code generated by go generate; DO NOT EDIT.
@@ -181,11 +231,11 @@ package {{ .Pkg }}
 
 var (
 	BinData = map[string]struct{ offset, size, originalSize int64 }{
-	{{ range .BinData }}
-		"{{ .Name }}": { {{ .Offset }}, {{ .Size }}, {{ .OriginalSize }}}, {{ end }}
+	{{- range .BinData }}
+		"{{ .Name }}": { {{ .Offset }}, {{ .Size }}, {{ .OriginalSize }}},
+	{{- end }}
 	}
 
 	BinDataSize int64 = {{ .BinDataSize }}
 )
-
 `))

@@ -61,7 +61,6 @@ jobs:
         with:
           key: ${{ runner.os }}-embedded-bins-${{ matrix.target }}-${{ hashFiles('embedded-bins/**/*') }}
           path: |
-            .bins.${{ matrix.target }}.stamp
             bindata_${{ matrix.target }}
             embedded-bins/staging/${{ matrix.target }}/bin/
             embedded-bins/Makefile.variables
@@ -377,7 +376,6 @@ jobs:
         with:
           key: ${{ runner.os }}-embedded-bins-${{ matrix.arch }}-${{ hashFiles('**/embedded-bins/**/*') }}
           path: |
-            .bins.linux.stamp
             bindata_linux
             embedded-bins/staging/linux/bin/
             embedded-bins/Makefile.variables

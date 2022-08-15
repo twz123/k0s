@@ -79,7 +79,6 @@ jobs:
         id: generated-bindata
         with:
           path: |
-            .bins.linux.stamp
             bindata_linux
             embedded-bins/staging/linux/bin/
             embedded-bins/Makefile.variables
