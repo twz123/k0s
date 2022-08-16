@@ -1,4 +1,4 @@
-ARG BUILDIMAGE=alpine:3.16
+ARG BUILDIMAGE
 FROM $BUILDIMAGE AS build
 
 RUN apk add build-base git file curl \
@@ -8,6 +8,7 @@ ARG VERSION
 RUN curl -L https://www.netfilter.org/projects/iptables/files/iptables-$VERSION.tar.bz2 \
 	| tar -C / -jx
 
+ARG TARGET_OS
 RUN cd /iptables-$VERSION && CFLAGS="-Os" ./configure --sysconfdir=/etc --disable-shared --disable-nftables --without-kernel --disable-devel
 
 RUN make -j$(nproc) -C /iptables-$VERSION LDFLAGS=-all-static
