@@ -18,6 +18,23 @@ ARG TARGET_OS \
 RUN \
   set -e; \
   export GOPATH=/go; \
+  # Explicitly set the Kubernetes version information. The auto-detection \
+  # adds a plus to the minor git version when it detects an alpha/beta/rc \
+  # release, because k0s adds its +k0s suffix to the version number. The \
+  # plus would indicate that it's not the exact tagged version, but that the \
+  # tree is between two tagged versions. This is not true for k0s-built \
+  # kubernetes binaries. \
+  # https://github.com/kubernetes/kubernetes/blob/v1.24.4/hack/lib/version.sh#L98-L107 \
+  { \
+    echo KUBE_GIT_COMMIT="'$(git rev-parse 'HEAD^{commit}')'"; \
+    echo KUBE_GIT_TREE_STATE=clean; \
+    echo KUBE_GIT_VERSION="'v$VERSION+k0s'"; \
+    gitMajor=${VERSION%%.*}; \
+    gitMinor=${VERSION#$gitMajor.}; \
+    gitMinor=${gitMinor%%.*}; \
+    echo KUBE_GIT_MAJOR="'$gitMajor'"; \
+    echo KUBE_GIT_MINOR="'$gitMinor'"; \
+  } > /kube_version; \
   if [ "${TARGET_OS}" = windows ]; then \
     commands='kubelet kube-proxy'; \
     binarySuffix=.exe; \
@@ -31,7 +48,7 @@ RUN \
     export KUBE_CGO_OVERRIDES=$commands; \
   fi; \
   mkdir /out; \
-  export KUBE_GIT_VERSION="v$VERSION+k0s"; \
+  export KUBE_GIT_VERSION_FILE=/kube_version; \
   for cmd in $commands; do \
     make GOFLAGS="${BUILD_GO_FLAGS} -tags=${BUILD_GO_TAGS}" GOLDFLAGS="${BUILD_GO_LDFLAGS_EXTRA}" WHAT=cmd/$cmd; \
     mv /go/src/github.com/kubernetes/kubernetes/_output/local/bin/*/*/$cmd$binarySuffix /out/; \
