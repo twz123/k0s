@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Usage:
-#   TARGET_ARCH=arm64 run-autopilot-matrix-tests.sh check-ap-ha3x3,check-ap-single v1.24.2+k0s.0,v1.24.3+k0s.0
+#   TARGET_ARCH=arm64 run-autopilot-matrix-tests.sh check-ap-ha3x3,check-ap-single v1.24.4+k0s.0,v1.25.0+k0s.0
 # or just to run the tests against the latest release
 #   TARGET_ARCH=arm64 run-autopilot-matrix-tests.sh check-ap-ha3x3,check-ap-single
 set +x

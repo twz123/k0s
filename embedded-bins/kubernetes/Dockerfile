@@ -24,7 +24,7 @@ RUN \
   # plus would indicate that it's not the exact tagged version, but that the \
   # tree is between two tagged versions. This is not true for k0s-built \
   # kubernetes binaries. \
-  # https://github.com/kubernetes/kubernetes/blob/v1.24.4/hack/lib/version.sh#L98-L107 \
+  # https://github.com/kubernetes/kubernetes/blob/v1.25.0/hack/lib/version.sh#L98-L107 \
   { \
     echo KUBE_GIT_COMMIT="'$(git rev-parse 'HEAD^{commit}')'"; \
     echo KUBE_GIT_TREE_STATE=clean; \

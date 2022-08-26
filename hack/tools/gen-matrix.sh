@@ -2,8 +2,8 @@
 
 # Founds the last k0s releases of the given versions and generates json MATRIX_OUTPUT for github actions.
 # Usage:
-#  ./gen-matrix.sh 1.24.2 1.24.3
-# Output: ["v1.24.2+k0s.0","v1.24.3+k0s.0"]
+#  ./gen-matrix.sh 1.24.4 1.25.0
+# Output: ["v1.25.0+k0s.0","v1.24.4+k0s.0"]
 
 go install github.com/k0sproject/version/cmd/k0s_sort@v0.2.2
 GOBIN="$(go env GOPATH)/bin"
