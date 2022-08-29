@@ -20,23 +20,34 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
 	"reflect"
+	goruntime "runtime"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/applier"
 	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/constant"
-	"github.com/k0sproject/k0s/pkg/kubernetes"
+	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
+	watchtools "k8s.io/client-go/tools/watch"
 	kubeletv1beta1 "k8s.io/kubelet/config/v1beta1"
 	"k8s.io/utils/pointer"
 
@@ -47,24 +58,78 @@ import (
 
 type resources = []*unstructured.Unstructured
 
+// type mtex = talkingMutex
+type mtex = sync.Mutex
+
 // Reconciler maintains ConfigMaps that hold configuration to be
 // used on k0s worker nodes, depending on their selected worker profile.
 type Reconciler struct {
 	log logrus.FieldLogger
 
-	clientFactory kubernetes.ClientFactoryInterface
+	clientFactory kubeutil.ClientFactoryInterface
 	cleaner       cleaner
 
-	mu          sync.Mutex
-	doApply     func(context.Context, resources) error
-	lastApplied resources
+	mu    mtex
+	state atomic.Pointer[any]
+	// doApply  func(context.Context, resources) error
+	// cancel   context.CancelFunc
+	// stopChan <-chan struct{}
+
+	// snapshot    snapshot
+	// lastApplied *snapshot
 }
 
 var _ component.Component = (*Reconciler)(nil)
 var _ component.Reconciler = (*Reconciler)(nil)
 
+type reconcilerStarted struct {
+	stop        func()
+	mu          mtex
+	doApply     func(context.Context, resources) error
+	snapshot    snapshot
+	lastApplied *snapshot
+}
+
+type TalkingMutex struct {
+	mu sync.Mutex
+}
+
+func (m *TalkingMutex) Lock() {
+	info := info()
+	logrus.Infof("Locking %p: %s", &m.mu, info)
+	m.mu.Lock()
+	defer func() {
+		if r := recover(); r != nil {
+			m.mu.Unlock()
+			panic(r)
+		}
+	}()
+	logrus.Infof("Locked %p: %s", &m.mu, info)
+}
+
+func (m *TalkingMutex) Unlock() {
+	info := info()
+	logrus.Infof("Unlocking %p: %s", &m.mu, info)
+	m.mu.Unlock()
+	logrus.Infof("Unlocked %p: %s", &m.mu, info)
+}
+
+func info() string {
+	pc, file, no, ok := goruntime.Caller(2)
+	if !ok {
+		return "(unknown)"
+	}
+	if details := goruntime.FuncForPC(pc); details != nil {
+		return fmt.Sprintf("%s (%s:%d)", details.Name(), filepath.Base(file), no)
+	}
+
+	return fmt.Sprintf("%s:%d", filepath.Base(file), no)
+}
+
+type reconcilerStopped struct{}
+
 // NewReconciler creates a new reconciler for worker configurations.
-func NewReconciler(k0sVars constant.CfgVars, clientFactory kubernetes.ClientFactoryInterface) *Reconciler {
+func NewReconciler(k0sVars constant.CfgVars, clientFactory kubeutil.ClientFactoryInterface) *Reconciler {
 	log := logrus.WithFields(logrus.Fields{"component": "workerconfig.Reconciler"})
 
 	reconciler := &Reconciler{
@@ -93,8 +158,16 @@ func (r *Reconciler) Start(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	if r.state.Load() != nil {
+		return errors.New("cannot run")
+	}
+
 	// FIXME leader election
 
+	client, err := r.clientFactory.GetClient()
+	if err != nil {
+		return err
+	}
 	dynamicClient, err := r.clientFactory.GetDynamicClient()
 	if err != nil {
 		return err
@@ -110,41 +183,241 @@ func (r *Reconciler) Start(ctx context.Context) error {
 		Discovery: discoveryClient,
 	}
 
-	r.doApply = func(ctx context.Context, resources resources) error {
+	watchStopped := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+
+	doApply := func(ctx context.Context, resources resources) error {
 		stack.Resources = resources
 		defer func() { stack.Resources = nil }()
 		return stack.Apply(ctx, true)
 	}
 
+	started := &reconcilerStarted{
+		doApply: doApply,
+	}
+	started.stop = func() {
+		cancel()
+		<-watchStopped
+		started.mu.Lock()
+		defer started.mu.Unlock()
+		started.doApply = nil
+	}
+
+	go func() {
+		defer close(watchStopped)
+		wait.UntilWithContext(ctx, func(ctx context.Context) {
+			err := r.watchAPIServers(ctx, started, client)
+			if err != nil {
+				r.log.WithError(err).Error("Failed to watch for API server addresses")
+			}
+		}, 10*time.Second)
+	}()
+
+	r.store(started)
 	return nil
 }
 
+func (r *Reconciler) store(state any) {
+	r.state.Store(&state)
+}
+
+func (r *Reconciler) load() any {
+	ptr := r.state.Load()
+	if ptr == nil {
+		return nil
+	}
+	return *ptr
+}
+
 func (r *Reconciler) Reconcile(ctx context.Context, cluster *v1beta1.ClusterConfig) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.doApply == nil {
-		return errors.New("not running, cannot reconcile")
+	state, ok := r.load().(*reconcilerStarted)
+	if !ok {
+		return errors.New("not started, cannot reconcile")
 	}
 
-	resources, err := generateResources(cluster)
+	state.mu.Lock()
+
+	defer state.mu.Unlock()
+	if state.doApply == nil {
+		return errors.New("stopped concurrently")
+	}
+
+	return r.updateConfigSnapshot(ctx, state, cluster.Spec)
+}
+
+func (r *Reconciler) Stop() error {
+	stop, err := func() (func(), error) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+
+		switch state := r.load().(type) {
+		case *reconcilerStarted:
+			return state.stop, nil
+		case nil, reconcilerStopped:
+			return func() {}, nil
+		default:
+			return nil, fmt.Errorf("don't know how to stop: %T", state)
+		}
+	}()
+
 	if err != nil {
-		return fmt.Errorf("failed to generate resources for worker configuration: %w", err)
+		return err
 	}
 
-	if r.lastApplied != nil && reflect.DeepEqual(r.lastApplied, resources) {
+	stop()
+	r.store(reconcilerStopped{})
+	r.cleaner.stop()
+	return nil
+}
+
+func (r *Reconciler) watchAPIServers(ctx context.Context, state *reconcilerStarted, client kubernetes.Interface) error {
+	endpoints := client.CoreV1().Endpoints("default")
+	fieldSelector := fields.OneTermEqualSelector(metav1.ObjectNameField, "kubernetes").String()
+
+	var initialResourceVersion string
+	{
+		initial, err := endpoints.List(ctx, metav1.ListOptions{FieldSelector: fieldSelector})
+
+		if err != nil {
+			return err
+		}
+
+		initialResourceVersion = initial.ResourceVersion
+
+		if len(initial.Items) != 1 {
+			logrus.Debug("Didn't find exactly one Endpoints object for API servers, but", len(initial.Items))
+		}
+		if len(initial.Items) > 0 {
+			if err := r.updateAPIServers(ctx, state, &initial.Items[0]); err != nil {
+				return err
+			}
+		}
+	}
+
+	changes, err := watchtools.NewRetryWatcher(initialResourceVersion, &cache.ListWatch{
+		WatchFunc: func(opts metav1.ListOptions) (watch.Interface, error) {
+			opts.FieldSelector = fieldSelector
+			return endpoints.Watch(ctx, opts)
+		},
+	})
+	if err != nil {
+		return err
+	}
+	defer changes.Stop()
+
+	for {
+		select {
+		case event, ok := <-changes.ResultChan():
+			if !ok {
+				return errors.New("result channel closed unexpectedly")
+			}
+
+			switch event.Type {
+			case watch.Added, watch.Modified:
+				logrus.Infof("Changes to API servers: %s %#+v", event.Type, event.Object)
+				e, ok := event.Object.(*corev1.Endpoints)
+				if !ok {
+					logrus.Warnf("Unsupported type %T: %#+v", event.Type, event.Object)
+					continue
+				}
+				if err := func() error {
+					state.mu.Lock()
+					defer state.mu.Unlock()
+					return r.updateAPIServers(ctx, state, e)
+				}(); err != nil {
+					return err
+				}
+			case watch.Deleted:
+				logrus.Warnf("Ignoring deletion of %#+v", event.Object)
+			case watch.Error:
+				logrus.WithError(apierrors.FromObject(event.Object)).Error("Error while watching API server endpoints")
+			default:
+				logrus.Debugf("Ignoring event for API servers: %s %#+v", event.Type, event.Object)
+			}
+
+		case <-ctx.Done():
+			return nil
+		}
+	}
+}
+
+func (r *Reconciler) updateConfigSnapshot(ctx context.Context, state *reconcilerStarted, spec *v1beta1.ClusterSpec) error {
+	configSnapshot, err := makeConfigSnapshot(r.log, spec)
+	if err != nil {
+		return fmt.Errorf("failed to snapshot the cluster configuration: %w", err)
+	}
+
+	state.snapshot.configSnapshot = configSnapshot
+	return r.snapshotUpdated(ctx, state)
+}
+
+func (r *Reconciler) updateAPIServers(ctx context.Context, state *reconcilerStarted, e *corev1.Endpoints) error {
+	apiServers := []hostPort{}
+	for sIdx, subset := range e.Subsets {
+		var ports []uint16
+		for _, port := range subset.Ports {
+			// FIXME: is a more sophisticated port detection required?
+			// E.g. does the service object need to be inspected?
+			if port.Protocol == corev1.ProtocolTCP && port.Name == "https" {
+				if port.Port > 0 && port.Port <= math.MaxUint16 {
+					ports = append(ports, uint16(port.Port))
+				}
+			}
+		}
+
+		if len(ports) < 1 {
+			r.log.Warnf("No suitable ports found in subset %d: %+#v", sIdx, subset.Ports)
+			continue
+		}
+
+		for aIdx, address := range subset.Addresses {
+			host := address.IP
+			if host == "" {
+				host = address.Hostname
+			}
+			if host == "" {
+				r.log.Warnf("Failed to get host from address %d/%d: %+#v", sIdx, aIdx, address)
+				continue
+			}
+
+			for _, port := range ports {
+				apiServers = append(apiServers, hostPort{host, port})
+			}
+		}
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	state.snapshot.apiServers = apiServers
+	return r.snapshotUpdated(ctx, state)
+}
+
+func (r *Reconciler) snapshotUpdated(ctx context.Context, state *reconcilerStarted) error {
+	if !state.snapshot.isComplete() {
+		r.log.Debug("Skipping reconciliation, snapshot not yet complete")
+		return nil
+	}
+
+	if state.lastApplied != nil && reflect.DeepEqual(state.lastApplied, &state.snapshot) {
 		r.log.Debug("Skipping reconciliation, nothing changed")
 		return nil
 	}
 
+	snapshotToApply := state.snapshot.DeepCopy()
+	resources, err := generateResources(snapshotToApply)
+	if err != nil {
+		return fmt.Errorf("failed to generate resources for worker configuration: %w", err)
+	}
+
 	r.log.Debug("Updating worker configuration ...")
 
-	err = r.doApply(ctx, resources)
+	err = state.doApply(ctx, resources)
 	if err != nil {
-		r.lastApplied = nil
+		state.lastApplied = nil
 		return fmt.Errorf("failed to apply resources for worker configuration: %w", err)
 	}
-	r.lastApplied = resources
+	state.lastApplied = snapshotToApply
 
 	r.log.Info("Worker configuration updated")
 
@@ -153,34 +426,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, cluster *v1beta1.ClusterConf
 	return nil
 }
 
-func (r *Reconciler) Stop() error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.doApply = nil
-	r.cleaner.stop()
-	return nil
-}
-
 type resource interface {
 	runtime.Object
 	metav1.Object
 }
 
-func generateResources(cluster *v1beta1.ClusterConfig) ([]*unstructured.Unstructured, error) {
-	dnsAddress, err := cluster.Spec.Network.DNSAddress()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get DNS address from ClusterConfig: %w", err)
-	}
-	profiles := append((v1beta1.WorkerProfiles)(nil), cluster.Spec.WorkerProfiles...)
-
+func generateResources(snapshot *snapshot) ([]*unstructured.Unstructured, error) {
 	builder := &configBuilder{
-		apiServers:    []apiServer{{"127.0.0.1", 6443}},
-		dnsAddress:    dnsAddress,
-		clusterDomain: cluster.Spec.Network.ClusterDomain,
+		apiServers:   snapshot.apiServers,
+		specSnapshot: snapshot.specSnapshot,
 	}
 
-	configMaps, err := buildConfigMaps(builder, profiles)
+	configMaps, err := buildConfigMaps(builder, snapshot.profiles)
 	if err != nil {
 		return nil, err
 	}
@@ -289,14 +546,15 @@ func buildRBACResources(configMaps []*corev1.ConfigMap) []resource {
 }
 
 type configBuilder struct {
-	apiServers    apiServers
-	dnsAddress    string
-	clusterDomain string
+	apiServers
+	specSnapshot
 }
 
 func (b *configBuilder) build() *workerConfig {
 	c := &workerConfig{
-		apiServers: append((apiServers)(nil), b.apiServers...),
+		apiServers:             append((apiServers)(nil), b.apiServers...),
+		defaultImagePullPolicy: b.defaultImagePullPolicy,
+		envoyProxyImage:        b.envoyProxyImage,
 		kubelet: kubeletv1beta1.KubeletConfiguration{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: kubeletv1beta1.SchemeGroupVersion.String(),

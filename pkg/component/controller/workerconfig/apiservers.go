@@ -14,5 +14,4 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package static contains auto-generated source code for static assets.
-package static // This file is intentionally left empty to declare the "static" package.
+package workerconfig

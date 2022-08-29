@@ -157,7 +157,7 @@ codegen_targets += static/gen_manifests.go
 static/gen_manifests.go: .k0sbuild.docker-image.k0s hack/tools/Makefile.variables
 static/gen_manifests.go: $(shell find static/manifests -type f)
 	CGO_ENABLED=0 $(GO) install github.com/kevinburke/go-bindata/go-bindata@v$(go-bindata_version)
-	$(GO_ENV) go-bindata -o static/gen_manifests.go -pkg static -prefix static static/...
+	$(GO_ENV) go-bindata -o static/gen_manifests.go -pkg static -prefix static static/manifests/...
 
 codegen_targets += pkg/assets/zz_generated_offsets_$(TARGET_OS).go
 zz_os = $(patsubst pkg/assets/zz_generated_offsets_%.go,%,$@)
@@ -247,7 +247,7 @@ smoketests: $(smoketests)
 .PHONY: check-unit
 check-unit: GO_TEST_RACE ?= -race
 check-unit: go.sum codegen
-	$(GO) test -tags=hack $(GO_TEST_RACE) -ldflags='$(LD_FLAGS)' `$(GO) list -tags=hack $(GO_DIRS)`
+	$(GO) test -tags=hack $(GO_TEST_RACE) -timeout=30s -ldflags='$(LD_FLAGS)' `$(GO) list -tags=hack $(GO_DIRS)`
 
 .PHONY: check-image-validity
 check-image-validity: go.sum

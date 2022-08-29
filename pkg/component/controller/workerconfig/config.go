@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/applier"
 	"github.com/k0sproject/k0s/pkg/constant"
 
@@ -30,17 +31,20 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// workerConfig represents the worker config for a given profile.
 type workerConfig struct {
-	apiServers apiServers
-	kubelet    kubeletv1beta1.KubeletConfiguration
+	apiServers             apiServers
+	defaultImagePullPolicy corev1.PullPolicy
+	envoyProxyImage        v1beta1.ImageSpec
+	kubelet                kubeletv1beta1.KubeletConfiguration
 }
 
-type apiServer struct {
+type hostPort struct {
 	host string
 	port uint16
 }
 
-type apiServers []apiServer
+type apiServers []hostPort
 
 func (c *workerConfig) toConfigMap(name string) (*corev1.ConfigMap, error) {
 	kubelet, err := yaml.Marshal(c.kubelet)
@@ -57,13 +61,15 @@ func (c *workerConfig) toConfigMap(name string) (*corev1.ConfigMap, error) {
 				With("k0s.k0sproject.io/worker-profile", name),
 		},
 		Data: map[string]string{
-			"apiServers": c.apiServers.String(),
-			"kubelet":    string(kubelet),
+			"apiServers":             c.apiServers.String(),
+			"envoyProxyImage":        c.envoyProxyImage.URI(),
+			"defaultImagePullPolicy": string(c.defaultImagePullPolicy),
+			"kubelet":                string(kubelet),
 		},
 	}, nil
 }
 
-func (hp *apiServer) String() string {
+func (hp *hostPort) String() string {
 	return fmt.Sprintf("%s:%d", hp.host, hp.port)
 }
 
@@ -93,4 +99,12 @@ func (s apiServers) String() string {
 	}
 
 	return str.String()
+}
+
+func (s apiServers) DeepCopy() apiServers {
+	if s == nil {
+		return nil
+	}
+
+	return append((apiServers)(nil), s...)
 }

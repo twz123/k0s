@@ -5,10 +5,10 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
-distribu^d under the License is distributed on an "AS IS" BASIS,
+distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
@@ -21,18 +21,28 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/avast/retry-go"
 	"github.com/k0sproject/k0s/internal/testutil"
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/constant"
-	u "k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	u "k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+
+	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/yaml"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"k8s.io/client-go/kubernetes/typed/core/v1/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 type obj = map[string]any
@@ -40,8 +50,33 @@ type arr = []any
 
 func TestReconciler_ResourceGeneration(t *testing.T) {
 	cleaner := new(mockCleaner)
-	underTest := NewReconciler(constant.GetConfig(t.TempDir()), testutil.NewFakeClientFactory())
+	clients := testutil.NewFakeClientFactory()
+	underTest := NewReconciler(constant.GetConfig(t.TempDir()), clients)
 	underTest.cleaner = cleaner
+
+	client, err := clients.GetClient()
+	require.NoError(t, err)
+
+	kubernetesEndpoints := &corev1.EndpointsList{
+		ListMeta: metav1.ListMeta{ResourceVersion: t.Name()},
+		Items: []corev1.Endpoints{{
+			ObjectMeta: metav1.ObjectMeta{ResourceVersion: t.Name()},
+			Subsets: []corev1.EndpointSubset{{
+				Addresses: []corev1.EndpointAddress{
+					{IP: "127.10.10.1"},
+				},
+				Ports: []corev1.EndpointPort{
+					{Name: "https", Port: 6443, Protocol: corev1.ProtocolTCP},
+				},
+			}},
+		}},
+	}
+
+	_, err = client.CoreV1().Endpoints("default").Create(context.TODO(), kubernetesEndpoints.Items[0].DeepCopy(), metav1.CreateOptions{})
+	require.NoError(t, err)
+	clients.Client.CoreV1().(*fake.FakeCoreV1).PrependReactor("list", "endpoints", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, kubernetesEndpoints.DeepCopy(), nil
+	})
 
 	require.NoError(t, underTest.Start(context.TODO()))
 	t.Cleanup(func() {
@@ -50,28 +85,44 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 		cleaner.AssertExpectations(t)
 	})
 
-	var applied resources
-	underTest.doApply = func(_ context.Context, resources resources) error {
-		applied = resources
-		return nil
-	}
+	lastApplied, callsToApply := mockDoApply(t, underTest, nil)
 
-	cleaner.On("reconciled", context.TODO()).Once()
-	require.NoError(t, underTest.Reconcile(context.TODO(), &v1beta1.ClusterConfig{
-		Spec: &v1beta1.ClusterSpec{
-			WorkerProfiles: v1beta1.WorkerProfiles{{
-				Name:   "profile_XXX",
-				Config: []byte(`{"authentication": {"anonymous": {"enabled": true}}}`),
-			}, {
-				Name:   "profile_YYY",
-				Config: []byte(`{"authentication": {"webhook": {"cacheTTL": "15s"}}}`),
-			}},
-			Network: &v1beta1.Network{
-				ClusterDomain: "test.local",
-				ServiceCIDR:   "10.254.254.0/24",
-			},
+	cleaner.On("reconciled", mock.Anything).Once()
+
+	require.NoError(t, retry.Do(
+		func() error {
+			err := underTest.Reconcile(context.TODO(), &v1beta1.ClusterConfig{
+				Spec: &v1beta1.ClusterSpec{
+					WorkerProfiles: v1beta1.WorkerProfiles{{
+						Name:   "profile_XXX",
+						Config: []byte(`{"authentication": {"anonymous": {"enabled": true}}}`),
+					}, {
+						Name:   "profile_YYY",
+						Config: []byte(`{"authentication": {"webhook": {"cacheTTL": "15s"}}}`),
+					}},
+					Network: &v1beta1.Network{
+						ClusterDomain: "test.local",
+						ServiceCIDR:   "10.254.254.0/24",
+					},
+					Images: &v1beta1.ClusterImages{
+						EnvoyProxy:        v1beta1.ImageSpec{Image: "envoy", Version: "test"},
+						DefaultPullPolicy: string(corev1.PullNever),
+					},
+				},
+			})
+			if err != nil {
+				return retry.Unrecoverable(err)
+			}
+
+			if callsToApply() < 1 {
+				return errors.New("not yet applied")
+			}
+
+			return nil
 		},
-	}))
+		retry.MaxDelay(500*time.Millisecond),
+		retry.LastErrorOnly(true),
+	))
 
 	configMaps := map[string]func(t *testing.T, expected obj){
 		"kubelet-config-default-1.25": func(t *testing.T, expected obj) {
@@ -91,11 +142,12 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 		},
 	}
 
-	assert.Len(t, applied, len(configMaps)+2)
+	assert.Equal(t, uint(1), callsToApply(), "Expected a single call to doApply")
+	assert.Len(t, lastApplied(), len(configMaps)+2)
 
 	for name, mod := range configMaps {
 		t.Run(name, func(t *testing.T) {
-			kubelet := requireKubelet(t, applied, name)
+			kubelet := requireKubelet(t, lastApplied(), name)
 			expected := makeKubelet(t, func(expected obj) { mod(t, expected) })
 			assert.JSONEq(t, expected, kubelet)
 		})
@@ -105,7 +157,7 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 
 	t.Run("Role", func(t *testing.T) {
 		role := find(t, "Expected a Role to be found",
-			applied, func(resource *u.Unstructured) bool {
+			lastApplied(), func(resource *u.Unstructured) bool {
 				return resource.GetKind() == "Role"
 			},
 		)
@@ -132,7 +184,7 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 
 	t.Run("RoleBinding", func(t *testing.T) {
 		binding := find(t, "Expected a RoleBinding to be found",
-			applied, func(resource *u.Unstructured) bool {
+			lastApplied(), func(resource *u.Unstructured) bool {
 				return resource.GetKind() == "RoleBinding"
 			},
 		)
@@ -170,43 +222,55 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 func TestReconciler_ReconcilesOnChangesOnly(t *testing.T) {
 	cluster := v1beta1.DefaultClusterConfig(nil)
 	cleaner := new(mockCleaner)
-	underTest := NewReconciler(constant.GetConfig(t.TempDir()), testutil.NewFakeClientFactory())
+	clients := testutil.NewFakeClientFactory()
+	underTest := NewReconciler(constant.GetConfig(t.TempDir()), clients)
 	underTest.cleaner = cleaner
+
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+	underTest.log = log
+
+	clients.Client.CoreV1().(*fake.FakeCoreV1).PrependReactor("list", "endpoints", func(k8stesting.Action) (bool, runtime.Object, error) {
+		// Otherwise this would replace the mocked API servers again
+		return true, nil, errors.New("disabled for testing")
+	})
 
 	require.NoError(t, underTest.Start(context.TODO()))
 	t.Cleanup(func() {
 		cleaner.On("stop")
 		assert.NoError(t, underTest.Stop())
+		cleaner.AssertExpectations(t)
 	})
 
-	cleaner.On("reconciled", context.TODO())
+	cleaner.On("reconciled", mock.Anything)
+
+	func() { // Inject API servers
+		state, ok := underTest.load().(*reconcilerStarted)
+		require.True(t, ok)
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		underTest.load().(*reconcilerStarted).snapshot.apiServers = apiServers{{"127.0.0.1", 6443}}
+	}()
 
 	expectApply := func(t *testing.T) {
-		var applied resources
-		underTest.doApply = func(_ context.Context, resources resources) error {
-			applied = resources
-			return nil
-		}
+		t.Helper()
+		applied, _ := mockDoApply(t, underTest, nil)
 
 		assert.NoError(t, underTest.Reconcile(context.TODO(), cluster))
-		assert.NotEmpty(t, applied, "Expected some resources to be applied")
+		assert.NotEmpty(t, applied(), "Expected some resources to be applied")
 	}
 
 	expectCached := func(t *testing.T) {
-		var applyCalledUnexpectedly bool
-		underTest.doApply = func(_ context.Context, resources resources) error {
-			applyCalledUnexpectedly = true
-			return nil
-		}
+		t.Helper()
+		_, calls := mockDoApply(t, underTest, nil)
 
 		assert.NoError(t, underTest.Reconcile(context.TODO(), cluster))
-		assert.False(t, applyCalledUnexpectedly, "Resources have been applied when they shouldn't.")
+		assert.Zero(t, calls(), "Resources have been applied when they shouldn't.")
 	}
 
 	expectApplyButFail := func(t *testing.T) {
-		underTest.doApply = func(context.Context, resources) error {
-			return assert.AnError
-		}
+		t.Helper()
+		mockDoApply(t, underTest, assert.AnError)
 
 		err := underTest.Reconcile(context.TODO(), cluster)
 		if assert.Error(t, err) {
@@ -354,6 +418,34 @@ func makeKubelet(t *testing.T, mods ...func(obj)) string {
 	json, err := kubelet.MarshalJSON()
 	require.NoError(t, err)
 	return string(json)
+}
+
+func mockDoApply(t *testing.T, underTest *Reconciler, err error) (func() resources, func() uint) {
+	var applied atomic.Pointer[resources]
+	var called atomic.Int32
+
+	state, ok := underTest.load().(*reconcilerStarted)
+	require.True(t, ok)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	require.NotNil(t, state.doApply)
+	state.doApply = func(_ context.Context, resources resources) error {
+		called.Add(1)
+		applied.Store(&resources)
+		return err
+	}
+
+	appliedFn := func() resources {
+		applied := applied.Load()
+		if applied == nil {
+			return nil
+		}
+		return *applied
+	}
+
+	calledFn := func() uint { return uint(called.Load()) }
+
+	return appliedFn, calledFn
 }
 
 type mockCleaner struct{ mock.Mock }

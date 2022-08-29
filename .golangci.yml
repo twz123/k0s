@@ -37,3 +37,13 @@ issues:
     - source: "^//go:build"
       linters:
         - goheader
+
+severity:
+  default-severity: error
+  rules:
+    # Deprecations should be warnings, not hard errors.
+    # Note that this doesn't change the exit code of the CLI.
+    # (https://github.com/golangci/golangci-lint/issues/708#issuecomment-840916783)
+    - linters: [staticcheck]
+      text: "^SA1019:"
+      severity: warn

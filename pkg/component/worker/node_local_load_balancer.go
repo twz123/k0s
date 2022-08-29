@@ -318,7 +318,9 @@ func (n *NodeLocalLoadBalancer) reconcile(c *nllbConfig, updates <-chan nllbUpda
 		}
 
 		if changed || state.pod != oldState.pod {
-			n.provision(c, &state)
+			if err := n.provision(c, &state); err != nil {
+				n.log.WithError(err).Error("Failed to reconcile node-local load balancer")
+			}
 		}
 	}
 }
