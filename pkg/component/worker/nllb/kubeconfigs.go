@@ -17,10 +17,10 @@ limitations under the License.
 package nllb
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -64,6 +64,12 @@ type kubeconfigs[T any] struct{ regular, bootstrap T }
 type kubeconfigPaths kubeconfigs[kubeconfigPath]
 type kubeconfigStats kubeconfigs[*kubeconfigStat]
 
+type kubeconfigData struct {
+	modTime    time.Time
+	bytes      []byte
+	kubeconfig *clientcmdapi.Config
+}
+
 func (s *fileStat) String() string {
 	if s == nil {
 		return "(absent)"
@@ -89,7 +95,30 @@ func (p *kubeconfigPaths) loadBalancedPaths() []string {
 	return []string{p.regular.loadBalanced, p.bootstrap.loadBalanced}
 }
 
-func (p *kubeconfigPaths) reconcile(ctx context.Context, log logrus.FieldLogger, lbAddr string) error {
+type kubeconfigWriter interface {
+	update(path string, data []byte) error
+	inSync(path string)
+}
+
+func kubeconfigWriterOrDefault(writer kubeconfigWriter) kubeconfigWriter {
+	if writer == nil {
+		return new(atomicKubeconfigFileWriter)
+	}
+
+	return writer
+}
+
+type atomicKubeconfigFileWriter struct{}
+
+func (*atomicKubeconfigFileWriter) update(path string, data []byte) error {
+	return file.WriteContentAtomically(path, data, constant.CertSecureMode)
+}
+
+func (*atomicKubeconfigFileWriter) inSync(path string) {}
+
+func (p *kubeconfigPaths) reconcile(ctx context.Context, log logrus.FieldLogger, lbAddr string, writer kubeconfigWriter) error {
+	writer = kubeconfigWriterOrDefault(writer)
+
 	if ctx.Err() != nil {
 		return nil // The context is already done.
 	}
@@ -113,16 +142,14 @@ func (p *kubeconfigPaths) reconcile(ctx context.Context, log logrus.FieldLogger,
 
 	debouncer := debounce.Debouncer[fsnotify.Event]{
 		Input:   watcher.Events,
-		Timeout: 5 * time.Second,
+		Timeout: 1 * time.Second,
 		Filter: func(item fsnotify.Event) bool {
 			for _, path := range watchedPaths {
 				if filepath.Clean(item.Name) == path {
-					log.Debug("Accepting file system event: ", item)
 					return true
 				}
 			}
 
-			log.Debug("Ignoring file system event: ", item)
 			return false
 		},
 		Callback: func() func(fsnotify.Event) {
@@ -131,7 +158,7 @@ func (p *kubeconfigPaths) reconcile(ctx context.Context, log logrus.FieldLogger,
 			return func(fsnotify.Event) {
 				mu.Lock()
 				defer mu.Unlock()
-				desiredStats = p.synchronizeFiles(log, lbAddr, desiredStats)
+				desiredStats = p.synchronizeFiles(log, lbAddr, desiredStats, writer)
 			}
 		}(),
 	}
@@ -168,15 +195,15 @@ func (p *kubeconfigPaths) reconcile(ctx context.Context, log logrus.FieldLogger,
 	return nil
 }
 
-func (p *kubeconfigPaths) synchronizeFiles(log logrus.FieldLogger, host string, stats kubeconfigStats) kubeconfigStats {
+func (p *kubeconfigPaths) synchronizeFiles(log logrus.FieldLogger, host string, stats kubeconfigStats, writer kubeconfigWriter) kubeconfigStats {
 	if !p.regular.statMatches(stats.regular) {
-		stat := p.regular.synchronizeFiles(log, host)
+		stat := p.regular.synchronizeFiles(log, host, writer)
 		stats.regular = &stat
 	} else {
 		log.Debug("Skipped synchronization of regular kubeconfig: ", stats.regular)
 	}
 	if !p.bootstrap.statMatches(stats.bootstrap) {
-		stat := p.bootstrap.synchronizeFiles(log, host)
+		stat := p.bootstrap.synchronizeFiles(log, host, writer)
 		stats.bootstrap = &stat
 	} else {
 		log.Debug("Skipped synchronization of bootstrap kubeconfig: ", stats.regular)
@@ -193,22 +220,25 @@ func (p *kubeconfigPath) statMatches(desired *kubeconfigStat) bool {
 
 func statMatches(path string, desired *fileStat) bool {
 	actual, err := os.Stat(path)
-	if err != nil {
-		return false
+	return err != nil && desired.Equal(actual)
+}
+
+func (d *kubeconfigData) fileStat() *fileStat {
+	if d == nil {
+		return nil
 	}
 
-	return desired != nil && !desired.Equal(actual)
+	return &fileStat{int64(len(d.bytes)), d.modTime}
 }
 
 const lbContext = "k0s-node-local-load-balanced"
 
-func (p *kubeconfigPath) synchronizeFiles(log logrus.FieldLogger, host string) (s kubeconfigStat) {
-	var regularStat, lbStat fileStatInterface
-	var kubeconfig, lbKubeconfig *clientcmdapi.Config
+func (p *kubeconfigPath) synchronizeFiles(log logrus.FieldLogger, host string, writer kubeconfigWriter) kubeconfigStat {
+	var regularData, lbData *kubeconfigData
 	var regularErr, lbErr error
 
-	regularStat, kubeconfig, regularErr = loadKubeconfigFile(p.regular)
-	lbStat, lbKubeconfig, lbErr = loadKubeconfigFile(p.loadBalanced)
+	regularData, regularErr = loadKubeconfig(p.regular)
+	lbData, lbErr = loadKubeconfig(p.loadBalanced)
 
 	if regularErr != nil && lbErr != nil {
 		for _, err := range []error{regularErr, lbErr} {
@@ -217,56 +247,68 @@ func (p *kubeconfigPath) synchronizeFiles(log logrus.FieldLogger, host string) (
 			}
 		}
 
-		return
+		return kubeconfigStat{}
 	}
 
-	if lbErr != nil || (regularErr == nil && !lbStat.ModTime().After(regularStat.ModTime())) {
-		lbKubeconfig, lbErr = regularToLoadBalanced(kubeconfig, host)
+	if lbErr != nil || (regularErr == nil && !lbData.modTime.After(regularData.modTime)) {
+		if lbData == nil {
+			lbData = new(kubeconfigData)
+		}
+		lbData.kubeconfig, lbErr = regularToLoadBalanced(regularData.kubeconfig, host)
 		if lbErr != nil {
 			lbErr = fmt.Errorf("failed to generate load balanced kubeconfig from regular one: %w", lbErr)
 		}
 	} else {
-		kubeconfig, regularErr = loadBalancedToRegular(lbKubeconfig, host)
+		if regularData == nil {
+			regularData = new(kubeconfigData)
+		}
+		regularData.kubeconfig, regularErr = loadBalancedToRegular(lbData.kubeconfig, host)
 		if regularErr != nil {
 			regularErr = fmt.Errorf("failed to generate regular kubeconfig from load balanced one: %w", regularErr)
 		}
 
-		lbErr = createLoadBalancedContext(lbKubeconfig, host)
+		lbErr = createLoadBalancedContext(lbData.kubeconfig, host)
 		if lbErr != nil {
 			lbErr = fmt.Errorf("failed to update load balanced kubeconfig: %w", lbErr)
 		}
 	}
 
-	writeFile := func(kubeconfig *clientcmdapi.Config, path string) *fileStat {
-		bytes, err := clientcmd.Write(*kubeconfig)
-		if err != nil {
-			log.WithError(regularErr).Errorf("Failed to update %q", path)
-			return nil
+	writeFile := func(path string, data *kubeconfigData) {
+		kubeconfigBytes, err := clientcmd.Write(*data.kubeconfig)
+		if bytes.Equal(data.bytes, kubeconfigBytes) {
+			log.Debugf("%q is up to date", path)
+			writer.inSync(path)
+			return
 		}
 
-		stat := new(fileStat)
-		stat.size, stat.modTime, err = file.WriteContentAtomically(path, bytes, constant.CertSecureMode)
+		data.bytes = kubeconfigBytes
+
+		if err == nil {
+			err = writer.update(path, kubeconfigBytes)
+		}
 		if err != nil {
 			log.WithError(regularErr).Errorf("Failed to update %q", path)
-			return nil
+			return
 		}
 
-		log.Infof("Updated %q: %s", path, stat)
-		return stat
+		log.Infof("Updated %q", path)
 	}
 
 	if regularErr == nil {
-		writeFile(kubeconfig, p.regular)
+		writeFile(p.regular, regularData)
 	} else {
 		log.WithError(regularErr).Error("Failed to synchronize regular kubeconfig")
 	}
 	if lbErr == nil {
-		writeFile(lbKubeconfig, p.loadBalanced)
+		writeFile(p.loadBalanced, lbData)
 	} else {
 		log.WithError(lbErr).Error("Failed to synchronize load balanced kubeconfig")
 	}
 
-	return
+	return kubeconfigStat{
+		regular:      regularData.fileStat(),
+		loadBalanced: lbData.fileStat(),
+	}
 }
 
 func regularToLoadBalanced(kubeconfig *clientcmdapi.Config, host string) (*clientcmdapi.Config, error) {
@@ -336,14 +378,26 @@ func createLoadBalancedContext(kubeconfig *clientcmdapi.Config, host string) err
 	return nil
 }
 
-func loadKubeconfigFile(path string) (fs.FileInfo, *clientcmdapi.Config, error) {
+func loadKubeconfig(path string) (*kubeconfigData, error) {
 	stat, err := os.Stat(path)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	kubeconfig, err := (&clientcmd.ClientConfigLoadingRules{ExplicitPath: path}).Load()
+
+	bytes, err := os.ReadFile(path)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return stat, kubeconfig, err
+
+	kubeconfig, err := clientcmd.Load(bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	err = clientcmd.ResolveLocalPaths(kubeconfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return &kubeconfigData{stat.ModTime(), bytes, kubeconfig}, nil
 }

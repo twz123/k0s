@@ -21,7 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"os"
+	"net/http"
 
 	"go.uber.org/multierr"
 	corev1 "k8s.io/api/core/v1"
@@ -33,6 +33,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	watchtools "k8s.io/client-go/tools/watch"
 
+	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"sigs.k8s.io/yaml"
@@ -41,67 +42,75 @@ import (
 // hostPort represents a Kubernetes API server address to be used for node-local
 // load balancing.
 type hostPort struct {
-	Host string
-	Port uint16
+	Host string `json:"host"`
+	Port uint16 `json:"port"`
 }
 
 // watchEndpointsResource watches the default/kubernetes Endpoints resource,
 // calling callback whenever changes are observed.
-func watchEndpointsResource(ctx context.Context, client corev1client.CoreV1Interface, callback func(*corev1.Endpoints) error) error {
+func watchEndpointsResource(ctx context.Context, log logrus.FieldLogger, client corev1client.CoreV1Interface, callback func(*corev1.Endpoints) error) error {
 	endpoints := client.Endpoints("default")
 	fieldSelector := fields.OneTermEqualSelector(metav1.ObjectNameField, "kubernetes").String()
 
-	initial, err := endpoints.List(ctx, metav1.ListOptions{
-		FieldSelector: fieldSelector,
-	})
-	if err != nil {
-		return err
-	}
-	if len(initial.Items) != 1 {
-		return fmt.Errorf("didn't find exactly one Endpoints object for API servers, but %d", len(initial.Items))
-	}
-	if err := callback(&initial.Items[0]); err != nil {
-		return err
-	}
-
-	changes, err := watchtools.NewRetryWatcher(initial.ResourceVersion, &cache.ListWatch{
-		WatchFunc: func(opts metav1.ListOptions) (watch.Interface, error) {
-			opts.FieldSelector = fieldSelector
-			return endpoints.Watch(ctx, opts)
-		},
-	})
-	if err != nil {
-		return err
-	}
-	defer changes.Stop()
-
+listAndWatch:
 	for {
-		select {
-		case event, ok := <-changes.ResultChan():
-			if !ok {
-				return errors.New("result channel closed unexpectedly")
-			}
+		initial, err := endpoints.List(ctx, metav1.ListOptions{FieldSelector: fieldSelector})
+		if err != nil {
+			return err
+		}
+		if len(initial.Items) != 1 {
+			return fmt.Errorf("didn't find exactly one Endpoints object for API servers, but %d", len(initial.Items))
+		}
+		if err := callback(&initial.Items[0]); err != nil {
+			return err
+		}
 
-			switch event.Type {
-			case watch.Added, watch.Modified:
-				if ep, ok := event.Object.(*corev1.Endpoints); ok && ep.GetName() == "kubernetes" && ep.GetNamespace() == "default" {
-					if err := callback(ep); err != nil {
-						return err
-					}
-					continue
+		changes, err := watchtools.NewRetryWatcher(initial.ResourceVersion, &cache.ListWatch{
+			WatchFunc: func(opts metav1.ListOptions) (watch.Interface, error) {
+				opts.FieldSelector = fieldSelector
+				return endpoints.Watch(ctx, opts)
+			},
+		})
+		if err != nil {
+			return err
+		}
+		defer changes.Stop()
+
+		for {
+			select {
+			case event, ok := <-changes.ResultChan():
+				if !ok {
+					return errors.New("result channel closed unexpectedly")
 				}
-				fallthrough
 
-			case watch.Deleted:
-				return fmt.Errorf("unexpected watch event: %s %#+v", event.Type, event.Object)
-			case watch.Bookmark:
-				logrus.Debugf("Bookmark received while watching API servers: %#+v", event.Object)
-			case watch.Error:
-				return fmt.Errorf("watch error: %w", apierrors.FromObject(event.Object))
+				switch event.Type {
+				case watch.Added, watch.Modified:
+					if ep, ok := event.Object.(*corev1.Endpoints); ok && ep.GetName() == "kubernetes" && ep.GetNamespace() == "default" {
+						if err := callback(ep); err != nil {
+							return err
+						}
+						continue
+					}
+					fallthrough
+
+				case watch.Deleted:
+					return fmt.Errorf("unexpected watch event: %s %#+v", event.Type, event.Object)
+				case watch.Bookmark:
+					log.Debugf("Bookmark received while watching API servers: %#+v", event.Object)
+				case watch.Error:
+					err := apierrors.FromObject(event.Object)
+					var statusErr *apierrors.StatusError
+					if errors.As(err, &statusErr) && statusErr.ErrStatus.Code == http.StatusGone {
+						log.WithError(err).Debug("Resource too old while watching API serverss, starting over")
+						continue listAndWatch
+					}
+
+					return fmt.Errorf("watch error: %w", err)
+				}
+
+			case <-ctx.Done():
+				return nil
 			}
-
-		case <-ctx.Done():
-			return nil
 		}
 	}
 }
@@ -119,8 +128,7 @@ func updateAPIServerAddresses(ctx context.Context, endpoints *corev1.Endpoints, 
 			return err
 		}
 
-		// FIXME atomic file write
-		return os.WriteFile(backupFilePath, apiServerBytes, 0644)
+		return file.WriteContentAtomically(backupFilePath, apiServerBytes, 0644)
 	})
 
 	updateFunc := func(state *podState) {

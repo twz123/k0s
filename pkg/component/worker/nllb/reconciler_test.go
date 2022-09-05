@@ -82,10 +82,10 @@ func TestFoo(t *testing.T) {
 
 func TestPodReconciler_ConfigMgmt(t *testing.T) {
 	newTestInstance := func(dataDir string) *Reconciler {
-		staticPod := new(nllbStaticPodMock)
+		staticPod := new(staticPodMock)
 		staticPod.On("Drop").Return()
 
-		staticPods := new(nllbStaticPodsMock)
+		staticPods := new(staticPodsMock)
 		staticPods.On("ClaimStaticPod", mock.Anything, mock.Anything).Return(staticPod, nil)
 		return NewReconciler(&constant.CfgVars{DataDir: dataDir}, staticPods, v1beta1.ImageSpec{}, corev1.PullNever)
 	}
@@ -158,10 +158,10 @@ func TestPodReconciler_Lifecycle(t *testing.T) {
 	log, _ := test.NewNullLogger()
 	log.SetLevel(logrus.DebugLevel)
 
-	staticPod := new(nllbStaticPodMock)
+	staticPod := new(staticPodMock)
 	staticPod.On("SetManifest", mock.Anything).Return(nil)
 	staticPod.On("Drop", mock.Anything).Return()
-	staticPods := new(nllbStaticPodsMock)
+	staticPods := new(staticPodsMock)
 	staticPods.On("ClaimStaticPod", mock.Anything, mock.Anything).Return(staticPod, nil)
 
 	underTest := NewReconciler(&constant.CfgVars{DataDir: t.TempDir()}, staticPods, v1beta1.ImageSpec{}, corev1.PullNever)
@@ -229,30 +229,30 @@ func TestPodReconciler_Lifecycle(t *testing.T) {
 	})
 }
 
-type nllbStaticPodsMock struct{ mock.Mock }
+type staticPodsMock struct{ mock.Mock }
 
-func (m *nllbStaticPodsMock) ManifestURL() (string, error) {
+func (m *staticPodsMock) ManifestURL() (string, error) {
 	args := m.Called()
 	return args.String(0), args.Error(1)
 }
 
-func (m *nllbStaticPodsMock) ClaimStaticPod(namespace, name string) (worker.StaticPod, error) {
+func (m *staticPodsMock) ClaimStaticPod(namespace, name string) (worker.StaticPod, error) {
 	args := m.Called(namespace, name)
 	return args.Get(0).(worker.StaticPod), args.Error(1)
 }
 
-type nllbStaticPodMock struct{ mock.Mock }
+type staticPodMock struct{ mock.Mock }
 
-func (m *nllbStaticPodMock) SetManifest(podResource interface{}) error {
+func (m *staticPodMock) SetManifest(podResource interface{}) error {
 	args := m.Called(podResource)
 	return args.Error(0)
 }
 
-func (m *nllbStaticPodMock) Clear() {
+func (m *staticPodMock) Clear() {
 	m.Called()
 }
 
-func (m *nllbStaticPodMock) Drop() {
+func (m *staticPodMock) Drop() {
 	m.Called()
 }
 

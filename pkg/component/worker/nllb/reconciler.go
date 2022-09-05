@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -185,6 +186,7 @@ type reconcilerConfig struct {
 
 type podState struct {
 	Shared struct {
+		LBAddr net.IP
 		LBPort uint16
 	}
 
@@ -284,15 +286,19 @@ func (r *Reconciler) init(created *reconcilerCreated) error {
 }
 
 func (r *Reconciler) start(initialized *reconcilerInitialized) error {
+	loopbackIP, err := getLoopbackIP()
+	if err != nil {
+		r.log.WithError(err).Infof("Falling back to %s as bind address", loopbackIP)
+	}
+
 	apiServers := []hostPort{}
-	apiServersBytes, err := os.ReadFile(initialized.apiServersBackupFilePath)
-	if !os.IsNotExist(err) {
-		if err != nil {
-			return err
+	if apiServersBytes, err := os.ReadFile(initialized.apiServersBackupFilePath); !os.IsNotExist(err) {
+		if err == nil {
+			err = yaml.Unmarshal(apiServersBytes, &apiServers)
 		}
 
-		if err := yaml.Unmarshal(apiServersBytes, &apiServers); err != nil {
-			return err
+		if err != nil {
+			r.log.WithError(err).Warn("Failed to load cached API server addresses")
 		}
 	}
 
@@ -320,11 +326,11 @@ func (r *Reconciler) start(initialized *reconcilerInitialized) error {
 		defer close(fileReconcileDone)
 
 		// FIXME use configurable address somehow?
-		lbAddr := fmt.Sprintf("localhost:%d", loadBalancerDefaultPort)
+		lbAddr := fmt.Sprintf("%s:%d", loopbackIP, loadBalancerDefaultPort)
 
 		wait.UntilWithContext(ctx, func(ctx context.Context) {
 			r.log.Info("Starting to reconcile kubeconfig files")
-			if err := r.kubeconfigPaths.reconcile(ctx, r.log, lbAddr); err != nil {
+			if err := r.kubeconfigPaths.reconcile(ctx, r.log, lbAddr, nil); err != nil {
 				r.log.WithError(err).Error("Kubeconfig file reconciliation terminated erroneously")
 			}
 
@@ -333,6 +339,7 @@ func (r *Reconciler) start(initialized *reconcilerInitialized) error {
 
 	updates <- func(state *podState) {
 		// FIXME how to make this configurable?
+		state.Shared.LBAddr = loopbackIP
 		state.Shared.LBPort = loadBalancerDefaultPort
 		state.LoadBalancer.UpstreamServers = apiServers
 		state.pod.image = r.envoyProxyImage
@@ -355,7 +362,7 @@ func (r *Reconciler) start(initialized *reconcilerInitialized) error {
 					return fmt.Errorf("failed to obtain load-balanced Kubernetes client: %w", err)
 				}
 
-				return watchEndpointsResource(ctx, kubeClient.CoreV1(), func(endpoints *corev1.Endpoints) error {
+				return watchEndpointsResource(ctx, r.log, kubeClient.CoreV1(), func(endpoints *corev1.Endpoints) error {
 					return updateAPIServerAddresses(ctx, endpoints, updates, initialized.apiServersBackupFilePath)
 				})
 			}(); err != nil {
@@ -412,7 +419,7 @@ func (r *Reconciler) reconcile(c *reconcilerConfig, updates <-chan podStateUpdat
 		go func() {
 			defer wg.Done()
 
-			if desiredState.Shared == actualConfigState.Shared && reflect.DeepEqual(desiredState.LoadBalancer, actualConfigState.LoadBalancer) {
+			if reflect.DeepEqual(desiredState.Shared, actualConfigState.Shared) && reflect.DeepEqual(desiredState.LoadBalancer, actualConfigState.LoadBalancer) {
 				return
 			}
 
@@ -430,7 +437,7 @@ func (r *Reconciler) reconcile(c *reconcilerConfig, updates <-chan podStateUpdat
 		go func() {
 			defer wg.Done()
 
-			if desiredState.Shared == actualPodState.Shared && desiredState.pod == actualPodState.pod {
+			if reflect.DeepEqual(desiredState.Shared, actualPodState.Shared) && desiredState.pod == actualPodState.pod {
 				return
 			}
 
@@ -449,15 +456,13 @@ func (r *Reconciler) reconcile(c *reconcilerConfig, updates <-chan podStateUpdat
 }
 
 func (r *Reconciler) updateLoadBalancerConfig(c *reconcilerConfig, state *podState) error {
-	_, _, err := file.WriteAtomically(filepath.Join(c.envoyDir, "envoy.yaml"), 0444, func(file io.Writer) error {
+	return file.WriteAtomically(filepath.Join(c.envoyDir, "envoy.yaml"), 0444, func(file io.Writer) error {
 		bufferedWriter := bufio.NewWriter(file)
 		if err := envoyBootstrapConfig.Execute(bufferedWriter, state); err != nil {
 			return fmt.Errorf("failed to generate configuration: %w", err)
 		}
 		return bufferedWriter.Flush()
 	})
-
-	return err
 }
 
 // admin:
@@ -469,7 +474,7 @@ static_resources:
   listeners:
   - name: apiserver
     address:
-      socket_address: { address: localhost, port_value: {{ .Shared.LBPort }} }
+      socket_address: { address: {{ .Shared.LBAddr }}, port_value: {{ .Shared.LBPort }} }
     filter_chains:
     - filters:
       - name: envoy.filters.network.tcp_proxy
@@ -541,7 +546,7 @@ func (r *Reconciler) provision(c *reconcilerConfig, state *podState) error {
 					TimeoutSeconds:   3,
 					ProbeHandler: corev1.ProbeHandler{
 						TCPSocket: &corev1.TCPSocketAction{
-							Host: "127.0.0.1", Port: intstr.FromInt(int(state.Shared.LBPort)),
+							Host: state.Shared.LBAddr.String(), Port: intstr.FromInt(int(state.Shared.LBPort)),
 						},
 					},
 				},
@@ -607,4 +612,21 @@ type nllbStopped struct{}
 
 func (*nllbStopped) String() string {
 	return "stopped"
+}
+
+func getLoopbackIP() (net.IP, error) {
+	loopbackIP := net.IP{127, 0, 0, 1}
+	localIPs, err := net.LookupIP("localhost")
+	if err != nil {
+		err = fmt.Errorf("failed to resolve localhost: %w", err)
+	} else {
+		for _, ip := range localIPs {
+			if ip.IsLoopback() {
+				loopbackIP = ip
+				break
+			}
+		}
+	}
+
+	return loopbackIP, err
 }

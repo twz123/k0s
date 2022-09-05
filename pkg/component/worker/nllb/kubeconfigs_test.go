@@ -2,10 +2,12 @@ package nllb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -132,7 +134,7 @@ func TestKubeconfigPaths_Reconcile(t *testing.T) {
 		},
 	}
 
-	runRecoUntil := func(t *testing.T, lbAddr string, checkFn func() error) error {
+	runRecoUntil := func(t *testing.T, lbAddr string, writer kubeconfigWriter, checkFn func() error) error {
 		log := logrus.New()
 		log.SetLevel(logrus.DebugLevel)
 		log.Out = io.Discard
@@ -146,7 +148,7 @@ func TestKubeconfigPaths_Reconcile(t *testing.T) {
 		go func() {
 			defer close(done)
 			defer cancel()
-			recoErr = underTest.reconcile(ctx, log, lbAddr)
+			recoErr = underTest.reconcile(ctx, log, lbAddr, writer)
 		}()
 
 		awaitErr := retry.Do(
@@ -172,6 +174,7 @@ func TestKubeconfigPaths_Reconcile(t *testing.T) {
 	for _, test := range []struct {
 		name             string
 		prepare          func(t *testing.T, pathPrefix ...string)
+		expectedCalls    [][]string
 		filesToBeTouched []kubeconfigPath
 	}{
 		{
@@ -179,12 +182,24 @@ func TestKubeconfigPaths_Reconcile(t *testing.T) {
 			func(t *testing.T, pathPrefix ...string) {
 				require.NoError(t, clientcmd.WriteToFile(bootstrap, underTest.bootstrap.regular))
 			},
+			[][]string{
+				{"inSync", underTest.bootstrap.regular},
+				{"update", underTest.bootstrap.loadBalanced},
+				{"inSync", underTest.bootstrap.regular},
+				{"inSync", underTest.bootstrap.loadBalanced},
+			},
 			[]kubeconfigPath{underTest.bootstrap},
 		},
 		{
 			"Bootstrap_LoadBlanced",
 			func(t *testing.T, pathPrefix ...string) {
 				require.NoError(t, clientcmd.WriteToFile(loadBalancedBootstrap, underTest.bootstrap.loadBalanced))
+			},
+			[][]string{
+				{"update", underTest.bootstrap.regular},
+				{"inSync", underTest.bootstrap.loadBalanced},
+				{"inSync", underTest.bootstrap.regular},
+				{"inSync", underTest.bootstrap.loadBalanced},
 			},
 			[]kubeconfigPath{underTest.bootstrap},
 		},
@@ -194,6 +209,16 @@ func TestKubeconfigPaths_Reconcile(t *testing.T) {
 				require.NoError(t, clientcmd.WriteToFile(bootstrap, underTest.bootstrap.regular))
 				require.NoError(t, clientcmd.WriteToFile(*kubeconfig(pathPrefix...), underTest.regular.regular))
 			},
+			[][]string{
+				{"inSync", underTest.regular.regular},
+				{"update", underTest.regular.loadBalanced},
+				{"inSync", underTest.bootstrap.regular},
+				{"update", underTest.bootstrap.loadBalanced},
+				{"inSync", underTest.regular.regular},
+				{"inSync", underTest.regular.loadBalanced},
+				{"inSync", underTest.bootstrap.regular},
+				{"inSync", underTest.bootstrap.loadBalanced},
+			},
 			[]kubeconfigPath{underTest.bootstrap, underTest.regular},
 		},
 		{
@@ -202,6 +227,16 @@ func TestKubeconfigPaths_Reconcile(t *testing.T) {
 				require.NoError(t, clientcmd.WriteToFile(loadBalancedBootstrap, underTest.bootstrap.loadBalanced))
 				require.NoError(t, clientcmd.WriteToFile(*loadBalanced(pathPrefix...), underTest.regular.loadBalanced))
 			},
+			[][]string{
+				{"update", underTest.regular.regular},
+				{"inSync", underTest.regular.loadBalanced},
+				{"update", underTest.bootstrap.regular},
+				{"inSync", underTest.bootstrap.loadBalanced},
+				{"inSync", underTest.regular.regular},
+				{"inSync", underTest.regular.loadBalanced},
+				{"inSync", underTest.bootstrap.regular},
+				{"inSync", underTest.bootstrap.loadBalanced},
+			},
 			[]kubeconfigPath{underTest.bootstrap, underTest.regular},
 		},
 	} {
@@ -209,20 +244,27 @@ func TestKubeconfigPaths_Reconcile(t *testing.T) {
 			tmpDir := t.TempDir()
 			defer chdir(t, tmpDir)()
 
-			threshold := time.Now()
 			test.prepare(t, tmpDir)
 
-			assert.NoError(t, runRecoUntil(t, "lb", func() error {
+			writer := spyKubeconfigWriter{delegate: kubeconfigWriterOrDefault(nil)}
+			assert.NoError(t, runRecoUntil(t, "lb", &writer, func() error {
+				writer.mu.Lock()
+				defer writer.mu.Unlock()
+
 				for _, kubeconfigPath := range test.filesToBeTouched {
 					for _, file := range []string{kubeconfigPath.regular, kubeconfigPath.loadBalanced} {
-						stat, err := os.Stat(filepath.Join(file))
-						if err != nil {
+						if _, err := os.Stat(filepath.Join(file)); err != nil {
 							return err
 						}
-						if !stat.ModTime().After(threshold) {
-							return fmt.Errorf("file %q wasn't modified after %s: %s", file, threshold, stat.ModTime())
-						}
 					}
+				}
+
+				if len(test.expectedCalls) != len(writer.calls) {
+					return fmt.Errorf("saw %d calls, expected %d calls", len(writer.calls), len(test.expectedCalls))
+				}
+
+				if !assert.Equal(t, test.expectedCalls, writer.calls) {
+					return retry.Unrecoverable(errors.New("didn't observe expected calls"))
 				}
 				return nil
 			}), "Reconciliation wasn't successful.")
@@ -290,4 +332,26 @@ func (t *testLogHook) Fire(e *logrus.Entry) error {
 
 func (*testLogHook) Levels() []logrus.Level {
 	return logrus.AllLevels
+}
+
+type spyKubeconfigWriter struct {
+	delegate kubeconfigWriter
+
+	mu    sync.Mutex
+	calls [][]string
+}
+
+func (m *spyKubeconfigWriter) update(path string, data []byte) error {
+	err := m.delegate.update(path, data)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.calls = append(m.calls, []string{"update", path})
+	return err
+}
+
+func (m *spyKubeconfigWriter) inSync(path string) {
+	m.delegate.inSync(path)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.calls = append(m.calls, []string{"inSync", path})
 }
