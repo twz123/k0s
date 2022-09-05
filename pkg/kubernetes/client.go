@@ -18,6 +18,7 @@ package kubernetes
 
 import (
 	"fmt"
+	"os"
 	"sync"
 
 	cfgClient "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/clientset/typed/k0s.k0sproject.io/v1beta1"
@@ -29,6 +30,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+
+	"go.uber.org/multierr"
 )
 
 // ClientFactoryInterface defines a factory interface to load a kube client
@@ -183,19 +187,47 @@ func (c *ClientFactory) GetRESTConfig() *rest.Config {
 	return c.restConfig
 }
 
-// NewClient creates new k8s client based of the given kubeconfig
+// FirstExistingKubeconfig returns a KubeconfigGetter that tries to load a
+// kubeconfig from the given paths, skipping all non-existing ones. It returns
+// an error either if no kubeconfig was found or the loading of the first
+// existing kubeconfig failed.
+func FirstExistingKubeconfig(paths ...string) clientcmd.KubeconfigGetter {
+	return func() (*clientcmdapi.Config, error) {
+		var errs error
+		for _, path := range paths {
+			kubeconfig, err := (&clientcmd.ClientConfigLoadingRules{ExplicitPath: path}).Load()
+			if err == nil {
+				return kubeconfig, nil
+			}
+
+			errs = multierr.Append(err, errs)
+			if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("failed to load %q: %w", path, errs)
+			}
+		}
+
+		return nil, errs
+	}
+}
+
+// NewClientFromFile creates a new Kubernetes client based of the given
+// kubeconfig file.
+func NewClientFromFile(kubeconfig string) (kubernetes.Interface, error) {
+	return NewClient((&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfig}).Load)
+}
+
+// NewClient creates new k8s client based of the given kubeconfig getter.
 // This should be only used in cases where the client is "short-running" and shouldn't/cannot use the common "cached" one.
-func NewClient(kubeconfig string) (kubernetes.Interface, error) {
-	// use the current context in kubeconfig
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+func NewClient(getter clientcmd.KubeconfigGetter) (kubernetes.Interface, error) {
+	kubeconfig, err := getter()
 	if err != nil {
-		return nil, fmt.Errorf("failed to load kubeconfig: %w", err)
+		return nil, err
 	}
 
-	clientset, err := kubernetes.NewForConfig(config)
+	clientConfig, err := clientcmd.NewNonInteractiveClientConfig(*kubeconfig, "", nil, nil).ClientConfig()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create k8s client: %w", err)
+		return nil, err
 	}
 
-	return clientset, nil
+	return kubernetes.NewForConfig(clientConfig)
 }

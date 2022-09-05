@@ -77,7 +77,7 @@ func NewAPICmd() *cobra.Command {
 
 func (c *CmdOpts) startAPI() error {
 	// Single kube client for whole lifetime of the API
-	kc, err := kubernetes.NewClient(c.K0sVars.AdminKubeConfigPath)
+	kc, err := kubernetes.NewClientFromFile(c.K0sVars.AdminKubeConfigPath)
 	if err != nil {
 		return err
 	}

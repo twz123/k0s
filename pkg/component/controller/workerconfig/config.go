@@ -36,7 +36,7 @@ type workerConfig struct {
 	apiServers             apiServers
 	defaultImagePullPolicy corev1.PullPolicy
 	envoyProxyImage        v1beta1.ImageSpec
-	kubelet                kubeletv1beta1.KubeletConfiguration
+	kubeletConfiguration   kubeletv1beta1.KubeletConfiguration
 }
 
 type hostPort struct {
@@ -47,14 +47,19 @@ type hostPort struct {
 type apiServers []hostPort
 
 func (c *workerConfig) toConfigMap(name string) (*corev1.ConfigMap, error) {
-	kubelet, err := yaml.Marshal(c.kubelet)
+	kubeletConfig, err := yaml.Marshal(c.kubeletConfiguration)
+	if err != nil {
+		return nil, err
+	}
+
+	envoyProxyImage, err := yaml.Marshal(c.envoyProxyImage)
 	if err != nil {
 		return nil, err
 	}
 
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("kubelet-config-%s-%s", name, constant.KubernetesMajorMinorVersion),
+			Name:      fmt.Sprintf("%s-%s-%s", constant.WorkerConfigComponentName, name, constant.KubernetesMajorMinorVersion),
 			Namespace: "kube-system",
 			Labels: applier.
 				CommonLabels(constant.WorkerConfigComponentName).
@@ -62,9 +67,9 @@ func (c *workerConfig) toConfigMap(name string) (*corev1.ConfigMap, error) {
 		},
 		Data: map[string]string{
 			"apiServers":             c.apiServers.String(),
-			"envoyProxyImage":        c.envoyProxyImage.URI(),
+			"envoyProxyImage":        string(envoyProxyImage),
 			"defaultImagePullPolicy": string(c.defaultImagePullPolicy),
-			"kubelet":                string(kubelet),
+			"kubeletConfiguration":   string(kubeletConfig),
 		},
 	}, nil
 }

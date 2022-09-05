@@ -125,44 +125,42 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 	))
 
 	configMaps := map[string]func(t *testing.T, expected obj){
-		"kubelet-config-default-1.25": func(t *testing.T, expected obj) {
+		"worker-config-default-1.25": func(t *testing.T, expected obj) {
 			require.NoError(t, u.SetNestedField(expected, true, "cgroupsPerQOS"))
 		},
 
-		"kubelet-config-default-windows-1.25": func(t *testing.T, expected obj) {
+		"worker-config-default-windows-1.25": func(t *testing.T, expected obj) {
 			require.NoError(t, u.SetNestedField(expected, false, "cgroupsPerQOS"))
 		},
 
-		"kubelet-config-profile_XXX-1.25": func(t *testing.T, expected obj) {
+		"worker-config-profile_XXX-1.25": func(t *testing.T, expected obj) {
 			require.NoError(t, u.SetNestedField(expected, true, "authentication", "anonymous", "enabled"))
 		},
 
-		"kubelet-config-profile_YYY-1.25": func(t *testing.T, expected obj) {
+		"worker-config-profile_YYY-1.25": func(t *testing.T, expected obj) {
 			require.NoError(t, u.SetNestedField(expected, "15s", "authentication", "webhook", "cacheTTL"))
 		},
 	}
 
 	assert.Equal(t, uint(1), callsToApply(), "Expected a single call to doApply")
-	assert.Len(t, lastApplied(), len(configMaps)+2)
+	assert.Len(t, lastApplied(), len(configMaps)+4)
 
 	for name, mod := range configMaps {
 		t.Run(name, func(t *testing.T) {
 			kubelet := requireKubelet(t, lastApplied(), name)
-			expected := makeKubelet(t, func(expected obj) { mod(t, expected) })
+			expected := makeKubeletConfig(t, func(expected obj) { mod(t, expected) })
 			assert.JSONEq(t, expected, kubelet)
 		})
 	}
 
-	const rbacName = "system:bootstrappers:kubelet-configmaps"
+	const rbacName = "system:bootstrappers:worker-config"
 
 	t.Run("Role", func(t *testing.T) {
-		role := find(t, "Expected a Role to be found",
+		role := find(t, "Expected to find a Role named "+rbacName,
 			lastApplied(), func(resource *u.Unstructured) bool {
-				return resource.GetKind() == "Role"
+				return resource.GetKind() == "Role" && resource.GetName() == rbacName
 			},
 		)
-
-		assert.Equal(t, rbacName, role.GetName(), "Role has wrong name")
 
 		rules, ok, err := u.NestedSlice(role.Object, "rules")
 		require.NoError(t, err)
@@ -183,13 +181,11 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 	})
 
 	t.Run("RoleBinding", func(t *testing.T) {
-		binding := find(t, "Expected a RoleBinding to be found",
+		binding := find(t, "Expected to find a RoleBinding named "+rbacName,
 			lastApplied(), func(resource *u.Unstructured) bool {
-				return resource.GetKind() == "RoleBinding"
+				return resource.GetKind() == "RoleBinding" && resource.GetName() == rbacName
 			},
 		)
-
-		assert.Equal(t, rbacName, binding.GetName(), "RoleBinding has wrong name")
 
 		roleRef, ok, err := u.NestedMap(binding.Object, "roleRef")
 		if assert.NoError(t, err) && assert.True(t, ok, "No roleRef field") {
@@ -330,12 +326,12 @@ func requireKubelet(t *testing.T, resources []*u.Unstructured, name string) stri
 			return resource.GetKind() == "ConfigMap" && resource.GetName() == name
 		},
 	)
-	kubeletYAML, ok, err := u.NestedString(configMap.Object, "data", "kubelet")
+	kubeletConfigYAML, ok, err := u.NestedString(configMap.Object, "data", "kubeletConfiguration")
 	require.NoError(t, err)
-	require.True(t, ok, "No data.kubelet field")
-	kubeletJSON, err := yaml.YAMLToJSONStrict([]byte(kubeletYAML))
+	require.True(t, ok, "No data.kubeletConfiguration field")
+	kubeletConfigJSON, err := yaml.YAMLToJSONStrict([]byte(kubeletConfigYAML))
 	require.NoError(t, err)
-	return string(kubeletJSON)
+	return string(kubeletConfigJSON)
 }
 
 func find[T any](t *testing.T, failureMessage string, items []T, filter func(T) bool) (item T) {
@@ -349,7 +345,7 @@ func find[T any](t *testing.T, failureMessage string, items []T, filter func(T) 
 	return item
 }
 
-func makeKubelet(t *testing.T, mods ...func(obj)) string {
+func makeKubeletConfig(t *testing.T, mods ...func(obj)) string {
 	kubelet := u.Unstructured{
 		Object: obj{
 			"apiVersion": "kubelet.config.k8s.io/v1beta1",

@@ -85,18 +85,19 @@ type ControllerOptions struct {
 
 // Shared worker cli flags
 type WorkerOptions struct {
-	APIServer        string
-	CIDRRange        string
-	CloudProvider    bool
-	ClusterDNS       string
-	CmdLogLevels     map[string]string
-	CriSocket        string
-	KubeletExtraArgs string
-	Labels           []string
-	Taints           []string
-	TokenFile        string
-	TokenArg         string
-	WorkerProfile    string
+	APIServer                   string
+	CIDRRange                   string
+	CloudProvider               bool
+	ClusterDNS                  string
+	CmdLogLevels                map[string]string
+	CriSocket                   string
+	KubeletExtraArgs            string
+	Labels                      []string
+	Taints                      []string
+	TokenFile                   string
+	TokenArg                    string
+	WorkerProfile               string
+	EnableNodeLocalLoadBalancer bool
 }
 
 func DefaultLogLevels() map[string]string {
@@ -155,6 +156,7 @@ func GetWorkerFlags() *pflag.FlagSet {
 	flagset.StringSliceVarP(&workerOpts.Labels, "labels", "", []string{}, "Node labels, list of key=value pairs")
 	flagset.StringSliceVarP(&workerOpts.Taints, "taints", "", []string{}, "Node taints, list of key=value:effect strings")
 	flagset.StringVar(&workerOpts.KubeletExtraArgs, "kubelet-extra-args", "", "extra args for kubelet")
+	flagset.BoolVar(&workerOpts.EnableNodeLocalLoadBalancer, "enable-node-local-load-balancer", false, "EXPERIMENTAL: Whether or not to use a node-local load balancer in front of the API servers")
 	flagset.AddFlagSet(GetCriSocketFlag())
 
 	return flagset
@@ -178,25 +180,26 @@ func AvailableComponents() []string {
 	}
 }
 
-func GetControllerFlags() *pflag.FlagSet {
-	flagset := &pflag.FlagSet{}
+func AddControllerFlags(cmd *cobra.Command) {
+	flags := cmd.Flags()
 
-	flagset.StringVar(&workerOpts.WorkerProfile, "profile", "default", "worker profile to use on the node")
-	flagset.BoolVar(&controllerOpts.EnableWorker, "enable-worker", false, "enable worker (default false)")
-	flagset.StringSliceVar(&controllerOpts.DisableComponents, "disable-components", []string{}, "disable components (valid items: "+strings.Join(AvailableComponents()[:], ",")+")")
-	flagset.StringVar(&workerOpts.TokenFile, "token-file", "", "Path to the file containing join-token.")
-	flagset.StringToStringVarP(&workerOpts.CmdLogLevels, "logging", "l", DefaultLogLevels(), "Logging Levels for the different components")
-	flagset.BoolVar(&controllerOpts.SingleNode, "single", false, "enable single node (implies --enable-worker, default false)")
-	flagset.BoolVar(&controllerOpts.NoTaints, "no-taints", false, "disable default taints for controller node")
-	flagset.BoolVar(&controllerOpts.EnableK0sCloudProvider, "enable-k0s-cloud-provider", false, "enables the k0s-cloud-provider (default false)")
-	flagset.DurationVar(&controllerOpts.K0sCloudProviderUpdateFrequency, "k0s-cloud-provider-update-frequency", 2*time.Minute, "the frequency of k0s-cloud-provider node updates")
-	flagset.IntVar(&controllerOpts.K0sCloudProviderPort, "k0s-cloud-provider-port", cloudprovider.CloudControllerManagerPort, "the port that k0s-cloud-provider binds on")
-	flagset.AddFlagSet(GetCriSocketFlag())
-	flagset.BoolVar(&controllerOpts.EnableDynamicConfig, "enable-dynamic-config", false, "enable cluster-wide dynamic config based on custom resource")
-	flagset.BoolVar(&controllerOpts.EnableMetricsScraper, "enable-metrics-scraper", false, "enable scraping metrics from the controller components (kube-scheduler, kube-controller-manager)")
-	flagset.StringVar(&controllerOpts.KubeControllerManagerExtraArgs, "kube-controller-manager-extra-args", "", "extra args for kube-controller-manager")
-	flagset.AddFlagSet(FileInputFlag())
-	return flagset
+	flags.StringVar(&workerOpts.WorkerProfile, "profile", "default", "worker profile to use on the node")
+	flags.BoolVar(&controllerOpts.EnableWorker, "enable-worker", false, "enable worker (default false)")
+	flags.StringSliceVar(&controllerOpts.DisableComponents, "disable-components", []string{}, "disable components (valid items: "+strings.Join(AvailableComponents()[:], ",")+")")
+	flags.StringVar(&workerOpts.TokenFile, "token-file", "", "Path to the file containing join-token.")
+	flags.StringToStringVarP(&workerOpts.CmdLogLevels, "logging", "l", DefaultLogLevels(), "Logging Levels for the different components")
+	flags.BoolVar(&controllerOpts.SingleNode, "single", false, "enable single node (implies --enable-worker, default false)")
+	flags.BoolVar(&controllerOpts.NoTaints, "no-taints", false, "disable default taints for controller node")
+	flags.BoolVar(&controllerOpts.EnableK0sCloudProvider, "enable-k0s-cloud-provider", false, "enables the k0s-cloud-provider (default false)")
+	flags.DurationVar(&controllerOpts.K0sCloudProviderUpdateFrequency, "k0s-cloud-provider-update-frequency", 2*time.Minute, "the frequency of k0s-cloud-provider node updates")
+	flags.IntVar(&controllerOpts.K0sCloudProviderPort, "k0s-cloud-provider-port", cloudprovider.CloudControllerManagerPort, "the port that k0s-cloud-provider binds on")
+	flags.AddFlagSet(GetCriSocketFlag())
+	flags.BoolVar(&controllerOpts.EnableDynamicConfig, "enable-dynamic-config", false, "enable cluster-wide dynamic config based on custom resource")
+	flags.BoolVar(&controllerOpts.EnableMetricsScraper, "enable-metrics-scraper", false, "enable scraping metrics from the controller components (kube-scheduler, kube-controller-manager)")
+	flags.StringVar(&controllerOpts.KubeControllerManagerExtraArgs, "kube-controller-manager-extra-args", "", "extra args for kube-controller-manager")
+	flags.AddFlagSet(FileInputFlag())
+	flags.AddFlagSet(GetWorkerFlags())
+	cmd.MarkFlagsMutuallyExclusive("single", "enable-node-local-load-balancer")
 }
 
 // The config flag used to be a persistent, joint flag to all commands

@@ -469,11 +469,11 @@ func buildConfigMaps(builder *configBuilder, profiles v1beta1.WorkerProfiles) ([
 	configs := make(map[string]*workerConfig)
 
 	config := builder.build()
-	config.kubelet.CgroupsPerQOS = pointer.Bool(true)
+	config.kubeletConfiguration.CgroupsPerQOS = pointer.Bool(true)
 	configs["default"] = config
 
 	config = builder.build()
-	config.kubelet.CgroupsPerQOS = pointer.Bool(false)
+	config.kubeletConfiguration.CgroupsPerQOS = pointer.Bool(false)
 	configs["default-windows"] = config
 
 	for _, profile := range profiles {
@@ -481,7 +481,7 @@ func buildConfigMaps(builder *configBuilder, profiles v1beta1.WorkerProfiles) ([
 		if !ok {
 			config = builder.build()
 		}
-		if err := yaml.Unmarshal(profile.Config, &config.kubelet); err != nil {
+		if err := yaml.Unmarshal(profile.Config, &config.kubeletConfiguration); err != nil {
 			return nil, fmt.Errorf("failed to decode worker profile %q: %w", profile.Name, err)
 		}
 		configs[profile.Name] = config
@@ -509,12 +509,13 @@ func buildRBACResources(configMaps []*corev1.ConfigMap) []resource {
 	sort.Strings(configMapNames)
 
 	meta := metav1.ObjectMeta{
-		Name:      "system:bootstrappers:kubelet-configmaps",
+		Name:      fmt.Sprintf("system:bootstrappers:%s", constant.WorkerConfigComponentName),
 		Namespace: "kube-system",
 		Labels:    applier.CommonLabels(constant.WorkerConfigComponentName),
 	}
 
-	role := rbacv1.Role{
+	var objects []resource
+	objects = append(objects, &rbacv1.Role{
 		ObjectMeta: meta,
 		Rules: []rbacv1.PolicyRule{{
 			APIGroups:     []string{""},
@@ -522,9 +523,9 @@ func buildRBACResources(configMaps []*corev1.ConfigMap) []resource {
 			Verbs:         []string{"get"},
 			ResourceNames: configMapNames,
 		}},
-	}
+	})
 
-	binding := rbacv1.RoleBinding{
+	objects = append(objects, &rbacv1.RoleBinding{
 		ObjectMeta: meta,
 		RoleRef: rbacv1.RoleRef{
 			APIGroup: rbacv1.GroupName,
@@ -540,9 +541,43 @@ func buildRBACResources(configMaps []*corev1.ConfigMap) []resource {
 			Kind:     rbacv1.GroupKind,
 			Name:     "system:nodes",
 		}},
+	})
+
+	meta = metav1.ObjectMeta{
+		Name:      "system:bootstrappers:discovery",
+		Namespace: "default",
+		Labels:    applier.CommonLabels(constant.WorkerConfigComponentName),
 	}
 
-	return []resource{&role, &binding}
+	objects = append(objects, &rbacv1.Role{
+		ObjectMeta: meta,
+		Rules: []rbacv1.PolicyRule{{
+			APIGroups:     []string{""},
+			Resources:     []string{"endpoints"},
+			Verbs:         []string{"get", "list", "watch"},
+			ResourceNames: []string{"kubernetes"},
+		}},
+	})
+
+	objects = append(objects, &rbacv1.RoleBinding{
+		ObjectMeta: meta,
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: rbacv1.GroupName,
+			Kind:     "Role",
+			Name:     meta.Name,
+		},
+		Subjects: []rbacv1.Subject{{
+			APIGroup: rbacv1.GroupName,
+			Kind:     rbacv1.GroupKind,
+			Name:     "system:bootstrappers",
+		}, {
+			APIGroup: rbacv1.GroupName,
+			Kind:     rbacv1.GroupKind,
+			Name:     "system:nodes",
+		}},
+	})
+
+	return objects
 }
 
 type configBuilder struct {
@@ -555,7 +590,7 @@ func (b *configBuilder) build() *workerConfig {
 		apiServers:             append((apiServers)(nil), b.apiServers...),
 		defaultImagePullPolicy: b.defaultImagePullPolicy,
 		envoyProxyImage:        b.envoyProxyImage,
-		kubelet: kubeletv1beta1.KubeletConfiguration{
+		kubeletConfiguration: kubeletv1beta1.KubeletConfiguration{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: kubeletv1beta1.SchemeGroupVersion.String(),
 				Kind:       "KubeletConfiguration",
