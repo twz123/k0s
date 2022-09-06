@@ -36,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/sirupsen/logrus"
+	"k8s.io/utils/pointer"
 	"sigs.k8s.io/yaml"
 
 	"github.com/stretchr/testify/assert"
@@ -103,9 +104,17 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 					Network: &v1beta1.Network{
 						ClusterDomain: "test.local",
 						ServiceCIDR:   "10.254.254.0/24",
+						NodeLocalLoadBalancer: &v1beta1.NodeLocalLoadBalancer{
+							Enabled: pointer.Bool(true),
+							Type:    v1beta1.NllbTypeEnvoyProxy,
+							EnvoyProxy: &v1beta1.EnvoyProxy{
+								Image: &v1beta1.ImageSpec{
+									Image: "envoy", Version: "test",
+								},
+							},
+						},
 					},
 					Images: &v1beta1.ClusterImages{
-						EnvoyProxy:        v1beta1.ImageSpec{Image: "envoy", Version: "test"},
 						DefaultPullPolicy: string(corev1.PullNever),
 					},
 				},

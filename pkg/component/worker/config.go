@@ -32,9 +32,9 @@ import (
 )
 
 type WorkerConfig interface {
-	DefaultImagePullPolicy() (corev1.PullPolicy, error)
-	EnvoyProxyImage() (v1beta1.ImageSpec, error)
 	KubeletConfiguration() (kubeletv1beta1.KubeletConfiguration, error)
+	NodeLocalLoadBalancer() (*v1beta1.NodeLocalLoadBalancer, error)
+	DefaultImagePullPolicy() (corev1.PullPolicy, error)
 }
 
 func LoadWorkerConfig(ctx context.Context, client kubernetes.Interface, profile string) (WorkerConfig, error) {
@@ -52,29 +52,37 @@ func LoadWorkerConfig(ctx context.Context, client kubernetes.Interface, profile 
 		return data, nil
 	}
 
+	optKeyData := func(key string) string {
+		data, ok := cm.Data[key]
+		if !ok {
+			return ""
+		}
+		return data
+	}
+
 	return &workerConfigFuncs{
-		defaultImagePullPolicy: unmarshal[corev1.PullPolicy]("defaultImagePullPolicy", keyData),
-		envoyProxyImage:        unmarshal[v1beta1.ImageSpec]("envoyProxyImage", keyData),
 		kubeletConfiguration:   unmarshal[kubeletv1beta1.KubeletConfiguration]("kubeletConfiguration", keyData),
+		nodeLocalLoadBalancer:  unmarshalPtr[v1beta1.NodeLocalLoadBalancer]("nodeLocalLoadBalancer", optKeyData),
+		defaultImagePullPolicy: unmarshal[corev1.PullPolicy]("defaultImagePullPolicy", keyData),
 	}, nil
 }
 
 type workerConfigFuncs struct {
-	defaultImagePullPolicy func() (corev1.PullPolicy, error)
-	envoyProxyImage        func() (v1beta1.ImageSpec, error)
 	kubeletConfiguration   func() (kubeletv1beta1.KubeletConfiguration, error)
-}
-
-func (f *workerConfigFuncs) DefaultImagePullPolicy() (corev1.PullPolicy, error) {
-	return f.defaultImagePullPolicy()
-}
-
-func (f *workerConfigFuncs) EnvoyProxyImage() (v1beta1.ImageSpec, error) {
-	return f.envoyProxyImage()
+	nodeLocalLoadBalancer  func() (*v1beta1.NodeLocalLoadBalancer, error)
+	defaultImagePullPolicy func() (corev1.PullPolicy, error)
 }
 
 func (f *workerConfigFuncs) KubeletConfiguration() (kubeletv1beta1.KubeletConfiguration, error) {
 	return f.kubeletConfiguration()
+}
+
+func (f *workerConfigFuncs) NodeLocalLoadBalancer() (*v1beta1.NodeLocalLoadBalancer, error) {
+	return f.nodeLocalLoadBalancer()
+}
+
+func (f *workerConfigFuncs) DefaultImagePullPolicy() (corev1.PullPolicy, error) {
+	return f.defaultImagePullPolicy()
 }
 
 func unmarshal[T any](key string, getData func(string) (string, error)) func() (T, error) {
@@ -85,5 +93,21 @@ func unmarshal[T any](key string, getData func(string) (string, error)) func() (
 		}
 		err = yaml.Unmarshal([]byte(data), &t)
 		return
+	}
+}
+
+func unmarshalPtr[T any](key string, getData func(string) string) func() (*T, error) {
+	return func() (*T, error) {
+		data := getData(key)
+		if data != "" {
+			return nil, nil
+		}
+
+		var t T
+		if err := yaml.Unmarshal([]byte(data), &t); err != nil {
+			return nil, err
+		}
+
+		return &t, nil
 	}
 }

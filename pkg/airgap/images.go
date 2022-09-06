@@ -21,26 +21,37 @@ import (
 	"github.com/k0sproject/k0s/pkg/constant"
 )
 
-var pauseImage = v1beta1.ImageSpec{
-	Image:   constant.KubePauseContainerImage,
-	Version: constant.KubePauseContainerImageVersion,
-}
-
 // GetImageURIs returns all image tags
-func GetImageURIs(spec *v1beta1.ClusterImages) []string {
-	images := []string{
-		spec.Konnectivity.URI(),
-		spec.CoreDNS.URI(),
-		spec.EnvoyProxy.URI(),
-		spec.KubeProxy.URI(),
-		spec.MetricsServer.URI(),
-		pauseImage.URI(),
-		spec.KubeRouter.CNI.URI(),
-		spec.KubeRouter.CNIInstaller.URI(),
+func GetImageURIs(spec *v1beta1.ClusterSpec) []string {
+	pauseImage := v1beta1.ImageSpec{
+		Image:   constant.KubePauseContainerImage,
+		Version: constant.KubePauseContainerImageVersion,
 	}
-	images = append(images,
-		spec.Calico.CNI.URI(),
-		spec.Calico.KubeControllers.URI(),
-		spec.Calico.Node.URI())
-	return images
+
+	imageURIs := []string{
+		spec.Images.Calico.CNI.URI(),
+		spec.Images.Calico.KubeControllers.URI(),
+		spec.Images.Calico.Node.URI(),
+		spec.Images.CoreDNS.URI(),
+		spec.Images.Konnectivity.URI(),
+		spec.Images.KubeProxy.URI(),
+		spec.Images.KubeRouter.CNI.URI(),
+		spec.Images.KubeRouter.CNIInstaller.URI(),
+		spec.Images.MetricsServer.URI(),
+		pauseImage.URI(),
+	}
+
+	if spec.Network != nil && spec.Network.NodeLocalLoadBalancer.IsEnabled() {
+		nllbSpec := spec.Network.NodeLocalLoadBalancer
+		switch nllbSpec.Type {
+		case v1beta1.NllbTypeEnvoyProxy:
+			if nllbSpec.EnvoyProxy != nil && nllbSpec.EnvoyProxy.Image != nil {
+				imageURIs = append(imageURIs, nllbSpec.EnvoyProxy.Image.URI())
+			} else {
+				imageURIs = append(imageURIs, v1beta1.DefaultEnvoyProxyImage(spec.Images).URI())
+			}
+		}
+	}
+
+	return imageURIs
 }

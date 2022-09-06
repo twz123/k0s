@@ -28,6 +28,7 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
 	"github.com/k0sproject/k0s/internal/pkg/sysinfo"
+	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/build"
 	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/component/status"
@@ -133,25 +134,29 @@ func (c *CmdOpts) StartWorker(ctx context.Context) error {
 
 	var staticPods worker.StaticPods
 
-	if c.EnableNodeLocalLoadBalancer && !c.SingleNode {
-		sp := worker.NewStaticPods()
-
-		envoyProxyImage, err := workerConfig.EnvoyProxyImage()
+	if !c.SingleNode {
+		nodeLocalLoadBalancer, err := workerConfig.NodeLocalLoadBalancer()
 		if err != nil {
-			return fmt.Errorf("failed to obtain Envoy proxy image: %w", err)
+			return fmt.Errorf("failed to obtain node-local load balancer configuration: %w", err)
 		}
+		if nodeLocalLoadBalancer.IsEnabled() {
+			if nodeLocalLoadBalancer.Type != v1beta1.NllbTypeEnvoyProxy {
+				return fmt.Errorf("unsupported node-local load balancing type: %s", nodeLocalLoadBalancer.Type)
+			}
 
-		pullPolicy, err := workerConfig.DefaultImagePullPolicy()
-		if err != nil {
-			return fmt.Errorf("failed to obtain default image pull policy: %w", err)
+			sp := worker.NewStaticPods()
+			pullPolicy, err := workerConfig.DefaultImagePullPolicy()
+			if err != nil {
+				return fmt.Errorf("failed to obtain default image pull policy: %w", err)
+			}
+
+			reconciler := nllb.NewReconciler(&c.K0sVars, sp, *nodeLocalLoadBalancer.EnvoyProxy.Image, pullPolicy)
+			kubeletKubeconfig = reconciler.GetKubeletKubeconfig()
+			staticPods = sp
+
+			componentManager.Add(ctx, sp)
+			componentManager.Add(ctx, reconciler)
 		}
-
-		reconciler := nllb.NewReconciler(&c.K0sVars, sp, envoyProxyImage, pullPolicy)
-		kubeletKubeconfig = reconciler.GetKubeletKubeconfig()
-		staticPods = sp
-
-		componentManager.Add(ctx, sp)
-		componentManager.Add(ctx, reconciler)
 	}
 
 	if runtime.GOOS == "windows" && c.CriSocket == "" {

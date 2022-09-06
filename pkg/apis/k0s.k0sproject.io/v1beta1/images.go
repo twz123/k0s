@@ -42,7 +42,6 @@ type ClusterImages struct {
 	MetricsServer ImageSpec `json:"metricsserver"`
 	KubeProxy     ImageSpec `json:"kubeproxy"`
 	CoreDNS       ImageSpec `json:"coredns"`
-	EnvoyProxy    ImageSpec `json:"envoyproxy"`
 
 	Calico     CalicoImageSpec     `json:"calico"`
 	KubeRouter KubeRouterImageSpec `json:"kuberouter"`
@@ -73,7 +72,6 @@ func (ci *ClusterImages) overrideImageRepositories() {
 	override(&ci.MetricsServer)
 	override(&ci.KubeProxy)
 	override(&ci.CoreDNS)
-	override(&ci.EnvoyProxy)
 	override(&ci.Calico.CNI)
 	override(&ci.Calico.Node)
 	override(&ci.Calico.KubeControllers)
@@ -118,10 +116,6 @@ func DefaultClusterImages() *ClusterImages {
 			Image:   constant.CoreDNSImage,
 			Version: constant.CoreDNSImageVersion,
 		},
-		EnvoyProxy: ImageSpec{
-			Image:   constant.EnvoyProxyImage,
-			Version: constant.EnvoyProxyImageVersion,
-		},
 		Calico: CalicoImageSpec{
 			CNI: ImageSpec{
 				Image:   constant.CalicoImage,
@@ -146,6 +140,15 @@ func DefaultClusterImages() *ClusterImages {
 				Version: constant.KubeRouterCNIInstallerImageVersion,
 			},
 		},
+	}
+}
+
+func (ci *ClusterImages) OverrideImageRepository(image *ImageSpec) {
+	if ci == nil {
+		ci = DefaultClusterImages()
+	}
+	if ci.Repository != "" {
+		image.Image = overrideRepository(ci.Repository, image.Image)
 	}
 }
 

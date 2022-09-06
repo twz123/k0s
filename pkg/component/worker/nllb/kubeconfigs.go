@@ -37,20 +37,68 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
-type fileStat struct {
-	size    int64
-	modTime time.Time
+// k0sNodeLocalLoadBalanced represents the cluster and context name used in load
+// balanced kubeconfigs.
+const k0sNodeLocalLoadBalanced = "k0s-node-local-load-balanced"
+
+// kubeconfigWriter receives updates for kubeconfig files.
+type kubeconfigWriter interface {
+
+	// update writes data into the file at path.
+	update(path string, data []byte) error
+
+	// inSync indicates that the file at path doesn't need to be updated.
+	inSync(path string)
 }
 
+// kubeconfigWriterOrDefault ensures that the kubeconfigWriter is not nil,
+// returning a new atomicKubeconfigFileWriter if necessary.
+func kubeconfigWriterOrDefault(writer kubeconfigWriter) kubeconfigWriter {
+	if writer == nil {
+		return new(atomicKubeconfigFileWriter)
+	}
+
+	return writer
+}
+
+// atomicKubeconfigFileWriter is the standard kubeconfigFileWriter. It attempts
+// to perform atomic writes on Linux.
+type atomicKubeconfigFileWriter struct{}
+
+func (*atomicKubeconfigFileWriter) update(path string, data []byte) error {
+	return file.WriteContentAtomically(path, data, constant.CertSecureMode)
+}
+
+func (*atomicKubeconfigFileWriter) inSync(path string) {}
+
+// fileStatInterface encapsulates a file's size and modification time.
 type fileStatInterface interface {
 	Size() int64
 	ModTime() time.Time
 }
 
+var _ fileStatInterface = (os.FileInfo)(nil)
+
+// fileStat contains a file's size and modification time, in order to compare it
+// with other instances of fileStatInterface.
+type fileStat struct {
+	size    int64
+	modTime time.Time
+}
+
 var _ fileStatInterface = (*fileStat)(nil)
+
+func (s *fileStat) String() string {
+	if s == nil {
+		return "(absent)"
+	}
+	return fmt.Sprintf("%d bytes, modified %s", s.size, s.modTime)
+}
 
 func (s *fileStat) Size() int64        { return s.size }
 func (s *fileStat) ModTime() time.Time { return s.modTime }
+
+// Equal indicates if this fileStat is equal to other, in a nil-safe manner.
 func (s *fileStat) Equal(other fileStatInterface) bool {
 	return s != nil && other != nil && s.size == other.Size() && s.modTime.Equal(other.ModTime())
 }
@@ -63,19 +111,6 @@ type kubeconfigStat kubeconfig[*fileStat]
 type kubeconfigs[T any] struct{ regular, bootstrap T }
 type kubeconfigPaths kubeconfigs[kubeconfigPath]
 type kubeconfigStats kubeconfigs[*kubeconfigStat]
-
-type kubeconfigData struct {
-	modTime    time.Time
-	bytes      []byte
-	kubeconfig *clientcmdapi.Config
-}
-
-func (s *fileStat) String() string {
-	if s == nil {
-		return "(absent)"
-	}
-	return fmt.Sprintf("%d bytes, modified %s", s.size, s.modTime)
-}
 
 func (s *kubeconfigStat) String() string {
 	if s == nil {
@@ -94,27 +129,6 @@ func (s *kubeconfigStats) String() string {
 func (p *kubeconfigPaths) loadBalancedPaths() []string {
 	return []string{p.regular.loadBalanced, p.bootstrap.loadBalanced}
 }
-
-type kubeconfigWriter interface {
-	update(path string, data []byte) error
-	inSync(path string)
-}
-
-func kubeconfigWriterOrDefault(writer kubeconfigWriter) kubeconfigWriter {
-	if writer == nil {
-		return new(atomicKubeconfigFileWriter)
-	}
-
-	return writer
-}
-
-type atomicKubeconfigFileWriter struct{}
-
-func (*atomicKubeconfigFileWriter) update(path string, data []byte) error {
-	return file.WriteContentAtomically(path, data, constant.CertSecureMode)
-}
-
-func (*atomicKubeconfigFileWriter) inSync(path string) {}
 
 func (p *kubeconfigPaths) reconcile(ctx context.Context, log logrus.FieldLogger, lbAddr string, writer kubeconfigWriter) error {
 	writer = kubeconfigWriterOrDefault(writer)
@@ -223,6 +237,16 @@ func statMatches(path string, desired *fileStat) bool {
 	return err != nil && desired.Equal(actual)
 }
 
+// kubeconfigData represents a parsed kubeconfig, retaining its serialized form
+// and its modification time.
+type kubeconfigData struct {
+	modTime    time.Time
+	bytes      []byte
+	kubeconfig *clientcmdapi.Config
+}
+
+// fileStat converts this kubeconfigData's serialized size and modification time
+// into a fileStat. Returns nil if the receiver was nil.
 func (d *kubeconfigData) fileStat() *fileStat {
 	if d == nil {
 		return nil
@@ -230,8 +254,6 @@ func (d *kubeconfigData) fileStat() *fileStat {
 
 	return &fileStat{int64(len(d.bytes)), d.modTime}
 }
-
-const lbContext = "k0s-node-local-load-balanced"
 
 func (p *kubeconfigPath) synchronizeFiles(log logrus.FieldLogger, host string, writer kubeconfigWriter) kubeconfigStat {
 	var regularData, lbData *kubeconfigData
@@ -276,7 +298,7 @@ func (p *kubeconfigPath) synchronizeFiles(log logrus.FieldLogger, host string, w
 	writeFile := func(path string, data *kubeconfigData) {
 		kubeconfigBytes, err := clientcmd.Write(*data.kubeconfig)
 		if bytes.Equal(data.bytes, kubeconfigBytes) {
-			log.Debugf("%q is up to date", path)
+			log.Debugf("%q is up to date: %s", path, data.fileStat())
 			writer.inSync(path)
 			return
 		}
@@ -328,7 +350,7 @@ func loadBalancedToRegular(lbKubeconfig *clientcmdapi.Config, lbName string) (*c
 	kubeconfig := lbKubeconfig.DeepCopy()
 	kubeconfig.CurrentContext = ""
 	for candidate := range kubeconfig.Contexts {
-		if candidate == lbContext {
+		if candidate == k0sNodeLocalLoadBalanced {
 			continue
 		}
 		if kubeconfig.CurrentContext != "" {
@@ -371,10 +393,10 @@ func createLoadBalancedContext(kubeconfig *clientcmdapi.Config, host string) err
 	}
 	server.Host = host
 	loadBalancedCluster.Server = server.String()
-	loadBalancedCtx.Cluster = lbContext
-	kubeconfig.Clusters[lbContext] = loadBalancedCluster
-	kubeconfig.Contexts[lbContext] = loadBalancedCtx
-	kubeconfig.CurrentContext = lbContext
+	loadBalancedCtx.Cluster = k0sNodeLocalLoadBalanced
+	kubeconfig.Clusters[k0sNodeLocalLoadBalanced] = loadBalancedCluster
+	kubeconfig.Contexts[k0sNodeLocalLoadBalanced] = loadBalancedCtx
+	kubeconfig.CurrentContext = k0sNodeLocalLoadBalanced
 	return nil
 }
 

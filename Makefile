@@ -107,7 +107,7 @@ go.sum: go.mod .k0sbuild.docker-image.k0s
 	$(GO) mod tidy && touch -c -- '$@'
 
 codegen_targets += pkg/apis/helm.k0sproject.io/v1beta1/.controller-gen.stamp
-pkg/apis/helm.k0sproject.io/v1beta1/.controller-gen.stamp: $(shell find pkg/apis/helm.k0sproject.io/v1beta1/  -maxdepth 1 -type f -name \*.go)
+pkg/apis/helm.k0sproject.io/v1beta1/.controller-gen.stamp: $(shell find pkg/apis/helm.k0sproject.io/v1beta1/ -maxdepth 1 -type f -name \*.go)
 pkg/apis/helm.k0sproject.io/v1beta1/.controller-gen.stamp: gen_output_dir = helm
 
 codegen_targets += pkg/apis/k0s.k0sproject.io/v1beta1/.controller-gen.stamp

@@ -22,7 +22,6 @@ import (
 	"os"
 	"path"
 	"testing"
-	"time"
 
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/clientset/fake"
 	k0sv1beta1 "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/clientset/typed/k0s.k0sproject.io/v1beta1"
@@ -311,16 +310,13 @@ func TestAPIConfig(t *testing.T) {
 	// create the API config using a fake client
 	client := fake.NewSimpleClientset()
 
-	err := createFakeAPIConfig(client.K0sV1beta1())
-	if err != nil {
-		t.Fatalf("failed to create API config: %s", err.Error())
-	}
+	createFakeAPIConfig(t, client.K0sV1beta1())
 
 	loadingRules := ClientConfigLoadingRules{
 		RuntimeConfigPath: nonExistentPath(t),
 		APIClient:         client.K0sV1beta1(),
 	}
-	err = loadingRules.InitRuntimeConfig(constant.GetConfig(t.TempDir()))
+	err := loadingRules.InitRuntimeConfig(constant.GetConfig(t.TempDir()))
 	if err != nil {
 		t.Fatalf("failed to initialize k0s config: %s", err.Error())
 	}
@@ -356,23 +352,16 @@ func writeConfigFile(t *testing.T, yamlData string) (filePath string) {
 	return cfgFilePath
 }
 
-func createFakeAPIConfig(client k0sv1beta1.K0sV1beta1Interface) error {
-	clusterConfigs := client.ClusterConfigs(constant.ClusterConfigNamespace)
-	ctxWithTimeout, cancelFunction := context.WithTimeout(context.Background(), time.Duration(10)*time.Second)
-	defer cancelFunction()
-
-	config, err := v1beta1.ConfigFromString(apiYaml, v1beta1.DefaultStorageSpec())
-	if err != nil {
-		return fmt.Errorf("failed to parse config yaml: %s", err.Error())
-	}
-
-	_, err = clusterConfigs.Create(ctxWithTimeout, config.GetClusterWideConfig().StripDefaults(), cOpts)
-	if err != nil {
-		return fmt.Errorf("failed to create clusterConfig in the API: %s", err.Error())
-	}
-	return nil
-}
-
 func nonExistentPath(t *testing.T) string {
 	return path.Join(t.TempDir(), "non-existent")
+}
+
+func createFakeAPIConfig(t *testing.T, client k0sv1beta1.K0sV1beta1Interface) {
+	clusterConfigs := client.ClusterConfigs(constant.ClusterConfigNamespace)
+
+	config, err := v1beta1.ConfigFromString(apiYaml, v1beta1.DefaultStorageSpec())
+	require.NoError(t, err)
+
+	_, err = clusterConfigs.Create(context.TODO(), config.GetClusterWideConfig().StripDefaults(), cOpts)
+	require.NoError(t, err)
 }

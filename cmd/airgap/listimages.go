@@ -34,7 +34,7 @@ func NewAirgapListImagesCmd() *cobra.Command {
 		Example: `k0s airgap list-images`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := CmdOpts(config.GetCmdOpts())
-			uris := airgap.GetImageURIs(c.ClusterConfig.Spec.Images)
+			uris := airgap.GetImageURIs(c.ClusterConfig.Spec)
 			for _, uri := range uris {
 				fmt.Println(uri)
 			}

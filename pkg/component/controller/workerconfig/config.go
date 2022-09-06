@@ -34,9 +34,9 @@ import (
 // workerConfig represents the worker config for a given profile.
 type workerConfig struct {
 	apiServers             apiServers
-	defaultImagePullPolicy corev1.PullPolicy
-	envoyProxyImage        v1beta1.ImageSpec
 	kubeletConfiguration   kubeletv1beta1.KubeletConfiguration
+	nodeLocalLoadBalancer  *v1beta1.NodeLocalLoadBalancer
+	defaultImagePullPolicy corev1.PullPolicy
 }
 
 type hostPort struct {
@@ -52,9 +52,18 @@ func (c *workerConfig) toConfigMap(name string) (*corev1.ConfigMap, error) {
 		return nil, err
 	}
 
-	envoyProxyImage, err := yaml.Marshal(c.envoyProxyImage)
-	if err != nil {
-		return nil, err
+	data := map[string]string{
+		"apiServers":             c.apiServers.String(),
+		"kubeletConfiguration":   string(kubeletConfig),
+		"defaultImagePullPolicy": string(c.defaultImagePullPolicy),
+	}
+
+	if c.nodeLocalLoadBalancer.IsEnabled() {
+		nllbBytes, err := yaml.Marshal(c.nodeLocalLoadBalancer)
+		if err != nil {
+			return nil, err
+		}
+		data["nodeLocalLoadBalancer"] = string(nllbBytes)
 	}
 
 	return &corev1.ConfigMap{
@@ -65,12 +74,7 @@ func (c *workerConfig) toConfigMap(name string) (*corev1.ConfigMap, error) {
 				CommonLabels(constant.WorkerConfigComponentName).
 				With("k0s.k0sproject.io/worker-profile", name),
 		},
-		Data: map[string]string{
-			"apiServers":             c.apiServers.String(),
-			"envoyProxyImage":        string(envoyProxyImage),
-			"defaultImagePullPolicy": string(c.defaultImagePullPolicy),
-			"kubeletConfiguration":   string(kubeletConfig),
-		},
+		Data: data,
 	}, nil
 }
 

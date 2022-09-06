@@ -85,19 +85,18 @@ type ControllerOptions struct {
 
 // Shared worker cli flags
 type WorkerOptions struct {
-	APIServer                   string
-	CIDRRange                   string
-	CloudProvider               bool
-	ClusterDNS                  string
-	CmdLogLevels                map[string]string
-	CriSocket                   string
-	KubeletExtraArgs            string
-	Labels                      []string
-	Taints                      []string
-	TokenFile                   string
-	TokenArg                    string
-	WorkerProfile               string
-	EnableNodeLocalLoadBalancer bool
+	APIServer        string
+	CIDRRange        string
+	CloudProvider    bool
+	ClusterDNS       string
+	CmdLogLevels     map[string]string
+	CriSocket        string
+	KubeletExtraArgs string
+	Labels           []string
+	Taints           []string
+	TokenFile        string
+	TokenArg         string
+	WorkerProfile    string
 }
 
 func DefaultLogLevels() map[string]string {
@@ -156,7 +155,6 @@ func GetWorkerFlags() *pflag.FlagSet {
 	flagset.StringSliceVarP(&workerOpts.Labels, "labels", "", []string{}, "Node labels, list of key=value pairs")
 	flagset.StringSliceVarP(&workerOpts.Taints, "taints", "", []string{}, "Node taints, list of key=value:effect strings")
 	flagset.StringVar(&workerOpts.KubeletExtraArgs, "kubelet-extra-args", "", "extra args for kubelet")
-	flagset.BoolVar(&workerOpts.EnableNodeLocalLoadBalancer, "enable-node-local-load-balancer", false, "EXPERIMENTAL: Whether or not to use a node-local load balancer in front of the API servers")
 	flagset.AddFlagSet(GetCriSocketFlag())
 
 	return flagset
@@ -199,7 +197,6 @@ func AddControllerFlags(cmd *cobra.Command) {
 	flags.StringVar(&controllerOpts.KubeControllerManagerExtraArgs, "kube-controller-manager-extra-args", "", "extra args for kube-controller-manager")
 	flags.AddFlagSet(FileInputFlag())
 	flags.AddFlagSet(GetWorkerFlags())
-	cmd.MarkFlagsMutuallyExclusive("single", "enable-node-local-load-balancer")
 }
 
 // The config flag used to be a persistent, joint flag to all commands

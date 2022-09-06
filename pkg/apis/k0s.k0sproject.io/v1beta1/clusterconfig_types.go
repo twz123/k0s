@@ -87,14 +87,14 @@ func (c *ClusterConfig) StripDefaults() *ClusterConfig {
 	if reflect.DeepEqual(c.Spec.Storage, DefaultStorageSpec()) {
 		c.Spec.ControllerManager = nil
 	}
-	if reflect.DeepEqual(copy.Spec.Network, DefaultNetwork()) {
+	if reflect.DeepEqual(copy.Spec.Images, DefaultClusterImages()) {
+		copy.Spec.Images = nil
+	}
+	if reflect.DeepEqual(copy.Spec.Network, DefaultNetwork(copy.Spec.Images)) {
 		copy.Spec.Network = nil
 	}
 	if reflect.DeepEqual(copy.Spec.Telemetry, DefaultClusterTelemetry()) {
 		copy.Spec.Telemetry = nil
-	}
-	if reflect.DeepEqual(copy.Spec.Images, DefaultClusterImages()) {
-		copy.Spec.Images = nil
 	}
 	if reflect.DeepEqual(copy.Spec.Konnectivity, DefaultKonnectivitySpec()) {
 		copy.Spec.Konnectivity = nil
@@ -223,15 +223,16 @@ func DefaultClusterSpec(defaultStorage ...*StorageSpec) *ClusterSpec {
 		storage = defaultStorage[0]
 	}
 
+	defaultClusterImages := DefaultClusterImages()
 	return &ClusterSpec{
 		Extensions:        DefaultExtensions(),
 		Storage:           storage,
-		Network:           DefaultNetwork(),
+		Network:           DefaultNetwork(defaultClusterImages),
 		API:               DefaultAPISpec(),
 		ControllerManager: DefaultControllerManagerSpec(),
 		Scheduler:         DefaultSchedulerSpec(),
 		Install:           DefaultInstallSpec(),
-		Images:            DefaultClusterImages(),
+		Images:            defaultClusterImages,
 		Telemetry:         DefaultClusterTelemetry(),
 		Konnectivity:      DefaultKonnectivitySpec(),
 	}
@@ -307,32 +308,22 @@ func (c *ClusterConfig) GetBootstrappingConfig(storageSpec *StorageSpec) *Cluste
 // HACK: the current ClusterConfig struct holds both bootstrapping config & cluster-wide config
 // this hack strips away the node-specific bootstrapping config so that we write a "clean" config to the CR
 // This function accepts a standard ClusterConfig and returns the same config minus the node specific info:
-// - APISpec
-// - StorageSpec
-// - Network.ServiceCIDR
-// - Install
+//   - Spec.API
+//   - Spec.Storage
+//   - Spec.Network.ServiceCIDR
+//   - Spec.Install
 func (c *ClusterConfig) GetClusterWideConfig() *ClusterConfig {
-	return &ClusterConfig{
-		ObjectMeta: c.ObjectMeta,
-		TypeMeta:   c.TypeMeta,
-		Spec: &ClusterSpec{
-			ControllerManager: c.Spec.ControllerManager,
-			Scheduler:         c.Spec.Scheduler,
-			Network: &Network{
-				Calico:     c.Spec.Network.Calico,
-				KubeProxy:  c.Spec.Network.KubeProxy,
-				KubeRouter: c.Spec.Network.KubeRouter,
-				PodCIDR:    c.Spec.Network.PodCIDR,
-				Provider:   c.Spec.Network.Provider,
-			},
-			WorkerProfiles: c.Spec.WorkerProfiles,
-			Telemetry:      c.Spec.Telemetry,
-			Images:         c.Spec.Images,
-			Extensions:     c.Spec.Extensions,
-			Konnectivity:   c.Spec.Konnectivity,
-		},
-		Status: c.Status,
+	copy := c.DeepCopy()
+	if copy.Spec != nil {
+		copy.Spec.API = nil
+		copy.Spec.Storage = nil
+		if copy.Spec.Network != nil {
+			copy.Spec.Network.ServiceCIDR = ""
+		}
+		copy.Spec.Install = nil
 	}
+
+	return copy
 }
 
 // CRValidator is used to make sure a config CR is created with correct values

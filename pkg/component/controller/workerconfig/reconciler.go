@@ -587,9 +587,7 @@ type configBuilder struct {
 
 func (b *configBuilder) build() *workerConfig {
 	c := &workerConfig{
-		apiServers:             append((apiServers)(nil), b.apiServers...),
-		defaultImagePullPolicy: b.defaultImagePullPolicy,
-		envoyProxyImage:        b.envoyProxyImage,
+		apiServers: append((apiServers)(nil), b.apiServers...),
 		kubeletConfiguration: kubeletv1beta1.KubeletConfiguration{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: kubeletv1beta1.SchemeGroupVersion.String(),
@@ -612,6 +610,8 @@ func (b *configBuilder) build() *workerConfig {
 			ServerTLSBootstrap: true,
 			EventRecordQPS:     pointer.Int32(0),
 		},
+		nodeLocalLoadBalancer:  b.nodeLocalLoadBalancer.DeepCopy(),
+		defaultImagePullPolicy: b.defaultImagePullPolicy,
 	}
 
 	return c

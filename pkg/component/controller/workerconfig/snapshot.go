@@ -41,8 +41,8 @@ type configSnapshot struct {
 type specSnapshot struct {
 	dnsAddress             string
 	clusterDomain          string
+	nodeLocalLoadBalancer  *v1beta1.NodeLocalLoadBalancer
 	defaultImagePullPolicy corev1.PullPolicy
-	envoyProxyImage        v1beta1.ImageSpec
 }
 
 func (s *snapshot) DeepCopy() *snapshot {
@@ -88,8 +88,8 @@ func makeConfigSnapshot(log logrus.FieldLogger, spec *v1beta1.ClusterSpec) (*con
 		specSnapshot: specSnapshot{
 			dnsAddress:             dnsAddress,
 			clusterDomain:          spec.Network.ClusterDomain,
+			nodeLocalLoadBalancer:  spec.Network.NodeLocalLoadBalancer.DefaultedCopy(spec.Images),
 			defaultImagePullPolicy: corev1.PullIfNotPresent,
-			envoyProxyImage:        spec.Images.EnvoyProxy,
 		},
 	}
 

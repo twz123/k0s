@@ -34,6 +34,12 @@ type Network struct {
 	KubeProxy  *KubeProxy  `json:"kubeProxy"`
 	KubeRouter *KubeRouter `json:"kuberouter"`
 
+	// nodeLocalLoadBalancer defines the configuration options related to k0s's
+	// node-local load balancing feature.
+	// NOTE: This feature is experimental, and currently unsupported on ARMv7!
+	// +optional
+	NodeLocalLoadBalancer *NodeLocalLoadBalancer `json:"nodeLocalLoadBalancer,omitempty"`
+
 	// Pod network CIDR to use in the cluster
 	PodCIDR string `json:"podCIDR"`
 	// Network provider (valid values: calico, kuberouter, or custom)
@@ -45,15 +51,16 @@ type Network struct {
 }
 
 // DefaultNetwork creates the Network config struct with sane default values
-func DefaultNetwork() *Network {
+func DefaultNetwork(clusterImages *ClusterImages) *Network {
 	return &Network{
-		PodCIDR:       "10.244.0.0/16",
-		ServiceCIDR:   "10.96.0.0/12",
-		Provider:      "kuberouter",
-		KubeRouter:    DefaultKubeRouter(),
-		DualStack:     DefaultDualStack(),
-		KubeProxy:     DefaultKubeProxy(),
-		ClusterDomain: "cluster.local",
+		PodCIDR:               "10.244.0.0/16",
+		ServiceCIDR:           "10.96.0.0/12",
+		Provider:              "kuberouter",
+		KubeRouter:            DefaultKubeRouter(),
+		DualStack:             DefaultDualStack(),
+		KubeProxy:             DefaultKubeProxy(),
+		NodeLocalLoadBalancer: DefaultNodeLocalLoadBalancer(clusterImages),
+		ClusterDomain:         "cluster.local",
 	}
 }
 
