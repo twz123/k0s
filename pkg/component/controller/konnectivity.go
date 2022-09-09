@@ -48,13 +48,13 @@ type Konnectivity struct {
 	// used for lease lock
 	KubeClientFactory kubeutil.ClientFactoryInterface
 	NodeConfig        *v1beta1.ClusterConfig
+	ClusterConfig     *v1beta1.ClusterConfig
 
 	supervisor          *supervisor.Supervisor
 	uid                 int
-	serverCount         int
-	serverCountChan     chan int
+	serverCount         uint
+	serverCountChan     chan uint
 	stopFunc            context.CancelFunc
-	clusterConfig       *v1beta1.ClusterConfig
 	log                 *logrus.Entry
 	leaseCounterRunning bool
 	previousConfig      konnectivityAgentConfig
@@ -89,7 +89,7 @@ func (k *Konnectivity) Init(_ context.Context) error {
 // Run ..
 func (k *Konnectivity) Start(ctx context.Context) error {
 	// Buffered chan to send updates for the count of servers
-	k.serverCountChan = make(chan int, 1)
+	k.serverCountChan = make(chan uint, 1)
 
 	ctx, k.stopFunc = context.WithCancel(ctx)
 
@@ -100,7 +100,7 @@ func (k *Konnectivity) Start(ctx context.Context) error {
 
 // Reconcile detects changes in configuration and applies them to the component
 func (k *Konnectivity) Reconcile(ctx context.Context, clusterCfg *v1beta1.ClusterConfig) error {
-	k.clusterConfig = clusterCfg
+	k.ClusterConfig = clusterCfg
 	if !k.SingleNode {
 		go k.runLeaseCounter(ctx)
 	} else {
@@ -122,8 +122,8 @@ func (k *Konnectivity) defaultArgs() stringmap.StringMap {
 		"--kubeconfig":              k.K0sVars.KonnectivityKubeConfigPath,
 		"--mode":                    "grpc",
 		"--server-port":             "0",
-		"--agent-port":              fmt.Sprintf("%d", k.clusterConfig.Spec.Konnectivity.AgentPort),
-		"--admin-port":              fmt.Sprintf("%d", k.clusterConfig.Spec.Konnectivity.AdminPort),
+		"--agent-port":              fmt.Sprintf("%d", k.ClusterConfig.Spec.Konnectivity.AgentPort),
+		"--admin-port":              fmt.Sprintf("%d", k.ClusterConfig.Spec.Konnectivity.AdminPort),
 		"--agent-namespace":         "kube-system",
 		"--agent-service-account":   "konnectivity-agent",
 		"--authentication-audience": "system:konnectivity-server",
@@ -146,9 +146,9 @@ func (k *Konnectivity) runServer(ctx context.Context) {
 			return
 		case count := <-k.serverCountChan:
 			// restart only if the count actually changes and we've got the global config
-			if count != k.serverCount && k.clusterConfig != nil {
+			if count != k.serverCount && k.ClusterConfig != nil {
 				args := k.defaultArgs()
-				args["--server-count"] = strconv.Itoa(count)
+				args["--server-count"] = strconv.FormatUint(uint64(count), 10)
 				if args.Equals(previousArgs) {
 					logrus.Info("no changes detected for konnectivity-server")
 				}
@@ -198,13 +198,15 @@ func (k *Konnectivity) Stop() error {
 }
 
 type konnectivityAgentConfig struct {
-	APIAddress             string
-	AgentPort              int64
-	KASPort                int64
-	Image                  string
-	ServerCount            int
-	PullPolicy             string
-	TunneledNetworkingMode bool
+	ProxyServerHost      string
+	ProxyServerPort      uint16
+	AgentPort            uint16
+	Image                string
+	ServerCount          uint
+	PullPolicy           string
+	HostNetwork          bool
+	BindToNodeIP         bool
+	APIServerPortMapping string
 }
 
 func (k *Konnectivity) writeKonnectivityAgent() error {
@@ -216,13 +218,62 @@ func (k *Konnectivity) writeKonnectivityAgent() error {
 		return err
 	}
 	cfg := konnectivityAgentConfig{
-		APIAddress:             k.NodeConfig.Spec.API.APIAddress(), // TODO: should it be an APIAddress?
-		AgentPort:              k.clusterConfig.Spec.Konnectivity.AgentPort,
-		KASPort:                int64(k.clusterConfig.Spec.API.Port),
-		Image:                  k.clusterConfig.Spec.Images.Konnectivity.URI(),
-		ServerCount:            k.serverCount,
-		PullPolicy:             k.clusterConfig.Spec.Images.DefaultPullPolicy,
-		TunneledNetworkingMode: k.clusterConfig.Spec.API.TunneledNetworkingMode,
+		// Since the konnectivity server runs with hostNetwork=true this is the
+		// IP address of the master machine
+		ProxyServerHost: k.NodeConfig.Spec.API.APIAddress(), // TODO: should it be an APIAddress?
+		ProxyServerPort: uint16(k.ClusterConfig.Spec.Konnectivity.AgentPort),
+		Image:           k.ClusterConfig.Spec.Images.Konnectivity.URI(),
+		ServerCount:     k.serverCount,
+		PullPolicy:      k.ClusterConfig.Spec.Images.DefaultPullPolicy,
+	}
+
+	if k.ClusterConfig.Spec.API.TunneledNetworkingMode {
+		cfg.HostNetwork = true
+		cfg.BindToNodeIP = true // agent needs to listen on the node IP to be on pair with the tunneled network reconciler
+		cfg.APIServerPortMapping = fmt.Sprintf("6443:localhost:%d", k.ClusterConfig.Spec.API.Port)
+	}
+
+	if k.ClusterConfig.Spec.Network != nil &&
+		k.ClusterConfig.Spec.Network.NodeLocalLoadBalancer.IsEnabled() &&
+		k.ClusterConfig.Spec.ValidateNodeLocalLoadBalancer(nil) == nil {
+		switch k.ClusterConfig.Spec.Network.NodeLocalLoadBalancer.Type {
+		case v1beta1.NllbTypeEnvoyProxy:
+			k.log.Info("FIXME: Enabling NLLB for konnectivity agent")
+
+			// FIXME: Transitions from non-node-local load balanced to node-local
+			// load balanced setups will be problematic: The controller will update
+			// the DaemonSet with localhost, but the worker nodes won't reconcile
+			// their state (yet) and need to be restarted manually in order to start
+			// their load balancer. Transitions in the other direction suffer from
+			// the same limitation, but that will be less grave, as the node-local
+			// load balancers will remain operational until the next node restart
+			// and the agents will stay connected.
+
+			// The node-local load balancer will run in the host network, so the
+			// agent needs to do the same in order to use it.
+			cfg.HostNetwork = true
+
+			// FIXME: This is not exactly on par with the way it's implemented on
+			// the worker side, i.e. there's no fallback if localhost doesn't
+			// resolve to a loopback address. But this would require some
+			// shenanigans to pull in node-specific values here. A possible solution
+			// would be to convert the konnectivity agent to a static Pod as well.
+			cfg.ProxyServerHost = "localhost"
+
+			if k.ClusterConfig.Spec.Network.NodeLocalLoadBalancer.EnvoyProxy.KonnectivityAgentBindPort != nil {
+				cfg.ProxyServerPort = uint16(*k.ClusterConfig.Spec.Network.NodeLocalLoadBalancer.EnvoyProxy.KonnectivityAgentBindPort)
+			} else {
+				cfg.ProxyServerPort = uint16(*v1beta1.DefaultEnvoyProxy(k.ClusterConfig.Spec.Images).KonnectivityAgentBindPort)
+			}
+		default:
+			return fmt.Errorf("unsupported node-local load balancer type: %q", k.ClusterConfig.Spec.Network.NodeLocalLoadBalancer.Type)
+		}
+	} else {
+		n := k.ClusterConfig.Spec.Network != nil
+		e := k.ClusterConfig.Spec.Network != nil && k.ClusterConfig.Spec.Network.NodeLocalLoadBalancer.IsEnabled()
+		v := k.ClusterConfig.Spec.ValidateNodeLocalLoadBalancer(nil)
+
+		k.log.Infof("FIXME: Not enabling NLLB for konnectivity agent - %t %t %t (%+#v)", n, e, v == nil, v)
 	}
 
 	if cfg == k.previousConfig {
@@ -268,7 +319,7 @@ func (k *Konnectivity) runLeaseCounter(ctx context.Context) {
 	}
 }
 
-func (k *Konnectivity) countLeaseHolders(ctx context.Context) (int, error) {
+func (k *Konnectivity) countLeaseHolders(ctx context.Context) (uint, error) {
 	client, err := k.KubeClientFactory.GetClient()
 	if err != nil {
 		return 0, err
@@ -327,9 +378,9 @@ spec:
       priorityClassName: system-cluster-critical
       tolerations:
         - operator: Exists
-      {{ if .TunneledNetworkingMode }}
+      {{- if .HostNetwork }}
       hostNetwork: true
-      {{ end }}
+      {{- end }}
       containers:
         - image: {{ .Image }}
           imagePullPolicy: {{ .PullPolicy }}
@@ -345,22 +396,22 @@ spec:
                 valueFrom:
                   fieldRef:
                     fieldPath: status.hostIP
-          args: [
-                  "--logtostderr=true",
-                  "--ca-cert=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
-                  # Since the konnectivity server runs with hostNetwork=true,
-                  # this is the IP address of the master machine.
-                  "--proxy-server-host={{ .APIAddress }}",
-                  "--proxy-server-port={{ .AgentPort }}",
-                  "--service-account-token-path=/var/run/secrets/tokens/konnectivity-agent-token",
-                  "--agent-identifiers=host=$(NODE_IP)",
-                  "--agent-id=$(NODE_IP)",
-                  {{ if .TunneledNetworkingMode }}
-                  # agent need to listen on the node ip to be on pair with the tunneled network reconciler
-                  "--bind-address=$(NODE_IP)",
-                  "--apiserver-port-mapping=6443:localhost:{{.KASPort}}"
-                  {{ end }} 
-                  ]
+          args:
+            - "--logtostderr=true"
+            - "--ca-cert=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+              {{- if .ProxyServerHost }}
+            - "--proxy-server-host={{ .ProxyServerHost }}"
+              {{- end }}
+            - "--proxy-server-port={{ .ProxyServerPort }}"
+            - "--service-account-token-path=/var/run/secrets/tokens/konnectivity-agent-token"
+            - "--agent-identifiers=host=$(NODE_IP)"
+            - "--agent-id=$(NODE_IP)"
+              {{- if .BindToNodeIP }}
+            - "--bind-address=$(NODE_IP)"
+              {{- end }}
+              {{- if .APIServerPortMapping }}
+            - "--apiserver-port-mapping={{ .APIServerPortMapping }}"
+              {{- end }}
           volumeMounts:
             - mountPath: /var/run/secrets/tokens
               name: konnectivity-agent-token

@@ -28,7 +28,6 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
 	"github.com/k0sproject/k0s/internal/pkg/sysinfo"
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/build"
 	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/component/status"
@@ -140,17 +139,22 @@ func (c *CmdOpts) StartWorker(ctx context.Context) error {
 			return fmt.Errorf("failed to obtain node-local load balancer configuration: %w", err)
 		}
 		if nodeLocalLoadBalancer.IsEnabled() {
-			if nodeLocalLoadBalancer.Type != v1beta1.NllbTypeEnvoyProxy {
-				return fmt.Errorf("unsupported node-local load balancing type: %s", nodeLocalLoadBalancer.Type)
+			sp := worker.NewStaticPods()
+
+			konnectivityAgentPort, err := workerConfig.KonnectivityAgentPort()
+			if err != nil {
+				return err
 			}
 
-			sp := worker.NewStaticPods()
 			pullPolicy, err := workerConfig.DefaultImagePullPolicy()
 			if err != nil {
-				return fmt.Errorf("failed to obtain default image pull policy: %w", err)
+				return err
 			}
 
-			reconciler := nllb.NewReconciler(&c.K0sVars, sp, *nodeLocalLoadBalancer.EnvoyProxy.Image, pullPolicy)
+			reconciler, err := nllb.NewReconciler(&c.K0sVars, sp, nodeLocalLoadBalancer, konnectivityAgentPort, pullPolicy)
+			if err != nil {
+				return fmt.Errorf("failed to create node-local load balancer reconciler: %w", err)
+			}
 			kubeletKubeconfig = reconciler.GetKubeletKubeconfig()
 			staticPods = sp
 
@@ -250,7 +254,7 @@ func (c *CmdOpts) StartWorker(ctx context.Context) error {
 
 	// Stop components
 	if err := componentManager.Stop(); err != nil {
-		logrus.WithError(err).Error("error while stoping component manager")
+		logrus.WithError(err).Error("error while stopping component manager")
 	}
 	return nil
 }
@@ -267,7 +271,7 @@ func loadWorkerConfig(ctx context.Context, profile string, getter clientcmd.Kube
 			if err != nil {
 				err = fmt.Errorf("failed to load configuration for worker profile %q: %w", profile, err)
 				if apierrors.IsUnauthorized(err) {
-					err = fmt.Errorf("the k0s worker node credentials are invalid, it needs to be rejoined into the cluster with a fresh bootstrap token: %w", err)
+					err = fmt.Errorf("the k0s worker node credentials are invalid, the node needs to be rejoined into the cluster with a fresh bootstrap token: %w", err)
 					err = retry.Unrecoverable(err)
 				}
 
@@ -280,8 +284,8 @@ func loadWorkerConfig(ctx context.Context, profile string, getter clientcmd.Kube
 		retry.Context(ctx),
 		retry.LastErrorOnly(true),
 		retry.Delay(500*time.Millisecond),
-		retry.OnRetry(func(n uint, err error) {
-			logrus.WithError(err).Infof("Retrying to load configuration for worker profile (%d)", n)
+		retry.OnRetry(func(attempt uint, err error) {
+			logrus.WithError(err).Debugf("Failed to load configuration for worker profile in attempt #%d, retrying after backoff", attempt+1)
 		}),
 	)
 

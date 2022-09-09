@@ -17,6 +17,7 @@ limitations under the License.
 package config
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
@@ -24,17 +25,8 @@ import (
 	k0sv1beta1 "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/clientset/typed/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/constant"
-	"k8s.io/client-go/tools/clientcmd"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
 )
-
-// general interface for config related methods
-type Loader interface {
-	BootstrapConfig() (*v1beta1.ClusterConfig, error)
-	ClusterConfig() (*v1beta1.ClusterConfig, error)
-	IsAPIConfig() bool
-	IsDefaultConfig() bool
-	Load() (*v1beta1.ClusterConfig, error)
-}
 
 type K0sConfigGetter struct {
 	k0sConfigGetter Getter
@@ -58,8 +50,6 @@ func (g *K0sConfigGetter) Load() (*v1beta1.ClusterConfig, error) {
 
 type Getter func() (*v1beta1.ClusterConfig, error)
 
-var _ Loader = (*ClientConfigLoadingRules)(nil)
-
 type ClientConfigLoadingRules struct {
 	// APIClient is an optional field for passing a kubernetes API client, to fetch the API config
 	// mostly used by tests, to pass a fake client
@@ -76,26 +66,23 @@ type ClientConfigLoadingRules struct {
 	K0sVars constant.CfgVars
 }
 
-func (rules *ClientConfigLoadingRules) BootstrapConfig() (*v1beta1.ClusterConfig, error) {
-	return rules.fetchNodeConfig()
-}
-
 // ClusterConfig generates a client and queries the API for the cluster config
-func (rules *ClientConfigLoadingRules) ClusterConfig() (*v1beta1.ClusterConfig, error) {
+func (rules *ClientConfigLoadingRules) ClusterConfig(ctx context.Context) (*v1beta1.ClusterConfig, error) {
 	if rules.APIClient == nil {
 		// generate a kubernetes client from AdminKubeConfigPath
-		config, err := clientcmd.BuildConfigFromFlags("", K0sVars.AdminKubeConfigPath)
+		config, err := kubernetes.ClientConfig(kubernetes.FirstExistingKubeconfig(K0sVars.AdminKubeConfigPath))
 		if err != nil {
-			return nil, fmt.Errorf("can't read kubeconfig: %v", err)
+			return nil, fmt.Errorf("can't create Kubernetes client config: %w", err)
 		}
+
 		client, err := cfgClient.NewForConfig(config)
 		if err != nil {
-			return nil, fmt.Errorf("can't create kubernetes typed client for cluster config: %v", err)
+			return nil, fmt.Errorf("can't create kubernetes typed client for cluster config: %w", err)
 		}
 
 		rules.APIClient = client.K0sV1beta1()
 	}
-	return rules.getConfigFromAPI(rules.APIClient)
+	return rules.getConfigFromAPI(ctx, rules.APIClient)
 }
 
 func (rules *ClientConfigLoadingRules) IsAPIConfig() bool {
@@ -108,19 +95,19 @@ func (rules *ClientConfigLoadingRules) IsDefaultConfig() bool {
 	return CfgFile == constant.K0sConfigPathDefault && !file.Exists(constant.K0sConfigPathDefault)
 }
 
-func (rules *ClientConfigLoadingRules) Load() (*v1beta1.ClusterConfig, error) {
+func (rules *ClientConfigLoadingRules) Load(ctx context.Context) (*v1beta1.ClusterConfig, error) {
 	if rules.Nodeconfig {
-		return rules.fetchNodeConfig()
+		return rules.readRuntimeConfig()
 	}
 	if !rules.IsAPIConfig() {
 		return rules.readRuntimeConfig()
 	}
 	if rules.IsAPIConfig() {
-		nodeConfig, err := rules.BootstrapConfig()
+		nodeConfig, err := rules.readRuntimeConfig()
 		if err != nil {
 			return nil, err
 		}
-		apiConfig, err := rules.ClusterConfig()
+		apiConfig, err := rules.ClusterConfig(ctx)
 		if err != nil {
 			return nil, err
 		}

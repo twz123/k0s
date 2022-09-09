@@ -22,7 +22,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 
 	dirutil "github.com/k0sproject/k0s/internal/pkg/dir"
@@ -67,8 +66,6 @@ func (c *ContainerD) Init(ctx context.Context) error {
 
 // Run runs containerD
 func (c *ContainerD) Start(_ context.Context) error {
-	logrus.Info("Starting containerD")
-
 	if err := c.setupConfig(); err != nil {
 		return err
 	}

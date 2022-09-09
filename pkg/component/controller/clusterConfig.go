@@ -55,7 +55,6 @@ type ClusterConfigReconciler struct {
 	KubeClientFactory kubeutil.ClientFactoryInterface
 
 	configClient  cfgClient.ClusterConfigInterface
-	kubeConfig    string
 	leaderElector leaderelector.Interface
 	log           *logrus.Entry
 	saver         manifestsSaver
@@ -79,7 +78,6 @@ func NewClusterConfigReconciler(leaderElector leaderelector.Interface, k0sVars c
 		ComponentManager:  mgr,
 		YamlConfig:        cfg,
 		KubeClientFactory: kubeClientFactory,
-		kubeConfig:        k0sVars.AdminKubeConfigPath,
 		leaderElector:     leaderElector,
 		log:               logrus.WithFields(logrus.Fields{"component": "clusterConfig-reconciler"}),
 		saver:             s,
@@ -102,36 +100,36 @@ func (r *ClusterConfigReconciler) Init(_ context.Context) error {
 
 func (r *ClusterConfigReconciler) Start(ctx context.Context) error {
 	if r.configSource.NeedToStoreInitialConfig() {
-		// We need to wait until we either succees getting the object or creating it
+		// We need to wait until we either succeed getting the object or creating it
 		err := wait.Poll(1*time.Second, 20*time.Second, func() (done bool, err error) {
 			timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
 			// Create the config object if it does not exist already
-			_, e := r.configClient.Get(timeoutCtx, constant.ClusterConfigObjectName, getOpts)
-			if e != nil {
-				if errors.IsNotFound(e) {
-					// ClusterConfig CR cannot be found, which means we can create it
-					r.log.Debugf("didn't find cluster-config object: %v", err)
-
-					if !r.leaderElector.IsLeader() {
-						r.log.Debug("I am not the leader, not writing cluster configuration")
-						return true, nil
-					}
-
-					_, e = r.copyRunningConfigToCR(ctx)
-					if e != nil {
-						r.log.Errorf("failed to save cluster-config  %v\n", err)
-						return false, nil
-					}
-				} else {
-					r.log.Errorf("error getting cluster-config: %v", err)
+			if _, err := r.configClient.Get(timeoutCtx, constant.ClusterConfigObjectName, getOpts); err != nil {
+				if !errors.IsNotFound(err) {
+					r.log.WithError(err).Errorf("error getting cluster-config")
 					return false, nil
+				}
+
+				// ClusterConfig CR cannot be found, which means we can create it
+				r.log.WithError(err).Debugf("didn't find cluster-config object")
+
+				if !r.leaderElector.IsLeader() {
+					r.log.Debug("I am not the leader, not writing cluster configuration")
+					return true, nil
+				}
+
+				if _, err = r.copyRunningConfigToCR(ctx); err != nil {
+					r.log.WithError(err).Error("failed to save cluster-config")
+					return false, nil
+				} else {
+					r.log.Info("successfully wrote cluster-config to API")
 				}
 			}
 			return true, nil
 		})
 		if err != nil {
-			return fmt.Errorf("not able to get or create the cluster config: %v", err)
+			return fmt.Errorf("not able to get or create the cluster config: %w", err)
 		}
 	}
 
@@ -220,15 +218,15 @@ func (r *ClusterConfigReconciler) reportStatus(ctx context.Context, config *v1be
 }
 
 func (r *ClusterConfigReconciler) copyRunningConfigToCR(baseCtx context.Context) (*v1beta1.ClusterConfig, error) {
+	clusterWideConfig := r.YamlConfig.GetClusterWideConfig().StripDefaults().CRValidator()
+
 	ctx, cancel := context.WithTimeout(baseCtx, 5*time.Second)
 	defer cancel()
-	clusterWideConfig := r.YamlConfig.GetClusterWideConfig().StripDefaults().CRValidator()
 	clusterConfig, err := r.configClient.Create(ctx, clusterWideConfig, cOpts)
 	if err != nil {
 		return nil, err
 	}
 
-	r.log.Info("successfully wrote cluster-config to API")
 	return clusterConfig, nil
 }
 

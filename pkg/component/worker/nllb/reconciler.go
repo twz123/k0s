@@ -19,13 +19,16 @@ package nllb
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"text/template"
@@ -51,38 +54,49 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-const loadBalancerDefaultPort = 7443
-
-// Reconciler reconciles a static Pod on a worker node that implements
+// NllbReconciler reconciles a static Pod on a worker node that implements
 // node-local load balancing.
-type Reconciler struct {
+type NllbReconciler struct {
 	log logrus.FieldLogger
 
-	envoyProxyImage v1beta1.ImageSpec
-	pullPolicy      corev1.PullPolicy
-	kubeconfigPaths kubeconfigPaths
+	envoyProxy            *v1beta1.EnvoyProxy
+	konnectivityAgentPort uint16
+	pullPolicy            corev1.PullPolicy
+	kubeconfigPaths       kubeconfigPaths
 
 	mu       sync.Mutex
 	statePtr atomic.Pointer[reconcilerState]
 }
 
-var _ component.Component = (*Reconciler)(nil)
-var _ component.Healthz = (*Reconciler)(nil)
+var _ component.Component = (*NllbReconciler)(nil)
+var _ component.Healthz = (*NllbReconciler)(nil)
 
 // NewReconciler creates a component that reconciles a static Pod that
 // implements node-local load balancing.
 func NewReconciler(
 	cfg *constant.CfgVars,
 	staticPods worker.StaticPods,
-	envoyProxyImage v1beta1.ImageSpec,
+	nllb *v1beta1.NodeLocalLoadBalancer,
+	konnectivityAgentPort uint16,
 	pullPolicy corev1.PullPolicy,
-) *Reconciler {
+) (*NllbReconciler, error) {
+
+	if nllb.Type != v1beta1.NllbTypeEnvoyProxy {
+		return nil, fmt.Errorf("unsupported node-local load balancing type: %q", nllb.Type)
+	}
+
+	envoyProxy := nllb.EnvoyProxy.DeepCopy()
+	if envoyProxy == nil || envoyProxy.Image == nil {
+		return nil, errors.New("configuration invalid: .envoyProxy.image unspecified")
+	}
+
 	dataDir := filepath.Join(cfg.DataDir, "nllb")
-	r := &Reconciler{
+	r := &NllbReconciler{
 		log: logrus.WithFields(logrus.Fields{"component": "node_local_load_balancer"}),
 
-		envoyProxyImage: envoyProxyImage,
-		pullPolicy:      pullPolicy,
+		envoyProxy:            envoyProxy,
+		konnectivityAgentPort: konnectivityAgentPort,
+		pullPolicy:            pullPolicy,
 		kubeconfigPaths: kubeconfigPaths{
 			regular: kubeconfigPath{
 				regular:      cfg.KubeletAuthConfigPath,
@@ -100,10 +114,10 @@ func NewReconciler(
 		dataDir,
 	})
 
-	return r
+	return r, nil
 }
 
-func (r *Reconciler) GetKubeletKubeconfig() worker.KubeletKubeconfig {
+func (r *NllbReconciler) GetKubeletKubeconfig() worker.KubeletKubeconfig {
 	return worker.KubeletKubeconfig{
 		Path:          r.kubeconfigPaths.regular.loadBalanced,
 		BootstrapPath: r.kubeconfigPaths.bootstrap.regular,
@@ -111,11 +125,11 @@ func (r *Reconciler) GetKubeletKubeconfig() worker.KubeletKubeconfig {
 }
 
 // NewClient returns a new Kubernetes client, backed by the node-local load balancer.
-func (r *Reconciler) NewClient() (kubernetes.Interface, error) {
+func (r *NllbReconciler) NewClient() (kubernetes.Interface, error) {
 	return kubeutil.NewClient(kubeutil.FirstExistingKubeconfig(r.kubeconfigPaths.loadBalancedPaths()...))
 }
 
-func (r *Reconciler) Init(context.Context) error {
+func (r *NllbReconciler) Init(context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -127,7 +141,7 @@ func (r *Reconciler) Init(context.Context) error {
 	}
 }
 
-func (r *Reconciler) Start(context.Context) error {
+func (r *NllbReconciler) Start(context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -141,7 +155,7 @@ func (r *Reconciler) Start(context.Context) error {
 	}
 }
 
-func (r *Reconciler) Stop() error {
+func (r *NllbReconciler) Stop() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -163,7 +177,7 @@ func (r *Reconciler) Stop() error {
 	}
 }
 
-func (r *Reconciler) Healthy() error {
+func (r *NllbReconciler) Healthy() error {
 	switch state := r.state().(type) {
 	default:
 		return fmt.Errorf("node_local_load_balancer component is not yet started (%s)", state)
@@ -186,12 +200,14 @@ type reconcilerConfig struct {
 
 type podState struct {
 	Shared struct {
-		LBAddr net.IP
-		LBPort uint16
+		LBAddr                    net.IP
+		APIServerBindPort         uint16
+		KonnectivityAgentBindPort uint16
 	}
 
 	LoadBalancer struct {
-		UpstreamServers []hostPort
+		KonnectivityServerPort uint16
+		UpstreamServers        []hostPort
 	}
 
 	pod struct {
@@ -215,11 +231,11 @@ func (s *podState) DeepCopyInto(out *podState) {
 	s.pod.image.DeepCopyInto(&out.pod.image)
 }
 
-func (r *Reconciler) state() reconcilerState {
+func (r *NllbReconciler) state() reconcilerState {
 	return *r.statePtr.Load()
 }
 
-func (r *Reconciler) store(state reconcilerState) {
+func (r *NllbReconciler) store(state reconcilerState) {
 	r.statePtr.Store(&state)
 }
 
@@ -240,7 +256,7 @@ func (*reconcilerInitialized) String() string {
 	return "initialized"
 }
 
-func (r *Reconciler) init(created *reconcilerCreated) error {
+func (r *NllbReconciler) init(created *reconcilerCreated) error {
 	loadBalancerPod, err := created.staticPods.ClaimStaticPod("kube-system", "nllb")
 	if err != nil {
 		return fmt.Errorf("failed to claim static pod for node-local load balancing: %w", err)
@@ -285,7 +301,7 @@ func (r *Reconciler) init(created *reconcilerCreated) error {
 	return nil
 }
 
-func (r *Reconciler) start(initialized *reconcilerInitialized) error {
+func (r *NllbReconciler) start(initialized *reconcilerInitialized) error {
 	loopbackIP, err := getLoopbackIP()
 	if err != nil {
 		r.log.WithError(err).Infof("Falling back to %s as bind address", loopbackIP)
@@ -300,6 +316,14 @@ func (r *Reconciler) start(initialized *reconcilerInitialized) error {
 		if err != nil {
 			r.log.WithError(err).Warn("Failed to load cached API server addresses")
 		}
+	}
+
+	if len(apiServers) < 1 {
+		apiServer, err := r.loadAPIServerAddressFromKubeconfig()
+		if err != nil {
+			return fmt.Errorf("failed to obtain initial API server address from kubeconfig: %w", err)
+		}
+		apiServers = []hostPort{*apiServer}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -325,8 +349,7 @@ func (r *Reconciler) start(initialized *reconcilerInitialized) error {
 	go func() {
 		defer close(fileReconcileDone)
 
-		// FIXME use configurable address somehow?
-		lbAddr := fmt.Sprintf("%s:%d", loopbackIP, loadBalancerDefaultPort)
+		lbAddr := fmt.Sprintf("%s:%d", loopbackIP, r.envoyProxy.APIServerBindPort)
 
 		wait.UntilWithContext(ctx, func(ctx context.Context) {
 			r.log.Info("Starting to reconcile kubeconfig files")
@@ -338,11 +361,14 @@ func (r *Reconciler) start(initialized *reconcilerInitialized) error {
 	}()
 
 	updates <- func(state *podState) {
-		// FIXME how to make this configurable?
 		state.Shared.LBAddr = loopbackIP
-		state.Shared.LBPort = loadBalancerDefaultPort
+		state.Shared.APIServerBindPort = uint16(r.envoyProxy.APIServerBindPort)
+		if r.envoyProxy.KonnectivityAgentBindPort != nil {
+			state.Shared.KonnectivityAgentBindPort = uint16(*r.envoyProxy.KonnectivityAgentBindPort)
+		}
 		state.LoadBalancer.UpstreamServers = apiServers
-		state.pod.image = r.envoyProxyImage
+		state.LoadBalancer.KonnectivityServerPort = r.konnectivityAgentPort
+		state.pod.image = *r.envoyProxy.Image
 		state.pod.pullPolicy = r.pullPolicy
 	}
 
@@ -376,6 +402,49 @@ func (r *Reconciler) start(initialized *reconcilerInitialized) error {
 	return nil
 }
 
+func (r *NllbReconciler) loadAPIServerAddressFromKubeconfig() (*hostPort, error) {
+	kubeconfig, err := kubeutil.FirstExistingKubeconfig(r.kubeconfigPaths.regularPaths()...)()
+	if err != nil {
+		return nil, err
+	}
+	if len(kubeconfig.CurrentContext) < 1 {
+		return nil, errors.New("current-context unspecified")
+	}
+	ctx, ok := kubeconfig.Contexts[kubeconfig.CurrentContext]
+	if !ok {
+		return nil, fmt.Errorf("current-context not found: %q", kubeconfig.CurrentContext)
+	}
+	cluster, ok := kubeconfig.Clusters[ctx.Cluster]
+	if !ok {
+		return nil, fmt.Errorf("cluster not found: %q", ctx.Cluster)
+	}
+	server, err := url.Parse(cluster.Server)
+	if err != nil {
+		return nil, fmt.Errorf("invalid server %q for cluster %q: %w", cluster.Server, ctx.Cluster, err)
+	}
+
+	var port uint16
+	rawPort := server.Port()
+	if rawPort == "" {
+		switch server.Scheme {
+		case "https":
+			port = 443
+		case "http":
+			port = 80
+		default:
+			return nil, fmt.Errorf("unsupported URL scheme %q for server %q for cluster %q", server.Scheme, cluster.Server, ctx.Cluster)
+		}
+	} else {
+		parsed, err := strconv.ParseUint(server.Port(), 10, 16)
+		if err != nil {
+			return nil, fmt.Errorf("invalid port %s for server %q for cluster %q: %w", rawPort, cluster.Server, ctx.Cluster, err)
+		}
+		port = uint16(parsed)
+	}
+
+	return &hostPort{server.Hostname(), port}, nil
+}
+
 type reconcilerStarted struct {
 	*reconcilerConfig
 	stop func()
@@ -389,7 +458,7 @@ func (*reconcilerStarted) String() string {
 // recent state changes.
 type podStateUpdateFunc func(*podState)
 
-func (r *Reconciler) reconcile(c *reconcilerConfig, updates <-chan podStateUpdateFunc) {
+func (r *NllbReconciler) reconcile(c *reconcilerConfig, updates <-chan podStateUpdateFunc) {
 	var desiredState, actualConfigState, actualPodState podState
 	var errors atomic.Bool
 
@@ -455,7 +524,7 @@ func (r *Reconciler) reconcile(c *reconcilerConfig, updates <-chan podStateUpdat
 	}
 }
 
-func (r *Reconciler) updateLoadBalancerConfig(c *reconcilerConfig, state *podState) error {
+func (r *NllbReconciler) updateLoadBalancerConfig(c *reconcilerConfig, state *podState) error {
 	return file.WriteAtomically(filepath.Join(c.envoyDir, "envoy.yaml"), 0444, func(file io.Writer) error {
 		bufferedWriter := bufio.NewWriter(file)
 		if err := envoyBootstrapConfig.Execute(bufferedWriter, state); err != nil {
@@ -470,11 +539,13 @@ func (r *Reconciler) updateLoadBalancerConfig(c *reconcilerConfig, state *podSta
 //     socket_address: { address: localhost, port_value: {{ .AdminPort }} }
 
 var envoyBootstrapConfig = template.Must(template.New("Bootstrap").Parse(`
+{{- $localKonnectivityPort := .Shared.KonnectivityAgentBindPort -}}
+{{- $remoteKonnectivityPort := .LoadBalancer.KonnectivityServerPort -}}
 static_resources:
   listeners:
   - name: apiserver
     address:
-      socket_address: { address: {{ .Shared.LBAddr }}, port_value: {{ .Shared.LBPort }} }
+      socket_address: { address: {{ .Shared.LBAddr }}, port_value: {{ .Shared.APIServerBindPort }} }
     filter_chains:
     - filters:
       - name: envoy.filters.network.tcp_proxy
@@ -482,6 +553,18 @@ static_resources:
           "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
           stat_prefix: apiserver
           cluster: apiserver
+  {{- if ne $localKonnectivityPort 0 }}
+  - name: konnectivity
+    address:
+      socket_address: { address: {{ .Shared.LBAddr }}, port_value: {{ $localKonnectivityPort }} }
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.tcp_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+          stat_prefix: konnectivity
+          cluster: konnectivity
+  {{- end }}
   clusters:
   - name: apiserver
     connect_timeout: 0.25s
@@ -505,9 +588,34 @@ static_resources:
       interval: 5s
       healthy_threshold: 3
       unhealthy_threshold: 5
-`))
+  {{- if ne $localKonnectivityPort 0 }}
+  - name: konnectivity
+    connect_timeout: 0.25s
+    type: STATIC
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: konnectivity
+      endpoints:
+      - lb_endpoints:
+        {{- range .LoadBalancer.UpstreamServers }}
+        - endpoint:
+            address:
+              socket_address:
+                address: {{ printf "%q" .Host }}
+                port_value: {{ $remoteKonnectivityPort }}
+        {{- else }} []{{ end }}
+    health_checks:
+    # FIXME: What would be a proper health check?
+    - tcp_health_check: {}
+      timeout: 1s
+      interval: 5s
+      healthy_threshold: 3
+      unhealthy_threshold: 5
+  {{- end }}
+`,
+))
 
-func (r *Reconciler) provision(c *reconcilerConfig, state *podState) error {
+func (r *NllbReconciler) provision(c *reconcilerConfig, state *podState) error {
 	manifest := corev1.Pod{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Pod"},
 		ObjectMeta: metav1.ObjectMeta{
@@ -546,7 +654,7 @@ func (r *Reconciler) provision(c *reconcilerConfig, state *podState) error {
 					TimeoutSeconds:   3,
 					ProbeHandler: corev1.ProbeHandler{
 						TCPSocket: &corev1.TCPSocketAction{
-							Host: state.Shared.LBAddr.String(), Port: intstr.FromInt(int(state.Shared.LBPort)),
+							Host: state.Shared.LBAddr.String(), Port: intstr.FromInt(int(state.Shared.APIServerBindPort)),
 						},
 					},
 				},
@@ -571,7 +679,7 @@ func (r *Reconciler) provision(c *reconcilerConfig, state *podState) error {
 	return nil
 }
 
-func (r *Reconciler) healthy(started *reconcilerStarted) error {
+func (r *NllbReconciler) healthy(started *reconcilerStarted) error {
 	// req, err := http.NewRequest(http.MethodGet, healthCheckURL, nil)
 	// if err != nil {
 	// 	return fmt.Errorf("node_local_load_balancer: health check failed: %w", err)
@@ -592,7 +700,7 @@ func (r *Reconciler) healthy(started *reconcilerStarted) error {
 	return nil
 }
 
-func (r *Reconciler) stop(c *reconcilerConfig) {
+func (r *NllbReconciler) stop(c *reconcilerConfig) {
 	defer r.store(&nllbStopped{})
 
 	c.loadBalancerPod.Drop()

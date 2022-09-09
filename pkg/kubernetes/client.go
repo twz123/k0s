@@ -17,6 +17,7 @@ limitations under the License.
 package kubernetes
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -192,42 +193,53 @@ func (c *ClientFactory) GetRESTConfig() *rest.Config {
 // an error either if no kubeconfig was found or the loading of the first
 // existing kubeconfig failed.
 func FirstExistingKubeconfig(paths ...string) clientcmd.KubeconfigGetter {
-	return func() (*clientcmdapi.Config, error) {
-		var errs error
-		for _, path := range paths {
-			kubeconfig, err := (&clientcmd.ClientConfigLoadingRules{ExplicitPath: path}).Load()
-			if err == nil {
-				return kubeconfig, nil
+	switch len(paths) {
+	case 0:
+		return func() (*clientcmdapi.Config, error) { return nil, errors.New("no kubeconfig to load") }
+	case 1:
+		return (&clientcmd.ClientConfigLoadingRules{ExplicitPath: paths[0]}).Load
+	default:
+		return func() (*clientcmdapi.Config, error) {
+			var errs error
+			for _, path := range paths {
+				kubeconfig, err := (&clientcmd.ClientConfigLoadingRules{ExplicitPath: path}).Load()
+				if err == nil {
+					return kubeconfig, nil
+				}
+
+				errs = multierr.Append(err, errs)
+				if !os.IsNotExist(err) {
+					return nil, fmt.Errorf("failed to load %q: %w", path, errs)
+				}
 			}
 
-			errs = multierr.Append(err, errs)
-			if !os.IsNotExist(err) {
-				return nil, fmt.Errorf("failed to load %q: %w", path, errs)
-			}
+			return nil, errs
 		}
-
-		return nil, errs
 	}
 }
 
 // NewClientFromFile creates a new Kubernetes client based of the given
 // kubeconfig file.
 func NewClientFromFile(kubeconfig string) (kubernetes.Interface, error) {
-	return NewClient((&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfig}).Load)
+	return NewClient(FirstExistingKubeconfig(kubeconfig))
 }
 
-// NewClient creates new k8s client based of the given kubeconfig getter.
-// This should be only used in cases where the client is "short-running" and shouldn't/cannot use the common "cached" one.
-func NewClient(getter clientcmd.KubeconfigGetter) (kubernetes.Interface, error) {
+func ClientConfig(getter clientcmd.KubeconfigGetter) (*rest.Config, error) {
 	kubeconfig, err := getter()
 	if err != nil {
 		return nil, err
 	}
 
-	clientConfig, err := clientcmd.NewNonInteractiveClientConfig(*kubeconfig, "", nil, nil).ClientConfig()
+	return clientcmd.NewNonInteractiveClientConfig(*kubeconfig, "", nil, nil).ClientConfig()
+}
+
+// NewClient creates new k8s client based of the given kubeconfig getter.
+// This should be only used in cases where the client is "short-running" and shouldn't/cannot use the common "cached" one.
+func NewClient(getter clientcmd.KubeconfigGetter) (kubernetes.Interface, error) {
+	config, err := ClientConfig(getter)
 	if err != nil {
 		return nil, err
 	}
 
-	return kubernetes.NewForConfig(clientConfig)
+	return kubernetes.NewForConfig(config)
 }

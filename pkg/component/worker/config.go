@@ -35,6 +35,7 @@ type WorkerConfig interface {
 	KubeletConfiguration() (kubeletv1beta1.KubeletConfiguration, error)
 	NodeLocalLoadBalancer() (*v1beta1.NodeLocalLoadBalancer, error)
 	DefaultImagePullPolicy() (corev1.PullPolicy, error)
+	KonnectivityAgentPort() (uint16, error)
 }
 
 func LoadWorkerConfig(ctx context.Context, client kubernetes.Interface, profile string) (WorkerConfig, error) {
@@ -44,70 +45,65 @@ func LoadWorkerConfig(ctx context.Context, client kubernetes.Interface, profile 
 		return nil, err
 	}
 
-	keyData := func(key string) (string, error) {
-		data, ok := cm.Data[key]
-		if !ok {
-			return "", fmt.Errorf("no key named %q in ConfigMap %s/%s", key, cm.Namespace, cm.Name)
-		}
-		return data, nil
+	return &workerConfigMap{profile, cm.Data}, nil
+}
+
+type workerConfigMap struct {
+	profile string
+	data    map[string]string
+
+	// FIXME: Implement validation
+}
+
+func (m *workerConfigMap) KubeletConfiguration() (kubeletv1beta1.KubeletConfiguration, error) {
+	return unmarshal[kubeletv1beta1.KubeletConfiguration](m, "kubeletConfiguration")
+}
+
+func (m *workerConfigMap) NodeLocalLoadBalancer() (*v1beta1.NodeLocalLoadBalancer, error) {
+	return unmarshalOpt[v1beta1.NodeLocalLoadBalancer](m, "nodeLocalLoadBalancer")
+}
+
+func (m *workerConfigMap) KonnectivityAgentPort() (uint16, error) {
+	port, err := unmarshalOpt[uint16](m, "konnectivityAgentPort")
+	if err != nil {
+		return 0, err
+	}
+	if port != nil {
+		return *port, nil
 	}
 
-	optKeyData := func(key string) string {
-		data, ok := cm.Data[key]
-		if !ok {
-			return ""
-		}
-		return data
+	return 0, nil
+}
+
+func (m *workerConfigMap) DefaultImagePullPolicy() (corev1.PullPolicy, error) {
+	return unmarshal[corev1.PullPolicy](m, "defaultImagePullPolicy")
+}
+
+func unmarshal[T any](m *workerConfigMap, key string) (t T, err error) {
+	data, ok := m.data[key]
+	if !ok {
+		return t, fmt.Errorf("no such key in profile %q: %q", m.profile, key)
 	}
 
-	return &workerConfigFuncs{
-		kubeletConfiguration:   unmarshal[kubeletv1beta1.KubeletConfiguration]("kubeletConfiguration", keyData),
-		nodeLocalLoadBalancer:  unmarshalPtr[v1beta1.NodeLocalLoadBalancer]("nodeLocalLoadBalancer", optKeyData),
-		defaultImagePullPolicy: unmarshal[corev1.PullPolicy]("defaultImagePullPolicy", keyData),
-	}, nil
-}
-
-type workerConfigFuncs struct {
-	kubeletConfiguration   func() (kubeletv1beta1.KubeletConfiguration, error)
-	nodeLocalLoadBalancer  func() (*v1beta1.NodeLocalLoadBalancer, error)
-	defaultImagePullPolicy func() (corev1.PullPolicy, error)
-}
-
-func (f *workerConfigFuncs) KubeletConfiguration() (kubeletv1beta1.KubeletConfiguration, error) {
-	return f.kubeletConfiguration()
-}
-
-func (f *workerConfigFuncs) NodeLocalLoadBalancer() (*v1beta1.NodeLocalLoadBalancer, error) {
-	return f.nodeLocalLoadBalancer()
-}
-
-func (f *workerConfigFuncs) DefaultImagePullPolicy() (corev1.PullPolicy, error) {
-	return f.defaultImagePullPolicy()
-}
-
-func unmarshal[T any](key string, getData func(string) (string, error)) func() (T, error) {
-	return func() (t T, err error) {
-		data, err := getData(key)
-		if err != nil {
-			return t, err
-		}
-		err = yaml.Unmarshal([]byte(data), &t)
-		return
+	err = yaml.Unmarshal([]byte(data), &t)
+	if err != nil {
+		err = fmt.Errorf("failed to parse data for key %q in worker profile %q: %w", key, m.profile, err)
 	}
+
+	return
 }
 
-func unmarshalPtr[T any](key string, getData func(string) string) func() (*T, error) {
-	return func() (*T, error) {
-		data := getData(key)
-		if data != "" {
-			return nil, nil
-		}
-
-		var t T
-		if err := yaml.Unmarshal([]byte(data), &t); err != nil {
-			return nil, err
-		}
-
-		return &t, nil
+func unmarshalOpt[T any](m *workerConfigMap, key string) (*T, error) {
+	data, ok := m.data[key]
+	if !ok {
+		return nil, nil
 	}
+
+	t := new(T)
+	err := yaml.Unmarshal([]byte(data), t)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse data for key %q in worker profile %q: %w", key, m.profile, err)
+	}
+
+	return t, nil
 }

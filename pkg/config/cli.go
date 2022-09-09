@@ -17,6 +17,7 @@ limitations under the License.
 package config
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -231,14 +232,30 @@ func GetCmdOpts() CLIOptions {
 		WorkerOptions:     workerOpts,
 
 		CfgFile:          CfgFile,
-		ClusterConfig:    getClusterConfig(K0sVars),
-		NodeConfig:       getNodeConfig(K0sVars),
 		Debug:            Debug,
 		Verbose:          Verbose,
 		DefaultLogLevels: DefaultLogLevels(),
 		K0sVars:          K0sVars,
 		DebugListenOn:    DebugListenOn,
 	}
+
+	loadingRules := ClientConfigLoadingRules{K0sVars: K0sVars}
+	cfg, err := loadingRules.Load(context.TODO())
+	if err != nil {
+		logrus.WithError(err).Info("Failed to load cluster config, falling back to node config.")
+		loadingRules.Nodeconfig = true
+		cfg, err = loadingRules.Load(context.TODO())
+		if err != nil {
+			logrus.WithError(err).Info("Failed to load node config.")
+			cfg = nil
+		}
+	}
+
+	if cfg != nil {
+		opts.ClusterConfig = cfg.GetClusterWideConfig()
+		opts.NodeConfig = cfg.GetNodeConfig()
+	}
+
 	return opts
 }
 
@@ -280,21 +297,4 @@ func PreRunValidateConfig(k0sVars constant.CfgVars) error {
 		return fmt.Errorf("failed to get config: %v", err)
 	}
 	return nil
-}
-func getNodeConfig(k0sVars constant.CfgVars) *v1beta1.ClusterConfig {
-	loadingRules := ClientConfigLoadingRules{Nodeconfig: true, K0sVars: k0sVars}
-	cfg, err := loadingRules.Load()
-	if err != nil {
-		return nil
-	}
-	return cfg
-}
-
-func getClusterConfig(k0sVars constant.CfgVars) *v1beta1.ClusterConfig {
-	loadingRules := ClientConfigLoadingRules{K0sVars: k0sVars}
-	cfg, err := loadingRules.Load()
-	if err != nil {
-		return nil
-	}
-	return cfg
 }

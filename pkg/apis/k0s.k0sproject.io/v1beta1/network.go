@@ -21,11 +21,10 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/asaskevich/govalidator"
+	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	utilnet "k8s.io/utils/net"
 )
-
-var _ Validateable = (*Network)(nil)
 
 // Network defines the network related config options
 type Network struct {
@@ -42,8 +41,11 @@ type Network struct {
 
 	// Pod network CIDR to use in the cluster
 	PodCIDR string `json:"podCIDR"`
+
 	// Network provider (valid values: calico, kuberouter, or custom)
+	// +kubebuilder:validation:Enum=calico;kuberouter;custom
 	Provider string `json:"provider"`
+
 	// Network CIDR to use for cluster VIP services
 	ServiceCIDR string `json:"serviceCIDR,omitempty"`
 	// Cluster Domain
@@ -68,7 +70,7 @@ func DefaultNetwork(clusterImages *ClusterImages) *Network {
 func (n *Network) Validate() []error {
 	var errors []error
 	if n.Provider != "calico" && n.Provider != "custom" && n.Provider != "kuberouter" {
-		errors = append(errors, fmt.Errorf("unsupported network provider: %s", n.Provider))
+		errors = append(errors, fmt.Errorf("unsupported provider: %s", n.Provider))
 	}
 
 	_, _, err := net.ParseCIDR(n.PodCIDR)
@@ -81,8 +83,8 @@ func (n *Network) Validate() []error {
 		errors = append(errors, fmt.Errorf("invalid service CIDR %s", n.ServiceCIDR))
 	}
 
-	if !govalidator.IsDNSName(n.ClusterDomain) {
-		errors = append(errors, fmt.Errorf("invalid clusterDomain %s", n.ClusterDomain))
+	for _, detail := range validation.IsDNS1123Subdomain(n.ClusterDomain) {
+		errors = append(errors, field.Invalid(field.NewPath("clusterDomain"), n.ClusterDomain, detail))
 	}
 
 	if n.DualStack.Enabled {
@@ -98,7 +100,19 @@ func (n *Network) Validate() []error {
 			errors = append(errors, fmt.Errorf("invalid service IPv6 CIDR %s", n.DualStack.IPv6ServiceCIDR))
 		}
 	}
-	errors = append(errors, n.KubeProxy.Validate()...)
+
+	path := field.NewPath("spec").Child("network")
+	for name, v := range map[string]interface {
+		Validate(*field.Path) field.ErrorList
+	}{
+		"kubeProxy":             n.KubeProxy,
+		"nodeLocalLoadBalancer": n.NodeLocalLoadBalancer,
+	} {
+		for _, err := range v.Validate(path.Child(name)) {
+			errors = append(errors, err)
+		}
+	}
+
 	return errors
 }
 

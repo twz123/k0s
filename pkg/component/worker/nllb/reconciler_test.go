@@ -30,7 +30,6 @@ import (
 	"github.com/k0sproject/k0s/pkg/constant"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -40,54 +39,22 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-const foo = `
-apiVersion: v1
-clusters:
-- cluster:
-    certificate-authority-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURBRENDQWVpZ0F3SUJBZ0lVSjZiUG5GQVROd2xRaGp4THJ6R2FiSElaRHFNd0RRWUpLb1pJaHZjTkFRRUwKQlFBd0dERVdNQlFHQTFVRUF4TU5hM1ZpWlhKdVpYUmxjeTFqWVRBZUZ3MHlNakE0TXpFd05qTTBNREJhRncwegpNakE0TWpnd05qTTBNREJhTUJneEZqQVVCZ05WQkFNVERXdDFZbVZ5Ym1WMFpYTXRZMkV3Z2dFaU1BMEdDU3FHClNJYjNEUUVCQVFVQUE0SUJEd0F3Z2dFS0FvSUJBUUNqZGdNcENaQjRzalAxNlNIYk5RUGxKY3JnYk9tcmNvRzAKcTVTQ1J3aDQ0a3c1dStrKzREUUg2S2FRcVlTTnUxdmtNTTRjQlNPRWJKVTFWSWczZlRqRnFGL3ZkYUwwSkpXWAplazc3bzlld01pZzl2VGpOelN0aXd1U3BEckR2Zld5RGVrc3hSaGIvSmxiMTV2clRZbFlmUkJVaXVUTE9LL3NJCkZFWTlVTzZXU2duR2dhR3dGRjIyRnFVMFc0MWozVi93Rjd5SWhJSnF3dlo3THE4NnAzdzNSTmZ5RzhZODI1REQKZlNrTThYNDV2QXREb25haDI0Y1VkUWdkSWJGNE9LSDU4bHJMUE92R1VwMDh4d3B0OXJQUmJiVG00d010TkVSawptb1dDbklBR2I0alREQjhaVElJenhjZTFsS0wwUmV2UU40SlJ1WkI3RWJzNjRBZnFlMFdqQWdNQkFBR2pRakJBCk1BNEdBMVVkRHdFQi93UUVBd0lCQmpBUEJnTlZIUk1CQWY4RUJUQURBUUgvTUIwR0ExVWREZ1FXQkJUa0hUZS8KM0FRNEk2MXNlMmRKUWZ3NHJDdHEwREFOQmdrcWhraUc5dzBCQVFzRkFBT0NBUUVBTXVsMTJjRVp6U1c5L2RsKwpEWkxETi8zcURuMFE1T1EyaHBPNXIrUFFCaThIeWdzb3ducFhlWlNOZ3YxS0ZzVjl6MjNybzBsSVY2Q3k5U0s5CkRQU0huTWlEMVpSemgwbE5yMjB0RE1jeTR3Z2V5TmFjUFdJcnNVL25ZWlkyK0xKMTZpOE9pQTNMV0xPaGlvUkwKd2xKOWltMldpVW0vNFdVRG5VZnNZQmdxQ0htMjNadlRSb3NnVWNxaWdJR2g5SEVLZnNhcHBTU2R1SzBNMjhHZApqY2lmaEVmQnQyV1pSNGlZd2M1YStHNEZEc2NGUW9SRkc1SGFab2EvbzVLZklLMXZVa0xnbVVDTFhUd2E5UnhkCkp4T2QvRmJWTVA2cVJNa09vYlFLbmpNNklScGd6NHA5bWdWaTFFOHE3dFV0L1VGVkpwZTJVWkdJRmo4dWpkeE0KbnpxSDhRPT0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
-    server: https://10.70.123.30:6443
-  name: default-cluster
-contexts:
-- context:
-    cluster: default-cluster
-    namespace: default
-    user: default-auth
-  name: default-context
-current-context: default-context
-kind: Config
-preferences: {}
-users:
-- name: default-auth
-#  user:
-#    client-certificate: /var/lib/k0s/kubelet/pki/kubelet-client-current.pem
-#    client-key: /var/lib/k0s/kubelet/pki/kubelet-client-current.pem
-`
-
-func TestFoo(t *testing.T) {
-
-	f := filepath.Join(t.TempDir(), "kubeconfig")
-	require.NoError(t, os.WriteFile(f, []byte(foo), 0400))
-
-	var x *clientcmd.ConfigOverrides
-	// x := &clientcmd.ConfigOverrides{ClusterInfo: clientcmdapi.Cluster{Server: ""}}
-	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		&clientcmd.ClientConfigLoadingRules{ExplicitPath: f}, x).ClientConfig()
-	require.NoError(t, err)
-
-	t.Log(cfg.Host)
-	t.Log(cfg.APIPath)
-
-	t.Fail()
-}
-
 func TestPodReconciler_ConfigMgmt(t *testing.T) {
-	newTestInstance := func(dataDir string) *Reconciler {
+	newTestInstance := func(dataDir string) *NllbReconciler {
 		staticPod := new(staticPodMock)
 		staticPod.On("Drop").Return()
 
 		staticPods := new(staticPodsMock)
 		staticPods.On("ClaimStaticPod", mock.Anything, mock.Anything).Return(staticPod, nil)
-		return NewReconciler(&constant.CfgVars{DataDir: dataDir}, staticPods, v1beta1.ImageSpec{}, corev1.PullNever)
+		reconciler, err := NewReconciler(
+			&constant.CfgVars{DataDir: dataDir},
+			staticPods,
+			&v1beta1.NodeLocalLoadBalancer{},
+			1337,
+			corev1.PullNever,
+		)
+		require.NoError(t, err)
+		return reconciler
 	}
 
 	t.Run("configDir", func(t *testing.T) {
@@ -164,7 +131,14 @@ func TestPodReconciler_Lifecycle(t *testing.T) {
 	staticPods := new(staticPodsMock)
 	staticPods.On("ClaimStaticPod", mock.Anything, mock.Anything).Return(staticPod, nil)
 
-	underTest := NewReconciler(&constant.CfgVars{DataDir: t.TempDir()}, staticPods, v1beta1.ImageSpec{}, corev1.PullNever)
+	underTest, err := NewReconciler(
+		&constant.CfgVars{DataDir: t.TempDir()},
+		staticPods,
+		&v1beta1.NodeLocalLoadBalancer{},
+		1337,
+		corev1.PullNever,
+	)
+	require.NoError(t, err)
 	underTest.log = log
 
 	t.Run("fails_to_run_without_init", func(t *testing.T) {

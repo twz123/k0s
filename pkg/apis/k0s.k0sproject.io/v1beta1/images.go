@@ -19,15 +19,40 @@ package v1beta1
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/k0sproject/k0s/pkg/constant"
+
+	"k8s.io/apimachinery/pkg/util/validation/field"
+
+	"github.com/containerd/containerd/reference/docker"
 )
 
 // ImageSpec container image settings
 type ImageSpec struct {
 	Image   string `json:"image"`
 	Version string `json:"version"`
+}
+
+func (s *ImageSpec) Validate(path *field.Path) (errs field.ErrorList) {
+	if s == nil {
+		return
+	}
+
+	imageLen := len(s.Image)
+	if imageLen == 0 {
+		errs = append(errs, field.Required(path.Child("image"), ""))
+	} else if imageLen != len(strings.TrimSpace(s.Image)) {
+		errs = append(errs, field.Invalid(path.Child("image"), s.Image, "must not have leading or trailing whitespace"))
+	}
+
+	versionRe := regexp.MustCompile(`^` + docker.TagRegexp.String() + `$`)
+	if !versionRe.MatchString(s.Version) {
+		errs = append(errs, field.Invalid(path.Child("version"), s.Version, "must match regular expression: "+versionRe.String()))
+	}
+
+	return
 }
 
 // URI build image uri

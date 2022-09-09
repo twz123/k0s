@@ -129,7 +129,7 @@ spec:
 	assert.NoError(t, err)
 	errors := c.Validate()
 	assert.Equal(t, 1, len(errors))
-	assert.Equal(t, "unsupported network provider: invalidProvider", errors[0].Error())
+	assert.Equal(t, "network: unsupported provider: invalidProvider", errors[0].Error())
 }
 
 func TestApiExternalAddress(t *testing.T) {

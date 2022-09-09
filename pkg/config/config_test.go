@@ -41,7 +41,7 @@ apiVersion: k0s.k0sproject.io/v1beta1
 kind: ClusterConfig
 spec:
   api:
-    externalAddress: file_external_address
+    externalAddress: file-external-address.example.com
   network:
     serviceCIDR: 12.12.12.12/12
     podCIDR: 13.13.13.13/13
@@ -71,7 +71,7 @@ func TestGetConfigFromFile(t *testing.T) {
 		t.Fatalf("failed to initialize k0s config: %s", err.Error())
 	}
 
-	cfg, err := loadingRules.Load()
+	cfg, err := loadingRules.Load(context.TODO())
 	if err != nil {
 		t.Fatalf("failed to load config: %s", err.Error())
 	}
@@ -83,7 +83,7 @@ func TestGetConfigFromFile(t *testing.T) {
 		got      string
 		expected string
 	}{
-		{"API_external_address", cfg.Spec.API.ExternalAddress, "file_external_address"},
+		{"API_external_address", cfg.Spec.API.ExternalAddress, "file-external-address.example.com"},
 		{"Network_ServiceCIDR", cfg.Spec.Network.ServiceCIDR, "12.12.12.12/12"},
 		{"Network_KubeProxy_Mode", cfg.Spec.Network.KubeProxy.Mode, "ipvs"},
 	}
@@ -118,7 +118,7 @@ spec:
 		t.Fatalf("failed to initialize k0s config: %s", err.Error())
 	}
 
-	cfg, err := loadingRules.Load()
+	cfg, err := loadingRules.Load(context.TODO())
 	if err != nil {
 		t.Fatalf("failed to load config: %s", err.Error())
 	}
@@ -154,7 +154,7 @@ func TestConfigFromDefaults(t *testing.T) {
 		t.Fatalf("failed to initialize k0s config: %s", err.Error())
 	}
 
-	cfg, err := loadingRules.Load()
+	cfg, err := loadingRules.Load(context.TODO())
 	if err != nil {
 		t.Fatalf("failed to load config: %s", err.Error())
 	}
@@ -190,7 +190,7 @@ func TestNodeConfigWithAPIConfig(t *testing.T) {
 
 	loadingRules := ClientConfigLoadingRules{
 		RuntimeConfigPath: nonExistentPath(t),
-		Nodeconfig:        true,
+		Nodeconfig:        true, // FIXME: should this return node-config only? Or cached config?
 	}
 
 	err := loadingRules.InitRuntimeConfig(constant.GetConfig(t.TempDir()))
@@ -198,16 +198,17 @@ func TestNodeConfigWithAPIConfig(t *testing.T) {
 		t.Fatalf("failed to initialize k0s config: %s", err.Error())
 	}
 
-	cfg, err := loadingRules.Load()
+	cfg, err := loadingRules.Load(context.TODO())
 	if err != nil {
 		t.Fatalf("failed to fetch Node Config: %s", err.Error())
 	}
+	cfg = cfg.GetNodeConfig() // FIXME: What should Nodeconfig = true return?
 	testCases := []struct {
 		name     string
 		got      string
 		expected string
 	}{
-		{"API_external_address", cfg.Spec.API.ExternalAddress, "file_external_address"},
+		{"API_external_address", cfg.Spec.API.ExternalAddress, "file-external-address.example.com"},
 		// PodCIDR is a cluster-wide setting. It shouldn't exist in Node config
 		{"Network_PodCIDR", cfg.Spec.Network.PodCIDR, ""},
 		{"Network_ServiceCIDR", cfg.Spec.Network.ServiceCIDR, "12.12.12.12/12"},
@@ -244,7 +245,7 @@ spec:
 		t.Fatalf("failed to initialize k0s config: %s", err.Error())
 	}
 
-	cfg, err := loadingRules.Load()
+	cfg, err := loadingRules.Load(context.TODO())
 	if err != nil {
 		t.Fatalf("failed to load config: %s", err.Error())
 	}
@@ -279,7 +280,7 @@ spec:
 		t.Fatalf("failed to initialize k0s config: %s", err.Error())
 	}
 
-	cfg, err := loadingRules.Load()
+	cfg, err := loadingRules.Load(context.TODO())
 	if err != nil {
 		t.Fatalf("failed to load config: %s", err.Error())
 	}
@@ -321,7 +322,7 @@ func TestAPIConfig(t *testing.T) {
 		t.Fatalf("failed to initialize k0s config: %s", err.Error())
 	}
 
-	cfg, err := loadingRules.Load()
+	cfg, err := loadingRules.Load(context.TODO())
 	if err != nil {
 		t.Fatalf("failed to fetch Node Config: %s", err.Error())
 	}
@@ -331,7 +332,7 @@ func TestAPIConfig(t *testing.T) {
 		got      string
 		expected string
 	}{
-		{"API_external_address", cfg.Spec.API.ExternalAddress, "file_external_address"},
+		{"API_external_address", cfg.Spec.API.ExternalAddress, "file-external-address.example.com"},
 		{"Network_PodCIDR", cfg.Spec.Network.PodCIDR, "10.244.0.0/16"},
 		{"Network_ServiceCIDR", cfg.Spec.Network.ServiceCIDR, "12.12.12.12/12"},
 		{"Network_KubeProxy_Mode", cfg.Spec.Network.KubeProxy.Mode, "iptables"},

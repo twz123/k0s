@@ -66,8 +66,9 @@ type mtex = sync.Mutex
 type Reconciler struct {
 	log logrus.FieldLogger
 
-	clientFactory kubeutil.ClientFactoryInterface
-	cleaner       cleaner
+	clientFactory       kubeutil.ClientFactoryInterface
+	konnectivityEnabled bool
+	cleaner             cleaner
 
 	mu    mtex
 	state atomic.Pointer[any]
@@ -129,13 +130,14 @@ func info() string {
 type reconcilerStopped struct{}
 
 // NewReconciler creates a new reconciler for worker configurations.
-func NewReconciler(k0sVars constant.CfgVars, clientFactory kubeutil.ClientFactoryInterface) *Reconciler {
+func NewReconciler(k0sVars constant.CfgVars, clientFactory kubeutil.ClientFactoryInterface, konnectivityEnabled bool) *Reconciler {
 	log := logrus.WithFields(logrus.Fields{"component": "workerconfig.Reconciler"})
 
 	reconciler := &Reconciler{
 		log: log,
 
-		clientFactory: clientFactory,
+		clientFactory:       clientFactory,
+		konnectivityEnabled: konnectivityEnabled,
 		cleaner: &kubeletConfigCleaner{
 			log: log,
 
@@ -342,7 +344,7 @@ func (r *Reconciler) watchAPIServers(ctx context.Context, state *reconcilerStart
 }
 
 func (r *Reconciler) updateConfigSnapshot(ctx context.Context, state *reconcilerStarted, spec *v1beta1.ClusterSpec) error {
-	configSnapshot, err := makeConfigSnapshot(r.log, spec)
+	configSnapshot, err := makeConfigSnapshot(r.log, spec, r.konnectivityEnabled)
 	if err != nil {
 		return fmt.Errorf("failed to snapshot the cluster configuration: %w", err)
 	}
@@ -611,6 +613,7 @@ func (b *configBuilder) build() *workerConfig {
 			EventRecordQPS:     pointer.Int32(0),
 		},
 		nodeLocalLoadBalancer:  b.nodeLocalLoadBalancer.DeepCopy(),
+		konnectivityAgentPort:  b.konnectivityAgentPort,
 		defaultImagePullPolicy: b.defaultImagePullPolicy,
 	}
 

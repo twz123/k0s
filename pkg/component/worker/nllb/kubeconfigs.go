@@ -126,6 +126,10 @@ func (s *kubeconfigStats) String() string {
 	return fmt.Sprintf("(regular: %s; bootstrap: %s)", s.regular, s.bootstrap)
 }
 
+func (p *kubeconfigPaths) regularPaths() []string {
+	return []string{p.regular.regular, p.bootstrap.regular}
+}
+
 func (p *kubeconfigPaths) loadBalancedPaths() []string {
 	return []string{p.regular.loadBalanced, p.bootstrap.loadBalanced}
 }

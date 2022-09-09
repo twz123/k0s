@@ -130,7 +130,7 @@ spec:
 | `extraArgs`       | Map of key-values (strings) for any extra arguments to pass down to Kubernetes api-server process.                                                                                                                          |
 | `port`¹           | Custom port for kube-api server to listen on (default: 6443)                                                                                                                                                                |
 | `k0sApiPort`¹     | Custom port for k0s-api server to listen on (default: 9443)                                                                                                                                                                 |
-| `tunneledNetworkingMode`     | Whether to tunnel Kubernetes access from worker nodes via local port forwarding. (default: `false`)                                                                                                                                                                 |
+| `tunneledNetworkingMode`     | Whether to tunnel Kubernetes access from worker nodes via local port forwarding. (default: `false`)                                                                                                              |
 
 ¹ If `port` and `k0sApiPort` are used with the `externalAddress` element, the loadbalancer serving at `externalAddress` must listen on the same ports.
 
@@ -149,7 +149,7 @@ spec:
 | `provider`    | Network provider (valid values: `calico`, `kuberouter`, or `custom`). For `custom`, you can push any network provider (default: `kuberouter`). Be aware that it is your responsibility to configure all of the CNI-related setups, including the CNI provider itself and all necessary host levels setups (for example, CNI binaries). **Note:** Once you initialize the cluster with a network provider the only way to change providers is through a full cluster redeployment. |
 | `podCIDR`     | Pod network CIDR to use in the cluster.                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `serviceCIDR` | Network CIDR to use for cluster VIP services.                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `clusterDomain` | Cluster Domain to be passed to the [kubelet](https://kubernetes.io/docs/reference/config-api/kubelet-config.v1beta1/#kubelet-config-k8s-io-v1beta1-KubeletConfiguration) and the coredns configuration.                                                                                                                                                                                                                                                                        |
+| `clusterDomain` | Cluster Domain to be passed to the [kubelet](https://kubernetes.io/docs/reference/config-api/kubelet-config.v1beta1/#kubelet-config-k8s-io-v1beta1-KubeletConfiguration) and the coredns configuration.                                                                                                                                                                                                                                                                         |
 
 #### `spec.network.calico`
 
@@ -167,21 +167,21 @@ spec:
 #### `spec.network.kuberouter`
 
 | Element          | Description                                                                                                                                        |
-| ---------------- |----------------------------------------------------------------------------------------------------------------------------------------------------|
-| `autoMTU`        | Autodetection of used MTU (default: `true`).                                                                                                       |
-| `mtu`            | Override MTU setting, if `autoMTU` must be set to `false`).                                                                                        |
-| `metricsPort`    | Kube-router metrics server port. Set to 0 to disable metrics  (default: `8080`).                                                                   |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `autoMTU`        | Autodetection of used MTU. Default: `true`.                                                                                                        |
+| `mtu`            | Override MTU setting. If `autoMTU` is `true` this must be set to `false`.                                                                          |
+| `metricsPort`    | Kube-router metrics server port. Set to 0 to disable metrics. Default: `8080`.                                                                     |
 | `peerRouterIPs`  | Comma-separated list of [global peer addresses](https://github.com/cloudnativelabs/kube-router/blob/master/docs/bgp.md#global-external-bgp-peers). |
 | `peerRouterASNs` | Comma-separated list of [global peer ASNs](https://github.com/cloudnativelabs/kube-router/blob/master/docs/bgp.md#global-external-bgp-peers).      |
-| `hairpinMode`    | Activate hairpinMode (default: `false`) (https://github.com/cloudnativelabs/kube-router/blob/master/docs/user-guide.md#hairpin-mode)               |
+| `hairpinMode`    | Activate [Hairpin Mode](https://github.com/cloudnativelabs/kube-router/blob/master/docs/user-guide.md#hairpin-mode). Default: `false`              |
 
 **Note**: Kube-router allows many networking aspects to be configured per node, service, and pod (for more information, refer to the [Kube-router user guide](https://github.com/cloudnativelabs/kube-router/blob/master/docs/user-guide.md)).
 
 #### `spec.network.kubeProxy`
 
-| Element          | Description                                                                                                                                        |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `disabled`       | Disable kube-proxy altogether (default: `false`).                                                                                                       |
+| Element          | Description                                                                                      |
+| ---------------- | ------------------------------------------------------------------------------------------------ |
+| `disabled`       | Disable kube-proxy altogether (default: `false`).                                                |
 | `mode`           | Kube proxy operating mode, supported modes `iptables`, `ipvs`, `userspace` (default: `iptables`) |
 
 ### `spec.controllerManager`

@@ -19,13 +19,13 @@ package v1beta1
 import (
 	"fmt"
 	"net"
+	"strings"
 
-	"github.com/asaskevich/govalidator"
 	"github.com/k0sproject/k0s/internal/pkg/iface"
 	"github.com/k0sproject/k0s/internal/pkg/stringslice"
+	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 )
-
-var _ Validateable = (*APISpec)(nil)
 
 // APISpec defines the settings for the K0s API
 type APISpec struct {
@@ -114,18 +114,30 @@ func (a *APISpec) Sans() []string {
 func (a *APISpec) Validate() []error {
 	var errors []error
 
-	for _, a := range a.Sans() {
-		if govalidator.IsIP(a) {
-			continue
-		}
-		if govalidator.IsDNSName(a) {
-			continue
-		}
-		errors = append(errors, fmt.Errorf("%s is not a valid address for sans", a))
+	if net.ParseIP(a.Address) == nil {
+		errors = append(errors, field.Invalid(field.NewPath("address"), a.Address, "not an IP address"))
 	}
 
-	if !govalidator.IsIP(a.Address) {
-		errors = append(errors, fmt.Errorf("spec.api.address: %q is not IP address", a.Address))
+	validateIPAddressOrDNSName := func(path *field.Path, san string) {
+		if net.ParseIP(san) != nil {
+			return
+		}
+
+		details := validation.IsDNS1123Subdomain(san)
+		if details == nil {
+			return
+		}
+
+		errors = append(errors, field.Invalid(path, san, "neither an IP address nor a DNS name: "+strings.Join(details, "; ")))
+	}
+
+	sansPath := field.NewPath("sans")
+	for idx, san := range a.SANs {
+		validateIPAddressOrDNSName(sansPath.Index(idx), san)
+	}
+
+	if a.ExternalAddress != "" {
+		validateIPAddressOrDNSName(field.NewPath("externalAddress"), a.ExternalAddress)
 	}
 
 	return errors

@@ -235,8 +235,9 @@ func (s *NetworkSuite) TestValidation() {
 
 		errors := n.Validate()
 		s.NotNil(errors)
-		s.Len(errors, 1)
-		s.Contains(errors[0].Error(), "invalid clusterDomain .invalid-cluster-domain")
+		if s.Len(errors, 1) {
+			s.Contains(errors[0].Error(), `clusterDomain: Invalid value: ".invalid-cluster-domain": `)
+		}
 	})
 
 	s.T().Run("invalid_ipv6_service_cidr", func(t *testing.T) {
@@ -277,8 +278,9 @@ func (s *NetworkSuite) TestValidation() {
 
 		errors := n.Validate()
 		s.NotNil(errors)
-		s.Len(errors, 1)
-		s.Contains(errors[0].Error(), "unsupported mode")
+		if s.Len(errors, 1) {
+			s.Equal(errors[0].Error(), `spec.network.kubeProxy.mode: Unsupported value: "foobar": supported values: "iptables", "ipvs", "userspace"`)
+		}
 	})
 
 	s.T().Run("valid_proxy_disabled_for_dualstack", func(t *testing.T) {

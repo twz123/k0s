@@ -18,6 +18,7 @@ package workerconfig
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
@@ -36,6 +37,7 @@ type workerConfig struct {
 	apiServers             apiServers
 	kubeletConfiguration   kubeletv1beta1.KubeletConfiguration
 	nodeLocalLoadBalancer  *v1beta1.NodeLocalLoadBalancer
+	konnectivityAgentPort  uint16
 	defaultImagePullPolicy corev1.PullPolicy
 }
 
@@ -64,6 +66,10 @@ func (c *workerConfig) toConfigMap(name string) (*corev1.ConfigMap, error) {
 			return nil, err
 		}
 		data["nodeLocalLoadBalancer"] = string(nllbBytes)
+	}
+
+	if c.konnectivityAgentPort != 0 {
+		data["konnectivityAgentPort"] = strconv.FormatUint(uint64(c.konnectivityAgentPort), 10)
 	}
 
 	return &corev1.ConfigMap{

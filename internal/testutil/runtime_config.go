@@ -63,7 +63,7 @@ func (c *ConfigGetter) FakeConfigFromFile() *v1beta1.ClusterConfig {
 		K0sVars:           c.k0sVars,
 	}
 
-	cfg, err := loadingRules.Load()
+	cfg, err := loadingRules.Load(context.TODO())
 	require.NoError(c.t, err, "failed to load fake config from file")
 	return cfg
 }
@@ -81,7 +81,7 @@ func (c *ConfigGetter) FakeAPIConfig() *v1beta1.ClusterConfig {
 		K0sVars:           c.k0sVars,
 	}
 
-	cfg, err := loadingRules.Load()
+	cfg, err := loadingRules.Load(context.TODO())
 	require.NoError(c.t, err, "failed to load cluster config")
 	return cfg
 }

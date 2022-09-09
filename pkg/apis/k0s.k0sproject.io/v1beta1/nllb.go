@@ -19,6 +19,8 @@ package v1beta1
 import (
 	"github.com/k0sproject/k0s/pkg/constant"
 
+	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/pointer"
 )
 
@@ -34,7 +36,6 @@ type NodeLocalLoadBalancer struct {
 
 	// type indicates the type of the node-local load balancer to deploy.
 	// Currently, the only supported type is "EnvoyProxy".
-	// +kubebuilder:validation:Enum=EnvoyProxy
 	// +optional
 	Type NllbType `json:"type,omitempty"`
 
@@ -64,48 +65,86 @@ func DefaultNodeLocalLoadBalancer(clusterImages *ClusterImages) *NodeLocalLoadBa
 	}
 }
 
-func (n *NodeLocalLoadBalancer) IsEnabled() bool {
-	return n != nil && (n.Enabled == nil || *n.Enabled)
+func (n *NodeLocalLoadBalancer) Validate(path *field.Path) (errs field.ErrorList) {
+	if n == nil {
+		return
+	}
+
+	switch n.Type {
+	case NllbTypeEnvoyProxy:
+		errs = append(errs, n.EnvoyProxy.Validate(path.Child("envoyProxy"))...)
+		// nothing to validate
+	default:
+		errs = append(errs, field.NotSupported(path.Child("type"), n.Type, []string{string(NllbTypeEnvoyProxy)}))
+	}
+
+	return
 }
 
-func (n *NodeLocalLoadBalancer) DefaultedCopy(clusterImages *ClusterImages) *NodeLocalLoadBalancer {
-	if !n.IsEnabled() {
-		return nil
-	}
-
-	copy := new(NodeLocalLoadBalancer)
-	copy.Type = n.Type
-	if copy.Type == NllbTypeEnvoyProxy {
-		copy.EnvoyProxy = n.EnvoyProxy.DeepCopy()
-		if copy.EnvoyProxy == nil {
-			copy.EnvoyProxy = DefaultEnvoyProxy(clusterImages)
-		} else if copy.EnvoyProxy.Image == nil {
-			copy.EnvoyProxy.Image = DefaultEnvoyProxyImage(clusterImages)
-		}
-	}
-
-	return copy
+func (n *NodeLocalLoadBalancer) IsEnabled() bool {
+	return n != nil && (n.Enabled == nil || *n.Enabled)
 }
 
 // EnvoyProxy describes configuration options required for using Envoy as the
 // backing implementation for node-local load balancing.
 type EnvoyProxy struct {
 	// image specifies the OCI image that's being used to run Envoy.
+	// +optional
 	Image *ImageSpec `json:"image"`
 
-	// port is the port number to bind Envoy to on a worker's loopback
-	// interface. This must be a valid port number, 0 < x < 65536.
+	// apiServerBindPort is the port number to bind Envoy to on a worker's
+	// loopback interface. This must be a valid port number, 0 < x < 65536.
+	// Default: 7443
+	// +optional
+	// +kubebuilder:default=7443
 	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=65536
-	Port int32 `json:"port,omitempty"`
+	// +kubebuilder:validation:Maximum=65535
+	APIServerBindPort int32 `json:"apiServerBindPort,omitempty"`
+
+	// konnectivityAgentBindPort is the port number to bind Envoy to on a
+	// worker's loopback interface. This must be a valid port number, 0 < x <
+	// 65536.
+	// Default: 7132
+	// +optional
+	// +kubebuilder:default=7132
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	KonnectivityAgentBindPort *int32 `json:"konnectivityAgentBindPort,omitempty"`
 }
 
 // DefaultNodeLocalLoadBalancer returns the default node-local load balancing configuration.
 func DefaultEnvoyProxy(clusterImages *ClusterImages) *EnvoyProxy {
 	return &EnvoyProxy{
-		Image: DefaultEnvoyProxyImage(clusterImages),
-		Port:  7443,
+		Image:                     DefaultEnvoyProxyImage(clusterImages),
+		APIServerBindPort:         7443,
+		KonnectivityAgentBindPort: pointer.Int32(7132),
 	}
+}
+
+func (p *EnvoyProxy) Validate(path *field.Path) (errs field.ErrorList) {
+	if p == nil {
+		return
+	}
+
+	errs = append(errs, p.Image.Validate(path.Child("image"))...)
+
+	if details := validation.IsValidPortNum(int(p.APIServerBindPort)); len(details) > 0 {
+		path := path.Child("apiServerBindPort")
+		for _, detail := range details {
+			errs = append(errs, field.Invalid(path, p.APIServerBindPort, detail))
+		}
+	}
+
+	if p.KonnectivityAgentBindPort != nil {
+		if details := validation.IsValidPortNum(int(*p.KonnectivityAgentBindPort)); len(details) > 0 {
+			path := path.Child("konnectivityAgentBindPort")
+			for _, detail := range details {
+				errs = append(errs, field.Invalid(path, p.KonnectivityAgentBindPort, detail))
+			}
+		}
+	}
+
+	return
 }
 
 // DefaultEnvoyProxyImage returns the default image spec to use for Envoy.

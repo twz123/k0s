@@ -16,8 +16,6 @@ limitations under the License.
 
 package v1beta1
 
-var _ Validateable = (*ClusterTelemetry)(nil)
-
 // ClusterTelemetry holds telemetry related settings
 type ClusterTelemetry struct {
 	Enabled bool `json:"enabled"`

@@ -19,10 +19,12 @@ package v1beta1
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"reflect"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	"github.com/k0sproject/k0s/internal/pkg/strictyaml"
 )
@@ -107,6 +109,8 @@ type InstallSpec struct {
 	SystemUsers *SystemUser `json:"users,omitempty"`
 }
 
+func (*InstallSpec) Validate() []error { return nil }
+
 // ControllerManagerSpec defines the fields for the ControllerManager
 type ControllerManagerSpec struct {
 	// Map of key-values (strings) for any extra arguments you want to pass down to the Kubernetes controller manager process
@@ -131,6 +135,8 @@ func DefaultSchedulerSpec() *SchedulerSpec {
 	}
 }
 
+func (*SchedulerSpec) Validate() []error { return nil }
+
 // +kubebuilder:object:root=true
 // +genclient
 // +genclient:onlyVerbs=create
@@ -144,8 +150,6 @@ type ClusterConfigList struct {
 func init() {
 	SchemeBuilder.Register(&ClusterConfig{}, &ClusterConfigList{})
 }
-
-var _ Validateable = (*ControllerManagerSpec)(nil)
 
 // IsZero needed to omit empty object from yaml output
 func (c *ControllerManagerSpec) IsZero() bool {
@@ -238,80 +242,113 @@ func DefaultClusterSpec(defaultStorage ...*StorageSpec) *ClusterSpec {
 	}
 }
 
+func (s *ClusterSpec) Validate() (errs []error) {
+	if s == nil {
+		return
+	}
+
+	for name, v := range map[string]interface{ Validate() []error }{
+		"api":               s.API,
+		"controllerManager": s.ControllerManager,
+		"scheduler":         s.Scheduler,
+		"storage":           s.Storage,
+		"network":           s.Network,
+		"workerProfiles":    s.WorkerProfiles,
+		"telemetry":         s.Telemetry,
+		"install":           s.Install,
+		"extensions":        s.Extensions,
+		"konnectivity":      s.Konnectivity,
+	} {
+		for _, err := range v.Validate() {
+			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+		}
+	}
+
+	for _, vErr := range s.ValidateNodeLocalLoadBalancer(field.NewPath("spec")) {
+		errs = append(errs, vErr)
+	}
+
+	return
+}
+
+func (s *ClusterSpec) ValidateNodeLocalLoadBalancer(path *field.Path) (errs field.ErrorList) {
+	if s.Network == nil || !s.Network.NodeLocalLoadBalancer.IsEnabled() {
+		return
+	}
+
+	if s.API == nil {
+		return
+	}
+
+	path = path.Child("network", "nodeLocalLoadBalancer")
+	if s.API.TunneledNetworkingMode {
+		detail := "node-local load balancing cannot be used in tunneled networking mode"
+		errs = append(errs, field.Forbidden(path, detail))
+	}
+
+	if s.API.ExternalAddress != "" {
+		detail := "node-local load balancing cannot be used in conjunction with an external Kubernetes API server address"
+		errs = append(errs, field.Forbidden(path, detail))
+	}
+
+	return
+}
+
 func (c *ControllerManagerSpec) Validate() []error {
 	return nil
 }
 
-var _ Validateable = (*SchedulerSpec)(nil)
-
-func (s *SchedulerSpec) Validate() []error {
-	return nil
-}
-
-var _ Validateable = (*InstallSpec)(nil)
-
-// Validate stub for Validateable interface
-func (i *InstallSpec) Validate() []error {
-	return nil
-}
-
-// Validateable interface to ensure that all config components implement Validate function
-// +k8s:deepcopy-gen=false
-type Validateable interface {
-	Validate() []error
-}
-
 // Validate validates cluster config
 func (c *ClusterConfig) Validate() []error {
-	var errors []error
-
-	errors = append(errors, validateSpecs(c.Spec.API)...)
-	errors = append(errors, validateSpecs(c.Spec.ControllerManager)...)
-	errors = append(errors, validateSpecs(c.Spec.Scheduler)...)
-	errors = append(errors, validateSpecs(c.Spec.Storage)...)
-	errors = append(errors, validateSpecs(c.Spec.Network)...)
-	errors = append(errors, validateSpecs(c.Spec.WorkerProfiles)...)
-	errors = append(errors, validateSpecs(c.Spec.Telemetry)...)
-	errors = append(errors, validateSpecs(c.Spec.Install)...)
-	errors = append(errors, validateSpecs(c.Spec.Extensions)...)
-	errors = append(errors, validateSpecs(c.Spec.Konnectivity)...)
-
-	return errors
+	return c.Spec.Validate()
 }
 
-// GetBootstrappingConfig returns a ClusterConfig object stripped of Cluster-Wide Settings
-func (c *ClusterConfig) GetBootstrappingConfig(storageSpec *StorageSpec) *ClusterConfig {
-	var etcdConfig *EtcdConfig
-	if storageSpec.Type == EtcdStorageType {
-		etcdConfig = &EtcdConfig{
-			ExternalCluster: storageSpec.Etcd.ExternalCluster,
-			PeerAddress:     storageSpec.Etcd.PeerAddress,
-		}
-		c.Spec.Storage.Etcd = etcdConfig
-	}
-	return &ClusterConfig{
-		ObjectMeta: c.ObjectMeta,
-		TypeMeta:   c.TypeMeta,
-		Spec: &ClusterSpec{
-			API:     c.Spec.API,
-			Storage: storageSpec,
-			Network: &Network{
-				ServiceCIDR: c.Spec.Network.ServiceCIDR,
-				DualStack:   c.Spec.Network.DualStack,
-			},
-			Install: c.Spec.Install,
-		},
-		Status: c.Status,
-	}
-}
-
-// HACK: the current ClusterConfig struct holds both bootstrapping config & cluster-wide config
-// this hack strips away the node-specific bootstrapping config so that we write a "clean" config to the CR
-// This function accepts a standard ClusterConfig and returns the same config minus the node specific info:
+// GetNodeConfig returns a [ClusterConfig] object stripped of
+// cluster-wide settings. It will only contain node-specific parts:
 //   - Spec.API
 //   - Spec.Storage
 //   - Spec.Network.ServiceCIDR
 //   - Spec.Install
+//
+// This is the counterpart to [ClusterConfig.GetClusterWideConfig].
+func (c *ClusterConfig) GetNodeConfig() *ClusterConfig {
+	if c == nil {
+		return nil
+	}
+
+	config := ClusterConfig{
+		ObjectMeta: c.ObjectMeta,
+		TypeMeta:   c.TypeMeta,
+	}
+
+	if c.Spec != nil {
+		config.Spec = &ClusterSpec{
+			API:     c.Spec.API.DeepCopy(),
+			Storage: c.Spec.Storage.DeepCopy(),
+			Install: c.Spec.Install.DeepCopy(),
+		}
+
+		if c.Spec.Network != nil {
+			config.Spec.Network = &Network{
+				ServiceCIDR: c.Spec.Network.ServiceCIDR,
+			}
+		}
+	}
+
+	return &config
+}
+
+// HACK: the current [ClusterConfig] struct holds both bootstrapping config and
+// cluster-wide config. This hack strips away the node-specific bootstrapping
+// config so that we write a "clean" config to the cluster. This function
+// accepts a standard ClusterConfig and returns the same config minus the node
+// specific parts:
+//   - Spec.API
+//   - Spec.Storage
+//   - Spec.Network.ServiceCIDR
+//   - Spec.Install
+//
+// This is the counterpart to [ClusterConfig.GetBootstrappingConfig].
 func (c *ClusterConfig) GetClusterWideConfig() *ClusterConfig {
 	copy := c.DeepCopy()
 	if copy.Spec != nil {
@@ -333,9 +370,4 @@ func (c *ClusterConfig) CRValidator() *ClusterConfig {
 	copy.ObjectMeta.Namespace = "kube-system"
 
 	return copy
-}
-
-// validateSpecs invokes validator Validate function
-func validateSpecs(v Validateable) []error {
-	return v.Validate()
 }

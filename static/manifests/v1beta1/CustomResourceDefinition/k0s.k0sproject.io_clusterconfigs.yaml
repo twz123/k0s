@@ -266,12 +266,18 @@ spec:
                 description: KonnectivitySpec defines the requested state for Konnectivity
                 properties:
                   adminPort:
+                    default: 8133
                     description: admin port to listen on (default 8133)
-                    format: int64
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
                     type: integer
                   agentPort:
+                    default: 8132
                     description: agent port to listen on (default 8132)
-                    format: int64
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
                     type: integer
                 type: object
               network:
@@ -377,6 +383,16 @@ spec:
                         description: envoyProxy contains configuration options related
                           to the "EnvoyProxy" type of load balancing.
                         properties:
+                          apiServerBindPort:
+                            default: 7443
+                            description: 'apiServerBindPort is the port number to
+                              bind Envoy to on a worker''s loopback interface. This
+                              must be a valid port number, 0 < x < 65536. Default:
+                              7443'
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
+                            type: integer
                           image:
                             description: image specifies the OCI image that's being
                               used to run Envoy.
@@ -386,24 +402,23 @@ spec:
                               version:
                                 type: string
                             type: object
-                          port:
-                            description: port is the port number to bind Envoy to
-                              on a worker's loopback interface. This must be a valid
-                              port number, 0 < x < 65536.
+                          konnectivityAgentBindPort:
+                            default: 7132
+                            description: 'konnectivityAgentBindPort is the port number
+                              to bind Envoy to on a worker''s loopback interface.
+                              This must be a valid port number, 0 < x < 65536. Default:
+                              7132'
                             format: int32
-                            maximum: 65536
+                            maximum: 65535
                             minimum: 1
                             type: integer
                         type: object
                       type:
-                        allOf:
-                        - enum:
-                          - EnvoyProxy
-                        - enum:
-                          - EnvoyProxy
                         description: type indicates the type of the node-local load
                           balancer to deploy. Currently, the only supported type is
                           "EnvoyProxy".
+                        enum:
+                        - EnvoyProxy
                         type: string
                     type: object
                   podCIDR:
@@ -412,6 +427,10 @@ spec:
                   provider:
                     description: 'Network provider (valid values: calico, kuberouter,
                       or custom)'
+                    enum:
+                    - calico
+                    - kuberouter
+                    - custom
                     type: string
                   serviceCIDR:
                     description: Network CIDR to use for cluster VIP services

@@ -24,8 +24,6 @@ type StorageExtension struct {
 	CreateDefaultStorageClass bool   `json:"create_default_storage_class"`
 }
 
-var _ Validateable = (*StorageExtension)(nil)
-
 const (
 	ExternalStorage = "external_storage"
 	OpenEBSLocal    = "openebs_local_storage"
