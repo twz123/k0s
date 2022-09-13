@@ -257,17 +257,38 @@ spec:
                   install` command
                 properties:
                   users:
-                    description: SystemUser defines the user to use for each component
+                    description: SystemUsers defines the usernames to use for each
+                      component.
                     properties:
                       etcdUser:
+                        description: SystemUsername represents an operating system
+                          user name.
+                        maxLength: 256
+                        minLength: 1
                         type: string
                       kineUser:
+                        description: SystemUsername represents an operating system
+                          user name.
+                        maxLength: 256
+                        minLength: 1
                         type: string
                       konnectivityUser:
+                        description: SystemUsername represents an operating system
+                          user name.
+                        maxLength: 256
+                        minLength: 1
                         type: string
                       kubeAPIserverUser:
+                        description: SystemUsername represents an operating system
+                          user name.
+                        maxLength: 256
+                        minLength: 1
                         type: string
                       kubeSchedulerUser:
+                        description: SystemUsername represents an operating system
+                          user name.
+                        maxLength: 256
+                        minLength: 1
                         type: string
                     type: object
                 type: object

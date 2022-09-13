@@ -33,12 +33,12 @@ import (
 )
 
 func GetControllerUsers(clusterConfig *v1beta1.ClusterConfig) []string {
-	return getUserList(*clusterConfig.Spec.Install.SystemUsers)
+	return getUserList(&clusterConfig.Spec.Install.Users)
 }
 
 // CreateControllerUsers accepts a cluster config, and cfgVars and creates controller users accordingly
 func CreateControllerUsers(clusterConfig *v1beta1.ClusterConfig, k0sVars constant.CfgVars) error {
-	users := getUserList(*clusterConfig.Spec.Install.SystemUsers)
+	users := getUserList(&clusterConfig.Spec.Install.Users)
 	var messages []string
 	for _, v := range users {
 		if err := EnsureUser(v, k0sVars.DataDir); err != nil {
@@ -53,7 +53,7 @@ func CreateControllerUsers(clusterConfig *v1beta1.ClusterConfig, k0sVars constan
 
 // CreateControllerUsers accepts a cluster config, and cfgVars and creates controller users accordingly
 func DeleteControllerUsers(clusterConfig *v1beta1.ClusterConfig) error {
-	cfgUsers := getUserList(*clusterConfig.Spec.Install.SystemUsers)
+	cfgUsers := getUserList(&clusterConfig.Spec.Install.Users)
 	var messages []string
 	for _, v := range cfgUsers {
 		if _, err := users.GetUID(v); err == nil {
@@ -116,8 +116,8 @@ func deleteUser(userName string) error {
 }
 
 // get user list
-func getUserList(sysUsers v1beta1.SystemUser) []string {
-	v := reflect.ValueOf(sysUsers)
+func getUserList(sysUsers *v1beta1.SystemUsers) []string {
+	v := reflect.ValueOf(sysUsers).Elem()
 	values := make([]string, v.NumField())
 
 	for i := 0; i < v.NumField(); i++ {

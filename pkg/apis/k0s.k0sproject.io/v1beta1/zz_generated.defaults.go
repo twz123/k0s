@@ -43,6 +43,9 @@ func SetObjectDefaults_ClusterConfig(in *ClusterConfig) {
 			SetDefaults_Calico(in.Spec.Network.Calico)
 		}
 	}
+	if in.Spec.Install != nil {
+		SetDefaults_SystemUsers(&in.Spec.Install.Users)
+	}
 }
 
 func SetObjectDefaults_ClusterConfigList(in *ClusterConfigList) {

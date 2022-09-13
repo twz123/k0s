@@ -127,7 +127,14 @@ func (c *ClusterConfig) StripDefaults() *ClusterConfig {
 
 // InstallSpec defines the required fields for the `k0s install` command
 type InstallSpec struct {
-	SystemUsers *SystemUser `json:"users,omitempty"`
+	Users SystemUsers `json:"users,omitempty"`
+}
+
+// DefaultInstallSpec ...
+func DefaultInstallSpec() *InstallSpec {
+	return &InstallSpec{
+		Users: DefaultSystemUsers(),
+	}
 }
 
 func (*InstallSpec) Validate() []error { return nil }
