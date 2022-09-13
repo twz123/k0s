@@ -19,48 +19,116 @@ package v1beta1
 import (
 	"fmt"
 	"net"
+	"strings"
 
-	"github.com/asaskevich/govalidator"
 	"github.com/k0sproject/k0s/internal/pkg/iface"
 	"github.com/k0sproject/k0s/internal/pkg/stringslice"
-)
 
-var _ Validateable = (*APISpec)(nil)
+	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/apimachinery/pkg/util/validation/field"
+)
 
 // APISpec defines the settings for the K0s API
 type APISpec struct {
-	// Local address on which to bind an API
+	// Local address on which to bind the API server. Needs to be a valid IP address.
 	Address string `json:"address"`
 
-	// The loadbalancer address (for k0s controllers running behind a loadbalancer)
+	// The load balancer address (for k0s controllers running behind a load
+	// balancer). Needs to be either a valid IP address or DNS subdomain.
+	// +optional
 	ExternalAddress string `json:"externalAddress,omitempty"`
-	// TunneledNetworkingMode indicates if we access to KAS through konnectivity tunnel
+	// TunneledNetworkingMode indicates if we access to KAS through konnectivity tunnel.
 	TunneledNetworkingMode bool `json:"tunneledNetworkingMode"`
-	// Map of key-values (strings) for any extra arguments to pass down to Kubernetes api-server process
+	// Map of key-values (strings) for any extra arguments to pass down to
+	// Kubernetes API server process.
+	// +optional
 	ExtraArgs map[string]string `json:"extraArgs,omitempty"`
-	// Custom port for k0s-api server to listen on (default: 9443)
-	K0sAPIPort int `json:"k0sApiPort,omitempty"`
+	// Custom port for k0s API server to listen on. (default: 9443)
+	// +optional
+	// +kubebuilder:default=9443
+	K0sAPIPort IPPort `json:"k0sApiPort,omitempty"`
 
-	// Custom port for kube-api server to listen on (default: 6443)
-	Port int `json:"port"`
+	// Custom port for Kubernetes API server to listen on. (default: 6443)
+	// +optional
+	// +kubebuilder:default=6443
+	Port IPPort `json:"port,omitempty"`
 
-	// List of additional addresses to push to API servers serving the certificate
-	SANs []string `json:"sans"`
+	// List of additional addresses to push to API servers serving the
+	// certificate. Values need to be either valid IP addresses or DNS
+	// subdomains.
+	// +optional
+	SANs []string `json:"sans,omitempty"`
 }
 
 // DefaultAPISpec default settings for api
 func DefaultAPISpec() *APISpec {
-	// Collect all nodes addresses for sans
-	addresses, _ := iface.AllAddresses()
-	publicAddress, _ := iface.FirstPublicAddress()
-	return &APISpec{
-		Port:                   6443,
-		K0sAPIPort:             9443,
-		SANs:                   addresses,
-		Address:                publicAddress,
-		ExtraArgs:              make(map[string]string),
-		TunneledNetworkingMode: false,
+	apiSpec := new(APISpec)
+	SetDefaults_APISpec(apiSpec)
+
+	// Collect all nodes addresses for SANs
+	if addresses, err := iface.AllAddresses(); err == nil {
+		apiSpec.SANs = addresses
 	}
+	if publicAddress, err := iface.FirstPublicAddress(); err == nil {
+		apiSpec.Address = publicAddress
+	}
+
+	return apiSpec
+}
+
+func SetDefaults_APISpec(a *APISpec) {
+	if a.ExtraArgs == nil {
+		a.ExtraArgs = make(map[string]string)
+	}
+	if a.K0sAPIPort == 0 {
+		a.K0sAPIPort = 9443
+	}
+	if a.Port == 0 {
+		a.Port = 6443
+	}
+}
+
+// Validate validates APISpec struct
+func (a *APISpec) Validate(path *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+
+	validateIPAddressOrDNSName := func(path *field.Path, san string) {
+		if net.ParseIP(san) != nil {
+			return
+		}
+
+		details := validation.IsDNS1123Subdomain(san)
+		if details == nil {
+			return
+		}
+
+		allErrs = append(allErrs, field.Invalid(path, san, "neither an IP address nor a DNS name: "+strings.Join(details, "; ")))
+	}
+
+	if net.ParseIP(a.Address) == nil {
+		allErrs = append(allErrs, field.Invalid(path.Child("address"), a.Address, "not an IP address"))
+	}
+
+	if a.ExternalAddress != "" {
+		validateIPAddressOrDNSName(field.NewPath("externalAddress"), a.ExternalAddress)
+	}
+
+	allErrs = append(allErrs, a.K0sAPIPort.ValidateOptional(path.Child("k0sApiPort"))...)
+	allErrs = append(allErrs, a.Port.ValidateOptional(path.Child("port"))...)
+
+	sansPath := field.NewPath("sans")
+	for idx, san := range a.SANs {
+		validateIPAddressOrDNSName(sansPath.Index(idx), san)
+	}
+
+	defaultedCopy := *a
+	SetDefaults_APISpec(&defaultedCopy)
+
+	if defaultedCopy.K0sAPIPort == defaultedCopy.Port {
+		allErrs = append(allErrs, field.Forbidden(path, "k0sApiPort and port cannot be identical"))
+	}
+
+	return allErrs
 }
 
 // APIAddress ...
@@ -87,7 +155,7 @@ func (a *APISpec) K0sControlPlaneAPIAddress() string {
 	return a.getExternalURIForPort(a.K0sAPIPort)
 }
 
-func (a *APISpec) getExternalURIForPort(port int) string {
+func (a *APISpec) getExternalURIForPort(port IPPort) string {
 	addr := a.Address
 	if a.ExternalAddress != "" {
 		addr = a.ExternalAddress
@@ -108,25 +176,4 @@ func (a *APISpec) Sans() []string {
 	}
 
 	return stringslice.Unique(sans)
-}
-
-// Validate validates APISpec struct
-func (a *APISpec) Validate() []error {
-	var errors []error
-
-	for _, a := range a.Sans() {
-		if govalidator.IsIP(a) {
-			continue
-		}
-		if govalidator.IsDNSName(a) {
-			continue
-		}
-		errors = append(errors, fmt.Errorf("%s is not a valid address for sans", a))
-	}
-
-	if !govalidator.IsIP(a.Address) {
-		errors = append(errors, fmt.Errorf("spec.api.address: %q is not IP address", a.Address))
-	}
-
-	return errors
 }

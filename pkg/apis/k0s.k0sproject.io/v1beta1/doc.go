@@ -14,21 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package v1beta1 contains API Schema definitions for the v1beta1 API group.
+//
+// +k8s:deepcopy-gen=package
+// +kubebuilder:object:generate=true
+// +groupName=k0s.k0sproject.io
 package v1beta1
-
-// ClusterTelemetry holds telemetry related settings
-type ClusterTelemetry struct {
-	Enabled bool `json:"enabled"`
-}
-
-// DefaultClusterTelemetry default settings
-func DefaultClusterTelemetry() *ClusterTelemetry {
-	return &ClusterTelemetry{
-		Enabled: true,
-	}
-}
-
-// Validate stub for Validateable interface
-func (c *ClusterTelemetry) Validate() []error {
-	return nil
-}

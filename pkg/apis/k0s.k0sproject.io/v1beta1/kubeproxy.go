@@ -17,10 +17,9 @@ limitations under the License.
 package v1beta1
 
 import (
-	"fmt"
+	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/strings/slices"
 )
-
-var _ Validateable = (*KubeProxy)(nil)
 
 const (
 	ModeIptables  = "iptables"
@@ -43,13 +42,20 @@ func DefaultKubeProxy() *KubeProxy {
 }
 
 // Validate validates kube proxy config
-func (k *KubeProxy) Validate() []error {
+func (k *KubeProxy) Validate(path *field.Path) (errs field.ErrorList) {
 	if k.Disabled {
 		return nil
 	}
-	var errors []error
-	if k.Mode != "iptables" && k.Mode != "ipvs" && k.Mode != "userspace" {
-		errors = append(errors, fmt.Errorf("unsupported mode %s for kubeProxy config", k.Mode))
+
+	allowedModes := []string{
+		ModeIptables,
+		ModeIPVS,
+		ModeUSerspace,
 	}
-	return errors
+
+	if !slices.Contains(allowedModes, k.Mode) {
+		errs = append(errs, field.NotSupported(path.Child("mode"), k.Mode, allowedModes))
+	}
+
+	return errs
 }

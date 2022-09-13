@@ -39,35 +39,44 @@ spec:
                 description: APISpec defines the settings for the K0s API
                 properties:
                   address:
-                    description: Local address on which to bind an API
+                    description: Local address on which to bind the API server. Needs
+                      to be a valid IP address.
                     type: string
                   externalAddress:
-                    description: The loadbalancer address (for k0s controllers running
-                      behind a loadbalancer)
+                    description: The load balancer address (for k0s controllers running
+                      behind a load balancer). Needs to be either a valid IP address
+                      or DNS subdomain.
                     type: string
                   extraArgs:
                     additionalProperties:
                       type: string
                     description: Map of key-values (strings) for any extra arguments
-                      to pass down to Kubernetes api-server process
+                      to pass down to Kubernetes API server process.
                     type: object
                   k0sApiPort:
-                    description: 'Custom port for k0s-api server to listen on (default:
+                    default: 9443
+                    description: 'Custom port for k0s API server to listen on. (default:
                       9443)'
+                    maximum: 65535
+                    minimum: 1
                     type: integer
                   port:
-                    description: 'Custom port for kube-api server to listen on (default:
-                      6443)'
+                    default: 6443
+                    description: 'Custom port for Kubernetes API server to listen
+                      on. (default: 6443)'
+                    maximum: 65535
+                    minimum: 1
                     type: integer
                   sans:
                     description: List of additional addresses to push to API servers
-                      serving the certificate
+                      serving the certificate. Values need to be either valid IP addresses
+                      or DNS subdomains.
                     items:
                       type: string
                     type: array
                   tunneledNetworkingMode:
                     description: TunneledNetworkingMode indicates if we access to
-                      KAS through konnectivity tunnel
+                      KAS through konnectivity tunnel.
                     type: boolean
                 type: object
               controllerManager:
@@ -266,12 +275,18 @@ spec:
                 description: KonnectivitySpec defines the requested state for Konnectivity
                 properties:
                   adminPort:
+                    default: 8133
                     description: admin port to listen on (default 8133)
-                    format: int64
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
                     type: integer
                   agentPort:
+                    default: 8132
                     description: agent port to listen on (default 8132)
-                    format: int64
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
                     type: integer
                 type: object
               network:
@@ -281,6 +296,7 @@ spec:
                     description: Calico defines the calico related config options
                     properties:
                       flexVolumeDriverPath:
+                        default: /usr/libexec/k0s/kubelet-plugins/volume/exec/nodeagent~uds
                         description: 'The host path for Calicos flex-volume-driver(default:
                           /usr/libexec/k0s/kubelet-plugins/volume/exec/nodeagent~uds)'
                         type: string
@@ -292,18 +308,32 @@ spec:
                         description: Host's IPv6 Auto-detection method for Calico
                         type: string
                       mode:
+                        default: vxlan
                         description: vxlan (default) or ipip
+                        enum:
+                        - vxlan
+                        - ipip
                         type: string
                       mtu:
+                        default: 0
                         description: 'MTU for overlay network (default: 0)'
+                        format: int32
                         type: integer
                       overlay:
                         description: Overlay Type (Always, Never or CrossSubnet)
+                        enum:
+                        - Always
+                        - Never
+                        - CrossSubnet
                         type: string
                       vxlanPort:
+                        default: 4789
                         description: 'The UDP port for VXLAN (default: 4789)'
+                        maximum: 65535
+                        minimum: 1
                         type: integer
                       vxlanVNI:
+                        default: 4096
                         description: 'The virtual network ID for VXLAN (default: 4096)'
                         type: integer
                       wireguard:
