@@ -200,8 +200,8 @@ func (k *Konnectivity) Stop() error {
 
 type konnectivityAgentConfig struct {
 	APIAddress             string
-	AgentPort              int64
-	KASPort                int64
+	AgentPort              int32
+	KASPort                uint16
 	Image                  string
 	ServerCount            int
 	PullPolicy             string
@@ -219,7 +219,7 @@ func (k *Konnectivity) writeKonnectivityAgent() error {
 	cfg := konnectivityAgentConfig{
 		APIAddress:             k.NodeConfig.Spec.API.APIAddress(), // TODO: should it be an APIAddress?
 		AgentPort:              k.clusterConfig.Spec.Konnectivity.AgentPort,
-		KASPort:                int64(k.clusterConfig.Spec.API.Port),
+		KASPort:                uint16(k.clusterConfig.Spec.API.Port),
 		Image:                  k.clusterConfig.Spec.Images.Konnectivity.URI(),
 		ServerCount:            k.serverCount,
 		PullPolicy:             k.clusterConfig.Spec.Images.DefaultPullPolicy,

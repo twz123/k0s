@@ -56,9 +56,9 @@ type manifestsSaver interface {
 }
 
 type calicoConfig struct {
-	MTU                  int
+	MTU                  uint32
 	Mode                 string
-	VxlanPort            int
+	VxlanPort            uint16
 	VxlanVNI             int
 	ClusterCIDRIPv4      string
 	ClusterCIDRIPv6      string
@@ -185,7 +185,7 @@ func (c *Calico) getConfig(clusterConfig *v1beta1.ClusterConfig) (calicoConfig, 
 	config := calicoConfig{
 		MTU:                        clusterConfig.Spec.Network.Calico.MTU,
 		Mode:                       clusterConfig.Spec.Network.Calico.Mode,
-		VxlanPort:                  clusterConfig.Spec.Network.Calico.VxlanPort,
+		VxlanPort:                  uint16(clusterConfig.Spec.Network.Calico.VxlanPort),
 		VxlanVNI:                   clusterConfig.Spec.Network.Calico.VxlanVNI,
 		EnableWireguard:            clusterConfig.Spec.Network.Calico.EnableWireguard,
 		FlexVolumeDriverPath:       clusterConfig.Spec.Network.Calico.FlexVolumeDriverPath,

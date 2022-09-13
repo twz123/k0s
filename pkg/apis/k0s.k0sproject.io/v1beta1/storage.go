@@ -36,8 +36,6 @@ const (
 	KineStorageType = "kine"
 )
 
-var _ Validateable = (*StorageSpec)(nil)
-
 // StorageSpec defines the storage related config options
 type StorageSpec struct {
 	Etcd *EtcdConfig `json:"etcd"`

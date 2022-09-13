@@ -16,21 +16,28 @@ limitations under the License.
 
 package v1beta1
 
-var _ Validateable = (*KonnectivitySpec)(nil)
-
 // KonnectivitySpec defines the requested state for Konnectivity
 type KonnectivitySpec struct {
 	// agent port to listen on (default 8132)
-	AgentPort int64 `json:"agentPort,omitempty"`
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +kubebuilder:default=8132
+	// +optional
+	AgentPort int32 `json:"agentPort,omitempty"`
+
 	// admin port to listen on (default 8133)
-	AdminPort int64 `json:"adminPort,omitempty"`
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +kubebuilder:default=8133
+	// +optional
+	AdminPort int32 `json:"adminPort,omitempty"`
 }
 
 // DefaultKonnectivitySpec builds default KonnectivitySpec
 func DefaultKonnectivitySpec() *KonnectivitySpec {
 	return &KonnectivitySpec{
-		AdminPort: 8133,
 		AgentPort: 8132,
+		AdminPort: 8133,
 	}
 }
 

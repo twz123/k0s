@@ -24,31 +24,41 @@ type Calico struct {
 	EnableWireguard bool `json:"wireguard"`
 
 	// The host path for Calicos flex-volume-driver(default: /usr/libexec/k0s/kubelet-plugins/volume/exec/nodeagent~uds)
+	// +kubebuilder:default=/usr/libexec/k0s/kubelet-plugins/volume/exec/nodeagent~uds
 	FlexVolumeDriverPath string `json:"flexVolumeDriverPath"`
 
 	// Host's IP Auto-detection method for Calico (see https://docs.projectcalico.org/reference/node/configuration#ip-autodetection-methods)
+	// +optional
 	IPAutodetectionMethod string `json:"ipAutodetectionMethod,omitempty"`
 
 	// Host's IPv6 Auto-detection method for Calico
+	// +optional
 	IPv6AutodetectionMethod string `json:"ipV6AutodetectionMethod,omitempty"`
 
 	// MTU for overlay network (default: 0)
-	MTU int `json:"mtu" yaml:"mtu"`
+	// +kubebuilder:default=0
+	MTU uint32 `json:"mtu" yaml:"mtu"`
 
 	// vxlan (default) or ipip
+	// +kubebuilder:default=vxlan
+	// +kubebuilder:validation:Enum=vxlan;ipip
 	Mode string `json:"mode"`
 
 	// Overlay Type (Always, Never or CrossSubnet)
-	Overlay string `json:"overlay" validate:"oneof=Always Never CrossSubnet" `
+	// +kubebuilder:validation:Enum=Always;Never;CrossSubnet
+	Overlay string `json:"overlay"`
 
 	// The UDP port for VXLAN (default: 4789)
-	VxlanPort int `json:"vxlanPort"`
+	// +kubebuilder:default=4789
+	VxlanPort IPPort `json:"vxlanPort"`
 
 	// The virtual network ID for VXLAN (default: 4096)
+	// +kubebuilder:default=4096
 	VxlanVNI int `json:"vxlanVNI"`
 
 	// Windows Nodes (default: false)
-	WithWindowsNodes bool `json:"withWindowsNodes"`
+	// +optional
+	WithWindowsNodes bool `json:"withWindowsNodes,omitempty"`
 }
 
 // DefaultCalico returns sane defaults for calico

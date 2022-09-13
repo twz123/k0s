@@ -29,8 +29,7 @@ type APISuite struct {
 func (s *APISuite) TestValidation() {
 	s.T().Run("defaults_are_valid", func(t *testing.T) {
 		a := DefaultAPISpec()
-
-		s.Nil(a.Validate())
+		s.Empty(a.Validate(nil))
 	})
 
 	s.T().Run("accepts_ipv6_as_address", func(t *testing.T) {
@@ -38,33 +37,33 @@ func (s *APISuite) TestValidation() {
 			Address: "2001:0db8:85a3:0000:0000:8a2e:0370:7334",
 		}
 
-		s.Nil(a.Validate())
+		s.Empty(a.Validate(nil))
 
 	})
 
 	s.T().Run("invalid_api_address", func(t *testing.T) {
 		a := APISpec{
-			Address: "somehting.that.is.not.valid//(())",
+			Address: "something.that.is.not.valid//(())",
 		}
 
-		errors := a.Validate()
-		s.NotNil(errors)
-		s.Len(errors, 2)
-		s.Contains(errors[0].Error(), "is not a valid address for sans")
+		errors := a.Validate(nil)
+		if s.Len(errors, 1) {
+			s.Equal(errors[0].Error(), `address: Invalid value: "something.that.is.not.valid//(())": not an IP address`)
+		}
 	})
 
 	s.T().Run("invalid_sans_address", func(t *testing.T) {
 		a := APISpec{
 			Address: "1.2.3.4",
 			SANs: []string{
-				"somehting.that.is.not.valid//(())",
+				"something.that.is.not.valid//(())",
 			},
 		}
 
-		errors := a.Validate()
-		s.NotNil(errors)
-		s.Len(errors, 1)
-		s.Contains(errors[0].Error(), "is not a valid address for sans")
+		errors := a.Validate(nil)
+		if s.Len(errors, 1) {
+			s.Contains(errors[0].Error(), `sans[0]: Invalid value: "something.that.is.not.valid//(())": neither an IP address nor a DNS name:`)
+		}
 	})
 }
 

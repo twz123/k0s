@@ -23,8 +23,6 @@ import (
 	"helm.sh/helm/v3/pkg/chartutil"
 )
 
-var _ Validateable = (*ClusterExtensions)(nil)
-
 // ClusterExtensions specifies cluster extensions
 type ClusterExtensions struct {
 	Storage *StorageExtension `json:"storage"`

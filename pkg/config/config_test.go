@@ -42,7 +42,7 @@ apiVersion: k0s.k0sproject.io/v1beta1
 kind: ClusterConfig
 spec:
   api:
-    externalAddress: file_external_address
+    externalAddress: file-external-address
   network:
     serviceCIDR: 12.12.12.12/12
     podCIDR: 13.13.13.13/13
@@ -54,7 +54,7 @@ apiVersion: k0s.k0sproject.io/v1beta1
 kind: ClusterConfig
 spec:
   api:
-    externalAddress: api_external_address
+    externalAddress: api-external-address
   network:
     serviceCIDR: api_cidr
 `
@@ -84,7 +84,7 @@ func TestGetConfigFromFile(t *testing.T) {
 		got      string
 		expected string
 	}{
-		{"API_external_address", cfg.Spec.API.ExternalAddress, "file_external_address"},
+		{"API_external_address", cfg.Spec.API.ExternalAddress, "file-external-address"},
 		{"Network_ServiceCIDR", cfg.Spec.Network.ServiceCIDR, "12.12.12.12/12"},
 		{"Network_KubeProxy_Mode", cfg.Spec.Network.KubeProxy.Mode, "ipvs"},
 	}
@@ -208,7 +208,7 @@ func TestNodeConfigWithAPIConfig(t *testing.T) {
 		got      string
 		expected string
 	}{
-		{"API_external_address", cfg.Spec.API.ExternalAddress, "file_external_address"},
+		{"API_external_address", cfg.Spec.API.ExternalAddress, "file-external-address"},
 		// PodCIDR is a cluster-wide setting. It shouldn't exist in Node config
 		{"Network_PodCIDR", cfg.Spec.Network.PodCIDR, ""},
 		{"Network_ServiceCIDR", cfg.Spec.Network.ServiceCIDR, "12.12.12.12/12"},
@@ -346,7 +346,7 @@ func TestAPIConfig(t *testing.T) {
 		got      string
 		expected string
 	}{
-		{"API_external_address", cfg.Spec.API.ExternalAddress, "file_external_address"},
+		{"API_external_address", cfg.Spec.API.ExternalAddress, "file-external-address"},
 		{"Network_PodCIDR", cfg.Spec.Network.PodCIDR, "10.244.0.0/16"},
 		{"Network_ServiceCIDR", cfg.Spec.Network.ServiceCIDR, "12.12.12.12/12"},
 		{"Network_KubeProxy_Mode", cfg.Spec.Network.KubeProxy.Mode, "iptables"},
