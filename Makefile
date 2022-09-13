@@ -132,6 +132,9 @@ pkg/apis/%/.controller-gen.stamp: .k0sbuild.docker-image.k0s hack/tools/Makefile
 # Note: k0s.k0sproject.io omits the version from the output directory, so this needs
 # special handling until this versioning layout is fixed.
 
+codegen_targets += pkg/apis/k0s.k0sproject.io/v1beta1/.defaulter-gen.stamp
+pkg/apis/k0s.k0sproject.io/v1beta1/.defaulter-gen.stamp: $(shell find pkg/apis/k0s.k0sproject.io/v1beta1/ -maxdepth 1 -type f -name \*.go -not -name zz_\*.go)
+
 codegen_targets += pkg/apis/k0s.k0sproject.io/v1beta1/.client-gen.stamp
 pkg/apis/k0s.k0sproject.io/v1beta1/.client-gen.stamp: $(shell find pkg/apis/k0s.k0sproject.io/v1beta1/ -maxdepth 1 -type f -name \*.go -not -name zz_\*.go)
 pkg/apis/k0s.k0sproject.io/v1beta1/.client-gen.stamp: groupver = k0s.k0sproject.io/v1beta1
@@ -151,6 +154,13 @@ pkg/apis/%/.client-gen.stamp: .k0sbuild.docker-image.k0s hack/tools/boilerplate.
 	  --input-base github.com/k0sproject/k0s/pkg/apis \
 	  --clientset-name=clientset \
 	  --output-package=github.com/k0sproject/k0s/pkg/apis/$(gen_output_dir)/
+	touch -- '$@'
+
+pkg/apis/%/.defaulter-gen.stamp: .k0sbuild.docker-image.k0s hack/tools/boilerplate.go.txt embedded-bins/Makefile.variables
+	CGO_ENABLED=0 $(GO) install k8s.io/code-generator/cmd/defaulter-gen@v$(patsubst 1.%,0.%,$(kubernetes_version))
+	$(GO_ENV) defaulter-gen \
+	  --go-header-file hack/tools/boilerplate.go.txt \
+	  --input-dirs github.com/k0sproject/k0s/$(dir $@)
 	touch -- '$@'
 
 codegen_targets += static/gen_manifests.go

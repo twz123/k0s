@@ -31,6 +31,7 @@ import (
 // APISpec defines the settings for the K0s API
 type APISpec struct {
 	// Local address on which to bind the API server. Needs to be a valid IP address.
+	// +required
 	Address string `json:"address"`
 
 	// The load balancer address (for k0s controllers running behind a load
@@ -38,7 +39,8 @@ type APISpec struct {
 	// +optional
 	ExternalAddress string `json:"externalAddress,omitempty"`
 	// TunneledNetworkingMode indicates if we access to KAS through konnectivity tunnel.
-	TunneledNetworkingMode bool `json:"tunneledNetworkingMode"`
+	// +optional
+	TunneledNetworkingMode bool `json:"tunneledNetworkingMode,omitempty"`
 	// Map of key-values (strings) for any extra arguments to pass down to
 	// Kubernetes API server process.
 	// +optional
@@ -80,12 +82,9 @@ func SetDefaults_APISpec(a *APISpec) {
 	if a.ExtraArgs == nil {
 		a.ExtraArgs = make(map[string]string)
 	}
-	if a.K0sAPIPort == 0 {
-		a.K0sAPIPort = 9443
-	}
-	if a.Port == 0 {
-		a.Port = 6443
-	}
+
+	a.K0sAPIPort = a.K0sAPIPort.Or(9443)
+	a.Port = a.Port.Or(6443)
 }
 
 // Validate validates APISpec struct

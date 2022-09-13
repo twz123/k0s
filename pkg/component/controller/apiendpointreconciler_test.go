@@ -40,7 +40,7 @@ func TestBasicReconcilerWithNoLeader(t *testing.T) {
 	fakeFactory := testutil.NewFakeClientFactory()
 
 	config := &v1beta1.ClusterConfig{
-		Spec: &v1beta1.ClusterSpec{
+		Spec: v1beta1.ClusterSpec{
 			API: &v1beta1.APISpec{
 				Address:         "1.2.3.4",
 				ExternalAddress: "get.k0s.sh",
@@ -67,7 +67,7 @@ func TestBasicReconcilerWithNoLeader(t *testing.T) {
 func TestBasicReconcilerWithNoExistingEndpoint(t *testing.T) {
 	fakeFactory := testutil.NewFakeClientFactory()
 	config := &v1beta1.ClusterConfig{
-		Spec: &v1beta1.ClusterSpec{
+		Spec: v1beta1.ClusterSpec{
 			API: &v1beta1.APISpec{
 				Address:         "1.2.3.4",
 				ExternalAddress: "get.k0s.sh",
@@ -104,7 +104,7 @@ func TestBasicReconcilerWithEmptyEndpointSubset(t *testing.T) {
 	_, err = fakeClient.CoreV1().Endpoints("default").Create(ctx, &existingEp, v1.CreateOptions{})
 	assert.NoError(t, err)
 	config := &v1beta1.ClusterConfig{
-		Spec: &v1beta1.ClusterSpec{
+		Spec: v1beta1.ClusterSpec{
 			API: &v1beta1.APISpec{
 				Address:         "1.2.3.4",
 				ExternalAddress: "get.k0s.sh",
@@ -148,7 +148,7 @@ func TestReconcilerWithNoNeedForUpdate(t *testing.T) {
 	assert.NoError(t, err)
 
 	config := &v1beta1.ClusterConfig{
-		Spec: &v1beta1.ClusterSpec{
+		Spec: v1beta1.ClusterSpec{
 			API: &v1beta1.APISpec{
 				Address:         "1.2.3.4",
 				ExternalAddress: "get.k0s.sh",
@@ -192,7 +192,7 @@ func TestReconcilerWithNeedForUpdate(t *testing.T) {
 	assert.NoError(t, err)
 
 	config := &v1beta1.ClusterConfig{
-		Spec: &v1beta1.ClusterSpec{
+		Spec: v1beta1.ClusterSpec{
 			API: &v1beta1.APISpec{
 				Address:         "1.2.3.4",
 				ExternalAddress: "get.k0s.sh",

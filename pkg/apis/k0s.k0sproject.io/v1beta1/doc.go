@@ -17,6 +17,8 @@ limitations under the License.
 // Package v1beta1 contains API Schema definitions for the v1beta1 API group.
 //
 // +k8s:deepcopy-gen=package
+// +k8s:defaulter-gen=TypeMeta
 // +kubebuilder:object:generate=true
+// +kubebuilder:validation:Optional
 // +groupName=k0s.k0sproject.io
 package v1beta1

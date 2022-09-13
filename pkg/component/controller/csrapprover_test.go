@@ -63,7 +63,7 @@ func TestBasicCRSApprover(t *testing.T) {
 	assert.NoError(t, err)
 
 	config := &v1beta1.ClusterConfig{
-		Spec: &v1beta1.ClusterSpec{
+		Spec: v1beta1.ClusterSpec{
 			API: &v1beta1.APISpec{
 				Address:         "1.2.3.4",
 				ExternalAddress: "get.k0s.sh",

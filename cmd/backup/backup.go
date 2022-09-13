@@ -83,7 +83,7 @@ func (c *CmdOpts) backup() error {
 		if err != nil {
 			return err
 		}
-		return mgr.RunBackup(c.NodeConfig.Spec, c.K0sVars, savePath)
+		return mgr.RunBackup(&c.NodeConfig.Spec, c.K0sVars, savePath)
 	}
 	return fmt.Errorf("backup command must be run on the controller node, have `%s`", status.Role)
 }

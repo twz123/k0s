@@ -48,6 +48,14 @@ type Network struct {
 // +kubebuilder:validation:Maximum=65535
 type IPPort uint16
 
+// Or returns this port or default_ if this port is zero.
+func (p IPPort) Or(default_ uint16) IPPort {
+	if p == 0 {
+		return IPPort(default_)
+	}
+	return p
+}
+
 func (p IPPort) Validate(path *field.Path) field.ErrorList {
 	allErrs := field.ErrorList{}
 	for _, detail := range validation.IsValidPortNum(int(p)) {

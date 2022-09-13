@@ -316,10 +316,13 @@ spec:
                         type: string
                       mtu:
                         default: 0
-                        description: 'MTU for overlay network (default: 0)'
+                        description: 'MTU for overlay network (default: 0, which causes
+                          Calico to detect optimal MTU during bootstrap).'
                         format: int32
+                        minimum: 0
                         type: integer
                       overlay:
+                        default: Always
                         description: Overlay Type (Always, Never or CrossSubnet)
                         enum:
                         - Always

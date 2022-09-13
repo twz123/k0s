@@ -39,17 +39,38 @@ const (
 
 // ClusterSpec defines the desired state of ClusterConfig
 type ClusterSpec struct {
-	API               *APISpec               `json:"api"`
+	// +optional
+	API *APISpec `json:"api,omitempty"`
+
+	// +optional
 	ControllerManager *ControllerManagerSpec `json:"controllerManager,omitempty"`
-	Scheduler         *SchedulerSpec         `json:"scheduler,omitempty"`
-	Storage           *StorageSpec           `json:"storage"`
-	Network           *Network               `json:"network"`
-	WorkerProfiles    WorkerProfiles         `json:"workerProfiles,omitempty"`
-	Telemetry         *ClusterTelemetry      `json:"telemetry"`
-	Install           *InstallSpec           `json:"installConfig,omitempty"`
-	Images            *ClusterImages         `json:"images"`
-	Extensions        *ClusterExtensions     `json:"extensions,omitempty"`
-	Konnectivity      *KonnectivitySpec      `json:"konnectivity,omitempty"`
+
+	// +optional
+	Scheduler *SchedulerSpec `json:"scheduler,omitempty"`
+
+	// +optional
+	Storage *StorageSpec `json:"storage,omitempty"`
+
+	// +optional
+	Network *Network `json:"network,omitempty"`
+
+	// +optional
+	WorkerProfiles WorkerProfiles `json:"workerProfiles,omitempty"`
+
+	// +optional
+	Telemetry *ClusterTelemetry `json:"telemetry,omitempty"`
+
+	// +optional
+	Install *InstallSpec `json:"installConfig,omitempty"`
+
+	// +optional
+	Images *ClusterImages `json:"images,omitempty"`
+
+	// +optional
+	Extensions *ClusterExtensions `json:"extensions,omitempty"`
+
+	// +optional
+	Konnectivity *KonnectivitySpec `json:"konnectivity,omitempty"`
 }
 
 // ClusterConfigStatus defines the observed state of ClusterConfig
@@ -58,19 +79,19 @@ type ClusterConfigStatus struct {
 	// Important: Run "make" to regenerate code after modifying this file
 }
 
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-//+kubebuilder:validation:Optional
+// ClusterConfig is the Schema for the clusterconfigs API
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:validation:Optional
 // +genclient
 // +genclient:onlyVerbs=create,delete,list,get,watch,update
-// +groupName=k0s.k0sproject.io
-
-// ClusterConfig is the Schema for the clusterconfigs API
 type ClusterConfig struct {
+	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	metav1.TypeMeta   `json:",omitempty,inline"`
 
-	Spec   *ClusterSpec        `json:"spec,omitempty"`
+	Spec ClusterSpec `json:"spec"`
+
+	// +optional
 	Status ClusterConfigStatus `json:"status,omitempty"`
 }
 
@@ -167,9 +188,6 @@ func ConfigFromString(yml string, defaultStorage ...*StorageSpec) (*ClusterConfi
 	if err != nil {
 		return config, err
 	}
-	if config.Spec == nil {
-		config.Spec = DefaultClusterSpec(defaultStorage...)
-	}
 	return config, nil
 }
 
@@ -184,14 +202,13 @@ func ConfigFromReader(r io.Reader, defaultStorage ...*StorageSpec) (*ClusterConf
 
 // DefaultClusterConfig sets the default ClusterConfig values, when none are given
 func DefaultClusterConfig(defaultStorage ...*StorageSpec) *ClusterConfig {
-	clusterSpec := DefaultClusterSpec(defaultStorage...)
 	return &ClusterConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "k0s"},
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "k0s.k0sproject.io/v1beta1",
 			Kind:       "ClusterConfig",
 		},
-		Spec: clusterSpec,
+		Spec: DefaultClusterSpec(defaultStorage...),
 	}
 }
 
@@ -204,7 +221,7 @@ func (c *ClusterConfig) UnmarshalJSON(data []byte) error {
 	// If there's already a storage configured, do not override it with default
 	// etcd config BEFORE unmarshaling
 	var storage *StorageSpec
-	if c.Spec != nil && c.Spec.Storage != nil {
+	if c.Spec.Storage != nil {
 		storage = c.Spec.Storage
 	}
 	c.Spec = DefaultClusterSpec(storage)
@@ -219,7 +236,7 @@ func (c *ClusterConfig) UnmarshalJSON(data []byte) error {
 }
 
 // DefaultClusterSpec default settings
-func DefaultClusterSpec(defaultStorage ...*StorageSpec) *ClusterSpec {
+func DefaultClusterSpec(defaultStorage ...*StorageSpec) ClusterSpec {
 	var storage *StorageSpec
 	if defaultStorage == nil || defaultStorage[0] == nil {
 		storage = DefaultStorageSpec()
@@ -227,7 +244,7 @@ func DefaultClusterSpec(defaultStorage ...*StorageSpec) *ClusterSpec {
 		storage = defaultStorage[0]
 	}
 
-	return &ClusterSpec{
+	return ClusterSpec{
 		Extensions:        DefaultExtensions(),
 		Storage:           storage,
 		Network:           DefaultNetwork(),
@@ -301,7 +318,7 @@ func (c *ClusterConfig) GetBootstrappingConfig(storageSpec *StorageSpec) *Cluste
 	return &ClusterConfig{
 		ObjectMeta: c.ObjectMeta,
 		TypeMeta:   c.TypeMeta,
-		Spec: &ClusterSpec{
+		Spec: ClusterSpec{
 			API:     c.Spec.API,
 			Storage: storageSpec,
 			Network: &Network{
@@ -325,7 +342,7 @@ func (c *ClusterConfig) GetClusterWideConfig() *ClusterConfig {
 	return &ClusterConfig{
 		ObjectMeta: c.ObjectMeta,
 		TypeMeta:   c.TypeMeta,
-		Spec: &ClusterSpec{
+		Spec: ClusterSpec{
 			ControllerManager: c.Spec.ControllerManager,
 			Scheduler:         c.Spec.Scheduler,
 			Network: &Network{

@@ -56,10 +56,7 @@ metadata:
 }
 
 func TestEmptyClusterSpec(t *testing.T) {
-	underTest := ClusterConfig{
-		Spec: &ClusterSpec{},
-	}
-
+	underTest := ClusterConfig{}
 	errs := underTest.Validate()
 	assert.Nil(t, errs)
 }
