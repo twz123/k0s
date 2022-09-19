@@ -27,7 +27,6 @@ import (
 	"testing"
 
 	"github.com/k0sproject/k0s/internal/testutil"
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/stretchr/testify/assert"
 	certv1 "k8s.io/api/certificates/v1"
 	core "k8s.io/api/core/v1"
@@ -62,15 +61,7 @@ func TestBasicCRSApprover(t *testing.T) {
 	newCsr, err := client.CertificatesV1().CertificateSigningRequests().Create(ctx, csrReq, metav1.CreateOptions{})
 	assert.NoError(t, err)
 
-	config := &v1beta1.ClusterConfig{
-		Spec: &v1beta1.ClusterSpec{
-			API: &v1beta1.APISpec{
-				Address:         "1.2.3.4",
-				ExternalAddress: "get.k0s.sh",
-			},
-		},
-	}
-	c := NewCSRApprover(config, &DummyLeaderElector{Leader: true}, fakeFactory)
+	c := NewCSRApprover(&DummyLeaderElector{Leader: true}, fakeFactory)
 
 	assert.NoError(t, c.Init(ctx))
 	assert.NoError(t, c.approveCSR(ctx))

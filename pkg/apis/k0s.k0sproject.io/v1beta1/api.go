@@ -18,11 +18,9 @@ package v1beta1
 
 import (
 	"fmt"
-	"net"
 
 	"github.com/asaskevich/govalidator"
 	"github.com/k0sproject/k0s/internal/pkg/iface"
-	"github.com/k0sproject/k0s/internal/pkg/stringslice"
 )
 
 var _ Validateable = (*APISpec)(nil)
@@ -63,58 +61,11 @@ func DefaultAPISpec() *APISpec {
 	}
 }
 
-// APIAddress ...
-func (a *APISpec) APIAddress() string {
-	if a.ExternalAddress != "" {
-		return a.ExternalAddress
-	}
-	return a.Address
-}
-
-// APIAddressURL returns kube-apiserver external URI
-func (a *APISpec) APIAddressURL() string {
-	return a.getExternalURIForPort(a.Port)
-}
-
-// IsIPv6String returns if ip is IPv6.
-func IsIPv6String(ip string) bool {
-	netIP := net.ParseIP(ip)
-	return netIP != nil && netIP.To4() == nil
-}
-
-// K0sControlPlaneAPIAddress returns the controller join APIs address
-func (a *APISpec) K0sControlPlaneAPIAddress() string {
-	return a.getExternalURIForPort(a.K0sAPIPort)
-}
-
-func (a *APISpec) getExternalURIForPort(port int) string {
-	addr := a.Address
-	if a.ExternalAddress != "" {
-		addr = a.ExternalAddress
-	}
-	if IsIPv6String(addr) {
-		return fmt.Sprintf("https://[%s]:%d", addr, port)
-	}
-	return fmt.Sprintf("https://%s:%d", addr, port)
-}
-
-// Sans return the given SANS plus all local adresses and externalAddress if given
-func (a *APISpec) Sans() []string {
-	sans, _ := iface.AllAddresses()
-	sans = append(sans, a.Address)
-	sans = append(sans, a.SANs...)
-	if a.ExternalAddress != "" {
-		sans = append(sans, a.ExternalAddress)
-	}
-
-	return stringslice.Unique(sans)
-}
-
 // Validate validates APISpec struct
 func (a *APISpec) Validate() []error {
 	var errors []error
 
-	for _, a := range a.Sans() {
+	for _, a := range a.SANs {
 		if govalidator.IsIP(a) {
 			continue
 		}
@@ -125,7 +76,7 @@ func (a *APISpec) Validate() []error {
 	}
 
 	if !govalidator.IsIP(a.Address) {
-		errors = append(errors, fmt.Errorf("spec.api.address: %q is not IP address", a.Address))
+		errors = append(errors, fmt.Errorf("spec.api.address: %q is not an IP address", a.Address))
 	}
 
 	return errors

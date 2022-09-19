@@ -18,14 +18,15 @@ package install
 
 import (
 	"fmt"
-	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 	"os"
 	"path/filepath"
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/install"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 var (
@@ -33,7 +34,7 @@ var (
 	envVars []string
 )
 
-type CmdOpts config.CLIOptions
+type installCmd struct{ config.CLIOptions }
 
 func NewInstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -60,13 +61,17 @@ func getInstallFlags() *pflag.FlagSet {
 // the setup functions:
 // * Ensures that the proper users are created
 // * sets up startup and logging for k0s
-func (c *CmdOpts) setup(role string, args []string, envVars []string, force bool) error {
+func (c *installCmd) setup(role string, args []string, envVars []string, force bool) error {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("this command must be run as root")
 	}
 
 	if role == "controller" {
-		if err := install.CreateControllerUsers(c.NodeConfig, c.K0sVars); err != nil {
+		spec, err := c.LoadControlPlaneSpec()
+		if err != nil {
+			return err
+		}
+		if err := install.CreateControllerUsers(&spec.Install, c.K0sVars.DataDir); err != nil {
 			return fmt.Errorf("failed to create controller users: %v", err)
 		}
 	}
@@ -79,7 +84,7 @@ func (c *CmdOpts) setup(role string, args []string, envVars []string, force bool
 
 // this command converts the file paths in the Cmd Opts struct to Absolute Paths
 // for flags passed to service init file, see the cmdFlagsToArgs func
-func (c *CmdOpts) convertFileParamsToAbsolute() (err error) {
+func (c *installCmd) convertFileParamsToAbsolute() (err error) {
 	// don't convert if cfgFile is empty
 
 	if c.CfgFile != "" {

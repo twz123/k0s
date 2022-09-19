@@ -23,8 +23,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/component"
+	"github.com/k0sproject/k0s/pkg/config"
 
 	"github.com/sirupsen/logrus"
 
@@ -37,7 +37,7 @@ import (
 
 // Kine implement the component interface to run kine
 type Kine struct {
-	Config     *v1beta1.KineConfig
+	Config     config.KineSpec
 	gid        int
 	K0sVars    constant.CfgVars
 	supervisor supervisor.Supervisor

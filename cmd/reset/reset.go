@@ -29,7 +29,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/install"
 )
 
-type CmdOpts config.CLIOptions
+type resetCmd struct{ config.CLIOptions }
 
 func NewResetCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -39,12 +39,8 @@ func NewResetCmd() *cobra.Command {
 			if runtime.GOOS == "windows" {
 				return fmt.Errorf("currently not supported on windows")
 			}
-			c := CmdOpts(config.GetCmdOpts())
+			c := resetCmd{config.GetCmdOpts()}
 			return c.reset()
-		},
-		PreRunE: func(c *cobra.Command, args []string) error {
-			cmdOpts := CmdOpts(config.GetCmdOpts())
-			return config.PreRunValidateConfig(cmdOpts.K0sVars)
 		},
 	}
 	cmd.SilenceUsage = true
@@ -54,7 +50,7 @@ func NewResetCmd() *cobra.Command {
 	return cmd
 }
 
-func (c *CmdOpts) reset() error {
+func (c *resetCmd) reset() error {
 	if os.Geteuid() != 0 {
 		logrus.Fatal("this command must be run as root!")
 	}

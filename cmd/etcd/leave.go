@@ -19,6 +19,8 @@ package etcd
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/etcd"
@@ -26,50 +28,64 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var etcdPeerAddress string
-
 func etcdLeaveCmd() *cobra.Command {
+	var peerAddress string
+	var peerURL string
+
 	cmd := &cobra.Command{
 		Use:   "leave",
 		Short: "Sign off a given etc node from etcd cluster",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c := CmdOpts(config.GetCmdOpts())
-			ctx := context.Background()
-			if etcdPeerAddress == "" {
-				etcdPeerAddress = c.NodeConfig.Spec.Storage.Etcd.PeerAddress
-			}
-			if etcdPeerAddress == "" {
-				return fmt.Errorf("can't leave etcd cluster: peer address is empty, check the config file or use cli argument")
-			}
-
-			peerURL := fmt.Sprintf("https://%s:2380", etcdPeerAddress)
-			etcdClient, err := etcd.NewClient(c.K0sVars.CertRootDir, c.K0sVars.EtcdCertDir, c.NodeConfig.Spec.Storage.Etcd)
+			c := config.GetCmdOpts()
+			spec, err := c.LoadControlPlaneSpec()
 			if err != nil {
-				return fmt.Errorf("can't connect to the etcd: %v", err)
+				return err
 			}
 
+			if spec.Storage.Type != config.EtcdStorageType {
+				return fmt.Errorf("wrong storage type %q", spec.Storage.Type)
+			}
+
+			if peerURL == "" {
+				if peerAddress != "" {
+					peerURL = (&url.URL{Scheme: "https", Host: net.JoinHostPort(peerAddress, "2380")}).String()
+					logrus.Warnf("The flag --peer-address=%q is deprecated in favor of --peer-url=%q", peerAddress, peerURL)
+				} else {
+					peerURL = spec.Storage.Etcd.PeerURL().String()
+				}
+			}
+			if peerURL == "" {
+				return fmt.Errorf("can't leave etcd cluster: no peer URL, check the config file or use CLI argument")
+			}
+
+			ctx := context.Background()
+
+			etcdClient, err := etcd.ConfigFromSpec(&c.K0sVars, &spec.Storage).NewClient()
+			if err != nil {
+				return err
+			}
+
+			log := logrus.WithField("peerURL", peerURL)
 			peerID, err := etcdClient.GetPeerIDByAddress(ctx, peerURL)
 			if err != nil {
-				logrus.WithField("peerURL", peerURL).Errorf("Failed to get peer name")
+				log.WithError(err).Error("Failed to get peer ID")
 				return err
 			}
+
+			log = log.WithField("peerID", peerID)
 
 			if err := etcdClient.DeleteMember(ctx, peerID); err != nil {
-				logrus.
-					WithField("peerURL", peerURL).
-					WithField("peerID", peerID).
-					Errorf("Failed to delete node from cluster")
+				log.WithError(err).Error("Failed to delete member")
 				return err
 			}
 
-			logrus.
-				WithField("peerID", peerID).
-				Info("Successfully deleted")
+			log.Info("Member successfully deleted")
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVar(&etcdPeerAddress, "peer-address", "", "etcd peer address")
+	cmd.Flags().StringVar(&peerURL, "peer-url", "", `etcd peer URL (e.g. "https://127.0.0.1:2380")`)
+	cmd.Flags().StringVar(&peerAddress, "peer-address", "", "etcd peer address (deprecated; use --peer-url instead)")
 	cmd.PersistentFlags().AddFlagSet(config.GetPersistentFlagSet())
 	return cmd
 }

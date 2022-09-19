@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -34,12 +35,9 @@ import (
 
 // KubeProxy is the component implementation to manage kube-proxy
 type KubeProxy struct {
-	log logrus.FieldLogger
-
-	nodeConf    *v1beta1.ClusterConfig
-	K0sVars     constant.CfgVars
-	manifestDir string
-
+	log            logrus.FieldLogger
+	apiServerURL   url.URL
+	manifestDir    string
 	previousConfig proxyConfig
 }
 
@@ -47,13 +45,11 @@ var _ component.Component = (*KubeProxy)(nil)
 var _ component.Reconciler = (*KubeProxy)(nil)
 
 // NewKubeProxy creates new KubeProxy component
-func NewKubeProxy(k0sVars constant.CfgVars, nodeConfig *v1beta1.ClusterConfig) *KubeProxy {
+func NewKubeProxy(k0sVars *constant.CfgVars, apiServerURL url.URL) *KubeProxy {
 	return &KubeProxy{
-		log: logrus.WithFields(logrus.Fields{"component": "kubeproxy"}),
-
-		nodeConf:    nodeConfig,
-		K0sVars:     k0sVars,
-		manifestDir: path.Join(k0sVars.ManifestsDir, "kubeproxy"),
+		log:          logrus.WithFields(logrus.Fields{"component": "kubeproxy"}),
+		apiServerURL: apiServerURL,
+		manifestDir:  path.Join(k0sVars.ManifestsDir, "kubeproxy"),
 	}
 }
 
@@ -74,10 +70,15 @@ func (k *KubeProxy) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterC
 	if err != nil {
 		return err
 	}
-	cfg, err := k.getConfig(clusterConfig)
-	if err != nil {
-		return err
+
+	cfg := proxyConfig{
+		ClusterCIDR:  clusterConfig.Spec.Network.BuildPodCIDR(),
+		APIServerURL: k.apiServerURL.String(),
+		Image:        clusterConfig.Spec.Images.KubeProxy.URI(),
+		PullPolicy:   clusterConfig.Spec.Images.DefaultPullPolicy,
+		Mode:         clusterConfig.Spec.Network.KubeProxy.Mode,
 	}
+
 	if cfg == k.previousConfig {
 		k.log.Infof("current cfg matches existing, not gonna do anything")
 		return nil
@@ -97,31 +98,17 @@ func (k *KubeProxy) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterC
 	return nil
 }
 
-// Stop stop the reconcilier
+// Stop stop the reconciler
 func (k *KubeProxy) Stop() error {
 	return nil
 }
 
-func (k *KubeProxy) getConfig(clusterConfig *v1beta1.ClusterConfig) (proxyConfig, error) {
-	cfg := proxyConfig{
-		ClusterCIDR:          clusterConfig.Spec.Network.BuildPodCIDR(),
-		ControlPlaneEndpoint: clusterConfig.Spec.API.APIAddressURL(),
-		Image:                clusterConfig.Spec.Images.KubeProxy.URI(),
-		PullPolicy:           clusterConfig.Spec.Images.DefaultPullPolicy,
-		DualStack:            clusterConfig.Spec.Network.DualStack.Enabled,
-		Mode:                 clusterConfig.Spec.Network.KubeProxy.Mode,
-	}
-
-	return cfg, nil
-}
-
 type proxyConfig struct {
-	DualStack            bool
-	ControlPlaneEndpoint string
-	ClusterCIDR          string
-	Image                string
-	PullPolicy           string
-	Mode                 string
+	APIServerURL string
+	ClusterCIDR  string
+	Image        string
+	PullPolicy   string
+	Mode         string
 }
 
 const proxyTemplate = `
@@ -192,7 +179,7 @@ data:
     clusters:
     - cluster:
         certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-        server: {{ .ControlPlaneEndpoint }}
+        server: {{ .APIServerURL }}
       name: default
     contexts:
     - context:

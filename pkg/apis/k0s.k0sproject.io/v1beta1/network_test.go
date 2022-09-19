@@ -26,63 +26,6 @@ type NetworkSuite struct {
 	suite.Suite
 }
 
-func (s *NetworkSuite) TestAddresses() {
-	s.T().Run("DNS_default_service_cidr", func(t *testing.T) {
-		n := DefaultNetwork()
-		dns, err := n.DNSAddress()
-		s.NoError(err)
-		s.Equal("10.96.0.10", dns)
-	})
-	s.T().Run("DNS_uses_non_default_service_cidr", func(t *testing.T) {
-		n := DefaultNetwork()
-		n.ServiceCIDR = "10.96.0.248/29"
-		dns, err := n.DNSAddress()
-		s.NoError(err)
-		s.Equal("10.96.0.250", dns)
-	})
-	s.T().Run("Internal_api_address_default", func(t *testing.T) {
-		n := DefaultNetwork()
-		api, err := n.InternalAPIAddresses()
-		s.NoError(err)
-		s.Equal([]string{"10.96.0.1"}, api)
-	})
-	s.T().Run("Internal_api_address_non_default_single_stack", func(t *testing.T) {
-		n := DefaultNetwork()
-		n.ServiceCIDR = "10.96.0.248/29"
-		api, err := n.InternalAPIAddresses()
-		s.NoError(err)
-		s.Equal([]string{"10.96.0.249"}, api)
-	})
-	s.T().Run("Internal_api_address_non_default_dual_stack", func(t *testing.T) {
-		n := DefaultNetwork()
-		n.ServiceCIDR = "10.96.0.248/29"
-		n.DualStack.Enabled = true
-		n.DualStack.IPv6ServiceCIDR = "fd00::/108"
-		api, err := n.InternalAPIAddresses()
-		s.NoError(err)
-		s.Equal([]string{"10.96.0.249", "fd00::1"}, api)
-	})
-
-	s.T().Run("BuildServiceCIDR ordering", func(t *testing.T) {
-		t.Run("single_stack_default", func(t *testing.T) {
-			n := DefaultNetwork()
-			s.Equal(n.ServiceCIDR, n.BuildServiceCIDR("10.96.0.249"))
-		})
-		t.Run("dual_stack_api_listens_on_ipv4", func(t *testing.T) {
-			n := DefaultNetwork()
-			n.DualStack.Enabled = true
-			n.DualStack.IPv6ServiceCIDR = "fd00::/108"
-			s.Equal(n.ServiceCIDR+","+n.DualStack.IPv6ServiceCIDR, n.BuildServiceCIDR("10.96.0.249"))
-		})
-		t.Run("dual_stack_api_listens_on_ipv6", func(t *testing.T) {
-			n := DefaultNetwork()
-			n.DualStack.Enabled = true
-			n.DualStack.IPv6ServiceCIDR = "fd00::/108"
-			s.Equal(n.DualStack.IPv6ServiceCIDR+","+n.ServiceCIDR, n.BuildServiceCIDR("fe80::cf8:3cff:fef2:c5ca"))
-		})
-	})
-}
-
 func (s *NetworkSuite) TestDomainMarshaling() {
 	yamlData := `
 spec:

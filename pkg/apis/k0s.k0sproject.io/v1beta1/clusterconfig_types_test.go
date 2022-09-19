@@ -132,41 +132,6 @@ spec:
 	assert.Equal(t, "unsupported network provider: invalidProvider", errors[0].Error())
 }
 
-func TestApiExternalAddress(t *testing.T) {
-	yamlData := `
-apiVersion: k0s.k0sproject.io/v1beta1
-kind: ClusterConfig
-metadata:
-  name: foobar
-spec:
-  api:
-    externalAddress: foo.bar.com
-    address: 1.2.3.4
-`
-
-	c, err := ConfigFromString(yamlData)
-	assert.NoError(t, err)
-	assert.Equal(t, "https://foo.bar.com:6443", c.Spec.API.APIAddressURL())
-	assert.Equal(t, "https://foo.bar.com:9443", c.Spec.API.K0sControlPlaneAPIAddress())
-}
-
-func TestApiNoExternalAddress(t *testing.T) {
-	yamlData := `
-apiVersion: k0s.k0sproject.io/v1beta1
-kind: ClusterConfig
-metadata:
-  name: foobar
-spec:
-  api:
-    address: 1.2.3.4
-`
-
-	c, err := ConfigFromString(yamlData)
-	assert.NoError(t, err)
-	assert.Equal(t, "https://1.2.3.4:6443", c.Spec.API.APIAddressURL())
-	assert.Equal(t, "https://1.2.3.4:9443", c.Spec.API.K0sControlPlaneAPIAddress())
-}
-
 func TestNullValues(t *testing.T) {
 	yamlData := `
 apiVersion: k0s.k0sproject.io/v1beta1

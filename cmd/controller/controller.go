@@ -54,7 +54,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/token"
 )
 
-type CmdOpts config.CLIOptions
+type controllerCmd struct{ config.CLIOptions }
 
 var ignorePreFlightChecks bool
 
@@ -71,7 +71,7 @@ func NewControllerCmd() *cobra.Command {
 	$ k0s controller --token-file [path_to_file]
 	Note: Token can be passed either as a CLI argument or as a flag`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c := CmdOpts(config.GetCmdOpts())
+			c := controllerCmd{config.GetCmdOpts()}
 
 			logrus.SetOutput(os.Stdout)
 			if !c.Debug {
@@ -123,7 +123,12 @@ func NewControllerCmd() *cobra.Command {
 	return cmd
 }
 
-func (c *CmdOpts) startController(ctx context.Context) error {
+func (c *controllerCmd) startController(ctx context.Context) error {
+	controlPlane, err := c.LoadControlPlaneSpec()
+	if err != nil {
+		return err
+	}
+
 	c.NodeComponents = component.NewManager()
 	c.ClusterComponents = component.NewManager()
 
@@ -150,10 +155,9 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 	// from now on, we only refer to the runtime config
 	c.CfgFile = loadingRules.RuntimeConfigPath
 
-	certificateManager := certificate.Manager{K0sVars: c.K0sVars}
+	certificateManager := certificate.NewManager(c.K0sVars.CertRootDir)
 
 	var joinClient *token.JoinClient
-	var err error
 
 	if c.TokenArg != "" && c.needToJoin() {
 		joinClient, err = joinController(ctx, c.TokenArg, c.K0sVars.CertRootDir)
@@ -162,50 +166,53 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 		}
 	}
 
-	logrus.Infof("using api address: %s", c.NodeConfig.Spec.API.Address)
-	logrus.Infof("using listen port: %d", c.NodeConfig.Spec.API.Port)
-	logrus.Infof("using sans: %s", c.NodeConfig.Spec.API.SANs)
-	dnsAddress, err := c.NodeConfig.Spec.Network.DNSAddress()
+	logrus.Info("Binding API server to ", &controlPlane.APIServer.BindAddress)
+	logrus.Info("Using SANs ", controlPlane.APIServer.AdditionalSANs)
+	clusterDNS, err := controlPlane.Network.DNSAddress()
 	if err != nil {
 		return err
 	}
-	logrus.Infof("DNS address: %s", dnsAddress)
-	var storageBackend component.Component
+	logrus.Info("Using Cluster DNS ", clusterDNS)
 
-	switch c.NodeConfig.Spec.Storage.Type {
-	case v1beta1.KineStorageType:
-		storageBackend = &controller.Kine{
-			Config:  c.NodeConfig.Spec.Storage.Kine,
+	switch controlPlane.Storage.Type {
+	case config.KineStorageType:
+		logrus.Info("Using managed Kine")
+		c.NodeComponents.Add(ctx, &controller.Kine{
+			Config:  *controlPlane.Storage.Kine,
 			K0sVars: c.K0sVars,
-		}
-	case v1beta1.EtcdStorageType:
-		storageBackend = &controller.Etcd{
-			CertManager: certificateManager,
-			Config:      c.NodeConfig.Spec.Storage.Etcd,
-			JoinClient:  joinClient,
+		})
+	case config.EtcdStorageType:
+		logrus.Info("Using managed etcd")
+		c.NodeComponents.Add(ctx, &controller.Etcd{
 			K0sVars:     c.K0sVars,
+			Spec:        *controlPlane.Storage.Etcd,
+			CertManager: certificateManager,
+			JoinClient:  joinClient,
 			LogLevel:    c.Logging["etcd"],
-		}
+		})
+
+	case config.ExternalEtcdStorageType:
+		logrus.Info("Using external etcd")
+		c.NodeComponents.Add(ctx, &controller.ExternalEtcd{
+			Spec: *controlPlane.Storage.ExternalEtcd,
+		})
+
 	default:
-		return fmt.Errorf("invalid storage type: %s", c.NodeConfig.Spec.Storage.Type)
+		return fmt.Errorf("invalid storage type: %q", controlPlane.Storage.Type)
 	}
-	logrus.Infof("using storage backend %s", c.NodeConfig.Spec.Storage.Type)
-	c.NodeComponents.Add(ctx, storageBackend)
 
 	// common factory to get the admin kube client that's needed in many components
 	adminClientFactory := kubernetes.NewAdminClientFactory(c.K0sVars)
 	enableKonnectivity := !c.SingleNode && !slices.Contains(c.DisableComponents, constant.KonnectivityServerComponentName)
 	c.NodeComponents.Add(ctx, &controller.APIServer{
-		ClusterConfig:      c.NodeConfig,
 		K0sVars:            c.K0sVars,
+		ControlPlane:       *controlPlane,
 		LogLevel:           c.Logging["kube-apiserver"],
-		Storage:            storageBackend,
 		EnableKonnectivity: enableKonnectivity,
 	})
 
 	if !c.SingleNode {
 		c.NodeComponents.Add(ctx, &controller.K0sControllersLeaseCounter{
-			ClusterConfig:     c.NodeConfig,
 			KubeClientFactory: adminClientFactory,
 		})
 	}
@@ -237,9 +244,7 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 	}
 
 	if !slices.Contains(c.DisableComponents, constant.CsrApproverComponentName) {
-		c.NodeComponents.Add(ctx, controller.NewCSRApprover(c.NodeConfig,
-			leaderElector,
-			adminClientFactory))
+		c.NodeComponents.Add(ctx, controller.NewCSRApprover(leaderElector, adminClientFactory))
 	}
 
 	if c.EnableK0sCloudProvider {
@@ -254,14 +259,14 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 	}
 	c.NodeComponents.Add(ctx, &status.Status{
 		StatusInformation: install.K0sStatus{
-			Pid:           os.Getpid(),
-			Role:          "controller",
-			Args:          os.Args,
-			Version:       build.Version,
-			Workloads:     c.SingleNode || c.EnableWorker,
-			SingleNode:    c.SingleNode,
-			K0sVars:       c.K0sVars,
-			ClusterConfig: c.NodeConfig,
+			Pid:          os.Getpid(),
+			Role:         "controller",
+			Args:         os.Args,
+			Version:      build.Version,
+			Workloads:    c.SingleNode || c.EnableWorker,
+			SingleNode:   c.SingleNode,
+			ControlPlane: controlPlane,
+			RunDir:       c.K0sVars.RunDir,
 		},
 		Socket:      config.StatusSocket,
 		CertManager: worker.NewCertificateManager(ctx, c.K0sVars.KubeletAuthConfigPath),
@@ -269,9 +274,9 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 
 	perfTimer.Checkpoint("starting-certificates-init")
 	certs := &Certificates{
-		ClusterSpec: c.NodeConfig.Spec,
-		CertManager: certificateManager,
-		K0sVars:     c.K0sVars,
+		K0sVars:      c.K0sVars,
+		ControlPlane: controlPlane,
+		CertManager:  certificateManager,
 	}
 	if err := certs.Init(ctx); err != nil {
 		return err
@@ -306,7 +311,11 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 	if c.EnableDynamicConfig {
 		configSource, err = clusterconfig.NewAPIConfigSource(adminClientFactory)
 	} else {
-		configSource, err = clusterconfig.NewStaticSource(c.ClusterConfig)
+		clusterConfig, cErr := c.LoadClusterConfig()
+		if cErr != nil {
+			return cErr
+		}
+		configSource, err = clusterconfig.NewStaticSource(clusterConfig)
 	}
 	if err != nil {
 		return err
@@ -358,14 +367,14 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 		c.ClusterComponents.Add(ctx, controller.NewCRD(manifestsSaver, []string{"autopilot"}))
 	}
 
-	if c.NodeConfig.Spec.API.TunneledNetworkingMode {
+	if controlPlane.APIServer.TunneledNetworkingMode {
 		c.ClusterComponents.Add(ctx, controller.NewTunneledEndpointReconciler(
 			leaderElector,
 			adminClientFactory,
 		))
 	}
 
-	if c.NodeConfig.Spec.API.ExternalAddress != "" && !c.NodeConfig.Spec.API.TunneledNetworkingMode {
+	if controlPlane.APIServer.ExternalAddress != "" && !controlPlane.APIServer.TunneledNetworkingMode {
 		c.ClusterComponents.Add(ctx, controller.NewEndpointReconciler(
 			leaderElector,
 			adminClientFactory,
@@ -373,11 +382,11 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 	}
 
 	if !slices.Contains(c.DisableComponents, constant.KubeProxyComponentName) {
-		c.ClusterComponents.Add(ctx, controller.NewKubeProxy(c.K0sVars, c.NodeConfig))
+		c.ClusterComponents.Add(ctx, controller.NewKubeProxy(&c.K0sVars, *controlPlane.APIServer.URL()))
 	}
 
 	if !slices.Contains(c.DisableComponents, constant.CoreDNSComponentname) {
-		coreDNS, err := controller.NewCoreDNS(c.K0sVars, adminClientFactory)
+		coreDNS, err := controller.NewCoreDNS(clusterDNS, &c.K0sVars, adminClientFactory)
 		if err != nil {
 			return fmt.Errorf("failed to create CoreDNS reconciler: %w", err)
 		}
@@ -421,7 +430,11 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 	}
 
 	if !slices.Contains(c.DisableComponents, constant.KubeletConfigComponentName) {
-		c.ClusterComponents.Add(ctx, controller.NewKubeletConfig(c.K0sVars, adminClientFactory))
+		kubeletConfig, err := controller.NewKubeletConfig(&c.K0sVars, &controlPlane.Network, adminClientFactory)
+		if err != nil {
+			return err
+		}
+		c.ClusterComponents.Add(ctx, kubeletConfig)
 	}
 
 	if !slices.Contains(c.DisableComponents, constant.SystemRbacComponentName) {
@@ -434,11 +447,11 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 
 	if enableKonnectivity {
 		c.ClusterComponents.Add(ctx, &controller.Konnectivity{
+			K0sVars:           c.K0sVars,
+			APIServer:         controlPlane.APIServer,
 			SingleNode:        c.SingleNode,
 			LogLevel:          c.Logging[constant.KonnectivityServerComponentName],
-			K0sVars:           c.K0sVars,
 			KubeClientFactory: adminClientFactory,
-			NodeConfig:        c.NodeConfig,
 		})
 	}
 
@@ -452,10 +465,11 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 
 	if !slices.Contains(c.DisableComponents, constant.KubeControllerManagerComponentName) {
 		c.ClusterComponents.Add(ctx, &controller.Manager{
-			LogLevel:   c.Logging[constant.KubeControllerManagerComponentName],
-			K0sVars:    c.K0sVars,
-			SingleNode: c.SingleNode,
-			ExtraArgs:  c.KubeControllerManagerExtraArgs,
+			K0sVars:      c.K0sVars,
+			ServiceCIDRs: controlPlane.Network.ServiceCIDRs,
+			SingleNode:   c.SingleNode,
+			LogLevel:     c.Logging[constant.KubeControllerManagerComponentName],
+			ExtraArgs:    c.KubeControllerManagerExtraArgs,
 		})
 	}
 
@@ -498,7 +512,7 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 	if c.EnableWorker {
 		perfTimer.Checkpoint("starting-worker")
 
-		if err := c.startControllerWorker(ctx, c.WorkerProfile); err != nil {
+		if err := c.startControllerWorker(ctx, controlPlane); err != nil {
 			logrus.WithError(err).Error("Failed to start controller worker")
 		} else {
 			perfTimer.Checkpoint("started-worker")
@@ -516,7 +530,7 @@ func (c *CmdOpts) startController(ctx context.Context) error {
 	return os.Remove(c.CfgFile)
 }
 
-func (c *CmdOpts) startControllerWorker(ctx context.Context, profile string) error {
+func (c *controllerCmd) startControllerWorker(ctx context.Context, controlPlane *config.ControlPlaneSpec) error {
 	var bootstrapConfig string
 	if !file.Exists(c.K0sVars.KubeletAuthConfigPath) {
 		// wait for controller to start up
@@ -535,7 +549,7 @@ func (c *CmdOpts) startControllerWorker(ctx context.Context, profile string) err
 			// we use retry.Do with 10 attempts, back-off delay and delay duration 500 ms which gives us
 			// 225 seconds here
 			tokenAge := time.Second * 225
-			cfg, err := token.CreateKubeletBootstrapToken(ctx, c.NodeConfig.Spec.API, c.K0sVars, token.RoleWorker, tokenAge)
+			cfg, err := token.CreateKubeletBootstrapToken(ctx, controlPlane, c.K0sVars, token.RoleWorker, tokenAge)
 			if err != nil {
 				return err
 			}
@@ -546,13 +560,10 @@ func (c *CmdOpts) startControllerWorker(ctx context.Context, profile string) err
 			return err
 		}
 	}
-	// cast and make a copy of the controller cmdOpts
-	// so we can use the same opts to start the worker
-	// Needs to be a copy so we don't mess up the original
-	// token and possibly other args
-	workerCmdOpts := *(*workercmd.CmdOpts)(c)
+
+	workerCmdOpts := (workercmd.CmdOpts)(c.CLIOptions)
 	workerCmdOpts.TokenArg = bootstrapConfig
-	workerCmdOpts.WorkerProfile = profile
+	workerCmdOpts.WorkerProfile = c.WorkerProfile
 	workerCmdOpts.Labels = append(workerCmdOpts.Labels, fmt.Sprintf("%s=control-plane", constant.K0SNodeRoleLabel))
 	if !c.SingleNode && !c.NoTaints {
 		workerCmdOpts.Taints = append(workerCmdOpts.Taints, fmt.Sprintf("%s/master=:NoSchedule", constant.NodeRoleLabelNamespace))
@@ -561,7 +572,7 @@ func (c *CmdOpts) startControllerWorker(ctx context.Context, profile string) err
 }
 
 // If we've got CA in place we assume the node has already joined previously
-func (c *CmdOpts) needToJoin() bool {
+func (c *controllerCmd) needToJoin() bool {
 	if file.Exists(filepath.Join(c.K0sVars.CertRootDir, "ca.key")) &&
 		file.Exists(filepath.Join(c.K0sVars.CertRootDir, "ca.crt")) {
 		return false

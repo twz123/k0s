@@ -44,13 +44,13 @@ func (s *APISuite) TestValidation() {
 
 	s.T().Run("invalid_api_address", func(t *testing.T) {
 		a := APISpec{
-			Address: "somehting.that.is.not.valid//(())",
+			Address: "something.that.is.not.valid//(())",
 		}
 
 		errors := a.Validate()
-		s.NotNil(errors)
-		s.Len(errors, 2)
-		s.Contains(errors[0].Error(), "is not a valid address for sans")
+		if s.Len(errors, 1, "expected a single error") {
+			s.Contains(errors[0].Error(), `spec.api.address: "something.that.is.not.valid//(())" is not an IP address`)
+		}
 	})
 
 	s.T().Run("invalid_sans_address", func(t *testing.T) {

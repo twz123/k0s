@@ -25,16 +25,18 @@ import (
 	"github.com/k0sproject/k0s/pkg/config"
 )
 
-type CmdOpts config.CLIOptions
-
 func NewAirgapListImagesCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "list-images",
 		Short:   "List image names and version needed for air-gap install",
 		Example: `k0s airgap list-images`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c := CmdOpts(config.GetCmdOpts())
-			uris := airgap.GetImageURIs(c.ClusterConfig.Spec.Images)
+			c := config.GetCmdOpts()
+			clusterConfig, err := c.LoadClusterConfig()
+			if err != nil {
+				return err
+			}
+			uris := airgap.GetImageURIs(clusterConfig.Spec.Images)
 			for _, uri := range uris {
 				fmt.Println(uri)
 			}

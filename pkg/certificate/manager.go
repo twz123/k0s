@@ -58,13 +58,21 @@ type Certificate struct {
 
 // Manager is the certificate manager
 type Manager struct {
-	K0sVars constant.CfgVars
+	rootDir string
+}
+
+func NewManager(rootDir string) Manager {
+	return Manager{rootDir}
+}
+
+func (m *Manager) Path(elems ...string) string {
+	return filepath.Join(append([]string{m.rootDir}, elems...)...)
 }
 
 // EnsureCA makes sure the given CA certs and key is created.
 func (m *Manager) EnsureCA(name, cn string) error {
-	keyFile := filepath.Join(m.K0sVars.CertRootDir, fmt.Sprintf("%s.key", name))
-	certFile := filepath.Join(m.K0sVars.CertRootDir, fmt.Sprintf("%s.crt", name))
+	keyFile := m.Path(fmt.Sprintf("%s.key", name))
+	certFile := m.Path(fmt.Sprintf("%s.crt", name))
 
 	if file.Exists(keyFile) && file.Exists(certFile) {
 		return nil
@@ -99,8 +107,8 @@ func (m *Manager) EnsureCA(name, cn string) error {
 // EnsureCertificate creates the specified certificate if it does not already exist
 func (m *Manager) EnsureCertificate(certReq Request, ownerName string) (Certificate, error) {
 
-	keyFile := filepath.Join(m.K0sVars.CertRootDir, fmt.Sprintf("%s.key", certReq.Name))
-	certFile := filepath.Join(m.K0sVars.CertRootDir, fmt.Sprintf("%s.crt", certReq.Name))
+	keyFile := m.Path(fmt.Sprintf("%s.key", certReq.Name))
+	certFile := m.Path(fmt.Sprintf("%s.crt", certReq.Name))
 
 	uid, _ := users.GetUID(ownerName)
 
@@ -227,9 +235,9 @@ func isManagedByK0s(cert *certinfo.Certificate) bool {
 	return false
 }
 
-func (m *Manager) CreateKeyPair(name string, k0sVars constant.CfgVars, owner string) error {
-	keyFile := filepath.Join(k0sVars.CertRootDir, fmt.Sprintf("%s.key", name))
-	pubFile := filepath.Join(k0sVars.CertRootDir, fmt.Sprintf("%s.pub", name))
+func (m *Manager) CreateKeyPair(name string, owner string) error {
+	keyFile := m.Path(fmt.Sprintf("%s.key", name))
+	pubFile := m.Path(fmt.Sprintf("%s.pub", name))
 
 	if file.Exists(keyFile) && file.Exists(pubFile) {
 		return file.Chown(keyFile, owner, constant.CertSecureMode)

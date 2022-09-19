@@ -64,13 +64,17 @@ k0s token create --role worker --expiry 10m  //sets expiration time to 10 minute
 				if statusInfo == nil {
 					return errors.New("k0s is not running")
 				}
+				if statusInfo.ControlPlane == nil {
+					return errors.New("no control plane configuration available (this command can only be invoked on controller nodes)")
+				}
 				if err = ensureTokenCreationAcceptable(statusInfo); err != nil {
 					waitCreate = false
 					cmd.SilenceUsage = true
 					return err
 				}
 
-				bootstrapConfig, err = token.CreateKubeletBootstrapToken(cmd.Context(), c.NodeConfig.Spec.API, c.K0sVars, createTokenRole, expiry)
+				// FIXME check what happens if this is called from worker nodes.
+				bootstrapConfig, err = token.CreateKubeletBootstrapToken(cmd.Context(), statusInfo.ControlPlane, c.K0sVars, createTokenRole, expiry)
 				return err
 			})
 			if err != nil {
@@ -93,7 +97,7 @@ func ensureTokenCreationAcceptable(statusInfo *install.K0sStatus) error {
 	if statusInfo.SingleNode {
 		return errors.New("refusing to create token: cannot join into a single node cluster")
 	}
-	if createTokenRole == token.RoleController && !statusInfo.ClusterConfig.Spec.Storage.IsJoinable() {
+	if createTokenRole == token.RoleController && !statusInfo.ControlPlane.Storage.IsJoinable() {
 		return errors.New("refusing to create token: cannot join controller into current storage")
 	}
 

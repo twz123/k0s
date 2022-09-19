@@ -31,7 +31,7 @@ All default values of worker command will be passed to the service stub unless o
 
 Windows flags like "--api-server", "--cidr-range" and "--cluster-dns" will be ignored since install command doesn't yet support Windows services`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c := CmdOpts(config.GetCmdOpts())
+			c := installCmd{config.GetCmdOpts()}
 			if err := c.convertFileParamsToAbsolute(); err != nil {
 				cmd.SilenceUsage = true
 				return err

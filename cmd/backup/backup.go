@@ -33,8 +33,6 @@ import (
 	"github.com/k0sproject/k0s/pkg/install"
 )
 
-type CmdOpts config.CLIOptions
-
 var savePath string
 
 func NewBackupCmd() *cobra.Command {
@@ -42,15 +40,7 @@ func NewBackupCmd() *cobra.Command {
 		Use:   "backup",
 		Short: "Back-Up k0s configuration. Must be run as root (or with sudo)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c := CmdOpts(config.GetCmdOpts())
-			if c.NodeConfig.Spec.Storage.Etcd.IsExternalClusterUsed() {
-				return fmt.Errorf("command 'k0s backup' does not support external etcd cluster")
-			}
-			return c.backup()
-		},
-		PreRunE: func(c *cobra.Command, args []string) error {
-			cmdOpts := CmdOpts(config.GetCmdOpts())
-			return config.PreRunValidateConfig(cmdOpts.K0sVars)
+			return runBackup()
 		},
 	}
 	cmd.Flags().StringVar(&savePath, "save-path", "", "destination directory path for backup assets, use '-' for stdout")
@@ -59,7 +49,9 @@ func NewBackupCmd() *cobra.Command {
 	return cmd
 }
 
-func (c *CmdOpts) backup() error {
+func runBackup() error {
+	c := config.GetCmdOpts()
+
 	if os.Geteuid() != 0 {
 		logrus.Fatal("this command must be run as root!")
 	}
@@ -70,6 +62,11 @@ func (c *CmdOpts) backup() error {
 
 	if !dir.IsDirectory(c.K0sVars.DataDir) {
 		return fmt.Errorf("cannot find data-dir (%v). check your environment and/or command input and try again", c.K0sVars.DataDir)
+	}
+
+	spec, err := c.LoadControlPlaneSpec()
+	if err != nil {
+		return err
 	}
 
 	status, err := install.GetStatusInfo(config.StatusSocket)
@@ -83,7 +80,7 @@ func (c *CmdOpts) backup() error {
 		if err != nil {
 			return err
 		}
-		return mgr.RunBackup(c.NodeConfig.Spec, c.K0sVars, savePath)
+		return mgr.RunBackup(spec, &c.K0sVars, savePath)
 	}
 	return fmt.Errorf("backup command must be run on the controller node, have `%s`", status.Role)
 }

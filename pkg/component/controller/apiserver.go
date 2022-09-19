@@ -23,32 +23,33 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/k0sproject/k0s/internal/pkg/stringmap"
 	"github.com/k0sproject/k0s/internal/pkg/templatewriter"
 	"github.com/k0sproject/k0s/internal/pkg/users"
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/assets"
 	"github.com/k0sproject/k0s/pkg/component"
+	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
+	"github.com/k0sproject/k0s/pkg/etcd"
 	"github.com/k0sproject/k0s/pkg/supervisor"
 )
 
 // APIServer implement the component interface to run kube api
 type APIServer struct {
-	ClusterConfig      *v1beta1.ClusterConfig
 	K0sVars            constant.CfgVars
+	ControlPlane       config.ControlPlaneSpec
 	LogLevel           string
-	Storage            component.Component
 	EnableKonnectivity bool
-	gid                int
-	supervisor         supervisor.Supervisor
-	uid                int
+
+	supervisor supervisor.Supervisor
+	uid, gid   int
 }
 
 var _ component.Component = (*APIServer)(nil)
@@ -91,31 +92,42 @@ func (a *APIServer) Init(_ context.Context) error {
 }
 
 // Run runs kube api
-func (a *APIServer) Start(_ context.Context) error {
+func (a *APIServer) Start(context.Context) error {
+	var serviceClusterIPRange strings.Builder
+	if a.ControlPlane.Network.ServiceCIDRs.V4 != nil {
+		serviceClusterIPRange.WriteString(a.ControlPlane.Network.ServiceCIDRs.V4.String())
+	}
+	if a.ControlPlane.Network.ServiceCIDRs.V6 != nil {
+		if serviceClusterIPRange.Len() > 0 {
+			serviceClusterIPRange.WriteRune(',')
+		}
+		serviceClusterIPRange.WriteString(a.ControlPlane.Network.ServiceCIDRs.V6.String())
+	}
+
 	logrus.Info("Starting kube-apiserver")
-	args := stringmap.StringMap{
-		"advertise-address":                a.ClusterConfig.Spec.API.Address,
-		"secure-port":                      fmt.Sprintf("%d", a.ClusterConfig.Spec.API.Port),
+	args := map[string]string{
+		"advertise-address":                a.ControlPlane.APIServer.BindAddress.IP.String(),
+		"secure-port":                      a.ControlPlane.APIServer.BindAddress.Port.String(),
 		"authorization-mode":               "Node,RBAC",
-		"client-ca-file":                   path.Join(a.K0sVars.CertRootDir, "ca.crt"),
+		"client-ca-file":                   filepath.Join(a.K0sVars.CertRootDir, "ca.crt"),
 		"enable-bootstrap-token-auth":      "true",
-		"kubelet-client-certificate":       path.Join(a.K0sVars.CertRootDir, "apiserver-kubelet-client.crt"),
-		"kubelet-client-key":               path.Join(a.K0sVars.CertRootDir, "apiserver-kubelet-client.key"),
+		"kubelet-client-certificate":       filepath.Join(a.K0sVars.CertRootDir, "apiserver-kubelet-client.crt"),
+		"kubelet-client-key":               filepath.Join(a.K0sVars.CertRootDir, "apiserver-kubelet-client.key"),
 		"kubelet-preferred-address-types":  "InternalIP,ExternalIP,Hostname",
-		"proxy-client-cert-file":           path.Join(a.K0sVars.CertRootDir, "front-proxy-client.crt"),
-		"proxy-client-key-file":            path.Join(a.K0sVars.CertRootDir, "front-proxy-client.key"),
+		"proxy-client-cert-file":           filepath.Join(a.K0sVars.CertRootDir, "front-proxy-client.crt"),
+		"proxy-client-key-file":            filepath.Join(a.K0sVars.CertRootDir, "front-proxy-client.key"),
 		"requestheader-allowed-names":      "front-proxy-client",
-		"requestheader-client-ca-file":     path.Join(a.K0sVars.CertRootDir, "front-proxy-ca.crt"),
-		"service-account-key-file":         path.Join(a.K0sVars.CertRootDir, "sa.pub"),
-		"service-cluster-ip-range":         a.ClusterConfig.Spec.Network.BuildServiceCIDR(a.ClusterConfig.Spec.API.Address),
-		"tls-cert-file":                    path.Join(a.K0sVars.CertRootDir, "server.crt"),
-		"tls-private-key-file":             path.Join(a.K0sVars.CertRootDir, "server.key"),
-		"service-account-signing-key-file": path.Join(a.K0sVars.CertRootDir, "sa.key"),
+		"requestheader-client-ca-file":     filepath.Join(a.K0sVars.CertRootDir, "front-proxy-ca.crt"),
+		"service-account-key-file":         filepath.Join(a.K0sVars.CertRootDir, "sa.pub"),
+		"service-cluster-ip-range":         toServiceClusterIPRange(&a.ControlPlane.Network.ServiceCIDRs),
+		"tls-cert-file":                    filepath.Join(a.K0sVars.CertRootDir, "server.crt"),
+		"tls-private-key-file":             filepath.Join(a.K0sVars.CertRootDir, "server.key"),
+		"service-account-signing-key-file": filepath.Join(a.K0sVars.CertRootDir, "sa.key"),
 		"service-account-issuer":           "https://kubernetes.default.svc",
 		"service-account-jwks-uri":         "https://kubernetes.default.svc/openid/v1/jwks",
 		"profiling":                        "false",
 		"v":                                a.LogLevel,
-		"kubelet-certificate-authority":    path.Join(a.K0sVars.CertRootDir, "ca.crt"),
+		"kubelet-certificate-authority":    filepath.Join(a.K0sVars.CertRootDir, "ca.crt"),
 		"enable-admission-plugins":         "NodeRestriction",
 	}
 
@@ -126,15 +138,15 @@ func (a *APIServer) Start(_ context.Context) error {
 		if err != nil {
 			return err
 		}
-		args["egress-selector-config-file"] = path.Join(a.K0sVars.DataDir, "konnectivity.conf")
+		args["egress-selector-config-file"] = filepath.Join(a.K0sVars.DataDir, "konnectivity.conf")
 		apiAudiences = append(apiAudiences, "system:konnectivity-server")
 	}
 
 	args["api-audiences"] = strings.Join(apiAudiences, ",")
 
-	for name, value := range a.ClusterConfig.Spec.API.ExtraArgs {
-		if args[name] != "" {
-			logrus.Warnf("overriding apiserver flag with user provided value: %s", name)
+	for name, value := range a.ControlPlane.APIServer.ExtraArgs {
+		if arg, ok := args[name]; ok {
+			logrus.Warnf("overriding apiserver flag %q with user provided value %q", name+"="+arg, value)
 		}
 		args[name] = value
 	}
@@ -145,8 +157,12 @@ func (a *APIServer) Start(_ context.Context) error {
 			args[name] = value
 		}
 	}
-	if a.ClusterConfig.Spec.API.ExternalAddress != "" || a.ClusterConfig.Spec.API.TunneledNetworkingMode {
+	if a.ControlPlane.APIServer.ExternalAddress != "" || a.ControlPlane.APIServer.TunneledNetworkingMode {
 		args["endpoint-reconciler-type"] = "none"
+	}
+
+	if err := a.collectEtcdArgs(args); err != nil {
+		return err
 	}
 
 	var apiServerArgs []string
@@ -164,12 +180,6 @@ func (a *APIServer) Start(_ context.Context) error {
 		GID:     a.gid,
 	}
 
-	etcdArgs, err := getEtcdArgs(a.ClusterConfig.Spec.Storage, a.K0sVars)
-	if err != nil {
-		return err
-	}
-	a.supervisor.Args = append(a.supervisor.Args, etcdArgs...)
-
 	return a.supervisor.Supervise()
 }
 
@@ -178,9 +188,9 @@ func (a *APIServer) writeKonnectivityConfig() error {
 		Name:     "konnectivity",
 		Template: egressSelectorConfigTemplate,
 		Data: egressSelectorConfig{
-			UDSName: path.Join(a.K0sVars.KonnectivitySocketDir, "konnectivity-server.sock"),
+			UDSName: filepath.Join(a.K0sVars.KonnectivitySocketDir, "konnectivity-server.sock"),
 		},
-		Path: path.Join(a.K0sVars.DataDir, "konnectivity.conf"),
+		Path: filepath.Join(a.K0sVars.DataDir, "konnectivity.conf"),
 	}
 	err := tw.Write()
 	if err != nil {
@@ -198,14 +208,14 @@ func (a *APIServer) Stop() error {
 // Health-check interface
 func (a *APIServer) Healthy() error {
 	// Load client cert so the api can authenitcate the request.
-	certFile := path.Join(a.K0sVars.CertRootDir, "admin.crt")
-	keyFile := path.Join(a.K0sVars.CertRootDir, "admin.key")
+	certFile := filepath.Join(a.K0sVars.CertRootDir, "admin.crt")
+	keyFile := filepath.Join(a.K0sVars.CertRootDir, "admin.key")
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return err
 	}
 	// Load CA cert
-	caCert, err := os.ReadFile(path.Join(a.K0sVars.CertRootDir, "ca.crt"))
+	caCert, err := os.ReadFile(filepath.Join(a.K0sVars.CertRootDir, "ca.crt"))
 	if err != nil {
 		return err
 	}
@@ -220,7 +230,13 @@ func (a *APIServer) Healthy() error {
 		TLSClientConfig: tlsConfig,
 	}
 	client := &http.Client{Transport: tr}
-	resp, err := client.Get(fmt.Sprintf("https://localhost:%d/readyz?verbose", a.ClusterConfig.Spec.API.Port))
+
+	resp, err := client.Get((&url.URL{
+		Scheme:   "https",
+		Host:     a.ControlPlane.APIServer.BindAddress.String(),
+		Path:     "/readyz",
+		RawQuery: "verbose",
+	}).String())
 	if err != nil {
 		return err
 	}
@@ -228,33 +244,57 @@ func (a *APIServer) Healthy() error {
 	if resp.StatusCode != http.StatusOK {
 		body, err := io.ReadAll(resp.Body)
 		if err == nil {
-			logrus.Debugf("api server readyz output:\n %s", string(body))
+			logrus.Debug("API server readyz output:\n ", string(body))
 		}
-		return fmt.Errorf("expected 200 for api server ready check, got %d", resp.StatusCode)
+		return fmt.Errorf("expected 200 for API server readyz check, got %d", resp.StatusCode)
 	}
 	return nil
 }
 
-func getEtcdArgs(storage *v1beta1.StorageSpec, k0sVars constant.CfgVars) ([]string, error) {
-	var args []string
+func (a *APIServer) collectEtcdArgs(args map[string]string) error {
+	switch a.ControlPlane.Storage.Type {
+	case config.EtcdStorageType:
+		args["etcd-servers"] = a.ControlPlane.Storage.Etcd.URL().String()
+		args["etcd-certfile"] = filepath.Join(a.K0sVars.CertRootDir, etcd.CertFile)
+		args["etcd-keyfile"] = filepath.Join(a.K0sVars.CertRootDir, etcd.KeyFile)
+		args["etcd-cafile"] = filepath.Join(a.K0sVars.EtcdCertDir, etcd.CAFile)
+		return nil
 
-	switch storage.Type {
-	case v1beta1.KineStorageType:
-		args = append(args, fmt.Sprintf("--etcd-servers=unix://%s", k0sVars.KineSocketPath)) // kine endpoint
-	case v1beta1.EtcdStorageType:
-		args = append(args, fmt.Sprintf("--etcd-servers=%s", storage.Etcd.GetEndpointsAsString()))
-		if storage.Etcd.IsTLSEnabled() {
-			args = append(args,
-				fmt.Sprintf("--etcd-cafile=%s", storage.Etcd.GetCaFilePath(k0sVars.EtcdCertDir)),
-				fmt.Sprintf("--etcd-certfile=%s", storage.Etcd.GetCertFilePath(k0sVars.CertRootDir)),
-				fmt.Sprintf("--etcd-keyfile=%s", storage.Etcd.GetKeyFilePath(k0sVars.CertRootDir)))
+	case config.ExternalEtcdStorageType:
+		var etcdServers strings.Builder
+		for _, url := range a.ControlPlane.Storage.ExternalEtcd.Endpoints {
+			if etcdServers.Len() > 0 {
+				etcdServers.WriteRune(',')
+			}
+			etcdServers.WriteString(url.String())
 		}
-		if storage.Etcd.IsExternalClusterUsed() {
-			args = append(args, fmt.Sprintf("--etcd-prefix=%s", storage.Etcd.ExternalCluster.EtcdPrefix))
+		args["etcd-servers"] = etcdServers.String()
+		args["etcd-prefix"] = a.ControlPlane.Storage.ExternalEtcd.EtcdPrefix
+		if a.ControlPlane.Storage.ExternalEtcd.TLS != nil {
+			args["etcd-cafile"] = a.ControlPlane.Storage.ExternalEtcd.TLS.CAFile
+			args["etcd-certfile"] = a.ControlPlane.Storage.ExternalEtcd.TLS.CertFile
+			args["etcd-keyfile"] = a.ControlPlane.Storage.ExternalEtcd.TLS.KeyFile
 		}
-	default:
-		return nil, fmt.Errorf("invalid storage type: %s", storage.Type)
+		return nil
+
+	case config.KineStorageType:
+		args["etcd-servers"] = "unix://" + a.K0sVars.KineSocketPath // kine endpoint
+		return nil
 	}
 
-	return args, nil
+	return fmt.Errorf("unsupported storage type %q", a.ControlPlane.Storage.Type)
+}
+
+func toServiceClusterIPRange(cidrs *config.CIDRSpec) string {
+	var serviceClusterIPRange strings.Builder
+	if cidrs.V4 != nil {
+		serviceClusterIPRange.WriteString(cidrs.V4.String())
+	}
+	if cidrs.V6 != nil {
+		if serviceClusterIPRange.Len() > 0 {
+			serviceClusterIPRange.WriteRune(',')
+		}
+		serviceClusterIPRange.WriteString(cidrs.V6.String())
+	}
+	return serviceClusterIPRange.String()
 }

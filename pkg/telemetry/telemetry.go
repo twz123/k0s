@@ -34,7 +34,7 @@ type telemetryData struct {
 	StorageType            string
 	ClusterID              string
 	WorkerNodesCount       int
-	ControlPlaneNodesCount int
+	ControlPlaneNodesCount uint
 	WorkerData             []workerData
 	CPUTotal               int64
 	MEMTotal               int64

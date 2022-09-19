@@ -33,15 +33,19 @@ func etcdListCmd() *cobra.Command {
 		Use:   "member-list",
 		Short: "Returns etcd cluster members list",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c := CmdOpts(config.GetCmdOpts())
-			ctx := context.Background()
-			etcdClient, err := etcd.NewClient(c.K0sVars.CertRootDir, c.K0sVars.EtcdCertDir, c.NodeConfig.Spec.Storage.Etcd)
+			c := config.GetCmdOpts()
+			spec, err := c.LoadControlPlaneSpec()
 			if err != nil {
-				return fmt.Errorf("can't list etcd cluster members: %v", err)
+				return err
 			}
-			members, err := etcdClient.ListMembers(ctx)
+
+			etcdClient, err := etcd.ConfigFromSpec(&c.K0sVars, &spec.Storage).NewClient()
 			if err != nil {
-				return fmt.Errorf("can't list etcd cluster members: %v", err)
+				return err
+			}
+			members, err := etcdClient.ListMembers(context.TODO())
+			if err != nil {
+				return fmt.Errorf("can't list etcd cluster members: %w", err)
 			}
 			return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{"members": members})
 		},

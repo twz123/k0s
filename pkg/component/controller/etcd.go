@@ -19,45 +19,54 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	"golang.org/x/sync/errgroup"
-
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
+	"github.com/k0sproject/k0s/internal/pkg/stringslice"
 	"github.com/k0sproject/k0s/internal/pkg/users"
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/assets"
 	"github.com/k0sproject/k0s/pkg/certificate"
 	"github.com/k0sproject/k0s/pkg/component"
+	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/etcd"
 	"github.com/k0sproject/k0s/pkg/supervisor"
 	"github.com/k0sproject/k0s/pkg/token"
+
+	"github.com/avast/retry-go"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
 
 // Etcd implement the component interface to run etcd
 type Etcd struct {
-	CertManager certificate.Manager
-	Config      *v1beta1.EtcdConfig
-	JoinClient  *token.JoinClient
 	K0sVars     constant.CfgVars
+	Spec        config.EtcdSpec
+	CertManager certificate.Manager
+	JoinClient  *token.JoinClient
 	LogLevel    string
 
 	supervisor supervisor.Supervisor
-	uid        int
-	gid        int
+	uid, gid   int
 	ctx        context.Context
 }
 
 var _ component.Component = (*Etcd)(nil)
 var _ component.Healthz = (*Etcd)(nil)
+
+type ExternalEtcd struct {
+	Spec config.ExternalEtcdSpec
+}
+
+var _ component.Component = (*ExternalEtcd)(nil)
 
 // Init extracts the needed binaries
 func (e *Etcd) Init(_ context.Context) error {
@@ -133,12 +142,9 @@ func (e *Etcd) syncEtcdConfig(peerURL, etcdCaCert, etcdCaCertKey string) ([]stri
 // Run runs etcd if external cluster is not configured
 func (e *Etcd) Start(ctx context.Context) error {
 	e.ctx = ctx
-	if e.Config.IsExternalClusterUsed() {
-		return nil
-	}
 
-	etcdCaCert := filepath.Join(e.K0sVars.EtcdCertDir, "ca.crt")
-	etcdCaCertKey := filepath.Join(e.K0sVars.EtcdCertDir, "ca.key")
+	etcdCaCert := filepath.Join(e.K0sVars.EtcdCertDir, etcd.CAFile)
+	etcdCaCertKey := filepath.Join(e.K0sVars.EtcdCertDir, etcd.CAKeyFile)
 	etcdServerCert := filepath.Join(e.K0sVars.EtcdCertDir, "server.crt")
 	etcdServerKey := filepath.Join(e.K0sVars.EtcdCertDir, "server.key")
 	etcdPeerCert := filepath.Join(e.K0sVars.EtcdCertDir, "peer.crt")
@@ -153,12 +159,13 @@ func (e *Etcd) Start(ctx context.Context) error {
 		return err
 	}
 
-	peerURL := fmt.Sprintf("https://%s:2380", e.Config.PeerAddress)
+	serverURL := e.Spec.URL().String()
+	peerURL := e.Spec.PeerURL().String()
 
 	args := stringmap.StringMap{
 		"--data-dir":                    e.K0sVars.EtcdDataDir,
-		"--listen-client-urls":          "https://127.0.0.1:2379",
-		"--advertise-client-urls":       "https://127.0.0.1:2379",
+		"--listen-client-urls":          serverURL,
+		"--advertise-client-urls":       serverURL,
 		"--client-cert-auth":            "true",
 		"--listen-peer-urls":            peerURL,
 		"--initial-advertise-peer-urls": peerURL,
@@ -217,11 +224,11 @@ func (e *Etcd) Stop() error {
 }
 
 func (e *Etcd) setupCerts(ctx context.Context) error {
-	etcdCaCert := filepath.Join(e.K0sVars.EtcdCertDir, "ca.crt")
-	etcdCaCertKey := filepath.Join(e.K0sVars.EtcdCertDir, "ca.key")
+	etcdCaCert := filepath.Join(e.K0sVars.EtcdCertDir, etcd.CAFile)
+	etcdCaCertKey := filepath.Join(e.K0sVars.EtcdCertDir, etcd.CAKeyFile)
 
 	if err := e.CertManager.EnsureCA("etcd/ca", "etcd-ca"); err != nil {
-		return fmt.Errorf("failed to create etcd ca: %w", err)
+		return fmt.Errorf("failed to create etcd CA: %w", err)
 	}
 
 	eg, _ := errgroup.WithContext(ctx)
@@ -246,15 +253,12 @@ func (e *Etcd) setupCerts(ctx context.Context) error {
 	eg.Go(func() error {
 		// etcd server cert
 		etcdCertReq := certificate.Request{
-			Name:   filepath.Join("etcd", "server"),
-			CN:     "etcd-server",
-			O:      "etcd-server",
-			CACert: etcdCaCert,
-			CAKey:  etcdCaCertKey,
-			Hostnames: []string{
-				"127.0.0.1",
-				"localhost",
-			},
+			Name:      filepath.Join("etcd", "server"),
+			CN:        "etcd-server",
+			O:         "etcd-server",
+			CACert:    etcdCaCert,
+			CAKey:     etcdCaCertKey,
+			Hostnames: []string{e.Spec.BindAddress.IP.String()},
 		}
 		_, err := e.CertManager.EnsureCertificate(etcdCertReq, constant.EtcdUser)
 		return err
@@ -262,21 +266,19 @@ func (e *Etcd) setupCerts(ctx context.Context) error {
 
 	eg.Go(func() error {
 		etcdPeerCertReq := certificate.Request{
-			Name:   filepath.Join("etcd", "peer"),
-			CN:     e.Config.PeerAddress,
-			O:      "etcd-peer",
-			CACert: etcdCaCert,
-			CAKey:  etcdCaCertKey,
-			Hostnames: []string{
-				e.Config.PeerAddress,
-			},
+			Name:      filepath.Join("etcd", "peer"),
+			CN:        e.Spec.PeerAddress,
+			O:         "etcd-peer",
+			CACert:    etcdCaCert,
+			CAKey:     etcdCaCertKey,
+			Hostnames: stringslice.Unique(append([]string{e.Spec.PeerAddress}, e.Spec.AdditionalSANs...)),
 		}
 		_, err := e.CertManager.EnsureCertificate(etcdPeerCertReq, constant.EtcdUser)
 		return err
 	})
 
 	eg.Go(func() error {
-		return e.CertManager.CreateKeyPair("etcd/jwt", e.K0sVars, constant.EtcdUser)
+		return e.CertManager.CreateKeyPair("etcd/jwt", constant.EtcdUser)
 	})
 
 	return eg.Wait()
@@ -284,11 +286,59 @@ func (e *Etcd) setupCerts(ctx context.Context) error {
 
 // Health-check interface
 func (e *Etcd) Healthy() error {
-	logrus.WithField("component", "etcd").Debug("checking etcd endpoint for health")
 	ctx, cancel := context.WithTimeout(e.ctx, 1*time.Second)
 	defer cancel()
-	err := etcd.CheckEtcdReady(ctx, e.K0sVars.CertRootDir, e.K0sVars.EtcdCertDir, e.Config)
-	return err
+
+	logrus.WithField("component", "etcd").Debug("Checking etcd for health")
+
+	c, err := etcd.ConfigFromEndpoints([]url.URL{*e.Spec.URL()}, &config.EtcdTLS{
+		CertFile: e.CertManager.Path(etcd.CertFile),
+		KeyFile:  e.CertManager.Path(etcd.KeyFile),
+		CAFile:   filepath.Join(e.K0sVars.CertRootDir, etcd.CAFile),
+	}).NewClient()
+	if err != nil {
+		return fmt.Errorf("failed to initialize etcd client: %w", err)
+	}
+
+	return c.Health(ctx)
+}
+
+func (*ExternalEtcd) Init(context.Context) error { return nil }
+func (*ExternalEtcd) Stop() error                { return nil }
+
+// Start implements component.Component
+func (e *ExternalEtcd) Start(ctx context.Context) error {
+	client, err := etcd.ConfigFromEndpoints(e.Spec.Endpoints, e.Spec.TLS).NewClient()
+	if err != nil {
+		return fmt.Errorf("failed to initialize client for external etcd: %w", err)
+	}
+
+	var lastErr error
+	log := logrus.WithField("component", "external_etcd")
+	err = retry.Do(
+		func() error {
+			log.Debug("Checking external etcd for health: ", e.Spec.Endpoints)
+			ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+			defer cancel()
+			lastErr = client.Health(ctx)
+			return lastErr
+		},
+		retry.Context(ctx),
+		retry.MaxDelay(1*time.Second),
+		retry.LastErrorOnly(true),
+		retry.OnRetry(func(attempt uint, err error) {
+			logrus.WithError(err).Debugf("Failed to check external etcd for health in attempt #%d, retrying after backoff", attempt+1)
+		}),
+	)
+
+	if err != nil {
+		if lastErr != nil {
+			err = lastErr
+		}
+		return fmt.Errorf("external etcd not healthy: %w", err)
+	}
+
+	return nil
 }
 
 func detectUnsupportedEtcdArch() error {

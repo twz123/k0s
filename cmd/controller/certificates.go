@@ -21,17 +21,22 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"text/template"
 
+	"github.com/k0sproject/k0s/internal/pkg/file"
+	"github.com/k0sproject/k0s/internal/pkg/iface"
+	"github.com/k0sproject/k0s/internal/pkg/stringslice"
+	"github.com/k0sproject/k0s/pkg/certificate"
+	"github.com/k0sproject/k0s/pkg/config"
+	"github.com/k0sproject/k0s/pkg/constant"
+
+	utilnet "k8s.io/utils/net"
+
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
-
-	"github.com/k0sproject/k0s/internal/pkg/file"
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
-	"github.com/k0sproject/k0s/pkg/certificate"
-	"github.com/k0sproject/k0s/pkg/constant"
 )
 
 var kubeconfigTemplate = template.Must(template.New("kubeconfig").Parse(`
@@ -59,10 +64,11 @@ users:
 
 // Certificates is the Component implementation to manage all k0s certs
 type Certificates struct {
-	CACert      string
-	CertManager certificate.Manager
-	ClusterSpec *v1beta1.ClusterSpec
-	K0sVars     constant.CfgVars
+	K0sVars      constant.CfgVars
+	ControlPlane *config.ControlPlaneSpec
+	CertManager  certificate.Manager
+
+	caCert string
 }
 
 // Init initializes the certificate component
@@ -82,8 +88,8 @@ func (c *Certificates) Init(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to read ca cert: %w", err)
 	}
-	c.CACert = string(cert)
-	kubeConfigAPIUrl := fmt.Sprintf("https://localhost:%d", c.ClusterSpec.API.Port)
+	c.caCert = string(cert)
+	kubeConfigAPIUrl := (&url.URL{Scheme: "https", Host: c.ControlPlane.APIServer.BindAddress.String()}).String()
 	eg.Go(func() error {
 		// Front proxy CA
 		if err := c.CertManager.EnsureCA("front-proxy-ca", "kubernetes-front-proxy-ca"); err != nil {
@@ -118,11 +124,11 @@ func (c *Certificates) Init(ctx context.Context) error {
 			return err
 		}
 
-		if err := kubeConfig(c.K0sVars.AdminKubeConfigPath, kubeConfigAPIUrl, c.CACert, adminCert.Cert, adminCert.Key, "root"); err != nil {
+		if err := kubeConfig(c.K0sVars.AdminKubeConfigPath, kubeConfigAPIUrl, c.caCert, adminCert.Cert, adminCert.Key, "root"); err != nil {
 			return err
 		}
 
-		return c.CertManager.CreateKeyPair("sa", c.K0sVars, constant.ApiserverUser)
+		return c.CertManager.CreateKeyPair("sa", constant.ApiserverUser)
 	})
 
 	eg.Go(func() error {
@@ -138,7 +144,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		return kubeConfig(c.K0sVars.KonnectivityKubeConfigPath, kubeConfigAPIUrl, c.CACert, konnectivityCert.Cert, konnectivityCert.Key, constant.KonnectivityServerUser)
+		return kubeConfig(c.K0sVars.KonnectivityKubeConfigPath, kubeConfigAPIUrl, c.caCert, konnectivityCert.Cert, konnectivityCert.Key, constant.KonnectivityServerUser)
 	})
 
 	eg.Go(func() error {
@@ -154,7 +160,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			return err
 		}
 
-		return kubeConfig(filepath.Join(c.K0sVars.CertRootDir, "ccm.conf"), kubeConfigAPIUrl, c.CACert, ccmCert.Cert, ccmCert.Key, constant.ApiserverUser)
+		return kubeConfig(filepath.Join(c.K0sVars.CertRootDir, "ccm.conf"), kubeConfigAPIUrl, c.caCert, ccmCert.Cert, ccmCert.Key, constant.ApiserverUser)
 	})
 
 	eg.Go(func() error {
@@ -170,7 +176,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			return err
 		}
 
-		return kubeConfig(filepath.Join(c.K0sVars.CertRootDir, "scheduler.conf"), kubeConfigAPIUrl, c.CACert, schedulerCert.Cert, schedulerCert.Key, constant.SchedulerUser)
+		return kubeConfig(filepath.Join(c.K0sVars.CertRootDir, "scheduler.conf"), kubeConfigAPIUrl, c.caCert, schedulerCert.Cert, schedulerCert.Key, constant.SchedulerUser)
 	})
 
 	eg.Go(func() error {
@@ -185,28 +191,10 @@ func (c *Certificates) Init(ctx context.Context) error {
 		return err
 	})
 
-	hostnames := []string{
-		"kubernetes",
-		"kubernetes.default",
-		"kubernetes.default.svc",
-		"kubernetes.default.svc.cluster",
-		fmt.Sprintf("kubernetes.svc.%s", c.ClusterSpec.Network.ClusterDomain),
-		"localhost",
-		"127.0.0.1",
-	}
-
-	localIPs, err := detectLocalIPs()
-	if err != nil {
-		return fmt.Errorf("error detecting local IP: %w", err)
-	}
-	hostnames = append(hostnames, localIPs...)
-	hostnames = append(hostnames, c.ClusterSpec.API.Sans()...)
-
-	internalAPIAddress, err := c.ClusterSpec.Network.InternalAPIAddresses()
+	hostnames, err := c.gatherHostnames()
 	if err != nil {
 		return err
 	}
-	hostnames = append(hostnames, internalAPIAddress...)
 
 	eg.Go(func() error {
 		serverReq := certificate.Request{
@@ -237,6 +225,50 @@ func (c *Certificates) Init(ctx context.Context) error {
 	})
 
 	return eg.Wait()
+}
+
+func (c *Certificates) gatherHostnames() ([]string, error) {
+	hostnames := []string{
+		"kubernetes",
+		"kubernetes.default",
+		"kubernetes.default.svc",
+		"kubernetes.default.svc.cluster",
+		fmt.Sprintf("kubernetes.svc.%s", c.ControlPlane.Network.ClusterDomain),
+		"localhost",
+		"127.0.0.1",
+	}
+
+	localIPs, err := detectLocalIPs()
+	if err != nil {
+		return nil, fmt.Errorf("error detecting local IP: %w", err)
+	}
+	hostnames = append(hostnames, localIPs...)
+	allAddresses, err := iface.AllAddresses()
+	if err != nil {
+		return nil, fmt.Errorf("failed to enumerate all network addresses: %w", err)
+	}
+	hostnames = append(hostnames, allAddresses...)
+
+	if c.ControlPlane.APIServer.ExternalAddress != "" {
+		hostnames = append(hostnames, c.ControlPlane.APIServer.ExternalAddress)
+	}
+
+	for _, cidr := range []*net.IPNet{
+		c.ControlPlane.Network.ServiceCIDRs.V4,
+		c.ControlPlane.Network.ServiceCIDRs.V6,
+	} {
+		if cidr == nil {
+			continue
+		}
+		ip, err := utilnet.GetIndexedIP(cidr, 1)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get first IP address for CIDR %s: %w", cidr, err)
+		}
+		hostnames = append(hostnames, ip.String())
+	}
+
+	hostnames = stringslice.Unique(hostnames)
+	return hostnames, nil
 }
 
 func detectLocalIPs() ([]string, error) {

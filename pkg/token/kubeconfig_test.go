@@ -17,6 +17,7 @@ limitations under the License.
 package token
 
 import (
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,7 +29,7 @@ func TestGenerateKubeconfig(t *testing.T) {
 clusters:
 - cluster:
     certificate-authority-data: dGhlIGNlcnQ=
-    server: the join URL
+    server: https://join.k0s.example.com
   name: k0s
 contexts:
 - context:
@@ -44,7 +45,7 @@ users:
     token: the token
 `
 
-	kubeconfig, err := generateKubeconfig("the join URL", []byte("the cert"), "the user", "the token")
+	kubeconfig, err := generateKubeconfig(&url.URL{Scheme: "https", Host: "join.k0s.example.com"}, []byte("the cert"), "the user", "the token")
 	require.NoError(t, err)
 	assert.Equal(t, expected, string(kubeconfig))
 }

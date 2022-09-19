@@ -17,34 +17,15 @@ limitations under the License.
 package etcd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/config"
 )
-
-type CmdOpts config.CLIOptions
 
 func NewEtcdCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "etcd",
 		Short: "Manage etcd cluster",
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if err := config.CallParentPersistentPreRun(cmd, args); err != nil {
-				return err
-			}
-
-			c := CmdOpts(config.GetCmdOpts())
-			if c.ClusterConfig.Spec.Storage.Type != v1beta1.EtcdStorageType {
-				return fmt.Errorf("wrong storage type: %s", c.ClusterConfig.Spec.Storage.Type)
-			}
-			if c.ClusterConfig.Spec.Storage.Etcd.IsExternalClusterUsed() {
-				return fmt.Errorf("command 'k0s etcd' does not support external etcd cluster")
-			}
-			return nil
-		},
 	}
 	cmd.SilenceUsage = true
 	cmd.AddCommand(etcdLeaveCmd())

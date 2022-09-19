@@ -18,49 +18,105 @@ package etcd
 
 import (
 	"context"
-	"crypto/tls"
+	"errors"
 	"fmt"
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
+	"net/url"
+	"path/filepath"
+
+	"github.com/k0sproject/k0s/pkg/config"
+	"github.com/k0sproject/k0s/pkg/constant"
+
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	"go.etcd.io/etcd/client/pkg/v3/transport"
-	clientv3 "go.etcd.io/etcd/client/v3"
+	client "go.etcd.io/etcd/client/v3"
+)
+
+const (
+	CertFile  = "apiserver-etcd-client.crt"
+	KeyFile   = "apiserver-etcd-client.key"
+	CAFile    = "ca.crt"
+	CAKeyFile = "ca.key"
 )
 
 // Client is our internal helper to access some of the etcd APIs
 type Client struct {
-	Config  *clientv3.Config
-	client  *clientv3.Client
-	tlsInfo transport.TLSInfo
+	client *client.Client
 }
 
-// NewClient creates new Client
-func NewClient(certDir, etcdCertDir string, etcdConf *v1beta1.EtcdConfig) (*Client, error) {
-	client := &Client{}
+type ConfigGetter func() (client.Config, error)
 
-	var tlsConfig *tls.Config
-	if etcdConf.IsTLSEnabled() {
-		client.tlsInfo = transport.TLSInfo{
-			CertFile:      etcdConf.GetCertFilePath(certDir),
-			KeyFile:       etcdConf.GetKeyFilePath(certDir),
-			TrustedCAFile: etcdConf.GetCaFilePath(etcdCertDir),
-		}
+func (g ConfigGetter) Get() (client.Config, error) {
+	return g()
+}
 
-		var err error
-		tlsConfig, err = client.tlsInfo.ClientConfig()
-		if err != nil {
-			return nil, err
+func (g ConfigGetter) NewClient() (*Client, error) {
+	config, err := g.Get()
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := client.New(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Client{client}, nil
+}
+
+func ConfigFromEndpoints(endpoints []url.URL, etls *config.EtcdTLS) ConfigGetter {
+	var eps []string
+	for i, endpoint := range endpoints {
+		eps[i] = endpoint.String()
+	}
+
+	if etls == nil {
+		return func() (client.Config, error) {
+			return client.Config{Endpoints: eps}, nil
 		}
 	}
 
-	cfg := clientv3.Config{
-		Endpoints: etcdConf.GetEndpoints(),
-		TLS:       tlsConfig,
+	tlsInfo := transport.TLSInfo{
+		CertFile:      etls.CertFile,
+		KeyFile:       etls.KeyFile,
+		TrustedCAFile: etls.CAFile,
 	}
-	cli, _ := clientv3.New(cfg)
 
-	client.client = cli
-	client.Config = &cfg
-	return client, nil
+	return func() (config client.Config, err error) {
+		config.Endpoints = eps
+		config.TLS, err = tlsInfo.ClientConfig()
+		return
+	}
+}
+
+type UnsupportedStorageType string
+
+func IsUnsupportedStorageType(err error) bool {
+	var unsupported UnsupportedStorageType
+	return errors.As(err, &unsupported)
+}
+
+func (t UnsupportedStorageType) Error() string {
+	return fmt.Sprintf("cannot create etcd client for storage type %q", string(t))
+}
+
+func ConfigFromSpec(k0sVars *constant.CfgVars, spec *config.StorageSpec) ConfigGetter {
+	switch spec.Type {
+	case "Etcd":
+		return ConfigFromEndpoints([]url.URL{*spec.Etcd.URL()}, &config.EtcdTLS{
+			CertFile: filepath.Join(k0sVars.CertRootDir, CertFile),
+			KeyFile:  filepath.Join(k0sVars.CertRootDir, KeyFile),
+			CAFile:   filepath.Join(k0sVars.EtcdCertDir, CAFile),
+		})
+
+	case "ExternalEtcd":
+		return ConfigFromEndpoints(spec.ExternalEtcd.Endpoints, spec.ExternalEtcd.TLS)
+
+	default:
+		err := UnsupportedStorageType(spec.Type)
+		return func() (config client.Config, _ error) {
+			return config, err
+		}
+	}
 }
 
 // ListMembers gets a list of current etcd members

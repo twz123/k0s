@@ -21,8 +21,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type CmdOpts config.CLIOptions
-
 func NewKubeConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "kubeconfig [command]",

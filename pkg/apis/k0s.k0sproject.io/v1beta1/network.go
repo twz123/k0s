@@ -22,7 +22,6 @@ import (
 	"net"
 
 	"github.com/asaskevich/govalidator"
-	utilnet "k8s.io/utils/net"
 )
 
 var _ Validateable = (*Network)(nil)
@@ -95,56 +94,6 @@ func (n *Network) Validate() []error {
 	return errors
 }
 
-// DNSAddress calculates the 10th address of configured service CIDR block.
-func (n *Network) DNSAddress() (string, error) {
-	_, ipnet, err := net.ParseCIDR(n.ServiceCIDR)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse service CIDR %s: %w", n.ServiceCIDR, err)
-	}
-
-	address := ipnet.IP.To4()
-	if IsIPv6String(ipnet.IP.String()) {
-		address = ipnet.IP.To16()
-	}
-
-	prefixlen, _ := ipnet.Mask.Size()
-	if prefixlen < 29 {
-		address[3] = address[3] + 10
-	} else {
-		address[3] = address[3] + 2
-	}
-
-	if !ipnet.Contains(address) {
-		return "", fmt.Errorf("failed to calculate a valid DNS address: %s", address.String())
-	}
-
-	return address.String(), nil
-}
-
-// InternalAPIAddresses calculates the internal API address of configured service CIDR block.
-func (n *Network) InternalAPIAddresses() ([]string, error) {
-	cidrs := []string{n.ServiceCIDR}
-
-	if n.DualStack.Enabled {
-		cidrs = append(cidrs, n.DualStack.IPv6ServiceCIDR)
-	}
-
-	parsedCIDRs, err := utilnet.ParseCIDRs(cidrs)
-	if err != nil {
-		return nil, fmt.Errorf("can't parse service cidr to build internal API address: %w", err)
-	}
-
-	stringifiedAddresses := make([]string, len(parsedCIDRs))
-	for i, ip := range parsedCIDRs {
-		apiIP, err := utilnet.GetIndexedIP(ip, 1)
-		if err != nil {
-			return nil, fmt.Errorf("can't build internal API address: %v", err)
-		}
-		stringifiedAddresses[i] = apiIP.String()
-	}
-	return stringifiedAddresses, nil
-}
-
 // UnmarshalJSON sets in some sane defaults when unmarshaling the data from json
 func (n *Network) UnmarshalJSON(data []byte) error {
 	n.Provider = "kuberouter"
@@ -169,21 +118,6 @@ func (n *Network) UnmarshalJSON(data []byte) error {
 	}
 
 	return nil
-}
-
-// BuildServiceCIDR returns actual argument value for service cidr
-func (n *Network) BuildServiceCIDR(addr string) string {
-	if !n.DualStack.Enabled {
-		return n.ServiceCIDR
-	}
-	// because in the dual-stack mode k8s
-	// relies on the ordering of the given CIDRs
-	// we need to first give family on which
-	// api server listens
-	if IsIPv6String(addr) {
-		return n.DualStack.IPv6ServiceCIDR + "," + n.ServiceCIDR
-	}
-	return n.ServiceCIDR + "," + n.DualStack.IPv6ServiceCIDR
 }
 
 // BuildPodCIDR returns actual argument value for pod cidr

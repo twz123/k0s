@@ -43,7 +43,10 @@ import (
 	"github.com/k0sproject/k0s/pkg/kubernetes"
 )
 
-type CmdOpts config.CLIOptions
+type apiCmd struct {
+	config.CLIOptions
+	*config.ControlPlaneSpec
+}
 
 const (
 	workerRole     = "worker"
@@ -60,14 +63,20 @@ func NewAPICmd() *cobra.Command {
 		Use:   "api",
 		Short: "Run the controller api",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c := CmdOpts(config.GetCmdOpts())
-
 			logrus.SetOutput(os.Stdout)
-			if !c.Debug {
+
+			api := apiCmd{CLIOptions: config.GetCmdOpts()}
+			if !api.Debug {
 				logrus.SetLevel(logrus.InfoLevel)
 			}
 
-			return c.startAPI()
+			var err error
+			api.ControlPlaneSpec, err = api.LoadControlPlaneSpec()
+			if err != nil {
+				return err
+			}
+
+			return api.startAPI()
 		},
 	}
 	cmd.SilenceUsage = true
@@ -75,7 +84,7 @@ func NewAPICmd() *cobra.Command {
 	return cmd
 }
 
-func (c *CmdOpts) startAPI() error {
+func (c *apiCmd) startAPI() error {
 	// Single kube client for whole lifetime of the API
 	kc, err := kubernetes.NewClient(c.K0sVars.AdminKubeConfigPath)
 	if err != nil {
@@ -84,9 +93,8 @@ func (c *CmdOpts) startAPI() error {
 	c.KubeClient = kc
 	prefix := "/v1beta1"
 	router := mux.NewRouter()
-	storage := c.NodeConfig.Spec.Storage
 
-	if storage.Type == v1beta1.EtcdStorageType && !storage.Etcd.IsExternalClusterUsed() {
+	if c.Storage.Type == config.EtcdStorageType {
 		// Only mount the etcd handler if we're running on internal etcd storage
 		// by default the mux will return 404 back which the caller should handle
 		router.Path(prefix + "/etcd/members").Methods("POST").Handler(
@@ -94,7 +102,7 @@ func (c *CmdOpts) startAPI() error {
 		)
 	}
 
-	if storage.IsJoinable() {
+	if c.Storage.IsJoinable() {
 		router.Path(prefix + "/ca").Methods("GET").Handler(
 			c.controllerHandler(c.caHandler()),
 		)
@@ -105,7 +113,7 @@ func (c *CmdOpts) startAPI() error {
 
 	srv := &http.Server{
 		Handler:      router,
-		Addr:         fmt.Sprintf(":%d", c.NodeConfig.Spec.API.K0sAPIPort),
+		Addr:         c.K0sAPI.BindAddress.String(),
 		WriteTimeout: 15 * time.Second,
 		ReadTimeout:  15 * time.Second,
 	}
@@ -118,7 +126,7 @@ func (c *CmdOpts) startAPI() error {
 	return nil
 }
 
-func (c *CmdOpts) etcdHandler() http.Handler {
+func (c *apiCmd) etcdHandler() http.Handler {
 	return http.HandlerFunc(func(resp http.ResponseWriter, req *http.Request) {
 		ctx := req.Context()
 		var etcdReq v1beta1.EtcdRequest
@@ -134,7 +142,7 @@ func (c *CmdOpts) etcdHandler() http.Handler {
 			return
 		}
 
-		etcdClient, err := etcd.NewClient(c.K0sVars.CertRootDir, c.K0sVars.EtcdCertDir, nil)
+		etcdClient, err := etcd.ConfigFromSpec(&c.K0sVars, &c.Storage).NewClient()
 		if err != nil {
 			sendError(err, resp)
 			return
@@ -174,7 +182,7 @@ func (c *CmdOpts) etcdHandler() http.Handler {
 	})
 }
 
-func (c *CmdOpts) kubeConfigHandler() http.Handler {
+func (c *apiCmd) kubeConfigHandler() http.Handler {
 	return http.HandlerFunc(func(resp http.ResponseWriter, req *http.Request) {
 		tpl := `apiVersion: v1
 kind: Config
@@ -224,7 +232,7 @@ users:
 				Token     string
 				Namespace string
 			}{
-				Server:    c.NodeConfig.Spec.API.APIAddressURL(),
+				Server:    c.APIServer.URL().String(),
 				Ca:        base64.StdEncoding.EncodeToString(secretWithToken.Data["ca.crt"]),
 				Token:     string(secretWithToken.Data["token"]),
 				Namespace: string(secretWithToken.Data["namespace"]),
@@ -237,7 +245,7 @@ users:
 	})
 }
 
-func (c *CmdOpts) caHandler() http.Handler {
+func (c *apiCmd) caHandler() http.Handler {
 	return http.HandlerFunc(func(resp http.ResponseWriter, req *http.Request) {
 		caResp := v1beta1.CaResponse{}
 		key, err := os.ReadFile(path.Join(c.K0sVars.CertRootDir, "ca.key"))
@@ -282,7 +290,7 @@ func (c *CmdOpts) caHandler() http.Handler {
 // We need to validate:
 //   - that we find a secret with the ID
 //   - that the token matches whats inside the secret
-func (c *CmdOpts) isValidToken(ctx context.Context, token string, role string) bool {
+func (c *apiCmd) isValidToken(ctx context.Context, token string, role string) bool {
 	parts := strings.Split(token, ".")
 	logrus.Debugf("token parts: %v", parts)
 	if len(parts) != 2 {
@@ -308,7 +316,7 @@ func (c *CmdOpts) isValidToken(ctx context.Context, token string, role string) b
 	return true
 }
 
-func (c *CmdOpts) authMiddleware(next http.Handler, role string) http.Handler {
+func (c *apiCmd) authMiddleware(next http.Handler, role string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
 		if auth == "" {
@@ -332,10 +340,10 @@ func (c *CmdOpts) authMiddleware(next http.Handler, role string) http.Handler {
 	})
 }
 
-func (c *CmdOpts) controllerHandler(next http.Handler) http.Handler {
+func (c *apiCmd) controllerHandler(next http.Handler) http.Handler {
 	return c.authMiddleware(next, controllerRole)
 }
 
-func (c *CmdOpts) workerHandler(next http.Handler) http.Handler {
+func (c *apiCmd) workerHandler(next http.Handler) http.Handler {
 	return c.authMiddleware(next, workerRole)
 }

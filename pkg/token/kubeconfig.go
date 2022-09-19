@@ -20,11 +20,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
+	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 
 	"k8s.io/client-go/tools/clientcmd"
@@ -37,8 +38,8 @@ const (
 )
 
 // CreateKubeletBootstrapToken creates a new k0s bootstrap token.
-func CreateKubeletBootstrapToken(ctx context.Context, api *v1beta1.APISpec, k0sVars constant.CfgVars, role string, expiry time.Duration) (string, error) {
-	userName, joinURL, err := loadUserAndJoinURL(api, role)
+func CreateKubeletBootstrapToken(ctx context.Context, spec *config.ControlPlaneSpec, k0sVars constant.CfgVars, role string, expiry time.Duration) (string, error) {
+	userName, joinURL, err := loadUserAndJoinURL(spec, role)
 	if err != nil {
 		return "", err
 	}
@@ -61,11 +62,11 @@ func CreateKubeletBootstrapToken(ctx context.Context, api *v1beta1.APISpec, k0sV
 	return joinEncode(bytes.NewReader(kubeconfig))
 }
 
-func generateKubeconfig(joinURL string, caCert []byte, userName string, token string) ([]byte, error) {
+func generateKubeconfig(joinURL *url.URL, caCert []byte, userName string, token string) ([]byte, error) {
 	const k0sContextName = "k0s"
 	kubeconfig, err := clientcmd.Write(clientcmdapi.Config{
 		Clusters: map[string]*clientcmdapi.Cluster{k0sContextName: {
-			Server:                   joinURL,
+			Server:                   joinURL.String(),
 			CertificateAuthorityData: caCert,
 		}},
 		Contexts: map[string]*clientcmdapi.Context{k0sContextName: {
@@ -80,14 +81,14 @@ func generateKubeconfig(joinURL string, caCert []byte, userName string, token st
 	return kubeconfig, err
 }
 
-func loadUserAndJoinURL(api *v1beta1.APISpec, role string) (string, string, error) {
+func loadUserAndJoinURL(spec *config.ControlPlaneSpec, role string) (string, *url.URL, error) {
 	switch role {
 	case RoleController:
-		return "controller-bootstrap", api.K0sControlPlaneAPIAddress(), nil
+		return "controller-bootstrap", spec.K0sAPI.URL(), nil
 	case RoleWorker:
-		return "kubelet-bootstrap", api.APIAddressURL(), nil
+		return "kubelet-bootstrap", spec.APIServer.URL(), nil
 	default:
-		return "", "", fmt.Errorf("unsupported role %q; supported roles are %q and %q", role, RoleController, RoleWorker)
+		return "", nil, fmt.Errorf("unsupported role %q; supported roles are %q and %q", role, RoleController, RoleWorker)
 	}
 }
 

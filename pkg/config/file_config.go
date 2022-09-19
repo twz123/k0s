@@ -19,6 +19,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
@@ -47,14 +48,6 @@ func (rules *ClientConfigLoadingRules) InitRuntimeConfig(k0sVars constant.CfgVar
 	return rules.writeConfig(yamlData, cfg.Spec.Storage)
 }
 
-// readRuntimeConfig returns the configuration from the runtime configuration file
-func (rules *ClientConfigLoadingRules) readRuntimeConfig() (clusterConfig *v1beta1.ClusterConfig, err error) {
-	if rules.RuntimeConfigPath == "" {
-		rules.RuntimeConfigPath = runtimeConfigPathDefault
-	}
-	return rules.ParseRuntimeConfig()
-}
-
 // generic function that reads a config file, and returns a ClusterConfig object
 
 // ParseRuntimeConfig parses the `--config` flag and generates a config object
@@ -69,8 +62,15 @@ func (rules *ClientConfigLoadingRules) ParseRuntimeConfig() (*v1beta1.ClusterCon
 			Kine: v1beta1.DefaultKineConfig(rules.K0sVars.DataDir),
 		}
 	}
-	if rules.RuntimeConfigPath == "" {
-		rules.RuntimeConfigPath = runtimeConfigPathDefault
+
+	runtimeConfigPath := rules.RuntimeConfigPath
+	if runtimeConfigPath == "" {
+		runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
+		if runtimeDir == "" {
+			rules.RuntimeConfigPath = runtimeConfigPathDefault
+		} else {
+			rules.RuntimeConfigPath = filepath.Join(runtimeDir, "k0s.yaml")
+		}
 	}
 
 	// If runtime config already exists, use it as the source of truth
