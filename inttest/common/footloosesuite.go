@@ -525,7 +525,11 @@ func (s *FootlooseSuite) initControllerStandalone(conn *SSHConnection, k0sArgs .
 	}
 
 	// Allow any arch for etcd in smokes
-	cmd := fmt.Sprintf("%s ETCD_UNSUPPORTED_ARCH=%s nohup %s controller --debug %s >/tmp/k0s-controller.log 2>&1 &", umaskCmd, runtime.GOARCH, s.K0sFullPath, strings.Join(k0sArgs, " "))
+	if runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64" {
+		umaskCmd = fmt.Sprintf("%s ETCD_UNSUPPORTED_ARCH=%s", umaskCmd, runtime.GOARCH)
+	}
+
+	cmd := fmt.Sprintf("%s nohup %s controller --debug %s >/tmp/k0s-controller.log 2>&1 &", umaskCmd, s.K0sFullPath, strings.Join(k0sArgs, " "))
 
 	if _, err := conn.ExecWithOutput(cmd); err != nil {
 		return fmt.Errorf("unable to execute '%s': %w", cmd, err)
