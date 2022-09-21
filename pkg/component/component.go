@@ -63,8 +63,8 @@ type Healthz interface {
 // Reconciler defines the component interface that is reconciled based
 // on changes on the global config CR object changes.
 //
-//	Created ――――――――――――――――――――――――――►(Stop)―――――╮
-//	╰―(Init)―► Initialized ―――――――――――►(Stop)――――╮│
+//	Created ―――――――――――――――――――――――――――►(Stop)―――――╮
+//	╰―(Init)―► Initialized ――――――――――――►(Stop)――――╮│
 //	╭(Reconcile)╯▲╰―(Start)―► Running ―►(Stop)―――╮││
 //	╰――――――――――――╯╭(Reconcile)╯▲▲╰(Healthy)╮     ▼▼▼
 //	              ╰――――――――――――╯╰――――――――――╯╭► Terminated╮

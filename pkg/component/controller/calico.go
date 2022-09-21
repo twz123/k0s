@@ -45,10 +45,11 @@ var calicoCRDOnce sync.Once
 type Calico struct {
 	log logrus.FieldLogger
 
-	crdSaver   manifestsSaver
-	saver      manifestsSaver
-	prevConfig calicoConfig
-	k0sVars    constant.CfgVars
+	nodeNetwork v1beta1.Network
+	crdSaver    manifestsSaver
+	saver       manifestsSaver
+	prevConfig  calicoConfig
+	k0sVars     constant.CfgVars
 }
 
 type manifestsSaver interface {
@@ -77,14 +78,15 @@ type calicoConfig struct {
 }
 
 // NewCalico creates new Calico reconciler component
-func NewCalico(k0sVars constant.CfgVars, crdSaver manifestsSaver, manifestsSaver manifestsSaver) *Calico {
+func NewCalico(k0sVars constant.CfgVars, nodeNetwork v1beta1.Network, crdSaver manifestsSaver, manifestsSaver manifestsSaver) *Calico {
 	return &Calico{
 		log: logrus.WithFields(logrus.Fields{"component": "calico"}),
 
-		crdSaver:   crdSaver,
-		saver:      manifestsSaver,
-		prevConfig: calicoConfig{},
-		k0sVars:    k0sVars,
+		nodeNetwork: nodeNetwork,
+		crdSaver:    crdSaver,
+		saver:       manifestsSaver,
+		prevConfig:  calicoConfig{},
+		k0sVars:     k0sVars,
 	}
 }
 
@@ -189,9 +191,9 @@ func (c *Calico) getConfig(clusterConfig *v1beta1.ClusterConfig) (calicoConfig, 
 		VxlanVNI:                   clusterConfig.Spec.Network.Calico.VxlanVNI,
 		EnableWireguard:            clusterConfig.Spec.Network.Calico.EnableWireguard,
 		FlexVolumeDriverPath:       clusterConfig.Spec.Network.Calico.FlexVolumeDriverPath,
-		DualStack:                  clusterConfig.Spec.Network.DualStack.Enabled,
-		ClusterCIDRIPv4:            clusterConfig.Spec.Network.PodCIDR,
-		ClusterCIDRIPv6:            clusterConfig.Spec.Network.DualStack.IPv6PodCIDR,
+		DualStack:                  c.nodeNetwork.DualStack.Enabled,
+		ClusterCIDRIPv4:            c.nodeNetwork.PodCIDR,
+		ClusterCIDRIPv6:            c.nodeNetwork.DualStack.IPv6PodCIDR,
 		CalicoCNIImage:             clusterConfig.Spec.Images.Calico.CNI.URI(),
 		CalicoNodeImage:            clusterConfig.Spec.Images.Calico.Node.URI(),
 		CalicoKubeControllersImage: clusterConfig.Spec.Images.Calico.KubeControllers.URI(),
