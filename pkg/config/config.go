@@ -113,7 +113,7 @@ func (rules *ClientConfigLoadingRules) Load() (*v1beta1.ClusterConfig, error) {
 		return rules.fetchNodeConfig()
 	}
 	if !rules.IsAPIConfig() {
-		return rules.readRuntimeConfig()
+		return rules.ParseRuntimeConfig()
 	}
 	if rules.IsAPIConfig() {
 		nodeConfig, err := rules.BootstrapConfig()

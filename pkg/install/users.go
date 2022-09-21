@@ -29,7 +29,6 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/stringslice"
 	"github.com/k0sproject/k0s/internal/pkg/users"
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
-	"github.com/k0sproject/k0s/pkg/constant"
 )
 
 func GetControllerUsers(clusterConfig *v1beta1.ClusterConfig) []string {
@@ -37,11 +36,11 @@ func GetControllerUsers(clusterConfig *v1beta1.ClusterConfig) []string {
 }
 
 // CreateControllerUsers accepts a cluster config, and cfgVars and creates controller users accordingly
-func CreateControllerUsers(clusterConfig *v1beta1.ClusterConfig, k0sVars constant.CfgVars) error {
-	users := getUserList(*clusterConfig.Spec.Install.SystemUsers)
+func CreateControllerUsers(install *v1beta1.InstallSpec, homeDir string) error {
+	users := getUserList(*install.SystemUsers)
 	var messages []string
 	for _, v := range users {
-		if err := EnsureUser(v, k0sVars.DataDir); err != nil {
+		if err := EnsureUser(v, homeDir); err != nil {
 			messages = append(messages, err.Error())
 		}
 	}
@@ -52,8 +51,8 @@ func CreateControllerUsers(clusterConfig *v1beta1.ClusterConfig, k0sVars constan
 }
 
 // CreateControllerUsers accepts a cluster config, and cfgVars and creates controller users accordingly
-func DeleteControllerUsers(clusterConfig *v1beta1.ClusterConfig) error {
-	cfgUsers := getUserList(*clusterConfig.Spec.Install.SystemUsers)
+func DeleteControllerUsers(install *v1beta1.InstallSpec) error {
+	cfgUsers := getUserList(*install.SystemUsers)
 	var messages []string
 	for _, v := range cfgUsers {
 		if _, err := users.GetUID(v); err == nil {

@@ -20,9 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/signal"
 	"runtime"
-	"syscall"
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
@@ -54,9 +52,9 @@ func NewWorkerCmd() *cobra.Command {
 	$ k0s worker --token-file [path_to_file]
 	Note: Token can be passed either as a CLI argument or as a flag`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c := Command(config.GetCmdOpts())
-
 			logrus.SetOutput(os.Stdout)
+
+			c := Command(config.GetCmdOpts())
 			if !c.Debug {
 				logrus.SetLevel(logrus.InfoLevel)
 			}
@@ -87,11 +85,7 @@ func NewWorkerCmd() *cobra.Command {
 				return err
 			}
 
-			// Set up signal handling
-			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-			defer cancel()
-
-			return c.Start(ctx)
+			return c.Start(cmd.Context())
 		},
 	}
 
@@ -168,11 +162,6 @@ func (c *Command) Start(ctx context.Context) error {
 
 	certManager := worker.NewCertificateManager(ctx, c.K0sVars.KubeletAuthConfigPath)
 	if !c.SingleNode && !c.EnableWorker {
-		clusterConfig, err := config.LoadClusterConfig(c.K0sVars)
-		if err != nil {
-			return fmt.Errorf("failed to load cluster config: %w", err)
-		}
-
 		componentManager.Add(ctx, &status.Status{
 			StatusInformation: install.K0sStatus{
 				Pid:           os.Getpid(),
@@ -181,8 +170,8 @@ func (c *Command) Start(ctx context.Context) error {
 				Version:       build.Version,
 				Workloads:     true,
 				SingleNode:    false,
-				K0sVars:       c.K0sVars,
-				ClusterConfig: clusterConfig,
+				RunDir:        c.K0sVars.RunDir,
+				ClusterConfig: *c.NodeConfig,
 			},
 			CertManager: certManager,
 			Socket:      config.StatusSocket,

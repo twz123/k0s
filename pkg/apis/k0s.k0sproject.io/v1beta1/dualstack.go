@@ -23,7 +23,6 @@ type DualStack struct {
 	IPv6ServiceCIDR string `json:"IPv6serviceCIDR,omitempty"`
 }
 
-// DefaultDualStack builds default values
-func DefaultDualStack() DualStack {
-	return DualStack{}
+func (d *DualStack) IsEnabled() bool {
+	return d != nil && d.Enabled
 }

@@ -19,14 +19,13 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
-
-	"github.com/sirupsen/logrus"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
@@ -40,19 +39,21 @@ import (
 	"github.com/k0sproject/k0s/pkg/etcd"
 	"github.com/k0sproject/k0s/pkg/supervisor"
 	"github.com/k0sproject/k0s/pkg/token"
+
+	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
 
 // Etcd implement the component interface to run etcd
 type Etcd struct {
-	CertManager certificate.Manager
-	Config      *v1beta1.EtcdConfig
-	JoinClient  *token.JoinClient
 	K0sVars     constant.CfgVars
+	Etcd        v1beta1.EtcdConfig
+	CertManager certificate.Manager
+	JoinClient  *token.JoinClient
 	LogLevel    string
 
 	supervisor supervisor.Supervisor
-	uid        int
-	gid        int
+	uid, gid   int
 	ctx        context.Context
 }
 
@@ -133,12 +134,12 @@ func (e *Etcd) syncEtcdConfig(peerURL, etcdCaCert, etcdCaCertKey string) ([]stri
 // Run runs etcd if external cluster is not configured
 func (e *Etcd) Start(ctx context.Context) error {
 	e.ctx = ctx
-	if e.Config.IsExternalClusterUsed() {
+	if e.Etcd.IsExternalClusterUsed() {
 		return nil
 	}
 
-	etcdCaCert := filepath.Join(e.K0sVars.EtcdCertDir, "ca.crt")
-	etcdCaCertKey := filepath.Join(e.K0sVars.EtcdCertDir, "ca.key")
+	etcdCaCert := filepath.Join(e.K0sVars.EtcdCertDir, etcd.CAFile)
+	etcdCaCertKey := filepath.Join(e.K0sVars.EtcdCertDir, etcd.CAKeyFile)
 	etcdServerCert := filepath.Join(e.K0sVars.EtcdCertDir, "server.crt")
 	etcdServerKey := filepath.Join(e.K0sVars.EtcdCertDir, "server.key")
 	etcdPeerCert := filepath.Join(e.K0sVars.EtcdCertDir, "peer.crt")
@@ -153,7 +154,10 @@ func (e *Etcd) Start(ctx context.Context) error {
 		return err
 	}
 
-	peerURL := fmt.Sprintf("https://%s:2380", e.Config.PeerAddress)
+	peerURL := (&url.URL{
+		Scheme: "https",
+		Host:   net.JoinHostPort(e.Etcd.PeerAddress, "2380"),
+	}).String()
 
 	args := stringmap.StringMap{
 		"--data-dir":                    e.K0sVars.EtcdDataDir,
@@ -217,11 +221,11 @@ func (e *Etcd) Stop() error {
 }
 
 func (e *Etcd) setupCerts(ctx context.Context) error {
-	etcdCaCert := filepath.Join(e.K0sVars.EtcdCertDir, "ca.crt")
-	etcdCaCertKey := filepath.Join(e.K0sVars.EtcdCertDir, "ca.key")
+	etcdCaCert := filepath.Join(e.K0sVars.EtcdCertDir, etcd.CAFile)
+	etcdCaCertKey := filepath.Join(e.K0sVars.EtcdCertDir, etcd.CAKeyFile)
 
 	if err := e.CertManager.EnsureCA("etcd/ca", "etcd-ca"); err != nil {
-		return fmt.Errorf("failed to create etcd ca: %w", err)
+		return fmt.Errorf("failed to create etcd CA: %w", err)
 	}
 
 	eg, _ := errgroup.WithContext(ctx)
@@ -263,12 +267,12 @@ func (e *Etcd) setupCerts(ctx context.Context) error {
 	eg.Go(func() error {
 		etcdPeerCertReq := certificate.Request{
 			Name:   filepath.Join("etcd", "peer"),
-			CN:     e.Config.PeerAddress,
+			CN:     e.Etcd.PeerAddress,
 			O:      "etcd-peer",
 			CACert: etcdCaCert,
 			CAKey:  etcdCaCertKey,
 			Hostnames: []string{
-				e.Config.PeerAddress,
+				e.Etcd.PeerAddress,
 			},
 		}
 		_, err := e.CertManager.EnsureCertificate(etcdPeerCertReq, constant.EtcdUser)
@@ -276,7 +280,7 @@ func (e *Etcd) setupCerts(ctx context.Context) error {
 	})
 
 	eg.Go(func() error {
-		return e.CertManager.CreateKeyPair("etcd/jwt", e.K0sVars, constant.EtcdUser)
+		return e.CertManager.CreateKeyPair("etcd/jwt", constant.EtcdUser)
 	})
 
 	return eg.Wait()
@@ -284,11 +288,20 @@ func (e *Etcd) setupCerts(ctx context.Context) error {
 
 // Health-check interface
 func (e *Etcd) Healthy() error {
-	logrus.WithField("component", "etcd").Debug("checking etcd endpoint for health")
 	ctx, cancel := context.WithTimeout(e.ctx, 1*time.Second)
 	defer cancel()
-	err := etcd.CheckEtcdReady(ctx, e.K0sVars.CertRootDir, e.K0sVars.EtcdCertDir, e.Config)
-	return err
+
+	logrus.WithField("component", "etcd").Debug("Checking etcd for health")
+
+	c, err := etcd.ConfigFromSpec(&e.K0sVars, &v1beta1.StorageSpec{
+		Type: v1beta1.EtcdStorageType,
+		Etcd: &e.Etcd,
+	}).NewClient()
+	if err != nil {
+		return fmt.Errorf("failed to initialize etcd client: %w", err)
+	}
+
+	return c.Health(ctx)
 }
 
 func detectUnsupportedEtcdArch() error {

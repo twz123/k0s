@@ -221,7 +221,7 @@ func (r *ClusterConfigReconciler) reportStatus(ctx context.Context, config *v1be
 func (r *ClusterConfigReconciler) copyRunningConfigToCR(baseCtx context.Context) (*v1beta1.ClusterConfig, error) {
 	ctx, cancel := context.WithTimeout(baseCtx, 5*time.Second)
 	defer cancel()
-	clusterWideConfig := r.YamlConfig.GetClusterWideConfig().StripDefaults().CRValidator()
+	clusterWideConfig := r.YamlConfig.ToClusterWideConfig().StripDefaults().CRValidator()
 	clusterConfig, err := r.configClient.Create(ctx, clusterWideConfig, cOpts)
 	if err != nil {
 		return nil, err

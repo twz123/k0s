@@ -17,6 +17,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -28,7 +29,7 @@ import (
 	"github.com/avast/retry-go"
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	k0sinstall "github.com/k0sproject/k0s/pkg/install"
@@ -44,17 +45,19 @@ type setupController struct {
 	log           *logrus.Entry
 	clientFactory apcli.FactoryInterface
 	k0sDataDir    string
+	k0sRunDir     string
 	enableWorker  bool
 }
 
 var _ SetupController = (*setupController)(nil)
 
 // NewSetupController creates a `SetupController`
-func NewSetupController(logger *logrus.Entry, cf apcli.FactoryInterface, k0sDataDir string, enableWorker bool) SetupController {
+func NewSetupController(logger *logrus.Entry, cf apcli.FactoryInterface, k0sDataDir, k0sRunDir string, enableWorker bool) SetupController {
 	return &setupController{
 		log:           logger.WithField("controller", "setup"),
 		clientFactory: cf,
 		k0sDataDir:    k0sDataDir,
+		k0sRunDir:     k0sRunDir,
 		enableWorker:  enableWorker,
 	}
 }
@@ -67,7 +70,7 @@ func (sc *setupController) Run(ctx context.Context) error {
 
 	logger.Infof("Creating namespace '%s'", apconst.AutopilotNamespace)
 	if _, err := createNamespace(ctx, sc.clientFactory, apconst.AutopilotNamespace); err != nil {
-		if !errors.IsAlreadyExists(err) {
+		if !apierrors.IsAlreadyExists(err) {
 			return fmt.Errorf("unable to create required namespace '%s'", apconst.AutopilotNamespace)
 		}
 	}
@@ -121,7 +124,7 @@ func (sc *setupController) createControlNode(ctx context.Context, cf apcli.Facto
 
 	// Create the ControlNode object if needed
 	node, err := client.AutopilotV1beta2().ControlNodes().Get(ctx, name, metav1.GetOptions{})
-	if errors.IsNotFound(err) {
+	if apierrors.IsNotFound(err) {
 		logger.Info("Autopilot 'controlnodes' CRD not found, waiting...")
 		extClient, err := cf.GetExtensionClient()
 		if err != nil {
@@ -162,7 +165,7 @@ func (sc *setupController) createControlNode(ctx context.Context, cf apcli.Facto
 		return err
 	}
 
-	addresses, err := getControlNodeAddresses(name)
+	addresses, err := getControlNodeAddresses(name, filepath.Join(sc.k0sRunDir, "status.sock"))
 	if err != nil {
 		return err
 	}
@@ -181,12 +184,9 @@ func (sc *setupController) createControlNode(ctx context.Context, cf apcli.Facto
 	return nil
 }
 
-// TODO re-use from somewhere else
-const DefaultK0sStatusSocketPath = "/run/k0s/status.sock"
-
-func getControlNodeAddresses(hostname string) ([]v1.NodeAddress, error) {
+func getControlNodeAddresses(hostname, statusSocketPath string) ([]v1.NodeAddress, error) {
 	addresses := []v1.NodeAddress{}
-	apiAddress, err := getControllerAPIAddress()
+	apiAddress, err := getControllerAPIAddress(statusSocketPath)
 	if err != nil {
 		return addresses, err
 	}
@@ -203,8 +203,8 @@ func getControlNodeAddresses(hostname string) ([]v1.NodeAddress, error) {
 	return addresses, nil
 }
 
-func getControllerAPIAddress() (string, error) {
-	status, err := k0sinstall.GetStatusInfo(DefaultK0sStatusSocketPath)
+func getControllerAPIAddress(statusSocketPath string) (string, error) {
+	status, err := k0sinstall.GetStatusInfo(statusSocketPath)
 	if err != nil {
 		return "", err
 	}

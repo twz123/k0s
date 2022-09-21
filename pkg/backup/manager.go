@@ -22,6 +22,8 @@ package backup
 import (
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -34,6 +36,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
+	"github.com/k0sproject/k0s/pkg/etcd"
 )
 
 // Manager hold configuration for particular backup-restore process
@@ -84,7 +87,8 @@ func (bm *Manager) RunBackup(nodeSpec *v1beta1.ClusterSpec, vars constant.CfgVar
 
 func (bm *Manager) discoverSteps(configFilePath string, nodeSpec *v1beta1.ClusterSpec, vars constant.CfgVars, action string, restoredConfigPath string) {
 	if nodeSpec.Storage.Type == v1beta1.EtcdStorageType && !nodeSpec.Storage.Etcd.IsExternalClusterUsed() {
-		bm.Add(newEtcdStep(bm.tmpDir, vars.CertRootDir, vars.EtcdCertDir, nodeSpec.Storage.Etcd.PeerAddress, vars.EtcdDataDir))
+		etcdConfig := etcd.ConfigFromSpec(&vars, nodeSpec.Storage)
+		bm.Add(newEtcdStep(etcdConfig, bm.tmpDir, url.URL{Scheme: "https", Host: net.JoinHostPort(nodeSpec.Storage.Etcd.PeerAddress, "2380")}, vars.EtcdDataDir))
 	} else if nodeSpec.Storage.Type == v1beta1.KineStorageType && strings.HasPrefix(nodeSpec.Storage.Kine.DataSource, "sqlite://") {
 		bm.Add(newSqliteStep(bm.tmpDir, nodeSpec.Storage.Kine.DataSource, vars.DataDir))
 	} else {

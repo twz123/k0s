@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/component"
 
 	"github.com/sirupsen/logrus"
@@ -34,7 +33,6 @@ import (
 // K0sControllersLeaseCounter implements a component that manages a lease per controller.
 // The per-controller leases are used to determine the amount of currently running controllers
 type K0sControllersLeaseCounter struct {
-	ClusterConfig     *v1beta1.ClusterConfig
 	KubeClientFactory kubeutil.ClientFactoryInterface
 
 	cancelFunc  context.CancelFunc

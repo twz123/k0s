@@ -23,8 +23,7 @@ import (
 	"net"
 	"net/http"
 
-	config "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
-	"github.com/k0sproject/k0s/pkg/constant"
+	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 )
 
 type K0sStatus struct {
@@ -39,8 +38,8 @@ type K0sStatus struct {
 	SingleNode                  bool
 	Args                        []string
 	WorkerToAPIConnectionStatus ProbeStatus
-	ClusterConfig               *config.ClusterConfig
-	K0sVars                     constant.CfgVars
+	RunDir                      string
+	ClusterConfig               v1beta1.ClusterConfig
 }
 
 type ProbeStatus struct {

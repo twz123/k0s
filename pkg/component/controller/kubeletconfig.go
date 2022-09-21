@@ -23,22 +23,22 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"reflect"
-
-	"github.com/imdario/mergo"
-	k8sutil "github.com/k0sproject/k0s/pkg/kubernetes"
-	"github.com/sirupsen/logrus"
-	"k8s.io/apimachinery/pkg/api/errors"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/yaml"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/templatewriter"
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/constant"
+	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/imdario/mergo"
+	"github.com/sirupsen/logrus"
+	"sigs.k8s.io/yaml"
 )
 
 // Dummy checks so we catch easily if we miss some interface implementation
@@ -49,19 +49,28 @@ var _ component.Component = (*KubeletConfig)(nil)
 type KubeletConfig struct {
 	log logrus.FieldLogger
 
-	kubeClientFactory k8sutil.ClientFactoryInterface
-	k0sVars           constant.CfgVars
+	kubeClientFactory kubeutil.ClientFactoryInterface
+	manifestsDir      string
+	clusterDomain     string
+	clusterDNSIPs     []string
 	previousProfiles  v1beta1.WorkerProfiles
 }
 
 // NewKubeletConfig creates new KubeletConfig reconciler
-func NewKubeletConfig(k0sVars constant.CfgVars, clientFactory k8sutil.ClientFactoryInterface) *KubeletConfig {
+func NewKubeletConfig(k0sVars *constant.CfgVars, nodeNetwork *v1beta1.Network, clientFactory kubeutil.ClientFactoryInterface) (*KubeletConfig, error) {
+	dns, err := nodeNetwork.DNSAddress()
+	if err != nil {
+		return nil, err
+	}
+
 	return &KubeletConfig{
 		log: logrus.WithFields(logrus.Fields{"component": "kubeletconfig"}),
 
 		kubeClientFactory: clientFactory,
-		k0sVars:           k0sVars,
-	}
+		manifestsDir:      filepath.Join(k0sVars.ManifestsDir, "kubelet"),
+		clusterDomain:     nodeNetwork.ClusterDomain,
+		clusterDNSIPs:     []string{dns.String()},
+	}, nil
 }
 
 // Init does nothing
@@ -93,7 +102,7 @@ func (k *KubeletConfig) Reconcile(ctx context.Context, clusterSpec *v1beta1.Clus
 		return nil
 	}
 
-	manifest, err := k.createProfiles(clusterSpec)
+	manifest, err := k.createProfiles(clusterSpec.Spec.WorkerProfiles)
 	if err != nil {
 		return fmt.Errorf("failed to build final manifest: %v", err)
 	}
@@ -112,8 +121,8 @@ func (k *KubeletConfig) defaultProfilesExist(ctx context.Context) (bool, error) 
 		return false, err
 	}
 	defaultProfileName := formatProfileName("default")
-	_, err = c.CoreV1().ConfigMaps("kube-system").Get(ctx, defaultProfileName, v1.GetOptions{})
-	if err != nil && errors.IsNotFound(err) {
+	_, err = c.CoreV1().ConfigMaps("kube-system").Get(ctx, defaultProfileName, metav1.GetOptions{})
+	if err != nil && apierrors.IsNotFound(err) {
 		return false, nil
 	} else if err != nil {
 		return false, err
@@ -121,16 +130,12 @@ func (k *KubeletConfig) defaultProfilesExist(ctx context.Context) (bool, error) 
 	return true, nil
 }
 
-func (k *KubeletConfig) createProfiles(clusterSpec *v1beta1.ClusterConfig) (*bytes.Buffer, error) {
-	dnsAddress, err := clusterSpec.Spec.Network.DNSAddress()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get DNS address for kubelet config: %v", err)
-	}
+func (k *KubeletConfig) createProfiles(workerProfiles v1beta1.WorkerProfiles) (*bytes.Buffer, error) {
 	manifest := bytes.NewBuffer([]byte{})
-	defaultProfile := getDefaultProfile(dnsAddress, clusterSpec.Spec.Network.ClusterDomain)
+	defaultProfile := getDefaultProfile(k.clusterDomain, k.clusterDNSIPs)
 	defaultProfile["cgroupsPerQOS"] = true
 
-	winDefaultProfile := getDefaultProfile(dnsAddress, clusterSpec.Spec.Network.ClusterDomain)
+	winDefaultProfile := getDefaultProfile(k.clusterDomain, k.clusterDNSIPs)
 	winDefaultProfile["cgroupsPerQOS"] = false
 
 	if err := k.writeConfigMapWithProfile(manifest, "default", defaultProfile); err != nil {
@@ -143,8 +148,8 @@ func (k *KubeletConfig) createProfiles(clusterSpec *v1beta1.ClusterConfig) (*byt
 		formatProfileName("default"),
 		formatProfileName("default-windows"),
 	}
-	for _, profile := range clusterSpec.Spec.WorkerProfiles {
-		profileConfig := getDefaultProfile(dnsAddress, clusterSpec.Spec.Network.ClusterDomain)
+	for _, profile := range workerProfiles {
+		profileConfig := getDefaultProfile(k.clusterDomain, k.clusterDNSIPs)
 
 		var workerValues unstructuredYamlObject
 		err := json.Unmarshal(profile.Config, &workerValues)
@@ -170,13 +175,12 @@ func (k *KubeletConfig) createProfiles(clusterSpec *v1beta1.ClusterConfig) (*byt
 }
 
 func (k *KubeletConfig) save(data []byte) error {
-	kubeletDir := path.Join(k.k0sVars.ManifestsDir, "kubelet")
-	err := dir.Init(kubeletDir, constant.ManifestsDirMode)
+	err := dir.Init(k.manifestsDir, constant.ManifestsDirMode)
 	if err != nil {
 		return err
 	}
 
-	filePath := filepath.Join(kubeletDir, "kubelet-config.yaml")
+	filePath := filepath.Join(k.manifestsDir, "kubelet-config.yaml")
 	if err := os.WriteFile(filePath, data, constant.CertMode); err != nil {
 		return fmt.Errorf("can't write kubelet configuration config map: %v", err)
 	}
@@ -222,7 +226,7 @@ func (k *KubeletConfig) writeRbacRoleBindings(w io.Writer, configMapNames []stri
 	return tw.WriteToBuffer(w)
 }
 
-func getDefaultProfile(dnsAddress string, clusterDomain string) unstructuredYamlObject {
+func getDefaultProfile(clusterDomain string, clusterDNSIPs []string) unstructuredYamlObject {
 	// the motivation to keep it like this instead of the yaml template:
 	// - it's easier to merge programatically defined structure
 	// - apart from map[string]interface there is no good way to define free-form mapping
@@ -231,7 +235,7 @@ func getDefaultProfile(dnsAddress string, clusterDomain string) unstructuredYaml
 	profile := unstructuredYamlObject{
 		"apiVersion":    "kubelet.config.k8s.io/v1beta1",
 		"kind":          "KubeletConfiguration",
-		"clusterDNS":    []string{dnsAddress},
+		"clusterDNS":    clusterDNSIPs,
 		"clusterDomain": clusterDomain,
 		"tlsCipherSuites": []string{
 			"TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",

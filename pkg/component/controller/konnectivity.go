@@ -23,9 +23,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
-
-	"github.com/sirupsen/logrus"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
@@ -36,34 +35,48 @@ import (
 	"github.com/k0sproject/k0s/pkg/assets"
 	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/constant"
-	k8sutil "github.com/k0sproject/k0s/pkg/kubernetes"
 	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/k0sproject/k0s/pkg/supervisor"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
+
+	"github.com/sirupsen/logrus"
 )
 
 // Konnectivity implements the component interface of konnectivity server
 type Konnectivity struct {
-	K0sVars    constant.CfgVars
-	LogLevel   string
-	SingleNode bool
-	// used for lease lock
-	KubeClientFactory k8sutil.ClientFactoryInterface
-	NodeConfig        *v1beta1.ClusterConfig
+	K0sVars           constant.CfgVars
+	API               v1beta1.APISpec
+	KubeClientFactory kubeutil.ClientFactoryInterface // used for lease lock
+	LogLevel          string
+	SingleNode        bool
+
+	log *logrus.Entry
 
 	supervisor          *supervisor.Supervisor
 	uid                 int
-	serverCount         int
-	serverCountChan     chan int
+	updates             chan func(*konnectivityState)
 	stopFunc            context.CancelFunc
-	clusterConfig       *v1beta1.ClusterConfig
-	log                 *logrus.Entry
-	leaseCounterRunning bool
-	previousConfig      konnectivityAgentConfig
+	leaseCounterRunning atomic.Bool
 	agentManifestLock   sync.Mutex
 }
 
 var _ component.Component = (*Konnectivity)(nil)
 var _ component.Reconciler = (*Konnectivity)(nil)
+
+type konnectivityState struct {
+	serverCount uint
+	cluster     *konnectivityClusterState
+	agentConfig konnectivityAgentConfig
+}
+
+type konnectivityClusterState struct {
+	imageURI   string
+	agentPort  uint16
+	adminPort  uint16
+	pullPolicy corev1.PullPolicy
+}
 
 // Init ...
 func (k *Konnectivity) Init(_ context.Context) error {
@@ -89,8 +102,8 @@ func (k *Konnectivity) Init(_ context.Context) error {
 
 // Run ..
 func (k *Konnectivity) Start(ctx context.Context) error {
-	// Buffered chan to send updates for the count of servers
-	k.serverCountChan = make(chan int, 1)
+	// Buffered chan to send updates
+	k.updates = make(chan func(*konnectivityState), 1)
 
 	ctx, k.stopFunc = context.WithCancel(ctx)
 
@@ -101,17 +114,29 @@ func (k *Konnectivity) Start(ctx context.Context) error {
 
 // Reconcile detects changes in configuration and applies them to the component
 func (k *Konnectivity) Reconcile(ctx context.Context, clusterCfg *v1beta1.ClusterConfig) error {
-	k.clusterConfig = clusterCfg
-	if !k.SingleNode {
-		go k.runLeaseCounter(ctx)
-	} else {
-		// It's a buffered channel so once we start the runServer routine it'll pick this up and just sees it never changing
-		k.serverCountChan <- 1
+	cluster := &konnectivityClusterState{
+		imageURI:   clusterCfg.Spec.Images.Konnectivity.URI(),
+		agentPort:  uint16(clusterCfg.Spec.Konnectivity.AgentPort),
+		adminPort:  uint16(clusterCfg.Spec.Konnectivity.AdminPort),
+		pullPolicy: corev1.PullPolicy(clusterCfg.Spec.Images.DefaultPullPolicy),
 	}
-	return k.writeKonnectivityAgent()
+
+	if k.SingleNode {
+		// It's a buffered channel so once we start the runServer routine it'll pick this up and just sees it never changing
+		k.updates <- func(state *konnectivityState) {
+			state.serverCount = 1
+			state.cluster = cluster
+		}
+	} else {
+
+		k.updates <- func(state *konnectivityState) { state.cluster = cluster }
+		go k.runLeaseCounter(ctx)
+	}
+
+	return nil
 }
 
-func (k *Konnectivity) defaultArgs() stringmap.StringMap {
+func (k *Konnectivity) defaultArgs(cluster *konnectivityClusterState) stringmap.StringMap {
 	machineID, err := machineid.Generate()
 	if err != nil {
 		logrus.Errorf("failed to fetch machine ID for konnectivity-server")
@@ -123,8 +148,8 @@ func (k *Konnectivity) defaultArgs() stringmap.StringMap {
 		"--kubeconfig":              k.K0sVars.KonnectivityKubeConfigPath,
 		"--mode":                    "grpc",
 		"--server-port":             "0",
-		"--agent-port":              fmt.Sprintf("%d", k.clusterConfig.Spec.Konnectivity.AgentPort),
-		"--admin-port":              fmt.Sprintf("%d", k.clusterConfig.Spec.Konnectivity.AdminPort),
+		"--agent-port":              strconv.FormatUint(uint64(cluster.agentPort), 10),
+		"--admin-port":              strconv.FormatUint(uint64(cluster.adminPort), 10),
 		"--agent-namespace":         "kube-system",
 		"--agent-service-account":   "konnectivity-agent",
 		"--authentication-audience": "system:konnectivity-server",
@@ -140,23 +165,28 @@ func (k *Konnectivity) defaultArgs() stringmap.StringMap {
 // runs the supervisor and restarts if the calculated server count changes
 func (k *Konnectivity) runServer(ctx context.Context) {
 	previousArgs := stringmap.StringMap{}
+
+	var lastState konnectivityState
+
 	for {
 		select {
 		case <-ctx.Done():
 			logrus.Info("stopping konnectivity server reconfig loop")
 			return
-		case count := <-k.serverCountChan:
+		case update := <-k.updates:
+			state := lastState
+			update(&state)
 			// restart only if the count actually changes and we've got the global config
-			if count != k.serverCount && k.clusterConfig != nil {
-				args := k.defaultArgs()
-				args["--server-count"] = strconv.Itoa(count)
+			if lastState.serverCount != state.serverCount && state.cluster != nil {
+				args := k.defaultArgs(state.cluster)
+				args["--server-count"] = strconv.Itoa(int(state.serverCount))
 				if args.Equals(previousArgs) {
 					logrus.Info("no changes detected for konnectivity-server")
 				}
 				// Stop supervisor
 				if k.supervisor != nil {
 					if err := k.supervisor.Stop(); err != nil {
-						logrus.Errorf("failed to stop supervisor: %s", err)
+						k.log.WithError(err).Error("Failed to stop supervisor")
 						// TODO Should we just return? That means other part will continue to run but the server is never properly restarted
 					}
 				}
@@ -171,16 +201,17 @@ func (k *Konnectivity) runServer(ctx context.Context) {
 				}
 				err := k.supervisor.Supervise()
 				if err != nil {
-					logrus.Errorf("failed to start konnectivity supervisor: %s", err)
+					k.log.WithError(err).Error("Failed to start konnectivity supervisor")
 					k.supervisor = nil // not to make the next loop to try to stop it first
 					continue
 				}
-				k.serverCount = count
 
-				if err := k.writeKonnectivityAgent(); err != nil {
-					logrus.Errorf("failed to update konnectivity-agent template: %s", err)
+				if err := k.writeKonnectivityAgent(&state); err != nil {
+					k.log.WithError(err).Error("Failed to update konnectivity-agent template")
 				}
 			}
+
+			lastState = state
 		}
 	}
 }
@@ -199,16 +230,16 @@ func (k *Konnectivity) Stop() error {
 }
 
 type konnectivityAgentConfig struct {
-	APIAddress             string
-	AgentPort              int64
-	KASPort                int64
+	ProxyServerHost        string
+	ProxyServerPort        uint16
+	KASPort                uint16
 	Image                  string
-	ServerCount            int
+	ServerCount            uint
 	PullPolicy             string
 	TunneledNetworkingMode bool
 }
 
-func (k *Konnectivity) writeKonnectivityAgent() error {
+func (k *Konnectivity) writeKonnectivityAgent(state *konnectivityState) error {
 	k.agentManifestLock.Lock()
 	defer k.agentManifestLock.Unlock()
 	konnectivityDir := filepath.Join(k.K0sVars.ManifestsDir, "konnectivity")
@@ -216,17 +247,18 @@ func (k *Konnectivity) writeKonnectivityAgent() error {
 	if err != nil {
 		return err
 	}
+
 	cfg := konnectivityAgentConfig{
-		APIAddress:             k.NodeConfig.Spec.API.APIAddress(), // TODO: should it be an APIAddress?
-		AgentPort:              k.clusterConfig.Spec.Konnectivity.AgentPort,
-		KASPort:                int64(k.clusterConfig.Spec.API.Port),
-		Image:                  k.clusterConfig.Spec.Images.Konnectivity.URI(),
-		ServerCount:            k.serverCount,
-		PullPolicy:             k.clusterConfig.Spec.Images.DefaultPullPolicy,
-		TunneledNetworkingMode: k.clusterConfig.Spec.API.TunneledNetworkingMode,
+		ProxyServerHost:        k.API.APIAddress(),
+		ProxyServerPort:        state.cluster.agentPort,
+		KASPort:                uint16(k.API.Port),
+		Image:                  state.cluster.imageURI,
+		ServerCount:            state.serverCount,
+		PullPolicy:             string(state.cluster.pullPolicy),
+		TunneledNetworkingMode: k.API.TunneledNetworkingMode,
 	}
 
-	if cfg == k.previousConfig {
+	if cfg == state.agentConfig {
 		k.log.Debug("agent configs match, no need to reconcile")
 		return nil
 	}
@@ -239,37 +271,35 @@ func (k *Konnectivity) writeKonnectivityAgent() error {
 	}
 	err = tw.Write()
 	if err != nil {
-		return fmt.Errorf("failed to write konnectivity agent manifest: %v", err)
+		return fmt.Errorf("failed to write konnectivity agent manifest: %w", err)
 	}
-	k.previousConfig = cfg
+
+	state.agentConfig = cfg
 	return nil
 }
 
 func (k *Konnectivity) runLeaseCounter(ctx context.Context) {
-	if k.leaseCounterRunning {
+	if !k.leaseCounterRunning.CompareAndSwap(false, true) {
 		return
 	}
-	k.leaseCounterRunning = true
-	logrus.Infof("starting to count controller lease holders every 10 secs")
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			logrus.Info("stopping konnectivity lease counter")
-			return
-		case <-ticker.C:
-			count, err := k.countLeaseHolders(ctx)
-			if err != nil {
-				logrus.Errorf("failed to count controller leases: %s", err)
-				continue
+	defer k.leaseCounterRunning.Store(false)
+
+	k.log.Info("Starting to count controller lease holders every 10 secs")
+	_ = wait.PollImmediateUntilWithContext(ctx, 10*time.Second, func(ctx context.Context) (done bool, err error) {
+		count, err := k.countLeaseHolders(ctx)
+		if err != nil {
+			k.log.WithError(err).Error("Failed to count controller leases")
+		} else {
+			k.updates <- func(state *konnectivityState) {
+				state.serverCount = count
 			}
-			k.serverCountChan <- count
 		}
-	}
+		return false, nil
+	})
+	k.log.Info("Stopped konnectivity lease counter")
 }
 
-func (k *Konnectivity) countLeaseHolders(ctx context.Context) (int, error) {
+func (k *Konnectivity) countLeaseHolders(ctx context.Context) (uint, error) {
 	client, err := k.KubeClientFactory.GetClient()
 	if err != nil {
 		return 0, err
@@ -351,8 +381,8 @@ spec:
                   "--ca-cert=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
                   # Since the konnectivity server runs with hostNetwork=true,
                   # this is the IP address of the master machine.
-                  "--proxy-server-host={{ .APIAddress }}",
-                  "--proxy-server-port={{ .AgentPort }}",
+                  "--proxy-server-host={{ .ProxyServerHost }}",
+                  "--proxy-server-port={{ .ProxyServerPort }}",
                   "--service-account-token-path=/var/run/secrets/tokens/konnectivity-agent-token",
                   "--agent-identifiers=host=$(NODE_IP)",
                   "--agent-id=$(NODE_IP)",

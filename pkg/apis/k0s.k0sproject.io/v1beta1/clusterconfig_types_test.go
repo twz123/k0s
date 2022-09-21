@@ -146,8 +146,8 @@ spec:
 
 	c, err := ConfigFromString(yamlData)
 	assert.NoError(t, err)
-	assert.Equal(t, "https://foo.bar.com:6443", c.Spec.API.APIAddressURL())
-	assert.Equal(t, "https://foo.bar.com:9443", c.Spec.API.K0sControlPlaneAPIAddress())
+	assert.Equal(t, "https://foo.bar.com:6443", c.Spec.API.APIAddressURL().String())
+	assert.Equal(t, "https://foo.bar.com:9443", c.Spec.API.K0sControlPlaneAPIAddressURL().String())
 }
 
 func TestApiNoExternalAddress(t *testing.T) {
@@ -163,8 +163,8 @@ spec:
 
 	c, err := ConfigFromString(yamlData)
 	assert.NoError(t, err)
-	assert.Equal(t, "https://1.2.3.4:6443", c.Spec.API.APIAddressURL())
-	assert.Equal(t, "https://1.2.3.4:9443", c.Spec.API.K0sControlPlaneAPIAddress())
+	assert.Equal(t, "https://1.2.3.4:6443", c.Spec.API.APIAddressURL().String())
+	assert.Equal(t, "https://1.2.3.4:9443", c.Spec.API.K0sControlPlaneAPIAddressURL().String())
 }
 
 func TestNullValues(t *testing.T) {

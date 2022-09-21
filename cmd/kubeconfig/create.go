@@ -76,7 +76,6 @@ Note: A certificate once signed cannot be revoked for a particular user`,
 			}
 			username := args[0]
 			c := config.GetCmdOpts()
-			clusterAPIURL := c.NodeConfig.Spec.API.APIAddressURL()
 
 			caCert, err := os.ReadFile(path.Join(c.K0sVars.CertRootDir, "ca.crt"))
 			if err != nil {
@@ -90,9 +89,7 @@ Note: A certificate once signed cannot be revoked for a particular user`,
 				CACert: caCertPath,
 				CAKey:  caCertKey,
 			}
-			certManager := certificate.Manager{
-				K0sVars: c.K0sVars,
-			}
+			certManager := certificate.NewManager(c.K0sVars.CertRootDir)
 			userCert, err := certManager.EnsureCertificate(userReq, "root")
 			if err != nil {
 				return err
@@ -109,7 +106,7 @@ Note: A certificate once signed cannot be revoked for a particular user`,
 				ClientCert: base64.StdEncoding.EncodeToString([]byte(userCert.Cert)),
 				ClientKey:  base64.StdEncoding.EncodeToString([]byte(userCert.Key)),
 				User:       username,
-				JoinURL:    clusterAPIURL,
+				JoinURL:    c.NodeConfig.Spec.API.APIAddressURL().String(),
 			}
 
 			var buf bytes.Buffer

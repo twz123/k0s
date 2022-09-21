@@ -33,9 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/component"
-	k8sutil "github.com/k0sproject/k0s/pkg/kubernetes"
 	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
 )
 
@@ -55,7 +53,6 @@ type CSRApprover struct {
 	L    *logrus.Entry
 	stop context.CancelFunc
 
-	ClusterConfig     *v1beta1.ClusterConfig
 	KubeClientFactory kubeutil.ClientFactoryInterface
 	leaderElector     LeaderElector
 	clientset         clientset.Interface
@@ -64,11 +61,10 @@ type CSRApprover struct {
 var _ component.Component = (*CSRApprover)(nil)
 
 // NewCSRApprover creates the CSRApprover component
-func NewCSRApprover(c *v1beta1.ClusterConfig, leaderElector LeaderElector, kubeClientFactory k8sutil.ClientFactoryInterface) *CSRApprover {
+func NewCSRApprover(leaderElector LeaderElector, kubeClientFactory kubeutil.ClientFactoryInterface) *CSRApprover {
 	d := atomic.Value{}
 	d.Store(true)
 	return &CSRApprover{
-		ClusterConfig:     c,
 		leaderElector:     leaderElector,
 		KubeClientFactory: kubeClientFactory,
 		L:                 logrus.WithFields(logrus.Fields{"component": "csrapprover"}),

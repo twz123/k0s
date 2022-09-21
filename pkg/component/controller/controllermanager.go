@@ -38,14 +38,15 @@ import (
 
 // Manager implement the component interface to run kube scheduler
 type Manager struct {
-	gid            int
-	K0sVars        constant.CfgVars
-	LogLevel       string
+	K0sVars    constant.CfgVars
+	NodeSpec   v1beta1.ClusterSpec
+	SingleNode bool
+	LogLevel   string
+	ExtraArgs  string
+
 	supervisor     *supervisor.Supervisor
-	uid            int
+	uid, gid       int
 	previousConfig stringmap.StringMap
-	SingleNode     bool
-	ExtraArgs      string
 }
 
 var cmDefaultArgs = stringmap.StringMap{
@@ -97,7 +98,7 @@ func (a *Manager) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterCon
 		"root-ca-file":                     path.Join(a.K0sVars.CertRootDir, "ca.crt"),
 		"service-account-private-key-file": path.Join(a.K0sVars.CertRootDir, "sa.key"),
 		"cluster-cidr":                     clusterConfig.Spec.Network.BuildPodCIDR(),
-		"service-cluster-ip-range":         clusterConfig.Spec.Network.BuildServiceCIDR(clusterConfig.Spec.API.Address),
+		"service-cluster-ip-range":         getServiceClusterIPRange(&a.NodeSpec),
 		"profiling":                        "false",
 		"terminated-pod-gc-threshold":      "12500",
 		"v":                                a.LogLevel,
@@ -110,7 +111,7 @@ func (a *Manager) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterCon
 		args.Merge(extras)
 	}
 
-	if clusterConfig.Spec.Network.DualStack.Enabled {
+	if clusterConfig.Spec.Network.DualStack.IsEnabled() {
 		args["node-cidr-mask-size-ipv6"] = "110"
 		args["node-cidr-mask-size-ipv4"] = "24"
 	} else {

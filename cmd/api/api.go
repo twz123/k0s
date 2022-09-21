@@ -64,9 +64,9 @@ func NewAPICmd() *cobra.Command {
 		Use:   "api",
 		Short: "Run the controller API",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c := command{CLIOptions: config.GetCmdOpts()}
-
 			logrus.SetOutput(os.Stdout)
+
+			c := command{CLIOptions: config.GetCmdOpts()}
 			if !c.Debug {
 				logrus.SetLevel(logrus.InfoLevel)
 			}
@@ -123,6 +123,7 @@ func (c *command) start() (err error) {
 }
 
 func (c *command) etcdHandler() http.Handler {
+	etcdConfig := etcd.ConfigFromSpec(&c.K0sVars, c.NodeConfig.Spec.Storage)
 	return http.HandlerFunc(func(resp http.ResponseWriter, req *http.Request) {
 		ctx := req.Context()
 		var etcdReq v1beta1.EtcdRequest
@@ -138,7 +139,7 @@ func (c *command) etcdHandler() http.Handler {
 			return
 		}
 
-		etcdClient, err := etcd.NewClient(c.K0sVars.CertRootDir, c.K0sVars.EtcdCertDir, nil)
+		etcdClient, err := etcdConfig.NewClient()
 		if err != nil {
 			sendError(err, resp)
 			return
@@ -228,7 +229,7 @@ users:
 				Token     string
 				Namespace string
 			}{
-				Server:    c.NodeConfig.Spec.API.APIAddressURL(),
+				Server:    c.NodeConfig.Spec.API.APIAddressURL().String(),
 				Ca:        base64.StdEncoding.EncodeToString(secretWithToken.Data["ca.crt"]),
 				Token:     string(secretWithToken.Data["token"]),
 				Namespace: string(secretWithToken.Data["namespace"]),

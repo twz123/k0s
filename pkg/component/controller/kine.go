@@ -37,18 +37,18 @@ import (
 
 // Kine implement the component interface to run kine
 type Kine struct {
-	Config     *v1beta1.KineConfig
-	gid        int
-	K0sVars    constant.CfgVars
+	K0sVars constant.CfgVars
+	Kine    v1beta1.KineConfig
+
 	supervisor supervisor.Supervisor
-	uid        int
+	uid, gid   int
 }
 
 var _ component.Component = (*Kine)(nil)
 
 // Init extracts the needed binaries
 func (k *Kine) Init(_ context.Context) error {
-	logrus.Infof("initializing kine with config: %+v", k.Config)
+	logrus.Infof("initializing kine with config: %+v", k.Kine)
 	var err error
 	k.uid, err = users.GetUID(constant.KineUser)
 	if err != nil {
@@ -64,7 +64,7 @@ func (k *Kine) Init(_ context.Context) error {
 		logrus.Warningf("failed to chown %s", kineSocketDir)
 	}
 
-	dsURL, err := url.Parse(k.Config.DataSource)
+	dsURL, err := url.Parse(k.Kine.DataSource)
 	if err != nil {
 		return err
 	}
@@ -88,7 +88,7 @@ func (k *Kine) Init(_ context.Context) error {
 // Run runs kine
 func (k *Kine) Start(_ context.Context) error {
 	logrus.Info("Starting kine")
-	logrus.Debugf("datasource: %s", k.Config.DataSource)
+	logrus.Debug("Kine datasource: ", k.Kine.DataSource)
 
 	k.supervisor = supervisor.Supervisor{
 		Name:    "kine",
@@ -96,7 +96,7 @@ func (k *Kine) Start(_ context.Context) error {
 		DataDir: k.K0sVars.DataDir,
 		RunDir:  k.K0sVars.RunDir,
 		Args: []string{
-			fmt.Sprintf("--endpoint=%s", k.Config.DataSource),
+			fmt.Sprintf("--endpoint=%s", k.Kine.DataSource),
 			fmt.Sprintf("--listen-address=unix://%s", k.K0sVars.KineSocketPath),
 		},
 		UID: k.uid,

@@ -23,7 +23,6 @@ import (
 	"path"
 	"testing"
 
-	"github.com/k0sproject/k0s/internal/testutil"
 	"github.com/k0sproject/k0s/pkg/certificate"
 	"github.com/k0sproject/k0s/pkg/constant"
 
@@ -40,16 +39,6 @@ type CLITestSuite struct {
 }
 
 func (s *CLITestSuite) TestKubeConfigCreate() {
-	yamlData := `
-apiVersion: k0s.k0sproject.io/v1beta1
-kind: ClusterConfig
-spec:
-  api:
-    externalAddress: 10.0.0.86
-`
-	configGetter := testutil.NewConfigGetter(s.T(), yamlData, false, constant.GetConfig(""))
-	cfg := configGetter.FakeConfigFromFile()
-
 	caCert := `
 -----BEGIN CERTIFICATE-----
 MIIDADCCAeigAwIBAgIUW+2hawM8HgHrfxmDRV51wOq95icwDQYJKoZIhvcNAQEL
@@ -105,6 +94,7 @@ z+5UodDFCnUsfprMjfTdY2Vk99PT4++SrJ5iTOn7xgKRrd1MPkBv7SXwnPtxCBAK
 yJm2KSue0toWmkBFK8WMTjAvmAw3Z/qUhJRKoqCu3k6Mf8DNl6t+Uw==
 -----END RSA PRIVATE KEY-----
 `
+	const joinURL = "https://10.0.0.86:6443"
 	caKeyPath := path.Join(tmpDir, "ca-key")
 	s.Require().NoError(os.WriteFile(caKeyPath, []byte(caCertKey), 0644))
 
@@ -117,15 +107,12 @@ yJm2KSue0toWmkBFK8WMTjAvmAw3Z/qUhJRKoqCu3k6Mf8DNl6t+Uw==
 	}
 
 	k0sVars := constant.GetConfig(s.T().TempDir())
-	certManager := certificate.Manager{
-		K0sVars: k0sVars,
-	}
+	certManager := certificate.NewManager(k0sVars.CertRootDir)
 
 	s.Require().NoError(os.MkdirAll(k0sVars.CertRootDir, 0755))
 
 	userCert, err := certManager.EnsureCertificate(userReq, "root")
 	s.NoError(err)
-	clusterAPIURL := cfg.Spec.API.APIAddressURL()
 
 	data := struct {
 		CACert     string
@@ -138,7 +125,7 @@ yJm2KSue0toWmkBFK8WMTjAvmAw3Z/qUhJRKoqCu3k6Mf8DNl6t+Uw==
 		ClientCert: base64.StdEncoding.EncodeToString([]byte(userCert.Cert)),
 		ClientKey:  base64.StdEncoding.EncodeToString([]byte(userCert.Key)),
 		User:       "test-user",
-		JoinURL:    clusterAPIURL,
+		JoinURL:    joinURL,
 	}
 
 	var buf bytes.Buffer
@@ -149,7 +136,7 @@ yJm2KSue0toWmkBFK8WMTjAvmAw3Z/qUhJRKoqCu3k6Mf8DNl6t+Uw==
 
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
 	s.Require().NoError(err)
-	s.Equal("https://10.0.0.86:6443", config.Host)
+	s.Equal(joinURL, config.Host)
 }
 
 func TestCLITestSuite(t *testing.T) {

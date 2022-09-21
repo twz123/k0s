@@ -609,7 +609,11 @@ func (in *Network) DeepCopyInto(out *Network) {
 		*out = new(Calico)
 		**out = **in
 	}
-	out.DualStack = in.DualStack
+	if in.DualStack != nil {
+		in, out := &in.DualStack, &out.DualStack
+		*out = new(DualStack)
+		**out = **in
+	}
 	if in.KubeProxy != nil {
 		in, out := &in.KubeProxy, &out.KubeProxy
 		*out = new(KubeProxy)

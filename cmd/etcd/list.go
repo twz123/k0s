@@ -17,7 +17,6 @@ limitations under the License.
 package etcd
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -34,14 +33,15 @@ func etcdListCmd() *cobra.Command {
 		Short: "Returns etcd cluster members list",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := config.GetCmdOpts()
-			ctx := context.Background()
-			etcdClient, err := etcd.NewClient(c.K0sVars.CertRootDir, c.K0sVars.EtcdCertDir, c.NodeConfig.Spec.Storage.Etcd)
+
+			etcdClient, err := etcd.ConfigFromSpec(&c.K0sVars, c.NodeConfig.Spec.Storage).NewClient()
 			if err != nil {
-				return fmt.Errorf("can't list etcd cluster members: %v", err)
+				return err
 			}
-			members, err := etcdClient.ListMembers(ctx)
+
+			members, err := etcdClient.ListMembers(cmd.Context())
 			if err != nil {
-				return fmt.Errorf("can't list etcd cluster members: %v", err)
+				return fmt.Errorf("can't list etcd cluster members: %w", err)
 			}
 			return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{"members": members})
 		},

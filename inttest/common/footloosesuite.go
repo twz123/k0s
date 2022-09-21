@@ -176,9 +176,9 @@ func (s *FootlooseSuite) SetupSuite() {
 		s.cleanupSuite()
 	}()
 
-	// set up signal handler so we teardown on SIGINT or SIGTERM
+	// set up signal handler so we teardown on Interrupt or SIGTERM
 	c := make(chan os.Signal, 3)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
 		s.TearDownSuite()

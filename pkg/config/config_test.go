@@ -377,7 +377,7 @@ func createFakeAPIConfig(client k0sv1beta1.K0sV1beta1Interface) error {
 		return fmt.Errorf("failed to parse config yaml: %s", err.Error())
 	}
 
-	_, err = clusterConfigs.Create(ctxWithTimeout, config.GetClusterWideConfig().StripDefaults(), cOpts)
+	_, err = clusterConfigs.Create(ctxWithTimeout, config.ToClusterWideConfig().StripDefaults(), cOpts)
 	if err != nil {
 		return fmt.Errorf("failed to create clusterConfig in the API: %s", err.Error())
 	}

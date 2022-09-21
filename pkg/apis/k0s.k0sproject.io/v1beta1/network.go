@@ -21,18 +21,19 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/asaskevich/govalidator"
 	utilnet "k8s.io/utils/net"
+
+	"github.com/asaskevich/govalidator"
 )
 
 var _ Validateable = (*Network)(nil)
 
 // Network defines the network related config options
 type Network struct {
-	Calico     *Calico     `json:"calico"`
-	DualStack  DualStack   `json:"dualStack,omitempty"`
-	KubeProxy  *KubeProxy  `json:"kubeProxy"`
-	KubeRouter *KubeRouter `json:"kuberouter"`
+	Calico     *Calico     `json:"calico,omitempty"`
+	DualStack  *DualStack  `json:"dualStack,omitempty"`
+	KubeProxy  *KubeProxy  `json:"kubeProxy,omitempty"`
+	KubeRouter *KubeRouter `json:"kuberouter,omitempty"`
 
 	// Pod network CIDR to use in the cluster
 	PodCIDR string `json:"podCIDR"`
@@ -51,7 +52,6 @@ func DefaultNetwork() *Network {
 		ServiceCIDR:   "10.96.0.0/12",
 		Provider:      "kuberouter",
 		KubeRouter:    DefaultKubeRouter(),
-		DualStack:     DefaultDualStack(),
 		KubeProxy:     DefaultKubeProxy(),
 		ClusterDomain: "cluster.local",
 	}
@@ -78,7 +78,7 @@ func (n *Network) Validate() []error {
 		errors = append(errors, fmt.Errorf("invalid clusterDomain %s", n.ClusterDomain))
 	}
 
-	if n.DualStack.Enabled {
+	if n.DualStack.IsEnabled() {
 		if n.Provider == "calico" && n.Calico.Mode != "bird" {
 			errors = append(errors, fmt.Errorf("network dual stack is supported only for calico mode `bird`"))
 		}
@@ -96,53 +96,26 @@ func (n *Network) Validate() []error {
 }
 
 // DNSAddress calculates the 10th address of configured service CIDR block.
-func (n *Network) DNSAddress() (string, error) {
-	_, ipnet, err := net.ParseCIDR(n.ServiceCIDR)
+func (n *Network) DNSAddress() (net.IP, error) {
+	_, ipNet, err := net.ParseCIDR(n.ServiceCIDR)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse service CIDR %s: %w", n.ServiceCIDR, err)
+		return nil, fmt.Errorf("failed to parse service CIDR %q", n.ServiceCIDR)
 	}
 
-	address := ipnet.IP.To4()
-	if IsIPv6String(ipnet.IP.String()) {
-		address = ipnet.IP.To16()
-	}
-
-	prefixlen, _ := ipnet.Mask.Size()
-	if prefixlen < 29 {
-		address[3] = address[3] + 10
-	} else {
-		address[3] = address[3] + 2
-	}
-
-	if !ipnet.Contains(address) {
-		return "", fmt.Errorf("failed to calculate a valid DNS address: %s", address.String())
-	}
-
-	return address.String(), nil
-}
-
-// InternalAPIAddresses calculates the internal API address of configured service CIDR block.
-func (n *Network) InternalAPIAddresses() ([]string, error) {
-	cidrs := []string{n.ServiceCIDR}
-
-	if n.DualStack.Enabled {
-		cidrs = append(cidrs, n.DualStack.IPv6ServiceCIDR)
-	}
-
-	parsedCIDRs, err := utilnet.ParseCIDRs(cidrs)
+	ip, err := utilnet.GetIndexedIP(ipNet, 10)
 	if err != nil {
-		return nil, fmt.Errorf("can't parse service cidr to build internal API address: %w", err)
+		ip, err = utilnet.GetIndexedIP(ipNet, 2)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate a valid DNS address for service CIDR %s: %w", n.ServiceCIDR, err)
 	}
 
-	stringifiedAddresses := make([]string, len(parsedCIDRs))
-	for i, ip := range parsedCIDRs {
-		apiIP, err := utilnet.GetIndexedIP(ip, 1)
-		if err != nil {
-			return nil, fmt.Errorf("can't build internal API address: %v", err)
-		}
-		stringifiedAddresses[i] = apiIP.String()
+	v4Addr := ip.To4()
+	if v4Addr != nil {
+		return v4Addr, nil
 	}
-	return stringifiedAddresses, nil
+
+	return ip, nil
 }
 
 // UnmarshalJSON sets in some sane defaults when unmarshaling the data from json
@@ -171,24 +144,9 @@ func (n *Network) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// BuildServiceCIDR returns actual argument value for service cidr
-func (n *Network) BuildServiceCIDR(addr string) string {
-	if !n.DualStack.Enabled {
-		return n.ServiceCIDR
-	}
-	// because in the dual-stack mode k8s
-	// relies on the ordering of the given CIDRs
-	// we need to first give family on which
-	// api server listens
-	if IsIPv6String(addr) {
-		return n.DualStack.IPv6ServiceCIDR + "," + n.ServiceCIDR
-	}
-	return n.ServiceCIDR + "," + n.DualStack.IPv6ServiceCIDR
-}
-
 // BuildPodCIDR returns actual argument value for pod cidr
 func (n *Network) BuildPodCIDR() string {
-	if n.DualStack.Enabled {
+	if n.DualStack.IsEnabled() {
 		return n.DualStack.IPv6PodCIDR + "," + n.PodCIDR
 	}
 	return n.PodCIDR

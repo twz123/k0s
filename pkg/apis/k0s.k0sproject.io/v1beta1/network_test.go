@@ -17,6 +17,7 @@ limitations under the License.
 package v1beta1
 
 import (
+	"net"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
@@ -27,60 +28,44 @@ type NetworkSuite struct {
 }
 
 func (s *NetworkSuite) TestAddresses() {
-	s.T().Run("DNS_default_service_cidr", func(t *testing.T) {
-		n := DefaultNetwork()
-		dns, err := n.DNSAddress()
-		s.NoError(err)
-		s.Equal("10.96.0.10", dns)
-	})
-	s.T().Run("DNS_uses_non_default_service_cidr", func(t *testing.T) {
-		n := DefaultNetwork()
-		n.ServiceCIDR = "10.96.0.248/29"
-		dns, err := n.DNSAddress()
-		s.NoError(err)
-		s.Equal("10.96.0.250", dns)
-	})
-	s.T().Run("Internal_api_address_default", func(t *testing.T) {
-		n := DefaultNetwork()
-		api, err := n.InternalAPIAddresses()
-		s.NoError(err)
-		s.Equal([]string{"10.96.0.1"}, api)
-	})
-	s.T().Run("Internal_api_address_non_default_single_stack", func(t *testing.T) {
-		n := DefaultNetwork()
-		n.ServiceCIDR = "10.96.0.248/29"
-		api, err := n.InternalAPIAddresses()
-		s.NoError(err)
-		s.Equal([]string{"10.96.0.249"}, api)
-	})
-	s.T().Run("Internal_api_address_non_default_dual_stack", func(t *testing.T) {
-		n := DefaultNetwork()
-		n.ServiceCIDR = "10.96.0.248/29"
-		n.DualStack.Enabled = true
-		n.DualStack.IPv6ServiceCIDR = "fd00::/108"
-		api, err := n.InternalAPIAddresses()
-		s.NoError(err)
-		s.Equal([]string{"10.96.0.249", "fd00::1"}, api)
-	})
+	for _, test := range []struct {
+		name        string
+		serviceCIDR string
+		expected    any // net.IP or string as error message
+	}{
+		{"NoCIDRs", "", `failed to parse service CIDR ""`},
+		{"DefaultCIDR", "10.96.0.0/24", net.IP{10, 96, 0, 10}},
+		{"NarrowCIDR", "10.96.0.248/30", net.IP{10, 96, 0, 250}},
+		{
+			"IPV4TooNarrow", "10.96.0.0/31",
+			`failed to calculate a valid DNS address for service CIDR 10.96.0.0/31: can't generate IP with index 2 from subnet. subnet too small. subnet: "10.96.0.0/31"`,
+		},
+		{
+			"IPv6", "2a01:0c23:7131:a400::/64",
+			net.IP{0x2a, 0x01, 0xc, 0x23, 0x71, 0x31, 0xa4, 0, 0, 0, 0, 0, 0, 0, 0, 0xa},
+		},
+		{
+			"NarrowIPv6", "2a01:0c22:bc93:3500:e678:e46f:65c3:a2a0/126",
+			net.IP{0x2a, 0x01, 0xc, 0x22, 0xbc, 0x93, 0x35, 0x00, 0xe6, 0x78, 0xe4, 0x6f, 0x65, 0xc3, 0xa2, 0xa2},
+		},
+		{
+			"IPV6TooNarrow", "::1/127",
+			`failed to calculate a valid DNS address for service CIDR ::1/127: can't generate IP with index 2 from subnet. subnet too small. subnet: "::/127"`,
+		},
+	} {
+		underTest := Network{ServiceCIDR: test.serviceCIDR}
 
-	s.T().Run("BuildServiceCIDR ordering", func(t *testing.T) {
-		t.Run("single_stack_default", func(t *testing.T) {
-			n := DefaultNetwork()
-			s.Equal(n.ServiceCIDR, n.BuildServiceCIDR("10.96.0.249"))
+		s.Run("DNSAddress_"+test.name, func() {
+			dns, err := underTest.DNSAddress()
+			if msg, ok := test.expected.(string); ok {
+				if s.Error(err) {
+					s.Contains(err.Error(), msg)
+				}
+			} else if s.NoError(err) {
+				s.Equal(test.expected, dns)
+			}
 		})
-		t.Run("dual_stack_api_listens_on_ipv4", func(t *testing.T) {
-			n := DefaultNetwork()
-			n.DualStack.Enabled = true
-			n.DualStack.IPv6ServiceCIDR = "fd00::/108"
-			s.Equal(n.ServiceCIDR+","+n.DualStack.IPv6ServiceCIDR, n.BuildServiceCIDR("10.96.0.249"))
-		})
-		t.Run("dual_stack_api_listens_on_ipv6", func(t *testing.T) {
-			n := DefaultNetwork()
-			n.DualStack.Enabled = true
-			n.DualStack.IPv6ServiceCIDR = "fd00::/108"
-			s.Equal(n.DualStack.IPv6ServiceCIDR+","+n.ServiceCIDR, n.BuildServiceCIDR("fe80::cf8:3cff:fef2:c5ca"))
-		})
-	})
+	}
 }
 
 func (s *NetworkSuite) TestDomainMarshaling() {
@@ -194,13 +179,13 @@ spec:
 }
 
 func (s *NetworkSuite) TestValidation() {
-	s.T().Run("defaults_are_valid", func(t *testing.T) {
+	s.Run("defaults_are_valid", func() {
 		n := DefaultNetwork()
 
 		s.Nil(n.Validate())
 	})
 
-	s.T().Run("invalid_provider", func(t *testing.T) {
+	s.Run("invalid_provider", func() {
 		n := DefaultNetwork()
 		n.Provider = "foobar"
 
@@ -209,7 +194,7 @@ func (s *NetworkSuite) TestValidation() {
 		s.Len(errors, 1)
 	})
 
-	s.T().Run("invalid_pod_cidr", func(t *testing.T) {
+	s.Run("invalid_pod_cidr", func() {
 		n := DefaultNetwork()
 		n.PodCIDR = "foobar"
 
@@ -219,7 +204,7 @@ func (s *NetworkSuite) TestValidation() {
 		s.Contains(errors[0].Error(), "invalid pod CIDR")
 	})
 
-	s.T().Run("invalid_service_cidr", func(t *testing.T) {
+	s.Run("invalid_service_cidr", func() {
 		n := DefaultNetwork()
 		n.ServiceCIDR = "foobar"
 
@@ -229,7 +214,7 @@ func (s *NetworkSuite) TestValidation() {
 		s.Contains(errors[0].Error(), "invalid service CIDR")
 	})
 
-	s.T().Run("invalid_cluster_domain", func(t *testing.T) {
+	s.Run("invalid_cluster_domain", func() {
 		n := DefaultNetwork()
 		n.ClusterDomain = ".invalid-cluster-domain"
 
@@ -239,15 +224,16 @@ func (s *NetworkSuite) TestValidation() {
 		s.Contains(errors[0].Error(), "invalid clusterDomain .invalid-cluster-domain")
 	})
 
-	s.T().Run("invalid_ipv6_service_cidr", func(t *testing.T) {
+	s.Run("invalid_ipv6_service_cidr", func() {
 		n := DefaultNetwork()
 		n.Calico = DefaultCalico()
 		n.Calico.Mode = "bird"
-		n.DualStack = DefaultDualStack()
-		n.DualStack.Enabled = true
 		n.KubeProxy.Mode = "ipvs"
-		n.DualStack.IPv6PodCIDR = "fd00::/108"
-		n.DualStack.IPv6ServiceCIDR = "foobar"
+		n.DualStack = &DualStack{
+			Enabled:         true,
+			IPv6ServiceCIDR: "foobar",
+			IPv6PodCIDR:     "fd00::/108",
+		}
 
 		errors := n.Validate()
 		s.NotNil(errors)
@@ -255,14 +241,15 @@ func (s *NetworkSuite) TestValidation() {
 		s.Contains(errors[0].Error(), "invalid service IPv6 CIDR")
 	})
 
-	s.T().Run("invalid_ipv6_pod_cidr", func(t *testing.T) {
+	s.Run("invalid_ipv6_pod_cidr", func() {
 		n := DefaultNetwork()
 		n.Calico = DefaultCalico()
 		n.Calico.Mode = "bird"
-		n.DualStack = DefaultDualStack()
-		n.DualStack.IPv6PodCIDR = "foobar"
-		n.DualStack.IPv6ServiceCIDR = "fd00::/108"
-		n.DualStack.Enabled = true
+		n.DualStack = &DualStack{
+			Enabled:         true,
+			IPv6ServiceCIDR: "fd00::/108",
+			IPv6PodCIDR:     "foobar",
+		}
 		n.KubeProxy.Mode = "ipvs"
 
 		errors := n.Validate()
@@ -271,7 +258,7 @@ func (s *NetworkSuite) TestValidation() {
 		s.Contains(errors[0].Error(), "invalid pod IPv6 CIDR")
 	})
 
-	s.T().Run("invalid_mode_for_kube_proxy", func(t *testing.T) {
+	s.Run("invalid_mode_for_kube_proxy", func() {
 		n := DefaultNetwork()
 		n.KubeProxy.Mode = "foobar"
 
@@ -281,16 +268,17 @@ func (s *NetworkSuite) TestValidation() {
 		s.Contains(errors[0].Error(), "unsupported mode")
 	})
 
-	s.T().Run("valid_proxy_disabled_for_dualstack", func(t *testing.T) {
+	s.Run("valid_proxy_disabled_for_dualstack", func() {
 		n := DefaultNetwork()
 		n.Calico = DefaultCalico()
 		n.Calico.Mode = "bird"
-		n.DualStack = DefaultDualStack()
-		n.DualStack.Enabled = true
+		n.DualStack = &DualStack{
+			Enabled:         true,
+			IPv6ServiceCIDR: "fd01::/108",
+			IPv6PodCIDR:     "fd00::/108",
+		}
 		n.KubeProxy.Disabled = true
 		n.KubeProxy.Mode = "iptables"
-		n.DualStack.IPv6PodCIDR = "fd00::/108"
-		n.DualStack.IPv6ServiceCIDR = "fd01::/108"
 
 		errors := n.Validate()
 		s.Nil(errors)

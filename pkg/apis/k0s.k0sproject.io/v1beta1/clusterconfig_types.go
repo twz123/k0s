@@ -318,61 +318,72 @@ func (c *ClusterConfig) Validate() []error {
 	return errors
 }
 
-// GetBootstrappingConfig returns a ClusterConfig object stripped of Cluster-Wide Settings
-func (c *ClusterConfig) GetBootstrappingConfig(storageSpec *StorageSpec) *ClusterConfig {
-	var etcdConfig *EtcdConfig
-	if storageSpec.Type == EtcdStorageType {
-		etcdConfig = &EtcdConfig{
-			ExternalCluster: storageSpec.Etcd.ExternalCluster,
-			PeerAddress:     storageSpec.Etcd.PeerAddress,
-		}
-		c.Spec.Storage.Etcd = etcdConfig
+// ToNodeConfig returns a [ClusterConfig] object stripped of
+// cluster-wide settings. It will only contain node-specific parts:
+//   - Spec.API
+//   - Spec.Storage
+//   - Spec.Network.ClusterDomain
+//   - Spec.Network.ServiceCIDR
+//   - Spec.Network.DualStack
+//   - Spec.Install
+//
+// This is the counterpart to [ClusterConfig.ToClusterWideConfig].
+func (c *ClusterConfig) ToNodeConfig() *ClusterConfig {
+	if c == nil {
+		return nil
 	}
-	return &ClusterConfig{
+
+	config := ClusterConfig{
 		ObjectMeta: c.ObjectMeta,
 		TypeMeta:   c.TypeMeta,
-		Spec: &ClusterSpec{
-			API:     c.Spec.API,
-			Storage: storageSpec,
-			Network: &Network{
-				ServiceCIDR: c.Spec.Network.ServiceCIDR,
-				DualStack:   c.Spec.Network.DualStack,
-			},
-			Install: c.Spec.Install,
-		},
-		Status: c.Status,
 	}
+
+	if c.Spec != nil {
+		config.Spec = &ClusterSpec{
+			API:     c.Spec.API.DeepCopy(),
+			Storage: c.Spec.Storage.DeepCopy(),
+			Install: c.Spec.Install.DeepCopy(),
+		}
+
+		if c.Spec.Network != nil {
+			config.Spec.Network = &Network{
+				ClusterDomain: c.Spec.Network.ClusterDomain,
+				ServiceCIDR:   c.Spec.Network.ServiceCIDR,
+				DualStack:     c.Spec.Network.DualStack.DeepCopy(),
+			}
+		}
+	}
+
+	return &config
 }
 
-// HACK: the current ClusterConfig struct holds both bootstrapping config & cluster-wide config
-// this hack strips away the node-specific bootstrapping config so that we write a "clean" config to the CR
-// This function accepts a standard ClusterConfig and returns the same config minus the node specific info:
-// - APISpec
-// - StorageSpec
-// - Network.ServiceCIDR
-// - Install
-func (c *ClusterConfig) GetClusterWideConfig() *ClusterConfig {
-	return &ClusterConfig{
-		ObjectMeta: c.ObjectMeta,
-		TypeMeta:   c.TypeMeta,
-		Spec: &ClusterSpec{
-			ControllerManager: c.Spec.ControllerManager,
-			Scheduler:         c.Spec.Scheduler,
-			Network: &Network{
-				Calico:     c.Spec.Network.Calico,
-				KubeProxy:  c.Spec.Network.KubeProxy,
-				KubeRouter: c.Spec.Network.KubeRouter,
-				PodCIDR:    c.Spec.Network.PodCIDR,
-				Provider:   c.Spec.Network.Provider,
-			},
-			WorkerProfiles: c.Spec.WorkerProfiles,
-			Telemetry:      c.Spec.Telemetry,
-			Images:         c.Spec.Images,
-			Extensions:     c.Spec.Extensions,
-			Konnectivity:   c.Spec.Konnectivity,
-		},
-		Status: c.Status,
+// HACK: the current [ClusterConfig] struct holds both bootstrapping config and
+// cluster-wide config. This hack strips away the node-specific bootstrapping
+// config so that we write a "clean" config to the cluster. This function
+// accepts a standard ClusterConfig and returns the same config minus the node
+// specific parts:
+//   - Spec.API
+//   - Spec.Storage
+//   - Spec.Network.ClusterDomain
+//   - Spec.Network.ServiceCIDR
+//   - Spec.Network.DualStack
+//   - Spec.Install
+//
+// This is the counterpart to [ClusterConfig.ToNodeConfig].
+func (c *ClusterConfig) ToClusterWideConfig() *ClusterConfig {
+	copy := c.DeepCopy()
+	if copy.Spec != nil {
+		copy.Spec.API = nil
+		copy.Spec.Storage = nil
+		if copy.Spec.Network != nil {
+			copy.Spec.Network.ClusterDomain = ""
+			copy.Spec.Network.DualStack = nil
+			copy.Spec.Network.ServiceCIDR = ""
+		}
+		copy.Spec.Install = nil
 	}
+
+	return copy
 }
 
 // CRValidator is used to make sure a config CR is created with correct values

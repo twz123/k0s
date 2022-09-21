@@ -17,6 +17,7 @@ limitations under the License.
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -188,8 +189,8 @@ $ k0s completion fish > ~/.config/fish/completions/k0s.fish
 	}
 }
 
-func Execute() {
-	if err := NewRootCmd().Execute(); err != nil {
+func Execute(ctx context.Context) {
+	if err := NewRootCmd().ExecuteContext(ctx); err != nil {
 		os.Exit(1)
 	}
 }

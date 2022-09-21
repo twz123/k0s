@@ -22,6 +22,7 @@ package backup
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -37,16 +38,15 @@ import (
 const etcdBackup = "etcd-snapshot.db"
 
 type etcdStep struct {
-	certRootDir string
-	etcdCertDir string
+	config etcd.ConfigGetter
 
-	peerAddress string
+	peerURL     url.URL
 	etcdDataDir string
 	tmpDir      string
 }
 
-func newEtcdStep(tmpDir string, certRootDir string, etcdCertDir string, peerAddress string, etcdDataDir string) *etcdStep {
-	return &etcdStep{tmpDir: tmpDir, certRootDir: certRootDir, etcdCertDir: etcdCertDir, peerAddress: peerAddress, etcdDataDir: etcdDataDir}
+func newEtcdStep(config etcd.ConfigGetter, tmpDir string, peerURL url.URL, etcdDataDir string) *etcdStep {
+	return &etcdStep{config: config, tmpDir: tmpDir, peerURL: peerURL, etcdDataDir: etcdDataDir}
 }
 
 func (e etcdStep) Name() string {
@@ -55,7 +55,7 @@ func (e etcdStep) Name() string {
 
 func (e etcdStep) Backup() (StepResult, error) {
 	ctx := context.TODO()
-	etcdClient, err := etcd.NewClient(e.certRootDir, e.etcdCertDir, nil)
+	etcdConfig, err := e.config.Get()
 	if err != nil {
 		return StepResult{}, err
 	}
@@ -65,7 +65,7 @@ func (e etcdStep) Backup() (StepResult, error) {
 	lg := zap.NewNop()
 
 	// save snapshot
-	if err = snapshot.Save(ctx, lg, *etcdClient.Config, path); err != nil {
+	if err = snapshot.Save(ctx, lg, etcdConfig, path); err != nil {
 		return StepResult{}, err
 	}
 	// add snapshot's path to assets
@@ -85,7 +85,8 @@ func (e etcdStep) Restore(restoreFrom, _ string) error {
 	if err != nil {
 		return err
 	}
-	peerURL := fmt.Sprintf("https://%s:2380", e.peerAddress)
+
+	peerURL := e.peerURL.String()
 	restoreConfig := utilsnapshot.RestoreConfig{
 		SnapshotPath:   snapshotPath,
 		OutputDataDir:  e.etcdDataDir,

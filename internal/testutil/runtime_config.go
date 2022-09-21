@@ -108,7 +108,7 @@ func (c *ConfigGetter) createFakeAPIConfig(client k0sv1beta1.K0sV1beta1Interface
 	ctxWithTimeout, cancelFunction := context.WithTimeout(context.TODO(), time.Duration(10)*time.Second)
 	defer cancelFunction()
 
-	_, err = clusterConfigs.Create(ctxWithTimeout, cfg.GetClusterWideConfig().StripDefaults(), metav1.CreateOptions{TypeMeta: resourceType})
+	_, err = clusterConfigs.Create(ctxWithTimeout, cfg.ToClusterWideConfig().StripDefaults(), metav1.CreateOptions{TypeMeta: resourceType})
 	require.NoError(c.t, err, "failed to create clusterConfig in the API")
 }
 

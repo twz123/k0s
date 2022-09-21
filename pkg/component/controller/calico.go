@@ -189,9 +189,6 @@ func (c *Calico) getConfig(clusterConfig *v1beta1.ClusterConfig) (calicoConfig, 
 		VxlanVNI:                   clusterConfig.Spec.Network.Calico.VxlanVNI,
 		EnableWireguard:            clusterConfig.Spec.Network.Calico.EnableWireguard,
 		FlexVolumeDriverPath:       clusterConfig.Spec.Network.Calico.FlexVolumeDriverPath,
-		DualStack:                  clusterConfig.Spec.Network.DualStack.Enabled,
-		ClusterCIDRIPv4:            clusterConfig.Spec.Network.PodCIDR,
-		ClusterCIDRIPv6:            clusterConfig.Spec.Network.DualStack.IPv6PodCIDR,
 		CalicoCNIImage:             clusterConfig.Spec.Images.Calico.CNI.URI(),
 		CalicoNodeImage:            clusterConfig.Spec.Images.Calico.Node.URI(),
 		CalicoKubeControllersImage: clusterConfig.Spec.Images.Calico.KubeControllers.URI(),
@@ -200,6 +197,12 @@ func (c *Calico) getConfig(clusterConfig *v1beta1.ClusterConfig) (calicoConfig, 
 		IPAutodetectionMethod:      clusterConfig.Spec.Network.Calico.IPAutodetectionMethod,
 		IPV6AutodetectionMethod:    ipv6AutoDetectionMethod,
 		PullPolicy:                 clusterConfig.Spec.Images.DefaultPullPolicy,
+	}
+
+	if clusterConfig.Spec.Network.DualStack.IsEnabled() {
+		config.DualStack = clusterConfig.Spec.Network.DualStack.IsEnabled()
+		config.ClusterCIDRIPv4 = clusterConfig.Spec.Network.PodCIDR
+		config.ClusterCIDRIPv6 = clusterConfig.Spec.Network.DualStack.IPv6PodCIDR
 	}
 
 	return config, nil

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"net"
 	"path"
 	"path/filepath"
 	"time"
@@ -253,10 +254,10 @@ var _ component.Reconciler = (*CoreDNS)(nil)
 
 // CoreDNS is the component implementation to manage CoreDNS
 type CoreDNS struct {
+	clusterDNS             net.IP
 	client                 kubernetes.Interface
 	log                    *logrus.Entry
 	manifestDir            string
-	K0sVars                constant.CfgVars
 	previousConfig         coreDNSConfig
 	stopFunc               context.CancelFunc
 	lastKnownClusterConfig *v1beta1.ClusterConfig
@@ -271,7 +272,7 @@ type coreDNSConfig struct {
 }
 
 // NewCoreDNS creates new instance of CoreDNS component
-func NewCoreDNS(k0sVars constant.CfgVars, clientFactory k8sutil.ClientFactoryInterface) (*CoreDNS, error) {
+func NewCoreDNS(clusterDNS net.IP, k0sVars *constant.CfgVars, clientFactory k8sutil.ClientFactoryInterface) (*CoreDNS, error) {
 	manifestDir := path.Join(k0sVars.ManifestsDir, "coredns")
 
 	client, err := clientFactory.GetClient()
@@ -280,9 +281,9 @@ func NewCoreDNS(k0sVars constant.CfgVars, clientFactory k8sutil.ClientFactoryInt
 	}
 	log := logrus.WithFields(logrus.Fields{"component": "coredns"})
 	return &CoreDNS{
+		clusterDNS:  clusterDNS,
 		client:      client,
 		log:         log,
-		K0sVars:     k0sVars,
 		manifestDir: manifestDir,
 	}, nil
 }
@@ -321,11 +322,6 @@ func (c *CoreDNS) Start(ctx context.Context) error {
 }
 
 func (c *CoreDNS) getConfig(ctx context.Context, clusterConfig *v1beta1.ClusterConfig) (coreDNSConfig, error) {
-	dns, err := clusterConfig.Spec.Network.DNSAddress()
-	if err != nil {
-		return coreDNSConfig{}, err
-	}
-
 	nodes, err := c.client.CoreV1().Nodes().List(ctx, v1.ListOptions{})
 	if err != nil {
 		return coreDNSConfig{}, err
@@ -337,7 +333,7 @@ func (c *CoreDNS) getConfig(ctx context.Context, clusterConfig *v1beta1.ClusterC
 	config := coreDNSConfig{
 		Replicas:      replicas,
 		ClusterDomain: clusterConfig.Spec.Network.ClusterDomain,
-		ClusterDNSIP:  dns,
+		ClusterDNSIP:  c.clusterDNS.String(),
 		Image:         clusterConfig.Spec.Images.CoreDNS.URI(),
 		PullPolicy:    clusterConfig.Spec.Images.DefaultPullPolicy,
 	}
