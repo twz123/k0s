@@ -17,7 +17,6 @@ limitations under the License.
 package etcd
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/k0sproject/k0s/pkg/config"
@@ -35,7 +34,6 @@ func etcdLeaveCmd() *cobra.Command {
 		Short: "Sign off a given etc node from etcd cluster",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := config.GetCmdOpts()
-			ctx := context.Background()
 			if etcdPeerAddress == "" {
 				etcdPeerAddress = c.NodeConfig.Spec.Storage.Etcd.PeerAddress
 			}
@@ -49,13 +47,13 @@ func etcdLeaveCmd() *cobra.Command {
 				return fmt.Errorf("can't connect to the etcd: %v", err)
 			}
 
-			peerID, err := etcdClient.GetPeerIDByAddress(ctx, peerURL)
+			peerID, err := etcdClient.GetPeerIDByAddress(cmd.Context(), peerURL)
 			if err != nil {
 				logrus.WithField("peerURL", peerURL).Errorf("Failed to get peer name")
 				return err
 			}
 
-			if err := etcdClient.DeleteMember(ctx, peerID); err != nil {
+			if err := etcdClient.DeleteMember(cmd.Context(), peerID); err != nil {
 				logrus.
 					WithField("peerURL", peerURL).
 					WithField("peerID", peerID).

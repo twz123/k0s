@@ -17,6 +17,7 @@ limitations under the License.
 package config
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
@@ -95,7 +96,7 @@ func (rules *ClientConfigLoadingRules) ClusterConfig() (*v1beta1.ClusterConfig, 
 
 		rules.APIClient = client.K0sV1beta1()
 	}
-	return rules.getConfigFromAPI(rules.APIClient)
+	return rules.getConfigFromAPI(context.TODO(), rules.APIClient)
 }
 
 func (rules *ClientConfigLoadingRules) IsAPIConfig() bool {

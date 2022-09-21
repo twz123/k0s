@@ -21,7 +21,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path"
@@ -71,7 +70,7 @@ func NewAPICmd() *cobra.Command {
 				logrus.SetLevel(logrus.InfoLevel)
 			}
 
-			return c.start()
+			return c.runAPI(cmd.Context())
 		},
 	}
 	cmd.SilenceUsage = true
@@ -79,7 +78,7 @@ func NewAPICmd() *cobra.Command {
 	return cmd
 }
 
-func (c *command) start() (err error) {
+func (c *command) runAPI(ctx context.Context) (err error) {
 	// Single kube client for whole lifetime of the API
 	c.client, err = kubeutil.NewClient(c.K0sVars.AdminKubeConfigPath)
 	if err != nil {
@@ -114,11 +113,39 @@ func (c *command) start() (err error) {
 		ReadTimeout:  15 * time.Second,
 	}
 
-	log.Fatal(srv.ListenAndServeTLS(
-		filepath.Join(c.K0sVars.CertRootDir, "k0s-api.crt"),
-		filepath.Join(c.K0sVars.CertRootDir, "k0s-api.key"),
-	))
+	done := make(chan error)
 
+	go func() {
+		defer close(done)
+		logrus.Info("Starting to listen on ", srv.Addr)
+		done <- srv.ListenAndServeTLS(
+			filepath.Join(c.K0sVars.CertRootDir, "k0s-api.crt"),
+			filepath.Join(c.K0sVars.CertRootDir, "k0s-api.key"),
+		)
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		logrus.Info("Shutting down")
+		break
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		if err != ctx.Err() {
+			return err
+		}
+		logrus.Warn("Timed out while shutting down")
+	}
+
+	if err := <-done; err != http.ErrServerClosed {
+		return err
+	}
+
+	logrus.Info("Shutdown complete")
 	return nil
 }
 
@@ -199,7 +226,7 @@ users:
   user:
     token: {{ .Token }}
 `
-		l, err := c.client.CoreV1().Secrets("kube-system").List(context.Background(), metav1.ListOptions{})
+		l, err := c.client.CoreV1().Secrets("kube-system").List(req.Context(), metav1.ListOptions{})
 		if err != nil {
 			sendError(err, resp)
 			return

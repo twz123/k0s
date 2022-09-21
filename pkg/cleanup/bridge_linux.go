@@ -17,6 +17,7 @@ limitations under the License.
 package cleanup
 
 import (
+	"context"
 	"fmt"
 	"runtime"
 
@@ -31,7 +32,7 @@ func (b *bridge) Name() string {
 }
 
 // Run removes found kube-bridge leftovers
-func (b *bridge) Run() error {
+func (b *bridge) Run(context.Context) error {
 	if runtime.GOOS == "windows" {
 		return nil
 	}

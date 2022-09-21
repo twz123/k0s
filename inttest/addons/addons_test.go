@@ -89,7 +89,7 @@ func (as *AddonsSuite) doPrometheusDelete(chart *v1beta1.Chart) {
 	as.Require().NoError(err)
 	as.Require().NoError(wait.PollImmediate(time.Second, 5*time.Minute, func() (done bool, err error) {
 		as.T().Logf("Expecting have no secrets left for release %s/%s", chart.Namespace, chart.Name)
-		items, err := k8sclient.CoreV1().Secrets("default").List(context.Background(), v1.ListOptions{})
+		items, err := k8sclient.CoreV1().Secrets("default").List(as.Context(), v1.ListOptions{})
 		if err != nil {
 			as.T().Logf("listing secrets error %s", err.Error())
 			return false, nil
@@ -115,7 +115,7 @@ func (as *AddonsSuite) waitForTestRelease(addonName, appVersion string, rev int6
 	as.Require().NoError(err)
 	var chart v1beta1.Chart
 	as.Require().NoError(wait.PollImmediate(time.Second, 5*time.Minute, func() (done bool, err error) {
-		err = chartClient.Get(context.Background(), client.ObjectKey{
+		err = chartClient.Get(as.Context(), client.ObjectKey{
 			Namespace: "kube-system",
 			Name:      fmt.Sprintf("k0s-addon-chart-%s", addonName),
 		}, &chart)

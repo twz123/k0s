@@ -163,7 +163,7 @@ func (r *cordoning) drainNode(ctx context.Context, signalNode crcli.Object) erro
 		ErrOut:              logger.Writer(),
 		// We want to proceed even when pods are using emptyDir volumes
 		DeleteEmptyDirData: true,
-		Timeout:            time.Duration(120) * time.Second,
+		Timeout:            120 * time.Second,
 		OnPodDeletedOrEvicted: func(pod *corev1.Pod, usingEviction bool) {
 			logger.Infof("evicted pod: %s/%s", pod.Namespace, pod.Name)
 		},

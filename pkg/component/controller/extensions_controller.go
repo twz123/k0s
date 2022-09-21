@@ -106,7 +106,7 @@ func addOpenEBSHelmExtension(helmSpec *k0sAPI.HelmExtensions) *k0sAPI.HelmExtens
 		ChartName: "openebs-internal/openebs",
 		TargetNS:  "openebs",
 		Version:   constant.OpenEBSVersion,
-		Timeout:   time.Duration(time.Minute * 30), // it takes a while to install openebs
+		Timeout:   30 * time.Minute, // it takes a while to install openebs
 	})
 	return helmSpec
 }
@@ -202,7 +202,7 @@ func (cr *ChartReconciler) uninstall(ctx context.Context, chart v1beta1.Chart) e
 	return nil
 }
 
-const defaultTimeout = time.Duration(10 * time.Minute)
+const defaultTimeout = 10 * time.Minute
 
 func (cr *ChartReconciler) updateOrInstallChart(ctx context.Context, chart v1beta1.Chart) error {
 	var err error

@@ -17,6 +17,7 @@ limitations under the License.
 package cleanup
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 
@@ -73,7 +74,7 @@ func NewConfig(k0sVars constant.CfgVars, cfgFile string, criSocketPath string) (
 	}, nil
 }
 
-func (c *Config) Cleanup() error {
+func (c *Config) Cleanup(ctx context.Context) error {
 	var msg []error
 	cleanupSteps := []Step{
 		&containers{Config: c},
@@ -86,7 +87,7 @@ func (c *Config) Cleanup() error {
 
 	for _, step := range cleanupSteps {
 		logrus.Info("* ", step.Name())
-		err := step.Run()
+		err := step.Run(ctx)
 		if err != nil {
 			logrus.Debug(err)
 			msg = append(msg, err)
@@ -101,7 +102,7 @@ func (c *Config) Cleanup() error {
 // Step interface is used to implement cleanup steps
 type Step interface {
 	// Run impelements specific cleanup operations
-	Run() error
+	Run(context.Context) error
 	// Name returns name of the step for conveninece
 	Name() string
 }

@@ -17,6 +17,7 @@ limitations under the License.
 package reset
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"runtime"
@@ -40,7 +41,7 @@ func NewResetCmd() *cobra.Command {
 				return fmt.Errorf("currently not supported on windows")
 			}
 			c := command(config.GetCmdOpts())
-			return c.reset()
+			return c.reset(cmd.Context())
 		},
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			c := command(config.GetCmdOpts())
@@ -54,7 +55,7 @@ func NewResetCmd() *cobra.Command {
 	return cmd
 }
 
-func (c *command) reset() error {
+func (c *command) reset(ctx context.Context) error {
 	if os.Geteuid() != 0 {
 		logrus.Fatal("this command must be run as root!")
 	}
@@ -70,7 +71,7 @@ func (c *command) reset() error {
 		return fmt.Errorf("failed to configure cleanup: %v", err)
 	}
 
-	err = cfg.Cleanup()
+	err = cfg.Cleanup(ctx)
 	logrus.Info("k0s cleanup operations done.")
 	logrus.Warn("To ensure a full reset, a node reboot is recommended.")
 

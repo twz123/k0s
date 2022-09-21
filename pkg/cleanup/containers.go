@@ -17,6 +17,7 @@ limitations under the License.
 package cleanup
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -44,7 +45,7 @@ func (c *containers) Name() string {
 
 // Run removes all the pods and mounts and stops containers afterwards
 // Run starts containerd if custom CRI is not configured
-func (c *containers) Run() error {
+func (c *containers) Run(ctx context.Context) error {
 	if !c.isCustomCriUsed() {
 		if err := c.startContainerd(); err != nil {
 			if errors.Is(err, fs.ErrNotExist) || errors.Is(err, exec.ErrNotFound) {
@@ -55,7 +56,7 @@ func (c *containers) Run() error {
 		}
 	}
 
-	if err := c.stopAllContainers(); err != nil {
+	if err := c.stopAllContainers(ctx); err != nil {
 		logrus.Debugf("error stopping containers: %v", err)
 	}
 
@@ -134,14 +135,14 @@ func (c *containers) stopContainerd() {
 	logrus.Debug("successfully stopped containerd")
 }
 
-func (c *containers) stopAllContainers() error {
+func (c *containers) stopAllContainers(ctx context.Context) error {
 	var msg []error
 	logrus.Debugf("trying to list all pods")
 
 	var pods []string
 	err := retry.Do(func() error {
 		var err error
-		pods, err = c.Config.containerRuntime.ListContainers()
+		pods, err = c.Config.containerRuntime.ListContainers(ctx)
 		if err != nil {
 			return err
 		}
@@ -162,7 +163,7 @@ func (c *containers) stopAllContainers() error {
 
 	for _, pod := range pods {
 		logrus.Debugf("stopping container: %v", pod)
-		err := c.Config.containerRuntime.StopContainer(pod)
+		err := c.Config.containerRuntime.StopContainer(ctx, pod)
 		if err != nil {
 			if strings.Contains(err.Error(), "443: connect: connection refused") {
 				// on a single node instance, we will see "connection refused" error. this is to be expected
@@ -174,13 +175,13 @@ func (c *containers) stopAllContainers() error {
 				msg = append(msg, fmtError)
 			}
 		}
-		err = c.Config.containerRuntime.RemoveContainer(pod)
+		err = c.Config.containerRuntime.RemoveContainer(ctx, pod)
 		if err != nil {
 			msg = append(msg, fmt.Errorf("failed to remove pod %v: err: %v", pod, err))
 		}
 	}
 
-	pods, err = c.Config.containerRuntime.ListContainers()
+	pods, err = c.Config.containerRuntime.ListContainers(ctx)
 	if err == nil && len(pods) == 0 {
 		logrus.Info("successfully removed k0s containers!")
 	}

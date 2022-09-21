@@ -21,33 +21,34 @@ import (
 	"fmt"
 	"time"
 
+	k0sclient "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/clientset/typed/k0s.k0sproject.io/v1beta1"
+	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
+	"github.com/k0sproject/k0s/pkg/constant"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"github.com/avast/retry-go"
 	"github.com/imdario/mergo"
 	"github.com/sirupsen/logrus"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	k0sv1beta1 "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/clientset/typed/k0s.k0sproject.io/v1beta1"
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
-	"github.com/k0sproject/k0s/pkg/constant"
 )
 
 var (
-	resourceType = v1.TypeMeta{APIVersion: "k0s.k0sproject.io/v1beta1", Kind: "clusterconfigs"}
-	getOpts      = v1.GetOptions{TypeMeta: resourceType}
+	resourceType = metav1.TypeMeta{APIVersion: "k0s.k0sproject.io/v1beta1", Kind: "clusterconfigs"}
+	getOpts      = metav1.GetOptions{TypeMeta: resourceType}
 )
 
 // run a config-request from the API and wait until the API is up
-func (rules *ClientConfigLoadingRules) getConfigFromAPI(client k0sv1beta1.K0sV1beta1Interface) (*v1beta1.ClusterConfig, error) {
+func (rules *ClientConfigLoadingRules) getConfigFromAPI(ctx context.Context, client k0sclient.K0sV1beta1Interface) (*v1beta1.ClusterConfig, error) {
 
 	var cfg *v1beta1.ClusterConfig
 	var err error
-	ctx, cancelFunction := context.WithTimeout(context.Background(), 120*time.Second)
+	ctx, cancelFunction := context.WithTimeout(ctx, 120*time.Second)
 	// clear up context after timeout
 	defer cancelFunction()
 
 	err = retry.Do(func() error {
 		logrus.Debug("fetching cluster-config from API...")
-		cfg, err = rules.configRequest(client)
+		cfg, err = rules.configRequest(ctx, client)
 		if err != nil {
 			return err
 		}
@@ -88,9 +89,9 @@ func (rules *ClientConfigLoadingRules) mergeNodeAndClusterconfig(nodeConfig *v1b
 }
 
 // fetch cluster-config from API
-func (rules *ClientConfigLoadingRules) configRequest(client k0sv1beta1.K0sV1beta1Interface) (clusterConfig *v1beta1.ClusterConfig, err error) {
+func (rules *ClientConfigLoadingRules) configRequest(ctx context.Context, client k0sclient.K0sV1beta1Interface) (clusterConfig *v1beta1.ClusterConfig, err error) {
 	clusterConfigs := client.ClusterConfigs(constant.ClusterConfigNamespace)
-	ctxWithTimeout, cancelFunction := context.WithTimeout(context.Background(), time.Duration(10)*time.Second)
+	ctxWithTimeout, cancelFunction := context.WithTimeout(ctx, time.Duration(10)*time.Second)
 	defer cancelFunction()
 
 	cfg, err := clusterConfigs.Get(ctxWithTimeout, "k0s", getOpts)

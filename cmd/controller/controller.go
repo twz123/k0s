@@ -21,9 +21,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/signal"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	workercmd "github.com/k0sproject/k0s/cmd/worker"
@@ -109,9 +107,7 @@ func NewControllerCmd() *cobra.Command {
 				return err
 			}
 
-			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-			defer cancel()
-			return c.start(ctx)
+			return c.start(cmd.Context())
 		},
 	}
 

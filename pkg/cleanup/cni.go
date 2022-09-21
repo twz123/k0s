@@ -17,9 +17,8 @@ limitations under the License.
 package cleanup
 
 import (
-	"errors"
+	"context"
 	"fmt"
-	"io/fs"
 	"os"
 
 	"github.com/sirupsen/logrus"
@@ -33,7 +32,7 @@ func (c *cni) Name() string {
 }
 
 // Run removes found CNI leftovers
-func (c *cni) Run() error {
+func (c *cni) Run(context.Context) error {
 	var msg []error
 
 	files := []string{
@@ -42,13 +41,13 @@ func (c *cni) Run() error {
 		"/etc/cni/net.d/10-kuberouter.conflist",
 	}
 	for _, f := range files {
-		if err := os.Remove(f); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
 			logrus.Debug("failed to remove", f, err)
 			msg = append(msg, err)
 		}
 	}
 	if len(msg) > 0 {
-		return fmt.Errorf("error occured while removing CNI leftovers: %v", msg)
+		return fmt.Errorf("error occurred while removing CNI leftovers: %v", msg)
 	}
 	return nil
 }

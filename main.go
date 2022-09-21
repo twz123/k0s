@@ -17,10 +17,13 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	_ "net/http/pprof"
 	"os"
+	"os/signal"
 	"path"
 	"strings"
+	"syscall"
 
 	"github.com/k0sproject/k0s/cmd"
 	"github.com/sirupsen/logrus"
@@ -45,5 +48,8 @@ func main() {
 		os.Args = append([]string{"k0s", progN}, os.Args[1:]...)
 	}
 
-	cmd.Execute()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	cmd.Execute(ctx)
+	logrus.Debug("Good bye")
 }

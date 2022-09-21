@@ -136,7 +136,7 @@ func (sh *statusHandler) getCurrentStatus(ctx context.Context) install.K0sStatus
 		}
 		sh.client = kubeClient
 	}
-	_, err := sh.client.CoreV1().Nodes().List(context.Background(), v1.ListOptions{})
+	_, err := sh.client.CoreV1().Nodes().List(ctx, v1.ListOptions{})
 	if err != nil {
 		status.WorkerToAPIConnectionStatus.Message = err.Error()
 		return status

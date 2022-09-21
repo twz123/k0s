@@ -17,9 +17,10 @@ limitations under the License.
 package cleanup
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"io/fs"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -36,11 +37,11 @@ func (s *services) Name() string {
 }
 
 // Run uninstalls k0s services that are found on the host
-func (s *services) Run() error {
+func (s *services) Run(context.Context) error {
 	var msg []string
 
 	for _, role := range []string{"controller", "worker"} {
-		if err := install.UninstallService(role); err != nil && !(errors.Is(err, fs.ErrNotExist) || isExitCode(err, 1)) {
+		if err := install.UninstallService(role); err != nil && !os.IsNotExist(err) && !isExitCode(err, 1) {
 			msg = append(msg, err.Error())
 		}
 	}

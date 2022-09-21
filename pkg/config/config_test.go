@@ -369,7 +369,7 @@ func writeConfigFile(t *testing.T, yamlData string) (filePath string) {
 
 func createFakeAPIConfig(client k0sv1beta1.K0sV1beta1Interface) error {
 	clusterConfigs := client.ClusterConfigs(constant.ClusterConfigNamespace)
-	ctxWithTimeout, cancelFunction := context.WithTimeout(context.Background(), time.Duration(10)*time.Second)
+	ctxWithTimeout, cancelFunction := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelFunction()
 
 	config, err := v1beta1.ConfigFromString(apiYaml, v1beta1.DefaultStorageSpec())

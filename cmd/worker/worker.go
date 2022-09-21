@@ -20,9 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/signal"
 	"runtime"
-	"syscall"
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
@@ -87,11 +85,7 @@ func NewWorkerCmd() *cobra.Command {
 				return err
 			}
 
-			// Set up signal handling
-			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-			defer cancel()
-
-			return c.Start(ctx)
+			return c.Start(cmd.Context())
 		},
 	}
 

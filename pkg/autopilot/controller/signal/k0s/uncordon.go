@@ -162,7 +162,7 @@ func (r *uncordoning) unCordonNode(ctx context.Context, signalNode crcli.Object)
 		ErrOut:              logger.Writer(),
 		// We want to proceed even when pods are using emptyDir volumes
 		DeleteEmptyDirData: true,
-		Timeout:            time.Duration(120) * time.Second,
+		Timeout:            120 * time.Second,
 	}
 
 	if err := drain.RunCordonOrUncordon(drainer, node, false); err != nil {
