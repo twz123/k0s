@@ -42,10 +42,7 @@ func NewResetCmd() *cobra.Command {
 			c := command(config.GetCmdOpts())
 			return c.reset()
 		},
-		PreRunE: func(cmd *cobra.Command, args []string) error {
-			c := command(config.GetCmdOpts())
-			return config.PreRunValidateConfig(c.K0sVars)
-		},
+		// FIXME check previous PreRunE behavior
 	}
 	cmd.SilenceUsage = true
 	cmd.PersistentFlags().AddFlagSet(config.GetPersistentFlagSet())

@@ -43,7 +43,12 @@ func kubeConfigAdminCmd() *cobra.Command {
 					return err
 				}
 
-				clusterAPIURL := c.NodeConfig.Spec.API.APIAddressURL().String()
+				spec, err := c.LoadControlPlaneSpec()
+				if err != nil {
+					return err
+				}
+
+				clusterAPIURL := spec.APIServer.URL().String()
 				newContent := strings.Replace(string(content), "https://localhost:6443", clusterAPIURL, -1)
 				os.Stdout.Write([]byte(newContent))
 			} else {

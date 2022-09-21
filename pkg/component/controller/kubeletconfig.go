@@ -30,6 +30,7 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/templatewriter"
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/component"
+	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
 
@@ -57,8 +58,8 @@ type KubeletConfig struct {
 }
 
 // NewKubeletConfig creates new KubeletConfig reconciler
-func NewKubeletConfig(k0sVars *constant.CfgVars, nodeNetwork *v1beta1.Network, clientFactory kubeutil.ClientFactoryInterface) (*KubeletConfig, error) {
-	dns, err := nodeNetwork.DNSAddress()
+func NewKubeletConfig(k0sVars *constant.CfgVars, network *config.ControlPlaneNetworkSpec, clientFactory kubeutil.ClientFactoryInterface) (*KubeletConfig, error) {
+	dns, err := network.DNSAddress()
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +69,7 @@ func NewKubeletConfig(k0sVars *constant.CfgVars, nodeNetwork *v1beta1.Network, c
 
 		kubeClientFactory: clientFactory,
 		manifestsDir:      filepath.Join(k0sVars.ManifestsDir, "kubelet"),
-		clusterDomain:     nodeNetwork.ClusterDomain,
+		clusterDomain:     network.ClusterDomain,
 		clusterDNSIPs:     []string{dns.String()},
 	}, nil
 }

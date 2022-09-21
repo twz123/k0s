@@ -32,7 +32,7 @@ func NewAirgapListImagesCmd() *cobra.Command {
 		Example: `k0s airgap list-images`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := config.GetCmdOpts()
-			clusterConfig, err := config.LoadClusterConfig(c.K0sVars)
+			clusterConfig, err := c.LoadClusterConfig()
 			if err != nil {
 				return fmt.Errorf("failed to load cluster config: %w", err)
 			}

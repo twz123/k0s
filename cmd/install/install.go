@@ -28,7 +28,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type command config.CLIOptions
+type command struct{ config.CLIOptions }
 
 type installFlags struct {
 	force   bool
@@ -60,7 +60,11 @@ func (c *command) setup(role string, args []string, installFlags *installFlags) 
 	}
 
 	if role == "controller" {
-		if err := install.CreateControllerUsers(c.NodeConfig.Spec.Install, c.K0sVars.DataDir); err != nil {
+		spec, err := c.LoadControlPlaneSpec()
+		if err != nil {
+			return err
+		}
+		if err := install.CreateControllerUsers(&spec.Install, c.K0sVars.DataDir); err != nil {
 			return fmt.Errorf("failed to create controller users: %v", err)
 		}
 	}

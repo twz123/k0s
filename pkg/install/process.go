@@ -23,7 +23,7 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
+	"github.com/k0sproject/k0s/pkg/config"
 )
 
 type K0sStatus struct {
@@ -39,7 +39,7 @@ type K0sStatus struct {
 	Args                        []string
 	WorkerToAPIConnectionStatus ProbeStatus
 	RunDir                      string
-	ClusterConfig               v1beta1.ClusterConfig
+	ControlPlane                *config.ControlPlaneSpec
 }
 
 type ProbeStatus struct {

@@ -32,17 +32,18 @@ import (
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/assets"
 	"github.com/k0sproject/k0s/pkg/component"
+	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/supervisor"
 )
 
 // Manager implement the component interface to run kube scheduler
 type Manager struct {
-	K0sVars    constant.CfgVars
-	NodeSpec   v1beta1.ClusterSpec
-	SingleNode bool
-	LogLevel   string
-	ExtraArgs  string
+	K0sVars      constant.CfgVars
+	ControlPlane config.ControlPlaneSpec
+	SingleNode   bool
+	LogLevel     string
+	ExtraArgs    string
 
 	supervisor     *supervisor.Supervisor
 	uid, gid       int
@@ -98,7 +99,7 @@ func (a *Manager) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterCon
 		"root-ca-file":                     path.Join(a.K0sVars.CertRootDir, "ca.crt"),
 		"service-account-private-key-file": path.Join(a.K0sVars.CertRootDir, "sa.key"),
 		"cluster-cidr":                     clusterConfig.Spec.Network.BuildPodCIDR(),
-		"service-cluster-ip-range":         getServiceClusterIPRange(&a.NodeSpec),
+		"service-cluster-ip-range":         getServiceClusterIPRange(&a.ControlPlane),
 		"profiling":                        "false",
 		"terminated-pod-gc-threshold":      "12500",
 		"v":                                a.LogLevel,

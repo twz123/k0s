@@ -18,9 +18,6 @@ package v1beta1
 
 import (
 	"fmt"
-	"net"
-	"net/url"
-	"strconv"
 
 	"github.com/asaskevich/govalidator"
 	"github.com/k0sproject/k0s/internal/pkg/iface"
@@ -62,30 +59,6 @@ func DefaultAPISpec() *APISpec {
 		ExtraArgs:              make(map[string]string),
 		TunneledNetworkingMode: false,
 	}
-}
-
-// APIAddress ...
-func (a *APISpec) APIAddress() string {
-	if a.ExternalAddress != "" {
-		return a.ExternalAddress
-	}
-	return a.Address
-}
-
-// APIAddressURL returns kube-apiserver external URI
-func (a *APISpec) APIAddressURL() *url.URL {
-	return a.getExternalURIForPort(uint16(a.Port))
-}
-
-// K0sControlPlaneAPIAddress returns the controller join APIs address
-func (a *APISpec) K0sControlPlaneAPIAddressURL() *url.URL {
-	return a.getExternalURIForPort(uint16(a.K0sAPIPort))
-}
-
-func (a *APISpec) getExternalURIForPort(port uint16) *url.URL {
-	host := a.APIAddress()
-	portStr := strconv.FormatUint(uint64(port), 10)
-	return &url.URL{Scheme: "https", Host: net.JoinHostPort(host, portStr)}
 }
 
 // Validate validates APISpec struct

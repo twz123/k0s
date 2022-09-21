@@ -37,22 +37,28 @@ func etcdLeaveCmd() *cobra.Command {
 		Short: "Sign off a given etc node from etcd cluster",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := config.GetCmdOpts()
+			spec, err := c.LoadControlPlaneSpec()
+			if err != nil {
+				return err
+			}
+
+			if spec.Storage.Type != config.EtcdStorageType {
+				return fmt.Errorf("wrong storage type %q", spec.Storage.Type)
+			}
 
 			if peerURL == "" {
-				host := peerAddress
-				if host == "" {
-					host = c.NodeConfig.Spec.Storage.Etcd.PeerAddress
-				}
-				peerURL = (&url.URL{Scheme: "https", Host: net.JoinHostPort(host, "2380")}).String()
 				if peerAddress != "" {
+					peerURL = (&url.URL{Scheme: "https", Host: net.JoinHostPort(peerAddress, "2380")}).String()
 					logrus.Warnf("The flag --peer-address=%q is deprecated in favor of --peer-url=%q", peerAddress, peerURL)
+				} else {
+					peerURL = spec.Storage.Etcd.PeerURL().String()
 				}
 			}
 			if peerURL == "" {
 				return fmt.Errorf("can't leave etcd cluster: no peer URL, check the config file or use CLI argument")
 			}
 
-			etcdClient, err := etcd.ConfigFromSpec(&c.K0sVars, c.NodeConfig.Spec.Storage).NewClient()
+			etcdClient, err := etcd.ConfigFromSpec(&c.K0sVars, &spec.Storage).NewClient()
 			if err != nil {
 				return err
 			}

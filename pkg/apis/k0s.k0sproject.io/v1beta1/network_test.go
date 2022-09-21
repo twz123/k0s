@@ -17,7 +17,6 @@ limitations under the License.
 package v1beta1
 
 import (
-	"net"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
@@ -25,47 +24,6 @@ import (
 
 type NetworkSuite struct {
 	suite.Suite
-}
-
-func (s *NetworkSuite) TestAddresses() {
-	for _, test := range []struct {
-		name        string
-		serviceCIDR string
-		expected    any // net.IP or string as error message
-	}{
-		{"NoCIDRs", "", `failed to parse service CIDR ""`},
-		{"DefaultCIDR", "10.96.0.0/24", net.IP{10, 96, 0, 10}},
-		{"NarrowCIDR", "10.96.0.248/30", net.IP{10, 96, 0, 250}},
-		{
-			"IPV4TooNarrow", "10.96.0.0/31",
-			`failed to calculate a valid DNS address for service CIDR 10.96.0.0/31: can't generate IP with index 2 from subnet. subnet too small. subnet: "10.96.0.0/31"`,
-		},
-		{
-			"IPv6", "2a01:0c23:7131:a400::/64",
-			net.IP{0x2a, 0x01, 0xc, 0x23, 0x71, 0x31, 0xa4, 0, 0, 0, 0, 0, 0, 0, 0, 0xa},
-		},
-		{
-			"NarrowIPv6", "2a01:0c22:bc93:3500:e678:e46f:65c3:a2a0/126",
-			net.IP{0x2a, 0x01, 0xc, 0x22, 0xbc, 0x93, 0x35, 0x00, 0xe6, 0x78, 0xe4, 0x6f, 0x65, 0xc3, 0xa2, 0xa2},
-		},
-		{
-			"IPV6TooNarrow", "::1/127",
-			`failed to calculate a valid DNS address for service CIDR ::1/127: can't generate IP with index 2 from subnet. subnet too small. subnet: "::/127"`,
-		},
-	} {
-		underTest := Network{ServiceCIDR: test.serviceCIDR}
-
-		s.Run("DNSAddress_"+test.name, func() {
-			dns, err := underTest.DNSAddress()
-			if msg, ok := test.expected.(string); ok {
-				if s.Error(err) {
-					s.Contains(err.Error(), msg)
-				}
-			} else if s.NoError(err) {
-				s.Equal(test.expected, dns)
-			}
-		})
-	}
 }
 
 func (s *NetworkSuite) TestDomainMarshaling() {

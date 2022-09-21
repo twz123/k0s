@@ -46,6 +46,7 @@ import (
 
 type command struct {
 	config.CLIOptions
+	*config.ControlPlaneSpec
 	client kubernetes.Interface
 }
 
@@ -71,6 +72,12 @@ func NewAPICmd() *cobra.Command {
 				logrus.SetLevel(logrus.InfoLevel)
 			}
 
+			var err error
+			c.ControlPlaneSpec, err = c.LoadControlPlaneSpec()
+			if err != nil {
+				return err
+			}
+
 			return c.start()
 		},
 	}
@@ -88,9 +95,8 @@ func (c *command) start() (err error) {
 
 	prefix := "/v1beta1"
 	router := mux.NewRouter()
-	storage := c.NodeConfig.Spec.Storage
 
-	if storage.Type == v1beta1.EtcdStorageType && !storage.Etcd.IsExternalClusterUsed() {
+	if c.Storage.Type == config.EtcdStorageType {
 		// Only mount the etcd handler if we're running on internal etcd storage
 		// by default the mux will return 404 back which the caller should handle
 		router.Path(prefix + "/etcd/members").Methods("POST").Handler(
@@ -98,7 +104,7 @@ func (c *command) start() (err error) {
 		)
 	}
 
-	if storage.IsJoinable() {
+	if c.Storage.IsJoinable() {
 		router.Path(prefix + "/ca").Methods("GET").Handler(
 			c.controllerHandler(c.caHandler()),
 		)
@@ -109,7 +115,7 @@ func (c *command) start() (err error) {
 
 	srv := &http.Server{
 		Handler:      router,
-		Addr:         fmt.Sprintf(":%d", c.NodeConfig.Spec.API.K0sAPIPort),
+		Addr:         c.K0sAPI.BindAddress.String(),
 		WriteTimeout: 15 * time.Second,
 		ReadTimeout:  15 * time.Second,
 	}
@@ -123,7 +129,7 @@ func (c *command) start() (err error) {
 }
 
 func (c *command) etcdHandler() http.Handler {
-	etcdConfig := etcd.ConfigFromSpec(&c.K0sVars, c.NodeConfig.Spec.Storage)
+	etcdConfig := etcd.ConfigFromSpec(&c.K0sVars, &c.Storage)
 	return http.HandlerFunc(func(resp http.ResponseWriter, req *http.Request) {
 		ctx := req.Context()
 		var etcdReq v1beta1.EtcdRequest
@@ -229,7 +235,7 @@ users:
 				Token     string
 				Namespace string
 			}{
-				Server:    c.NodeConfig.Spec.API.APIAddressURL().String(),
+				Server:    c.APIServer.URL().String(),
 				Ca:        base64.StdEncoding.EncodeToString(secretWithToken.Data["ca.crt"]),
 				Token:     string(secretWithToken.Data["token"]),
 				Namespace: string(secretWithToken.Data["namespace"]),
@@ -287,7 +293,7 @@ func (c *command) caHandler() http.Handler {
 // We need to validate:
 //   - that we find a secret with the ID
 //   - that the token matches whats inside the secret
-func (c *command) isValidToken(ctx context.Context, token string, role string) bool {
+func (c *command) isValidToken(ctx context.Context, token, role string) bool {
 	parts := strings.Split(token, ".")
 	logrus.Debugf("token parts: %v", parts)
 	if len(parts) != 2 {

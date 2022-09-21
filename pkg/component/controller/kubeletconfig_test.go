@@ -18,12 +18,14 @@ package controller
 
 import (
 	"encoding/json"
+	"net"
 	"strings"
 	"testing"
 
 	"github.com/k0sproject/k0s/internal/testutil"
 	helmv1beta1 "github.com/k0sproject/k0s/pkg/apis/helm.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
+	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 
 	"github.com/stretchr/testify/assert"
@@ -35,9 +37,11 @@ var k0sVars = constant.GetConfig("")
 
 func Test_KubeletConfig(t *testing.T) {
 	clusterDNSIPs := []string{"127.10.10.10"}
-	network := v1beta1.Network{
+	network := config.ControlPlaneNetworkSpec{
 		ClusterDomain: "test.k0s.local",
-		ServiceCIDR:   "127.10.10.0/24",
+		ServiceCIDRs: config.CIDRSpec{
+			V4: &net.IPNet{IP: net.IP{127, 10, 10, 0}, Mask: net.CIDRMask(24, net.IPv4len*8)},
+		},
 	}
 
 	t.Run("default_profile_only", func(t *testing.T) {

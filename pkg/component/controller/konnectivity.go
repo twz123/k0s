@@ -34,6 +34,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/assets"
 	"github.com/k0sproject/k0s/pkg/component"
+	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/k0sproject/k0s/pkg/supervisor"
@@ -47,7 +48,7 @@ import (
 // Konnectivity implements the component interface of konnectivity server
 type Konnectivity struct {
 	K0sVars           constant.CfgVars
-	API               v1beta1.APISpec
+	APIServer         config.APIServerSpec
 	KubeClientFactory kubeutil.ClientFactoryInterface // used for lease lock
 	LogLevel          string
 	SingleNode        bool
@@ -249,13 +250,13 @@ func (k *Konnectivity) writeKonnectivityAgent(state *konnectivityState) error {
 	}
 
 	cfg := konnectivityAgentConfig{
-		ProxyServerHost:        k.API.APIAddress(),
+		ProxyServerHost:        k.APIServer.Address(),
 		ProxyServerPort:        state.cluster.agentPort,
-		KASPort:                uint16(k.API.Port),
+		KASPort:                uint16(k.APIServer.BindAddress.Port),
 		Image:                  state.cluster.imageURI,
 		ServerCount:            state.serverCount,
 		PullPolicy:             string(state.cluster.pullPolicy),
-		TunneledNetworkingMode: k.API.TunneledNetworkingMode,
+		TunneledNetworkingMode: k.APIServer.TunneledNetworkingMode,
 	}
 
 	if cfg == state.agentConfig {

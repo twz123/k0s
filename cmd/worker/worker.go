@@ -164,14 +164,13 @@ func (c *Command) Start(ctx context.Context) error {
 	if !c.SingleNode && !c.EnableWorker {
 		componentManager.Add(ctx, &status.Status{
 			StatusInformation: install.K0sStatus{
-				Pid:           os.Getpid(),
-				Role:          "worker",
-				Args:          os.Args,
-				Version:       build.Version,
-				Workloads:     true,
-				SingleNode:    false,
-				RunDir:        c.K0sVars.RunDir,
-				ClusterConfig: *c.NodeConfig,
+				Pid:        os.Getpid(),
+				Role:       "worker",
+				Args:       os.Args,
+				Version:    build.Version,
+				Workloads:  true,
+				SingleNode: false,
+				RunDir:     c.K0sVars.RunDir,
 			},
 			CertManager: certManager,
 			Socket:      config.StatusSocket,

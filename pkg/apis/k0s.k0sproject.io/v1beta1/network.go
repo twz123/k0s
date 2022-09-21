@@ -21,8 +21,6 @@ import (
 	"fmt"
 	"net"
 
-	utilnet "k8s.io/utils/net"
-
 	"github.com/asaskevich/govalidator"
 )
 
@@ -93,29 +91,6 @@ func (n *Network) Validate() []error {
 	}
 	errors = append(errors, n.KubeProxy.Validate()...)
 	return errors
-}
-
-// DNSAddress calculates the 10th address of configured service CIDR block.
-func (n *Network) DNSAddress() (net.IP, error) {
-	_, ipNet, err := net.ParseCIDR(n.ServiceCIDR)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse service CIDR %q", n.ServiceCIDR)
-	}
-
-	ip, err := utilnet.GetIndexedIP(ipNet, 10)
-	if err != nil {
-		ip, err = utilnet.GetIndexedIP(ipNet, 2)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to calculate a valid DNS address for service CIDR %s: %w", n.ServiceCIDR, err)
-	}
-
-	v4Addr := ip.To4()
-	if v4Addr != nil {
-		return v4Addr, nil
-	}
-
-	return ip, nil
 }
 
 // UnmarshalJSON sets in some sane defaults when unmarshaling the data from json

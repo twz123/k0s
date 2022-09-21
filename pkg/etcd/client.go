@@ -21,8 +21,9 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"path/filepath"
 
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
+	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
@@ -62,6 +63,31 @@ func (g ConfigGetter) NewClient() (*Client, error) {
 	return &Client{client}, nil
 }
 
+func ConfigFromEndpoints(endpoints []url.URL, etls *config.EtcdTLS) ConfigGetter {
+	eps := make([]string, len(endpoints))
+	for i, endpoint := range endpoints {
+		eps[i] = endpoint.String()
+	}
+
+	if etls == nil {
+		return func() (client.Config, error) {
+			return client.Config{Endpoints: eps}, nil
+		}
+	}
+
+	tlsInfo := transport.TLSInfo{
+		CertFile:      etls.CertFile,
+		KeyFile:       etls.KeyFile,
+		TrustedCAFile: etls.CAFile,
+	}
+
+	return func() (config client.Config, err error) {
+		config.Endpoints = eps
+		config.TLS, err = tlsInfo.ClientConfig()
+		return
+	}
+}
+
 type UnsupportedStorageType string
 
 func IsUnsupportedStorageType(err error) bool {
@@ -73,42 +99,23 @@ func (t UnsupportedStorageType) Error() string {
 	return fmt.Sprintf("cannot create etcd client for storage type %q", string(t))
 }
 
-func ConfigFromSpec(k0sVars *constant.CfgVars, storage *v1beta1.StorageSpec) ConfigGetter {
-	switch storage.Type {
-	case v1beta1.EtcdStorageType:
-		var tlsInfo *transport.TLSInfo
-		if storage.Etcd.IsTLSEnabled() {
-			tlsInfo = &transport.TLSInfo{
-				CertFile:      storage.Etcd.GetCertFilePath(k0sVars.CertRootDir),
-				KeyFile:       storage.Etcd.GetKeyFilePath(k0sVars.CertRootDir),
-				TrustedCAFile: storage.Etcd.GetCaFilePath(k0sVars.EtcdCertDir),
-			}
-		}
-		return ConfigFromEndpoints(storage.Etcd.GetEndpoints(), tlsInfo)
+func ConfigFromSpec(k0sVars *constant.CfgVars, spec *config.StorageSpec) ConfigGetter {
+	switch spec.Type {
+	case "Etcd":
+		return ConfigFromEndpoints([]url.URL{*spec.Etcd.URL()}, &config.EtcdTLS{
+			CertFile: filepath.Join(k0sVars.CertRootDir, CertFile),
+			KeyFile:  filepath.Join(k0sVars.CertRootDir, KeyFile),
+			CAFile:   filepath.Join(k0sVars.EtcdCertDir, CAFile),
+		})
 
-	case v1beta1.KineStorageType:
-		kineEndpoint := (&url.URL{Scheme: "unix", Path: k0sVars.KineSocketPath}).String()
-		return ConfigFromEndpoints([]string{kineEndpoint}, nil)
+	case "ExternalEtcd":
+		return ConfigFromEndpoints(spec.ExternalEtcd.Endpoints, spec.ExternalEtcd.TLS)
 
 	default:
-		err := UnsupportedStorageType(storage.Type)
+		err := UnsupportedStorageType(spec.Type)
 		return func() (config client.Config, _ error) {
 			return config, err
 		}
-	}
-}
-
-func ConfigFromEndpoints(endpoints []string, tlsInfo *transport.TLSInfo) ConfigGetter {
-	if tlsInfo == nil {
-		return func() (client.Config, error) {
-			return client.Config{Endpoints: endpoints}, nil
-		}
-	}
-
-	return func() (config client.Config, err error) {
-		config.Endpoints = endpoints
-		config.TLS, err = tlsInfo.ClientConfig()
-		return
 	}
 }
 

@@ -18,6 +18,8 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -29,11 +31,13 @@ import (
 	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/constant"
 
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	cloudprovider "k8s.io/cloud-provider"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"sigs.k8s.io/yaml"
 )
 
 var (
@@ -54,7 +58,6 @@ type CLIOptions struct {
 	WorkerOptions
 	ControllerOptions
 	CfgFile          string
-	NodeConfig       *v1beta1.ClusterConfig
 	Debug            bool
 	DebugListenOn    string
 	DefaultLogLevels map[string]string
@@ -230,7 +233,6 @@ func GetCmdOpts() CLIOptions {
 		WorkerOptions:     workerOpts,
 
 		CfgFile:          CfgFile,
-		NodeConfig:       getNodeConfig(K0sVars),
 		Debug:            Debug,
 		Verbose:          Verbose,
 		DefaultLogLevels: DefaultLogLevels(),
@@ -271,25 +273,120 @@ func CallParentPersistentPreRun(c *cobra.Command, args []string) error {
 	return nil
 }
 
-func PreRunValidateConfig(k0sVars constant.CfgVars) error {
-	loadingRules := ClientConfigLoadingRules{K0sVars: k0sVars}
-	_, err := loadingRules.ParseRuntimeConfig()
-	if err != nil {
-		return fmt.Errorf("failed to get config: %v", err)
-	}
-	return nil
-}
-
-func getNodeConfig(k0sVars constant.CfgVars) *v1beta1.ClusterConfig {
-	loadingRules := ClientConfigLoadingRules{Nodeconfig: true, K0sVars: k0sVars}
+func (o *CLIOptions) LoadControlPlaneSpec() (*ControlPlaneSpec, error) {
+	loadingRules := ClientConfigLoadingRules{Nodeconfig: true, K0sVars: o.K0sVars}
 	cfg, err := loadingRules.Load()
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return cfg
+
+	foo, err := yaml.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	logrus.Info("FIXME Config loaded: ", string(foo))
+
+	controlPlane := &ControlPlaneSpec{
+		APIServer: APIServerSpec{
+			NetworkService: NetworkService{
+				BindAddress: NetAddress{
+					IP:   net.ParseIP(cfg.Spec.API.Address),
+					Port: IPPort(cfg.Spec.API.Port),
+				},
+				ExternalAddress: cfg.Spec.API.ExternalAddress,
+				AdditionalSANs:  cfg.Spec.API.SANs,
+			},
+			ExtraArgs:              cfg.Spec.API.ExtraArgs,
+			TunneledNetworkingMode: cfg.Spec.API.TunneledNetworkingMode,
+		},
+		K0sAPI: NetworkService{
+			BindAddress: NetAddress{
+				IP:   net.ParseIP(cfg.Spec.API.Address),
+				Port: IPPort(cfg.Spec.API.K0sAPIPort),
+			},
+			AdditionalSANs: cfg.Spec.API.SANs,
+		},
+		Network: ControlPlaneNetworkSpec{
+			ClusterDomain: cfg.Spec.Network.ClusterDomain,
+		},
+	}
+
+	cfg.Spec.Install.DeepCopyInto(&controlPlane.Install)
+
+	_, controlPlane.Network.ServiceCIDRs.V4, err = net.ParseCIDR(cfg.Spec.Network.ServiceCIDR)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Spec.Network.DualStack.IsEnabled() {
+		_, controlPlane.Network.ServiceCIDRs.V6, err = net.ParseCIDR(cfg.Spec.Network.DualStack.IPv6ServiceCIDR)
+		if err != nil {
+			return nil, field.Invalid(
+				field.NewPath("spec", "network", "dualStack", "IPv6serviceCIDR"),
+				cfg.Spec.Network.DualStack.IPv6ServiceCIDR,
+				"not a valid CIDR: "+err.Error(),
+			)
+		}
+	}
+
+	switch cfg.Spec.Storage.Type {
+	case "etcd":
+		if cfg.Spec.Storage.Etcd.IsExternalClusterUsed() {
+			var endpoints []url.URL
+			for i, endpoint := range cfg.Spec.Storage.Etcd.ExternalCluster.Endpoints {
+				url, err := url.Parse(endpoint)
+				if err != nil {
+					return nil, field.Invalid(
+						field.NewPath("spec", "storage", "etcd", "externalCluster", "endpoints").Index(i),
+						endpoint,
+						"not a valid URL: "+err.Error(),
+					)
+				}
+				endpoints = append(endpoints, *url)
+			}
+
+			controlPlane.Storage.Type = ExternalEtcdStorageType
+			controlPlane.Storage.ExternalEtcd = &ExternalEtcdSpec{
+				Endpoints: endpoints,
+			}
+			if cfg.Spec.Storage.Etcd.ExternalCluster.HasAllTLSPropertiesDefined() {
+				controlPlane.Storage.ExternalEtcd.TLS = &EtcdTLS{
+					CertFile: cfg.Spec.Storage.Etcd.ExternalCluster.ClientCertFile,
+					KeyFile:  cfg.Spec.Storage.Etcd.ExternalCluster.ClientKeyFile,
+					CAFile:   cfg.Spec.Storage.Etcd.ExternalCluster.CaFile,
+				}
+			}
+		} else {
+			controlPlane.Storage.Type = EtcdStorageType
+			controlPlane.Storage.Etcd = &EtcdSpec{
+				BindAddress: NetAddress{IP: net.IP{127, 0, 0, 1}, Port: 2379},
+				PeerAddress: cfg.Spec.Storage.Etcd.PeerAddress,
+			}
+		}
+	case "kine":
+		controlPlane.Storage.Type = KineStorageType
+		controlPlane.Storage.Kine = &KineSpec{
+			DataSource: cfg.Spec.Storage.Kine.DataSource,
+		}
+
+	default:
+		return nil, field.NotSupported(
+			field.NewPath("spec", "storage", "type"),
+			cfg.Spec.Storage.Type,
+			[]string{"etcd", "kine"},
+		)
+	}
+
+	foo, err = yaml.Marshal(controlPlane)
+	if err != nil {
+		return nil, err
+	}
+
+	logrus.Info("FIXME Control plane: ", string(foo))
+
+	return controlPlane, nil
 }
 
-func LoadClusterConfig(k0sVars constant.CfgVars) (*v1beta1.ClusterConfig, error) {
-	loadingRules := ClientConfigLoadingRules{K0sVars: k0sVars}
-	return loadingRules.Load()
+func (o *CLIOptions) LoadClusterConfig() (*v1beta1.ClusterConfig, error) {
+	return (&ClientConfigLoadingRules{K0sVars: o.K0sVars}).Load()
 }

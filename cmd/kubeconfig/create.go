@@ -76,6 +76,10 @@ Note: A certificate once signed cannot be revoked for a particular user`,
 			}
 			username := args[0]
 			c := config.GetCmdOpts()
+			controlPlane, err := c.LoadControlPlaneSpec()
+			if err != nil {
+				return err
+			}
 
 			caCert, err := os.ReadFile(path.Join(c.K0sVars.CertRootDir, "ca.crt"))
 			if err != nil {
@@ -106,7 +110,7 @@ Note: A certificate once signed cannot be revoked for a particular user`,
 				ClientCert: base64.StdEncoding.EncodeToString([]byte(userCert.Cert)),
 				ClientKey:  base64.StdEncoding.EncodeToString([]byte(userCert.Key)),
 				User:       username,
-				JoinURL:    c.NodeConfig.Spec.API.APIAddressURL().String(),
+				JoinURL:    controlPlane.APIServer.URL().String(),
 			}
 
 			var buf bytes.Buffer

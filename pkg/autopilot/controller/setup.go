@@ -16,6 +16,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -209,5 +210,9 @@ func getControllerAPIAddress(statusSocketPath string) (string, error) {
 		return "", err
 	}
 
-	return status.ClusterConfig.Spec.API.Address, nil
+	if status.ControlPlane == nil {
+		return "", errors.New("no control plane configuration available")
+	}
+
+	return status.ControlPlane.APIServer.BindAddress.IP.String(), nil
 }

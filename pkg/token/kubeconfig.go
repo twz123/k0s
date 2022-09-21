@@ -25,7 +25,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
+	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 
 	"k8s.io/client-go/tools/clientcmd"
@@ -38,8 +38,8 @@ const (
 )
 
 // CreateKubeletBootstrapToken creates a new k0s bootstrap token.
-func CreateKubeletBootstrapToken(ctx context.Context, api *v1beta1.APISpec, k0sVars constant.CfgVars, role string, expiry time.Duration) (string, error) {
-	userName, joinURL, err := loadUserAndJoinURL(api, role)
+func CreateKubeletBootstrapToken(ctx context.Context, spec *config.ControlPlaneSpec, k0sVars constant.CfgVars, role string, expiry time.Duration) (string, error) {
+	userName, joinURL, err := loadUserAndJoinURL(spec, role)
 	if err != nil {
 		return "", err
 	}
@@ -81,12 +81,12 @@ func generateKubeconfig(joinURL *url.URL, caCert []byte, userName string, token 
 	return kubeconfig, err
 }
 
-func loadUserAndJoinURL(api *v1beta1.APISpec, role string) (string, *url.URL, error) {
+func loadUserAndJoinURL(controlPlane *config.ControlPlaneSpec, role string) (string, *url.URL, error) {
 	switch role {
 	case RoleController:
-		return "controller-bootstrap", api.K0sControlPlaneAPIAddressURL(), nil
+		return "controller-bootstrap", controlPlane.K0sAPI.URL(), nil
 	case RoleWorker:
-		return "kubelet-bootstrap", api.APIAddressURL(), nil
+		return "kubelet-bootstrap", controlPlane.APIServer.URL(), nil
 	default:
 		return "", nil, fmt.Errorf("unsupported role %q; supported roles are %q and %q", role, RoleController, RoleWorker)
 	}

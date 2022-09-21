@@ -24,15 +24,14 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"text/template"
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/iface"
 	"github.com/k0sproject/k0s/internal/pkg/stringslice"
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/certificate"
+	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -68,9 +67,9 @@ users:
 
 // Certificates is the Component implementation to manage all k0s certs
 type Certificates struct {
-	K0sVars     constant.CfgVars
-	NodeSpec    v1beta1.ClusterSpec
-	CertManager certificate.Manager
+	K0sVars      constant.CfgVars
+	ControlPlane config.ControlPlaneSpec
+	CertManager  certificate.Manager
 
 	caCert string
 }
@@ -93,10 +92,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 		return fmt.Errorf("failed to read ca cert: %w", err)
 	}
 	c.caCert = string(cert)
-	kubeConfigAPIUrl := (&url.URL{
-		Scheme: "https",
-		Host:   net.JoinHostPort("localhost", strconv.Itoa(c.NodeSpec.API.Port)),
-	}).String()
+	kubeConfigAPIUrl := (&url.URL{Scheme: "https", Host: c.ControlPlane.APIServer.BindAddress.String()}).String()
 	eg.Go(func() error {
 		// Front proxy CA
 		if err := c.CertManager.EnsureCA("front-proxy-ca", "kubernetes-front-proxy-ca"); err != nil {
@@ -259,22 +255,22 @@ func (c *Certificates) Init(ctx context.Context) error {
 func (c *Certificates) gatherHostnames() ([]string, error) {
 	var hostnames []string
 
-	if c.NodeSpec.API.ExternalAddress != "" {
-		hostnames = append(hostnames, c.NodeSpec.API.ExternalAddress)
+	if c.ControlPlane.APIServer.ExternalAddress != "" {
+		hostnames = append(hostnames, c.ControlPlane.APIServer.ExternalAddress)
 	}
 
 	{ // cluster domain
-		if !govalidator.IsDNSName(c.NodeSpec.Network.ClusterDomain) {
+		if !govalidator.IsDNSName(c.ControlPlane.Network.ClusterDomain) {
 			return nil, fmt.Errorf("node config invalid: %w", field.Invalid(
-				field.NewPath("spec", "network", "clusterDomain"),
-				c.NodeSpec.Network.ClusterDomain,
+				field.NewPath("spec", "network", "clusterDomain"), // FIXME check path
+				c.ControlPlane.Network.ClusterDomain,
 				"not a valid DNS name",
 			))
 		}
 
 		dnsLabels := append(
 			[]string{"kubernetes", "default", "svc"},
-			strings.Split(c.NodeSpec.Network.ClusterDomain, ".")...,
+			strings.Split(c.ControlPlane.Network.ClusterDomain, ".")...,
 		)
 		for i := range dnsLabels {
 			hostnames = append(hostnames, strings.Join(dnsLabels[:i+1], "."))
@@ -295,28 +291,19 @@ func (c *Certificates) gatherHostnames() ([]string, error) {
 		hostnames = append(hostnames, allAddresses...)
 	}
 
-	{ // Service CIDRs
-		appendCIDR := func(cidrString string) error {
-			_, cidr, err := net.ParseCIDR(cidrString)
-			if err != nil {
-				return fmt.Errorf("failed to parse CIDR %q: %w", cidr, err)
-			}
-			ip, err := utilnet.GetIndexedIP(cidr, 1)
-			if err != nil {
-				return fmt.Errorf("failed to get first IP address for CIDR %s: %w", cidrString, err)
-			}
-			hostnames = append(hostnames, ip.String())
-			return nil
+	// Service CIDRs
+	for _, cidr := range []*net.IPNet{
+		c.ControlPlane.Network.ServiceCIDRs.V4,
+		c.ControlPlane.Network.ServiceCIDRs.V6,
+	} {
+		if cidr == nil {
+			continue
 		}
-
-		if err := appendCIDR(c.NodeSpec.Network.ServiceCIDR); err != nil {
-			return nil, err
+		ip, err := utilnet.GetIndexedIP(cidr, 1)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get first IP address for CIDR %s: %w", cidr, err)
 		}
-		if c.NodeSpec.Network.DualStack.IsEnabled() {
-			if err := appendCIDR(c.NodeSpec.Network.DualStack.IPv6ServiceCIDR); err != nil {
-				return nil, err
-			}
-		}
+		hostnames = append(hostnames, ip.String())
 	}
 
 	return stringslice.Unique(hostnames), nil
