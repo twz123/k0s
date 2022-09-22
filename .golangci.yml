@@ -2,6 +2,7 @@
 run:
   timeout: 8m
 
+<<<<<<< HEAD
   build-tags:
     - hack
   skip-dirs-use-default: false

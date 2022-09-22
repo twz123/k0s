@@ -33,6 +33,18 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
+	// "fmt"
+	// v1 "k8s.io/api/core/v1"
+	// "k8s.io/apimachinery/pkg/runtime"
+	// api "k8s.io/kubernetes/pkg/apis/core"
+	// // TODO: remove this import if
+	// // api.Registry.GroupOrDie(v1.GroupName).GroupVersion.String() is changed
+	// // to "v1"?
+	// "k8s.io/kubernetes/pkg/api/legacyscheme"
+	// // Ensure that core apis are installed
+	// _ "k8s.io/kubernetes/pkg/apis/core/install"
+	// k8s_api_v1 "k8s.io/kubernetes/pkg/apis/core/v1"
+	// "k8s.io/kubernetes/pkg/apis/core/validation"
 )
 
 const dummyPod = `
@@ -144,7 +156,7 @@ func TestStaticPods_Provisioning(t *testing.T) {
 	})
 
 	t.Run("sets_pod_manifests", func(t *testing.T) {
-		replaced := `{"apiVersion":"v1","kind":"Pod","metadata":{"name":"dummy-test","namespace":"default"}}`
+		replaced := `{"apiVersion":"v1","kind":"Pod","metadata":{"name":"dummy-test","namespace":"default"},"spec":{"containers":[{"name":"alpine","image":"alpine"}]}}`
 		expected := newList(t, []byte(replaced))
 
 		assert.NoError(t, podUnderTest.SetManifest(dummyPod))
@@ -354,6 +366,10 @@ func TestStaticPods_Lifecycle(t *testing.T) {
 }
 
 func getContent(t *testing.T, underTest StaticPods) (content map[string]interface{}) {
+	// parsed, _, err := tryDecodePodList(underTest.(*staticPods).content(), func(pod *api.Pod) error { return nil })
+	// assert.NoError(t, err)
+	// assert.True(t, parsed)
+
 	require.NoError(t, yaml.Unmarshal(underTest.(*staticPods).content(), &content))
 	return
 }
@@ -372,3 +388,36 @@ func newList(t *testing.T, items ...[]byte) map[string]interface{} {
 		"items":      parsedItems,
 	}
 }
+
+// type defaultFunc func(pod *api.Pod) error
+
+// func tryDecodePodList(data []byte, defaultFn defaultFunc) (parsed bool, pods v1.PodList, err error) {
+// 	obj, err := runtime.Decode(legacyscheme.Codecs.UniversalDecoder(), data)
+// 	if err != nil {
+// 		return false, pods, err
+// 	}
+
+// 	newPods, ok := obj.(*api.PodList)
+// 	// Check whether the object could be converted to list of pods.
+// 	if !ok {
+// 		err = fmt.Errorf("invalid pods list: %#v", obj)
+// 		return false, pods, err
+// 	}
+
+// 	// Apply default values and validate pods.
+// 	for i := range newPods.Items {
+// 		newPod := &newPods.Items[i]
+// 		if err = defaultFn(newPod); err != nil {
+// 			return true, pods, err
+// 		}
+// 		if errs := validation.ValidatePodCreate(newPod, validation.PodValidationOptions{}); len(errs) > 0 {
+// 			err = fmt.Errorf("invalid pod: %v", errs)
+// 			return true, pods, err
+// 		}
+// 	}
+// 	v1Pods := &v1.PodList{}
+// 	if err := k8s_api_v1.Convert_core_PodList_To_v1_PodList(newPods, v1Pods, nil); err != nil {
+// 		return true, pods, err
+// 	}
+// 	return true, *v1Pods, err
+// }
