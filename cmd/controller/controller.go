@@ -38,6 +38,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/component/controller"
 	"github.com/k0sproject/k0s/pkg/component/controller/clusterconfig"
+	"github.com/k0sproject/k0s/pkg/component/controller/workerconfig"
 	"github.com/k0sproject/k0s/pkg/component/status"
 	"github.com/k0sproject/k0s/pkg/component/worker"
 	"github.com/k0sproject/k0s/pkg/config"
@@ -425,8 +426,18 @@ func (c *command) start(ctx context.Context) error {
 		c.ClusterComponents.Add(ctx, metrics)
 	}
 
-	if !slices.Contains(c.DisableComponents, constant.KubeletConfigComponentName) {
-		c.ClusterComponents.Add(ctx, controller.NewKubeletConfig(c.K0sVars, adminClientFactory))
+	if !slices.Contains(c.DisableComponents, constant.WorkerConfigComponentName) {
+		if !slices.Contains(c.DisableComponents, constant.KubeletConfigComponentName) {
+			reconciler, err := workerconfig.NewReconciler(c.K0sVars, c.NodeConfig.Spec, adminClientFactory, enableKonnectivity)
+			if err != nil {
+				return err
+			}
+			c.ClusterComponents.Add(ctx, reconciler)
+		} else {
+			logrus.Warnf("Usage of deprecated component name %q, please switch to %q",
+				constant.KubeletConfigComponentName, constant.WorkerConfigComponentName,
+			)
+		}
 	}
 
 	if !slices.Contains(c.DisableComponents, constant.SystemRbacComponentName) {
@@ -457,10 +468,11 @@ func (c *command) start(ctx context.Context) error {
 
 	if !slices.Contains(c.DisableComponents, constant.KubeControllerManagerComponentName) {
 		c.ClusterComponents.Add(ctx, &controller.Manager{
-			LogLevel:   c.Logging[constant.KubeControllerManagerComponentName],
-			K0sVars:    c.K0sVars,
-			SingleNode: c.SingleNode,
-			ExtraArgs:  c.KubeControllerManagerExtraArgs,
+			LogLevel:              c.Logging[constant.KubeControllerManagerComponentName],
+			K0sVars:               c.K0sVars,
+			SingleNode:            c.SingleNode,
+			ServiceClusterIPRange: c.NodeConfig.Spec.Network.BuildServiceCIDR(c.NodeConfig.Spec.API.Address),
+			ExtraArgs:             c.KubeControllerManagerExtraArgs,
 		})
 	}
 

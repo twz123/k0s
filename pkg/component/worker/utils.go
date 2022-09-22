@@ -26,7 +26,10 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/pkg/constant"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/k0sproject/k0s/pkg/token"
+
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
 func HandleKubeletBootstrapToken(encodedToken string, k0sVars constant.CfgVars) error {
@@ -63,17 +66,19 @@ func HandleKubeletBootstrapToken(encodedToken string, k0sVars constant.CfgVars) 
 	return nil
 }
 
-func LoadKubeletConfigClient(k0svars constant.CfgVars) (*KubeletConfigClient, error) {
-	var kubeletConfigClient *KubeletConfigClient
-	// Prefer to load client config from kubelet auth, fallback to bootstrap token auth
-	clientConfigPath := k0svars.KubeletBootstrapConfigPath
-	if file.Exists(k0svars.KubeletAuthConfigPath) {
-		clientConfigPath = k0svars.KubeletAuthConfigPath
-	}
+type KubeletKubeconfig struct {
+	Path, BootstrapPath string
+}
 
-	kubeletConfigClient, err := NewKubeletConfigClient(clientConfigPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to start kubelet config client: %v", err)
-	}
-	return kubeletConfigClient, nil
+func NewKubeletKubeconfig(cfg *constant.CfgVars) KubeletKubeconfig {
+	return KubeletKubeconfig{cfg.KubeletAuthConfigPath, cfg.KubeletBootstrapConfigPath}
+}
+
+func (k *KubeletKubeconfig) ToKubeconfigGetter() clientcmd.KubeconfigGetter {
+	// Prefer to load client config from kubelet auth, fallback to bootstrap token auth
+	return kubernetes.FirstExistingKubeconfig(k.Path, k.BootstrapPath)
+}
+
+func (k *KubeletKubeconfig) Load() (*clientcmdapi.Config, error) {
+	return k.ToKubeconfigGetter()()
 }

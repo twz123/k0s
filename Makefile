@@ -107,7 +107,7 @@ go.sum: go.mod .k0sbuild.docker-image.k0s
 	$(GO) mod tidy && touch -c -- '$@'
 
 codegen_targets += pkg/apis/helm.k0sproject.io/v1beta1/.controller-gen.stamp
-pkg/apis/helm.k0sproject.io/v1beta1/.controller-gen.stamp: $(shell find pkg/apis/helm.k0sproject.io/v1beta1/  -maxdepth 1 -type f -name \*.go)
+pkg/apis/helm.k0sproject.io/v1beta1/.controller-gen.stamp: $(shell find pkg/apis/helm.k0sproject.io/v1beta1/ -maxdepth 1 -type f -name \*.go)
 pkg/apis/helm.k0sproject.io/v1beta1/.controller-gen.stamp: gen_output_dir = helm
 
 codegen_targets += pkg/apis/k0s.k0sproject.io/v1beta1/.controller-gen.stamp
@@ -158,7 +158,7 @@ static/gen_manifests.go: .k0sbuild.docker-image.k0s hack/tools/Makefile.variable
 static/gen_manifests.go: $(shell find static/manifests -type f)
 	-rm -f -- '$@'
 	CGO_ENABLED=0 $(GO) install github.com/kevinburke/go-bindata/go-bindata@v$(go-bindata_version)
-	$(GO_ENV) go-bindata -o static/gen_manifests.go -pkg static -prefix static static/...
+	$(GO_ENV) go-bindata -o static/gen_manifests.go -pkg static -prefix static static/manifests/...
 
 codegen_targets += pkg/assets/zz_generated_offsets_$(TARGET_OS).go
 zz_os = $(patsubst pkg/assets/zz_generated_offsets_%.go,%,$@)
@@ -248,7 +248,7 @@ smoketests: $(smoketests)
 .PHONY: check-unit
 check-unit: GO_TEST_RACE ?= -race
 check-unit: go.sum codegen
-	$(GO) test -tags=hack $(GO_TEST_RACE) -ldflags='$(LD_FLAGS)' `$(GO) list -tags=hack $(GO_DIRS)`
+	$(GO) test -tags=hack $(GO_TEST_RACE) -timeout=30s -ldflags='$(LD_FLAGS)' `$(GO) list -tags=hack $(GO_DIRS)`
 
 .PHONY: check-image-validity
 check-image-validity: go.sum
