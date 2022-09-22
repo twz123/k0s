@@ -20,6 +20,7 @@ limitations under the License.
 package backup
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -46,7 +47,7 @@ type Manager struct {
 // RunBackup backups cluster
 func (bm *Manager) RunBackup(nodeSpec *v1beta1.ClusterSpec, vars constant.CfgVars, savePathDir string) error {
 	configLoader := config.ClientConfigLoadingRules{}
-	_, err := configLoader.Load()
+	_, err := configLoader.Load(context.TODO())
 	if err != nil {
 		return err
 	}
@@ -178,7 +179,7 @@ func (bm Manager) getConfigForRestore(k0sVars constant.CfgVars) (*v1beta1.Cluste
 		RuntimeConfigPath: configFromBackup,
 		K0sVars:           k0sVars,
 	}
-	cfg, err := loadingRules.Load()
+	cfg, err := loadingRules.Load(context.TODO())
 	if err != nil {
 		return nil, err
 	}

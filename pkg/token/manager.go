@@ -21,14 +21,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	"github.com/k0sproject/k0s/internal/pkg/random"
+	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
+
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/k0sproject/k0s/internal/pkg/random"
-	k8sutil "github.com/k0sproject/k0s/pkg/kubernetes"
+	"github.com/sirupsen/logrus"
 )
 
 type Token struct {
@@ -44,7 +45,7 @@ func (t Token) ToArray() []string {
 // NewManager creates a new token manager using given kubeconfig
 func NewManager(kubeconfig string) (*Manager, error) {
 	logrus.Debugf("loading kubeconfig from: %s", kubeconfig)
-	client, err := k8sutil.NewClient(kubeconfig)
+	client, err := kubeutil.NewClientFromFile(kubeconfig)
 	if err != nil {
 		return nil, err
 	}
@@ -90,12 +91,12 @@ func (m *Manager) Create(ctx context.Context, valid time.Duration, role string) 
 		data["usage-controller-join"] = "true"
 	}
 
-	secret := &v1.Secret{
+	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("bootstrap-token-%s", tokenID),
 			Namespace: "kube-system",
 		},
-		Type:       v1.SecretTypeBootstrapToken,
+		Type:       corev1.SecretTypeBootstrapToken,
 		StringData: data,
 	}
 
@@ -135,7 +136,7 @@ func (m *Manager) List(ctx context.Context, role string) ([]Token, error) {
 
 func (m *Manager) Remove(ctx context.Context, tokenID string) error {
 	err := m.client.CoreV1().Secrets("kube-system").Delete(ctx, fmt.Sprintf("bootstrap-token-%s", tokenID), metav1.DeleteOptions{})
-	if errors.IsNotFound(err) {
+	if apierrors.IsNotFound(err) {
 		return nil
 	}
 	return err

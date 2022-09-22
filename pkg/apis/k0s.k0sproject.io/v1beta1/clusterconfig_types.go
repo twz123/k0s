@@ -19,12 +19,14 @@ package v1beta1
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"reflect"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/k0sproject/k0s/internal/pkg/strictyaml"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
 const (
@@ -87,14 +89,14 @@ func (c *ClusterConfig) StripDefaults() *ClusterConfig {
 	if reflect.DeepEqual(c.Spec.Storage, DefaultStorageSpec()) {
 		c.Spec.ControllerManager = nil
 	}
-	if reflect.DeepEqual(copy.Spec.Network, DefaultNetwork()) {
+	if reflect.DeepEqual(copy.Spec.Images, DefaultClusterImages()) {
+		copy.Spec.Images = nil
+	}
+	if reflect.DeepEqual(copy.Spec.Network, DefaultNetwork(copy.Spec.Images)) {
 		copy.Spec.Network = nil
 	}
 	if reflect.DeepEqual(copy.Spec.Telemetry, DefaultClusterTelemetry()) {
 		copy.Spec.Telemetry = nil
-	}
-	if reflect.DeepEqual(copy.Spec.Images, DefaultClusterImages()) {
-		copy.Spec.Images = nil
 	}
 	if reflect.DeepEqual(copy.Spec.Konnectivity, DefaultKonnectivitySpec()) {
 		copy.Spec.Konnectivity = nil
@@ -106,6 +108,8 @@ func (c *ClusterConfig) StripDefaults() *ClusterConfig {
 type InstallSpec struct {
 	SystemUsers *SystemUser `json:"users,omitempty"`
 }
+
+func (*InstallSpec) Validate() []error { return nil }
 
 // ControllerManagerSpec defines the fields for the ControllerManager
 type ControllerManagerSpec struct {
@@ -130,6 +134,8 @@ func DefaultSchedulerSpec() *SchedulerSpec {
 		ExtraArgs: make(map[string]string),
 	}
 }
+
+func (*SchedulerSpec) Validate() []error { return nil }
 
 // +kubebuilder:object:root=true
 // +genclient
@@ -226,8 +232,11 @@ func (c *ClusterConfig) UnmarshalJSON(data []byte) error {
 	if jc.Spec.Extensions == nil {
 		jc.Spec.Extensions = DefaultExtensions()
 	}
+	if jc.Spec.Images == nil {
+		jc.Spec.Images = DefaultClusterImages()
+	}
 	if jc.Spec.Network == nil {
-		jc.Spec.Network = DefaultNetwork()
+		jc.Spec.Network = DefaultNetwork(jc.Spec.Images)
 	}
 	if jc.Spec.API == nil {
 		jc.Spec.API = DefaultAPISpec()
@@ -240,9 +249,6 @@ func (c *ClusterConfig) UnmarshalJSON(data []byte) error {
 	}
 	if jc.Spec.Install == nil {
 		jc.Spec.Install = DefaultInstallSpec()
-	}
-	if jc.Spec.Images == nil {
-		jc.Spec.Images = DefaultClusterImages()
 	}
 	if jc.Spec.Telemetry == nil {
 		jc.Spec.Telemetry = DefaultClusterTelemetry()
@@ -263,35 +269,19 @@ func DefaultClusterSpec(defaultStorage ...*StorageSpec) *ClusterSpec {
 		storage = defaultStorage[0]
 	}
 
+	defaultClusterImages := DefaultClusterImages()
 	return &ClusterSpec{
 		Extensions:        DefaultExtensions(),
 		Storage:           storage,
-		Network:           DefaultNetwork(),
+		Network:           DefaultNetwork(defaultClusterImages),
 		API:               DefaultAPISpec(),
 		ControllerManager: DefaultControllerManagerSpec(),
 		Scheduler:         DefaultSchedulerSpec(),
 		Install:           DefaultInstallSpec(),
-		Images:            DefaultClusterImages(),
+		Images:            defaultClusterImages,
 		Telemetry:         DefaultClusterTelemetry(),
 		Konnectivity:      DefaultKonnectivitySpec(),
 	}
-}
-
-func (c *ControllerManagerSpec) Validate() []error {
-	return nil
-}
-
-var _ Validateable = (*SchedulerSpec)(nil)
-
-func (s *SchedulerSpec) Validate() []error {
-	return nil
-}
-
-var _ Validateable = (*InstallSpec)(nil)
-
-// Validate stub for Validateable interface
-func (i *InstallSpec) Validate() []error {
-	return nil
 }
 
 // Validateable interface to ensure that all config components implement Validate function
@@ -300,22 +290,69 @@ type Validateable interface {
 	Validate() []error
 }
 
+func (s *ClusterSpec) Validate() (errs []error) {
+	if s == nil {
+		return
+	}
+
+	for name, v := range map[string]Validateable{
+		"api":               s.API,
+		"controllerManager": s.ControllerManager,
+		"scheduler":         s.Scheduler,
+		"storage":           s.Storage,
+		"network":           s.Network,
+		"workerProfiles":    s.WorkerProfiles,
+		"telemetry":         s.Telemetry,
+		"install":           s.Install,
+		"extensions":        s.Extensions,
+		"konnectivity":      s.Konnectivity,
+	} {
+		if v == nil || reflect.ValueOf(v).IsNil() {
+			continue
+		}
+		for _, err := range v.Validate() {
+			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+		}
+	}
+
+	for _, vErr := range s.ValidateNodeLocalLoadBalancer(field.NewPath("spec")) {
+		errs = append(errs, vErr)
+	}
+
+	return
+}
+
+func (s *ClusterSpec) ValidateNodeLocalLoadBalancer(path *field.Path) (errs field.ErrorList) {
+	if s.Network == nil || !s.Network.NodeLocalLoadBalancer.IsEnabled() {
+		return
+	}
+
+	if s.API == nil {
+		return
+	}
+
+	path = path.Child("network", "nodeLocalLoadBalancer")
+	if s.API.TunneledNetworkingMode {
+		detail := "node-local load balancing cannot be used in tunneled networking mode"
+		errs = append(errs, field.Forbidden(path, detail))
+	}
+
+	if s.API.ExternalAddress != "" {
+		detail := "node-local load balancing cannot be used in conjunction with an external Kubernetes API server address"
+		errs = append(errs, field.Forbidden(path, detail))
+	}
+
+	return
+}
+
+func (c *ControllerManagerSpec) Validate() []error { return nil }
+
 // Validate validates cluster config
 func (c *ClusterConfig) Validate() []error {
-	var errors []error
-
-	errors = append(errors, validateSpecs(c.Spec.API)...)
-	errors = append(errors, validateSpecs(c.Spec.ControllerManager)...)
-	errors = append(errors, validateSpecs(c.Spec.Scheduler)...)
-	errors = append(errors, validateSpecs(c.Spec.Storage)...)
-	errors = append(errors, validateSpecs(c.Spec.Network)...)
-	errors = append(errors, validateSpecs(c.Spec.WorkerProfiles)...)
-	errors = append(errors, validateSpecs(c.Spec.Telemetry)...)
-	errors = append(errors, validateSpecs(c.Spec.Install)...)
-	errors = append(errors, validateSpecs(c.Spec.Extensions)...)
-	errors = append(errors, validateSpecs(c.Spec.Konnectivity)...)
-
-	return errors
+	if c == nil {
+		return nil
+	}
+	return c.Spec.Validate()
 }
 
 // GetBootstrappingConfig returns a ClusterConfig object stripped of Cluster-Wide Settings
@@ -335,8 +372,9 @@ func (c *ClusterConfig) GetBootstrappingConfig(storageSpec *StorageSpec) *Cluste
 			API:     c.Spec.API,
 			Storage: storageSpec,
 			Network: &Network{
-				ServiceCIDR: c.Spec.Network.ServiceCIDR,
-				DualStack:   c.Spec.Network.DualStack,
+				ClusterDomain: c.Spec.Network.ClusterDomain,
+				ServiceCIDR:   c.Spec.Network.ServiceCIDR,
+				DualStack:     c.Spec.Network.DualStack,
 			},
 			Install: c.Spec.Install,
 		},
@@ -382,9 +420,4 @@ func (c *ClusterConfig) CRValidator() *ClusterConfig {
 	copy.ObjectMeta.Namespace = "kube-system"
 
 	return copy
-}
-
-// validateSpecs invokes validator Validate function
-func validateSpecs(v Validateable) []error {
-	return v.Validate()
 }

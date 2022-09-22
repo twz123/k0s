@@ -23,6 +23,7 @@ import (
 	"os/signal"
 	"runtime"
 	"syscall"
+	"time"
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
@@ -31,9 +32,15 @@ import (
 	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/component/status"
 	"github.com/k0sproject/k0s/pkg/component/worker"
+	"github.com/k0sproject/k0s/pkg/component/worker/nllb"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/install"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/tools/clientcmd"
+
+	"github.com/avast/retry-go"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -114,12 +121,47 @@ func (c *Command) Start(ctx context.Context) error {
 		}
 	}
 
-	kubeletConfigClient, err := worker.LoadKubeletConfigClient(c.K0sVars)
+	kubeletKubeconfig := worker.NewKubeletKubeconfig(&c.K0sVars)
+
+	workerConfig, err := loadWorkerConfig(ctx, c.WorkerProfile, kubeletKubeconfig.ToKubeconfigGetter())
 	if err != nil {
 		return err
 	}
 
 	componentManager := component.NewManager()
+
+	var staticPods worker.StaticPods
+
+	if !c.SingleNode {
+		nodeLocalLoadBalancer, err := workerConfig.NodeLocalLoadBalancer()
+		if err != nil {
+			return fmt.Errorf("failed to obtain node-local load balancer configuration: %w", err)
+		}
+		if nodeLocalLoadBalancer.IsEnabled() {
+			sp := worker.NewStaticPods()
+
+			konnectivityAgentPort, err := workerConfig.KonnectivityAgentPort()
+			if err != nil {
+				return err
+			}
+
+			pullPolicy, err := workerConfig.DefaultImagePullPolicy()
+			if err != nil {
+				return err
+			}
+
+			reconciler, err := nllb.NewReconciler(&c.K0sVars, sp, nodeLocalLoadBalancer, konnectivityAgentPort, pullPolicy)
+			if err != nil {
+				return fmt.Errorf("failed to create node-local load balancer reconciler: %w", err)
+			}
+			kubeletKubeconfig = reconciler.GetKubeletKubeconfig()
+			staticPods = sp
+
+			componentManager.Add(ctx, sp)
+			componentManager.Add(ctx, reconciler)
+		}
+	}
+
 	if runtime.GOOS == "windows" && c.CriSocket == "" {
 		return fmt.Errorf("windows worker needs to have external CRI")
 	}
@@ -135,23 +177,26 @@ func (c *Command) Start(ctx context.Context) error {
 		c.WorkerProfile = "default-windows"
 	}
 
-	staticPods := worker.NewStaticPods()
+	{
+		kubeletConfiguration, err := workerConfig.KubeletConfiguration()
+		if err != nil {
+			return fmt.Errorf("failed to obtain Kubelet configuration: %w", err)
+		}
 
-	componentManager.Add(ctx, staticPods)
-
-	componentManager.Add(ctx, &worker.Kubelet{
-		CRISocket:           c.CriSocket,
-		EnableCloudProvider: c.CloudProvider,
-		K0sVars:             c.K0sVars,
-		KubeletConfigClient: kubeletConfigClient,
-		StaticPods:          staticPods,
-		LogLevel:            c.Logging["kubelet"],
-		Profile:             c.WorkerProfile,
-		Labels:              c.Labels,
-		Taints:              c.Taints,
-		ExtraArgs:           c.KubeletExtraArgs,
-		IPTablesMode:        c.WorkerOptions.IPTablesMode,
-	})
+		componentManager.Add(ctx, &worker.Kubelet{
+			CRISocket:           c.CriSocket,
+			EnableCloudProvider: c.CloudProvider,
+			K0sVars:             c.K0sVars,
+			StaticPods:          staticPods,
+			Kubeconfig:          kubeletKubeconfig,
+			Configuration:       kubeletConfiguration,
+			LogLevel:            c.Logging["kubelet"],
+			Labels:              c.Labels,
+			Taints:              c.Taints,
+			ExtraArgs:           c.KubeletExtraArgs,
+			IPTablesMode:        c.WorkerOptions.IPTablesMode,
+		})
+	}
 
 	if runtime.GOOS == "windows" {
 		if c.TokenArg == "" {
@@ -214,7 +259,40 @@ func (c *Command) Start(ctx context.Context) error {
 
 	// Stop components
 	if err := componentManager.Stop(); err != nil {
-		logrus.WithError(err).Error("error while stoping component manager")
+		logrus.WithError(err).Error("error while stopping component manager")
 	}
 	return nil
+}
+
+func loadWorkerConfig(ctx context.Context, profile string, getter clientcmd.KubeconfigGetter) (workerConfig worker.WorkerConfig, err error) {
+	err = retry.Do(
+		func() error {
+			client, err := kubernetes.NewClient(getter)
+			if err != nil {
+				return fmt.Errorf("failed to create Kubernetes client to load worker configuration: %w", err)
+			}
+
+			config, err := worker.LoadWorkerConfig(ctx, client, profile)
+			if err != nil {
+				err = fmt.Errorf("failed to load configuration for worker profile %q: %w", profile, err)
+				if apierrors.IsUnauthorized(err) {
+					err = fmt.Errorf("the k0s worker node credentials are invalid, the node needs to be rejoined into the cluster with a fresh bootstrap token: %w", err)
+					err = retry.Unrecoverable(err)
+				}
+
+				return err
+			}
+
+			workerConfig = config
+			return nil
+		},
+		retry.Context(ctx),
+		retry.LastErrorOnly(true),
+		retry.Delay(500*time.Millisecond),
+		retry.OnRetry(func(attempt uint, err error) {
+			logrus.WithError(err).Debugf("Failed to load configuration for worker profile in attempt #%d, retrying after backoff", attempt+1)
+		}),
+	)
+
+	return
 }

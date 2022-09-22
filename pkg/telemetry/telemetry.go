@@ -33,8 +33,8 @@ import (
 type telemetryData struct {
 	StorageType            string
 	ClusterID              string
-	WorkerNodesCount       int
-	ControlPlaneNodesCount int
+	WorkerNodesCount       uint
+	ControlPlaneNodesCount uint
 	WorkerData             []workerData
 	CPUTotal               int64
 	MEMTotal               int64
@@ -75,7 +75,7 @@ func (c Component) collectTelemetry(ctx context.Context) (telemetryData, error) 
 		return data, fmt.Errorf("can't collect workers count: %v", err)
 	}
 
-	data.WorkerNodesCount = len(wds)
+	data.WorkerNodesCount = uint(len(wds))
 	data.WorkerData = wds
 	data.MEMTotal = sums.memTotal
 	data.CPUTotal = sums.cpuTotal

@@ -17,6 +17,7 @@ limitations under the License.
 package config
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -173,6 +174,7 @@ func AvailableComponents() []string {
 		constant.HelmComponentName,
 		constant.MetricsServerComponentName,
 		constant.KubeletConfigComponentName,
+		constant.WorkerConfigComponentName,
 		constant.SystemRbacComponentName,
 	}
 }
@@ -282,7 +284,7 @@ func PreRunValidateConfig(k0sVars constant.CfgVars) error {
 
 func getNodeConfig(k0sVars constant.CfgVars) *v1beta1.ClusterConfig {
 	loadingRules := ClientConfigLoadingRules{Nodeconfig: true, K0sVars: k0sVars}
-	cfg, err := loadingRules.Load()
+	cfg, err := loadingRules.Load(context.TODO())
 	if err != nil {
 		return nil
 	}
@@ -291,5 +293,5 @@ func getNodeConfig(k0sVars constant.CfgVars) *v1beta1.ClusterConfig {
 
 func LoadClusterConfig(k0sVars constant.CfgVars) (*v1beta1.ClusterConfig, error) {
 	loadingRules := ClientConfigLoadingRules{K0sVars: k0sVars}
-	return loadingRules.Load()
+	return loadingRules.Load(context.TODO())
 }

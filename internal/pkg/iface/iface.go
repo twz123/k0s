@@ -25,8 +25,11 @@ import (
 
 // AllAddresses returns a list of all network addresses on a node
 func AllAddresses() ([]string, error) {
-	addresses := make([]string, 0, 5)
+	return CollectAllIPs(net.IP.String)
+}
 
+// CollectAllIPs returns a list of all network addresses on a node
+func CollectAllIPs[T any](mapFn func(net.IP) T) (addresses []T, err error) {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list network interfaces: %w", err)
@@ -36,12 +39,10 @@ func AllAddresses() ([]string, error) {
 		// check the address type and skip if loopback
 		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
 			if ipnet.IP.To4() != nil || ipnet.IP.To16() != nil {
-				addresses = append(addresses, ipnet.IP.String())
+				addresses = append(addresses, mapFn(ipnet.IP))
 			}
 		}
 	}
-
-	logrus.Debugf("found local addresses: %s", addresses)
 
 	return addresses, nil
 }

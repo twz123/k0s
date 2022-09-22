@@ -36,7 +36,7 @@ func NewAirgapListImagesCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("failed to load cluster config: %w", err)
 			}
-			uris := airgap.GetImageURIs(clusterConfig.Spec.Images)
+			uris := airgap.GetImageURIs(clusterConfig.Spec)
 			for _, uri := range uris {
 				fmt.Println(uri)
 			}

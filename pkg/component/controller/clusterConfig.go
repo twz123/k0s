@@ -22,29 +22,28 @@ import (
 	"os"
 	"time"
 
+	k0sclient "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/clientset/typed/k0s.k0sproject.io/v1beta1"
+	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
+	"github.com/k0sproject/k0s/pkg/component"
+	"github.com/k0sproject/k0s/pkg/component/controller/clusterconfig"
 	"github.com/k0sproject/k0s/pkg/config"
+	"github.com/k0sproject/k0s/pkg/constant"
 	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/k0sproject/k0s/static"
 
-	"github.com/k0sproject/k0s/pkg/component"
-
-	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 
-	cfgClient "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/clientset/typed/k0s.k0sproject.io/v1beta1"
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
-	"github.com/k0sproject/k0s/pkg/constant"
-
-	"github.com/k0sproject/k0s/pkg/component/controller/clusterconfig"
+	"github.com/sirupsen/logrus"
+	"go.uber.org/multierr"
 )
 
 var (
-	resourceType = v1.TypeMeta{APIVersion: "k0s.k0sproject.io/v1beta1", Kind: "clusterconfigs"}
-	cOpts        = v1.CreateOptions{TypeMeta: resourceType}
-	getOpts      = v1.GetOptions{TypeMeta: resourceType}
+	resourceType = metav1.TypeMeta{APIVersion: "k0s.k0sproject.io/v1beta1", Kind: "clusterconfigs"}
+	cOpts        = metav1.CreateOptions{TypeMeta: resourceType}
+	getOpts      = metav1.GetOptions{TypeMeta: resourceType}
 )
 
 // ClusterConfigReconciler reconciles a ClusterConfig object
@@ -53,8 +52,7 @@ type ClusterConfigReconciler struct {
 	ComponentManager  *component.Manager
 	KubeClientFactory kubeutil.ClientFactoryInterface
 
-	configClient  cfgClient.ClusterConfigInterface
-	kubeConfig    string
+	configClient  k0sclient.ClusterConfigInterface
 	leaderElector LeaderElector
 	log           *logrus.Entry
 	saver         manifestsSaver
@@ -78,7 +76,6 @@ func NewClusterConfigReconciler(leaderElector LeaderElector, k0sVars constant.Cf
 		ComponentManager:  mgr,
 		YamlConfig:        cfg,
 		KubeClientFactory: kubeClientFactory,
-		kubeConfig:        k0sVars.AdminKubeConfigPath,
 		leaderElector:     leaderElector,
 		log:               logrus.WithFields(logrus.Fields{"component": "clusterConfig-reconciler"}),
 		saver:             s,
@@ -101,36 +98,36 @@ func (r *ClusterConfigReconciler) Init(_ context.Context) error {
 
 func (r *ClusterConfigReconciler) Start(ctx context.Context) error {
 	if r.configSource.NeedToStoreInitialConfig() {
-		// We need to wait until we either succees getting the object or creating it
+		// We need to wait until we either succeed getting the object or creating it
 		err := wait.Poll(1*time.Second, 20*time.Second, func() (done bool, err error) {
 			timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
 			// Create the config object if it does not exist already
-			_, e := r.configClient.Get(timeoutCtx, constant.ClusterConfigObjectName, getOpts)
-			if e != nil {
-				if errors.IsNotFound(e) {
-					// ClusterConfig CR cannot be found, which means we can create it
-					r.log.Debugf("didn't find cluster-config object: %v", err)
-
-					if !r.leaderElector.IsLeader() {
-						r.log.Debug("I am not the leader, not writing cluster configuration")
-						return true, nil
-					}
-
-					_, e = r.copyRunningConfigToCR(ctx)
-					if e != nil {
-						r.log.Errorf("failed to save cluster-config  %v\n", err)
-						return false, nil
-					}
-				} else {
-					r.log.Errorf("error getting cluster-config: %v", err)
+			if _, err := r.configClient.Get(timeoutCtx, constant.ClusterConfigObjectName, getOpts); err != nil {
+				if !apierrors.IsNotFound(err) {
+					r.log.WithError(err).Errorf("error getting cluster-config")
 					return false, nil
 				}
+
+				// ClusterConfig CR cannot be found, which means we can create it
+				r.log.WithError(err).Debugf("didn't find cluster-config object")
+
+				if !r.leaderElector.IsLeader() {
+					r.log.Debug("I am not the leader, not writing cluster configuration")
+					return true, nil
+				}
+
+				if _, err = r.copyRunningConfigToCR(ctx); err != nil {
+					r.log.WithError(err).Error("failed to save cluster-config")
+					return false, nil
+				}
+
+				r.log.Info("successfully wrote cluster-config to API")
 			}
 			return true, nil
 		})
 		if err != nil {
-			return fmt.Errorf("not able to get or create the cluster config: %v", err)
+			return fmt.Errorf("not able to get or create the cluster config: %w", err)
 		}
 	}
 
@@ -148,15 +145,16 @@ func (r *ClusterConfigReconciler) Start(ctx context.Context) error {
 				errors := cfg.Validate()
 				var err error
 				if len(errors) > 0 {
-					err = fmt.Errorf("failed to validate config: %v", errors)
+					err = fmt.Errorf("failed to validate cluster configuration: %w", multierr.Combine(errors...))
 				} else {
 					err = r.ComponentManager.Reconcile(ctx, cfg)
 				}
 				r.reportStatus(statusCtx, cfg, err)
 				if err != nil {
-					r.log.Errorf("cluster-config reconcile failed: %s", err.Error())
+					r.log.WithError(err).Error("Failed to reconcile cluster configuration")
+				} else {
+					r.log.Debug("Successfully reconciled cluster configuration")
 				}
-				r.log.Debugf("reconciling cluster-config done")
 			case <-ctx.Done():
 				return
 			}
@@ -185,12 +183,12 @@ func (r *ClusterConfigReconciler) reportStatus(ctx context.Context, config *v1be
 		r.log.Error("failed to get kube client:", err)
 	}
 	e := &corev1.Event{
-		ObjectMeta: v1.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "k0s.",
 		},
-		EventTime:      v1.NowMicro(),
-		FirstTimestamp: v1.Now(),
-		LastTimestamp:  v1.Now(),
+		EventTime:      metav1.NowMicro(),
+		FirstTimestamp: metav1.Now(),
+		LastTimestamp:  metav1.Now(),
 		InvolvedObject: corev1.ObjectReference{
 			Kind:            v1beta1.ClusterConfigKind,
 			Namespace:       config.Namespace,
@@ -212,22 +210,22 @@ func (r *ClusterConfigReconciler) reportStatus(ctx context.Context, config *v1be
 		e.Message = "Succesfully reconciled cluster config"
 		e.Type = corev1.EventTypeNormal
 	}
-	_, err = client.CoreV1().Events(constant.ClusterConfigNamespace).Create(ctx, e, v1.CreateOptions{})
+	_, err = client.CoreV1().Events(constant.ClusterConfigNamespace).Create(ctx, e, metav1.CreateOptions{})
 	if err != nil {
 		r.log.Error("failed to create event for config reconcile:", err)
 	}
 }
 
 func (r *ClusterConfigReconciler) copyRunningConfigToCR(baseCtx context.Context) (*v1beta1.ClusterConfig, error) {
+	clusterWideConfig := r.YamlConfig.GetClusterWideConfig().StripDefaults().CRValidator()
+
 	ctx, cancel := context.WithTimeout(baseCtx, 5*time.Second)
 	defer cancel()
-	clusterWideConfig := r.YamlConfig.GetClusterWideConfig().StripDefaults().CRValidator()
 	clusterConfig, err := r.configClient.Create(ctx, clusterWideConfig, cOpts)
 	if err != nil {
 		return nil, err
 	}
 
-	r.log.Info("successfully wrote cluster-config to API")
 	return clusterConfig, nil
 }
 
