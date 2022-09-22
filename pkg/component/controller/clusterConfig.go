@@ -22,23 +22,21 @@ import (
 	"os"
 	"time"
 
+	k0sclient "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/clientset/typed/k0s.k0sproject.io/v1beta1"
+	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
+	"github.com/k0sproject/k0s/pkg/component"
+	"github.com/k0sproject/k0s/pkg/component/controller/clusterconfig"
 	"github.com/k0sproject/k0s/pkg/config"
+	"github.com/k0sproject/k0s/pkg/constant"
 	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/k0sproject/k0s/static"
-
-	"github.com/k0sproject/k0s/pkg/component"
-
 	"github.com/sirupsen/logrus"
+	"go.uber.org/multierr"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
-
-	cfgClient "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/clientset/typed/k0s.k0sproject.io/v1beta1"
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
-	"github.com/k0sproject/k0s/pkg/constant"
-
-	"github.com/k0sproject/k0s/pkg/component/controller/clusterconfig"
 )
 
 // ClusterConfigReconciler reconciles a ClusterConfig object
@@ -47,8 +45,7 @@ type ClusterConfigReconciler struct {
 	ComponentManager  *component.Manager
 	KubeClientFactory kubeutil.ClientFactoryInterface
 
-	configClient  cfgClient.ClusterConfigInterface
-	kubeConfig    string
+	configClient  k0sclient.ClusterConfigInterface
 	leaderElector LeaderElector
 	log           *logrus.Entry
 	saver         manifestsSaver
@@ -72,7 +69,6 @@ func NewClusterConfigReconciler(leaderElector LeaderElector, k0sVars constant.Cf
 		ComponentManager:  mgr,
 		YamlConfig:        cfg,
 		KubeClientFactory: kubeClientFactory,
-		kubeConfig:        k0sVars.AdminKubeConfigPath,
 		leaderElector:     leaderElector,
 		log:               logrus.WithFields(logrus.Fields{"component": "clusterConfig-reconciler"}),
 		saver:             s,
@@ -139,15 +135,16 @@ func (r *ClusterConfigReconciler) Start(ctx context.Context) error {
 				errors := cfg.Validate()
 				var err error
 				if len(errors) > 0 {
-					err = fmt.Errorf("failed to validate config: %v", errors)
+					err = fmt.Errorf("failed to validate cluster configuration: %w", multierr.Combine(errors...))
 				} else {
 					err = r.ComponentManager.Reconcile(ctx, cfg)
 				}
 				r.reportStatus(statusCtx, cfg, err)
 				if err != nil {
-					r.log.Errorf("cluster-config reconcile failed: %s", err.Error())
+					r.log.WithError(err).Error("Failed to reconcile cluster configuration")
+				} else {
+					r.log.Debug("Successfully reconciled cluster configuration")
 				}
-				r.log.Debugf("reconciling cluster-config done")
 			case <-ctx.Done():
 				return
 			}
