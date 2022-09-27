@@ -83,12 +83,12 @@ func (m *Manager) EnsureCA(name, cn string) error {
 		return err
 	}
 
-	err = os.WriteFile(keyFile, key, constant.CertSecureMode)
+	err = file.WriteContentAtomically(keyFile, key, constant.CertSecureMode)
 	if err != nil {
 		return err
 	}
 
-	err = os.WriteFile(certFile, cert, constant.CertMode)
+	err = file.WriteContentAtomically(certFile, cert, constant.CertMode)
 	if err != nil {
 		return err
 	}
@@ -148,11 +148,11 @@ func (m *Manager) EnsureCertificate(certReq Request, ownerName string) (Certific
 			Key:  string(key),
 			Cert: string(cert),
 		}
-		err = os.WriteFile(keyFile, key, constant.CertSecureMode)
+		err = file.WriteContentAtomically(keyFile, key, constant.CertSecureMode)
 		if err != nil {
 			return Certificate{}, err
 		}
-		err = os.WriteFile(certFile, cert, constant.CertMode)
+		err = file.WriteContentAtomically(certFile, cert, constant.CertMode)
 		if err != nil {
 			return Certificate{}, err
 		}
