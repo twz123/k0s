@@ -63,16 +63,15 @@ func Copy(src, dst string) error {
 		return fmt.Errorf("%s is not a regular file", src)
 	}
 
-	input, err := os.ReadFile(src)
-	if err != nil {
-		return fmt.Errorf("error reading source file (%v): %v", src, err)
-	}
-
-	err = os.WriteFile(dst, input, sourceFileStat.Mode())
-	if err != nil {
-		return fmt.Errorf("error writing destination file (%v): %v", dst, err)
-	}
-	return nil
+	return WriteAtomically(dst, sourceFileStat.Mode(), func(out io.Writer) error {
+		in, err := os.Open(src)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		_, err = io.Copy(out, in)
+		return err
+	})
 }
 
 // WriteAtomically will atomically create or replace a file. The contents of the
