@@ -714,7 +714,7 @@ func installMockApplier(t *testing.T, underTest *Reconciler) *mockApplier {
 	underTest.mu.Lock()
 	defer underTest.mu.Unlock()
 
-	underTestState := underTest.load()
+	underTestState := underTest.state
 	initialized, ok := underTestState.(reconcilerInitialized)
 	require.True(t, ok, "unexpected state: %T", underTestState)
 	require.NotNil(t, initialized.apply)
@@ -742,7 +742,7 @@ func installMockApplier(t *testing.T, underTest *Reconciler) *mockApplier {
 		}
 	}
 
-	underTest.store(initialized)
+	underTest.state = initialized
 	return &mockApplier
 }
 
