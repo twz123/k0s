@@ -215,7 +215,7 @@ func (r *Reconciler) Init(context.Context) error {
 	return nil
 }
 
-func (r *Reconciler) Start(ctx context.Context) error {
+func (r *Reconciler) Start(context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -233,8 +233,11 @@ func (r *Reconciler) Start(ctx context.Context) error {
 	updates := make(chan updateFunc, 1)
 	started.updates = updates
 
-	ctx, cancel := context.WithCancel(context.Background())
-	var done sync.WaitGroup
+	reconcilersCtx, cancelReconcilers := context.WithCancel(context.Background())
+	var reconcilersDone sync.WaitGroup
+
+	updatersCtx, cancelUpdaters := context.WithCancel(context.Background())
+	var updatersDone sync.WaitGroup
 
 	{ // set up stop facility
 		stopped := make(chan struct{})
@@ -244,35 +247,43 @@ func (r *Reconciler) Start(ctx context.Context) error {
 				return
 			}
 			defer close(stopped)
-			r.log.Debug("Stopping: Cancelling")
-			cancel()
+
 			r.log.Debug("Stopping: Stop cleaner")
 			r.cleaner.stop()
-			r.log.Debug("Stopping: Waiting for goroutines to exit")
-			done.Wait()
+
+			r.log.Debug("Stopping: Canceling updaters")
+			cancelUpdaters()
+			r.log.Debug("Stopping: Waiting for updaters to exit")
+			updatersDone.Wait()
+
+			r.log.Debug("Stopping: Canceling reconcilers")
+			close(updates)
+			cancelReconcilers()
+			r.log.Debug("Stopping: Waiting for reconcilers to exit")
+			reconcilersDone.Wait()
 			r.log.Debug("Stopping: Done")
 		}
 		started.stopped = stopped
 	}
 
-	done.Add(1)
+	reconcilersDone.Add(1)
 	go func() {
-		defer done.Done()
+		defer reconcilersDone.Done()
 		defer r.log.Info("Reconciliation loop done")
 		r.log.Info("Starting reconciliation loop")
-		r.reconcile(ctx, updates, initialized.apply)
+		r.runReconcileLoop(reconcilersCtx, updates, initialized.apply)
 	}()
 
 	if r.watchAPIServers {
-		done.Add(1)
+		updatersDone.Add(1)
 		go func() {
-			defer done.Done()
+			defer updatersDone.Done()
 			buf := make([]byte, 64)
 			n := goruntime.Stack(buf, false)
 			gr := string(bytes.Fields(buf[:n])[1])
 			defer r.log.Info("API Server watch done -- ", gr)
 			r.log.Debug("Starting API server watch -- ", gr)
-			wait.UntilWithContext(ctx, func(ctx context.Context) {
+			wait.UntilWithContext(updatersCtx, func(ctx context.Context) {
 				err := watchAPIServers(ctx, r.log, initialized.client, updates)
 				if err != nil {
 					r.log.WithError(err).Error("Failed to watch for API server addresses")
@@ -285,10 +296,14 @@ func (r *Reconciler) Start(ctx context.Context) error {
 	return nil
 }
 
-func (r *Reconciler) reconcile(ctx context.Context, updates <-chan updateFunc, apply func(context.Context, resources) error) {
+func (r *Reconciler) runReconcileLoop(ctx context.Context, updates <-chan updateFunc, apply func(context.Context, resources) error) {
 	var desiredState, reconciledState snapshot
 
 	runReconciliation := func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		if desiredState.configSnapshot == nil || (r.watchAPIServers && len(desiredState.apiServers) < 1) {
 			r.log.Debug("Skipping reconciliation, snapshot not yet complete")
 			return nil
@@ -325,30 +340,32 @@ func (r *Reconciler) reconcile(ctx context.Context, updates <-chan updateFunc, a
 	var lastRecoFailed bool
 
 	for {
-		lastRecoFailed = false
-
 		select {
-		case updateFunc := <-updates:
+		case updateFunc, ok := <-updates:
+			if !ok {
+				return
+			}
 			done := updateFunc(&desiredState)
 			func() {
-				defer close(done)
+				if done != nil {
+					defer close(done)
+				}
 				err := runReconciliation()
-				done <- err
 				lastRecoFailed = err != nil
+				if done != nil {
+					done <- err
+				}
 			}()
 
 		case <-ticker.C: // Retry failed reconciliations every minute
-			if !lastRecoFailed {
+			if lastRecoFailed {
 				if err := runReconciliation(); err != nil {
-					r.log.WithError(err).Error("Failed to reconcile")
+					r.log.WithError(err).Error("Failed to recover from previously failed reconciliation")
 					continue
 				}
 
 				lastRecoFailed = false
 			}
-
-		case <-ctx.Done():
-			return
 		}
 	}
 }

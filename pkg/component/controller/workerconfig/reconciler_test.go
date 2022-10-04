@@ -18,6 +18,7 @@ package workerconfig
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -500,6 +501,57 @@ func TestReconciler_Cleaner_CleansUpManifestsOnInit(t *testing.T) {
 	})
 }
 
+func TestReconciler_ReconcileLoopClosesDoneChannels(t *testing.T) {
+	underTest := Reconciler{
+		log:     logrus.New(),
+		cleaner: newMockCleaner(),
+	}
+	underTest.cleaner.init()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Prepare update channel for three updates
+	updates, firstDone, thirdDone := make(chan updateFunc, 3), make(chan error, 1), make(chan error, 1)
+
+	// Put in the first update: It will cancel the context when done and then
+	// send the other updates.
+	updates <- func(*snapshot) chan<- error { return firstDone }
+	go func() {
+		defer close(updates) // No more updates after the ones from below.
+
+		<-firstDone
+		cancel()
+
+		// Put in the second update with a nil done channel that should be ignored.
+		updates <- func(*snapshot) chan<- error { return nil }
+
+		// Put in the third update that should receive the context's error.
+		updates <- func(*snapshot) chan<- error { return thirdDone }
+	}()
+
+	underTest.runReconcileLoop(ctx, updates, nil)
+
+	select {
+	// The first channel should have been consumed by the goroutine that closes
+	// the context and the update channel. The reconcile method should return
+	// only after the update channel has been closed.
+	case _, ok := <-firstDone:
+		assert.False(t, ok, "Unexpected element in first done channel")
+	default:
+		assert.Fail(t, "First done channel not closed")
+	}
+
+	assert.Len(t, thirdDone, 1, "Third done channel should contain an element")
+	assert.ErrorIs(t, <-thirdDone, ctx.Err(), "Third done channel should contain the context's error")
+	select {
+	case _, ok := <-thirdDone:
+		assert.False(t, ok, "Unexpected element in third done channel")
+	default:
+		assert.Fail(t, "Third done channel not closed")
+	}
+}
+
 func requireKubelet(t *testing.T, resources []*u.Unstructured, name string) string {
 	configMap := find(t, "No ConfigMap found with name "+name,
 		resources, func(resource *u.Unstructured) bool {
@@ -843,7 +895,7 @@ func (m *mockCleaner) awaitState(t *testing.T, state string) {
 
 func (m *mockCleaner) init() {
 	if !m.state.CompareAndSwap(nil, "init") {
-		panic("unexpected call to init()")
+		panic(fmt.Sprintf("unexpected call to init(): %v", m.state.Load()))
 	}
 	m.mu.Broadcast()
 }
@@ -851,7 +903,7 @@ func (m *mockCleaner) init() {
 func (m *mockCleaner) reconciled(ctx context.Context) {
 	state := m.state.Load()
 	if (state != "init" && state != "reconciled") || !m.state.CompareAndSwap(state, "reconciled") {
-		panic("unexpected call to stop()")
+		panic(fmt.Sprintf("unexpected call to reconciled(): %v", state))
 	}
 
 	m.mu.Broadcast()
@@ -860,7 +912,7 @@ func (m *mockCleaner) reconciled(ctx context.Context) {
 func (m *mockCleaner) stop() {
 	state := m.state.Load()
 	if state == "stop" || !m.state.CompareAndSwap(state, "stop") {
-		panic("unexpected call to stop()")
+		panic(fmt.Sprintf("unexpected call to stop(): %v", state))
 	}
 	m.mu.Broadcast()
 }
