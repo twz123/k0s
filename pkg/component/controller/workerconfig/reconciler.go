@@ -89,11 +89,13 @@ type Reconciler struct {
 var _ component.Component = (*Reconciler)(nil)
 var _ component.Reconciler = (*Reconciler)(nil)
 
+type updateFunc = func(*snapshot) chan<- error
+
 type reconcilerStarted struct {
 	stop    func()
 	stopped <-chan struct{}
 
-	updates chan<- func(*snapshot)
+	updates chan<- updateFunc
 }
 
 type TalkingMutex struct {
@@ -192,10 +194,6 @@ func (r *Reconciler) Init(context.Context) error {
 	}
 
 	apply := func(ctx context.Context, resources resources) error {
-		if resources == nil /* this means "nothing to do" and is used in tests */ {
-			return nil
-		}
-
 		dynamicClient, err := created.clientFactory.GetDynamicClient()
 		if err != nil {
 			return err
@@ -233,7 +231,7 @@ func (r *Reconciler) Start(ctx context.Context) error {
 	// FIXME leader election
 
 	var started reconcilerStarted
-	updates := make(chan func(*snapshot), 1)
+	updates := make(chan updateFunc, 1)
 	started.updates = updates
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -288,62 +286,71 @@ func (r *Reconciler) Start(ctx context.Context) error {
 	return nil
 }
 
-func (r *Reconciler) reconcile(ctx context.Context, updates <-chan func(*snapshot), apply func(context.Context, resources) error) {
+func (r *Reconciler) reconcile(ctx context.Context, updates <-chan updateFunc, apply func(context.Context, resources) error) {
 	var desiredState, reconciledState snapshot
-	var errors atomic.Bool
 
-	ticker := time.NewTicker(60 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		lastRecoFailed := errors.Swap(false)
-
-		select {
-		case updateFunc := <-updates:
-			updateFunc(&desiredState)
-
-		case <-ticker.C: // Retry failed reconciliations every minute
-			if !lastRecoFailed {
-				continue
-			}
-
-		case <-ctx.Done():
-			return
-		}
-
+	runReconciliation := func() error {
 		if desiredState.configSnapshot == nil || (r.watchAPIServers && len(desiredState.apiServers) < 1) {
 			r.log.Debug("Skipping reconciliation, snapshot not yet complete")
-			/* signal "nothing to do" for tests: */ _ = apply(ctx, nil)
-			continue
+			return nil
 		}
 
 		if reflect.DeepEqual(&reconciledState, &desiredState) {
 			r.log.Debug("Skipping reconciliation, nothing changed")
-			/* signal "nothing to do" for tests: */ _ = apply(ctx, nil)
-			continue
+			return nil
 		}
 
 		stateToReconcile := desiredState.DeepCopy()
 		resources, err := generateResources(r.clusterDomain, r.clusterDNSIP, stateToReconcile)
 		if err != nil {
-			errors.Store(true)
-			r.log.WithError(err).Error("Failed to generate resources for worker configuration")
-			continue
+			return fmt.Errorf("failed to generate resources for worker configuration: %w", err)
 		}
 
 		r.log.Debug("Updating worker configuration ...")
 
 		err = apply(ctx, resources)
 		if err != nil {
-			errors.Store(true)
-			r.log.WithError(err).Error("Failed to apply resources for worker configuration")
-			continue
+			return fmt.Errorf("failed to apply resources for worker configuration: %w", err)
 		}
 
 		stateToReconcile.DeepCopyInto(&reconciledState)
 
 		r.log.Info("Worker configuration updated")
 		r.cleaner.reconciled(ctx)
+		return nil
+	}
+
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+
+	var lastRecoFailed bool
+
+	for {
+		lastRecoFailed = false
+
+		select {
+		case updateFunc := <-updates:
+			done := updateFunc(&desiredState)
+			func() {
+				defer close(done)
+				err := runReconciliation()
+				done <- err
+				lastRecoFailed = err != nil
+			}()
+
+		case <-ticker.C: // Retry failed reconciliations every minute
+			if !lastRecoFailed {
+				if err := runReconciliation(); err != nil {
+					r.log.WithError(err).Error("Failed to reconcile")
+					continue
+				}
+
+				lastRecoFailed = false
+			}
+
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
@@ -360,26 +367,40 @@ func (r *Reconciler) load() any {
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, cluster *v1beta1.ClusterConfig) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	done, err := func() (<-chan error, error) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
 
-	started, ok := r.load().(reconcilerStarted)
-	if !ok {
-		return errors.New("not started, cannot reconcile")
-	}
+		started, ok := r.load().(reconcilerStarted)
+		if !ok {
+			return nil, errors.New("not started, cannot reconcile")
+		}
 
-	configSnapshot, err := makeConfigSnapshot(r.log, cluster.Spec, r.konnectivityEnabled)
+		configSnapshot, err := makeConfigSnapshot(r.log, cluster.Spec, r.konnectivityEnabled)
+		if err != nil {
+			return nil, fmt.Errorf("failed to snapshot the cluster configuration: %w", err)
+		}
+
+		done := make(chan error, 1)
+		update := func(s *snapshot) chan<- error {
+			s.configSnapshot = configSnapshot
+			return done
+		}
+
+		select {
+		case started.updates <- update:
+			return done, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}()
 	if err != nil {
-		return fmt.Errorf("failed to snapshot the cluster configuration: %w", err)
-	}
-
-	update := func(s *snapshot) {
-		s.configSnapshot = configSnapshot
+		return err
 	}
 
 	select {
-	case started.updates <- update:
-		return nil
+	case err := <-done:
+		return err
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -429,7 +450,7 @@ func (r *Reconciler) Stop() error {
 	return nil
 }
 
-func watchAPIServers(ctx context.Context, log logrus.FieldLogger, client kubernetes.Interface, updates chan<- func(*snapshot)) error {
+func watchAPIServers(ctx context.Context, log logrus.FieldLogger, client kubernetes.Interface, updates chan<- updateFunc) error {
 	endpoints := client.CoreV1().Endpoints("default")
 	fieldSelector := fields.OneTermEqualSelector(metav1.ObjectNameField, "kubernetes").String()
 
@@ -506,7 +527,7 @@ func watchAPIServers(ctx context.Context, log logrus.FieldLogger, client kuberne
 	}
 }
 
-func updateAPIServers(ctx context.Context, log logrus.FieldLogger, e *corev1.Endpoints, updates chan<- func(*snapshot)) error {
+func updateAPIServers(ctx context.Context, log logrus.FieldLogger, e *corev1.Endpoints, updates chan<- updateFunc) error {
 	log.Debug("Updating API servers")
 
 	apiServers := []hostPort{}
@@ -549,15 +570,22 @@ func updateAPIServers(ctx context.Context, log logrus.FieldLogger, e *corev1.End
 		return errors.New("no API server addresses discovered")
 	}
 
-	update := func(s *snapshot) {
+	done := make(chan error, 1)
+	update := func(s *snapshot) chan<- error {
 		s.apiServers = apiServers
+		return done
 	}
 
 	log.Debug("Updating API servers: Enqueueing update")
 
 	select {
 	case updates <- update:
-		return nil
+		select {
+		case err := <-done:
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	case <-ctx.Done():
 		return ctx.Err()
 	}
