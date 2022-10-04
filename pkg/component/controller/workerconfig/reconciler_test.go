@@ -18,8 +18,6 @@ package workerconfig
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -27,7 +25,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/avast/retry-go"
 	"github.com/k0sproject/k0s/internal/testutil"
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/constant"
@@ -38,12 +35,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/sirupsen/logrus"
-	"github.com/sirupsen/logrus/hooks/test"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/yaml"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"k8s.io/client-go/kubernetes/typed/core/v1/fake"
 	k8stesting "k8s.io/client-go/testing"
@@ -54,23 +49,23 @@ type (
 	arr = []any
 )
 
-var (
-	noResourcesApplied = func(r resources) (error, error) {
-		if len(r) > 0 {
-			return nil, errors.New("resources have been applied when they shouldn't")
-		}
-		return nil, nil
-	}
-	someResourcesApplied = func(r resources) (error, error) {
-		if len(r) < 1 {
-			return nil, errors.New("expected some resources to be applied")
-		}
-		return nil, nil
-	}
-)
+// var (
+// 	noResourcesApplied = func(r resources) (error, error) {
+// 		if len(r) > 0 {
+// 			return nil, errors.New("resources have been applied when they shouldn't")
+// 		}
+// 		return nil, nil
+// 	}
+// 	someResourcesApplied = func(r resources) (error, error) {
+// 		if len(r) < 1 {
+// 			return nil, errors.New("expected some resources to be applied")
+// 		}
+// 		return nil, nil
+// 	}
+// )
 
 func TestReconciler_Lifecycle(t *testing.T) {
-	cleaner := new(mockCleaner)
+	cleaner := newMockCleaner()
 	clients := testutil.NewFakeClientFactory()
 	underTest, err := NewReconciler(
 		constant.GetConfig(t.TempDir()),
@@ -97,16 +92,15 @@ func TestReconciler_Lifecycle(t *testing.T) {
 	})
 
 	t.Run("init", func(t *testing.T) {
-		cleaner.On("init").Once()
 		assert.NoError(t, underTest.Init(context.TODO()))
-		cleaner.AssertExpectations(t)
+		assert.Equal(t, "init", cleaner.state.Load())
 	})
 
 	t.Run("another_init_fails", func(t *testing.T) {
 		err := underTest.Init(context.TODO())
 		require.Error(t, err)
 		assert.Equal(t, "cannot initialize: workerconfig.reconcilerInitialized", err.Error())
-		cleaner.AssertExpectations(t)
+		assert.Equal(t, "init", cleaner.state.Load())
 	})
 
 	mockApplier := installMockApplier(t, underTest)
@@ -116,37 +110,35 @@ func TestReconciler_Lifecycle(t *testing.T) {
 		var once sync.Once
 		return func(t *testing.T) {
 			once.Do(func() {
-				cleaner.On("stop").Once()
 				assert.NoError(t, underTest.Stop())
-				cleaner.AssertExpectations(t)
+				assert.Equal(t, "stop", cleaner.state.Load())
 			})
 		}
 	}()
 
 	t.Run("starts", func(runT *testing.T) {
-		mockApplier.expectApply(t, func(r resources) (error, error) { return nil, nil })
 		require.NoError(runT, underTest.Start(context.TODO()))
 		t.Cleanup(func() { stopTest(t) })
-		mockApplier.awaitCalls(t)
-		cleaner.AssertExpectations(t)
+		assert.Equal(t, "init", cleaner.state.Load())
 	})
 
 	t.Run("another_start_fails", func(t *testing.T) {
 		err := underTest.Start(context.TODO())
 		require.Error(t, err)
 		assert.Equal(t, "cannot start: workerconfig.reconcilerStarted", err.Error())
-		cleaner.AssertExpectations(t)
+		assert.Equal(t, "init", cleaner.state.Load())
 	})
 
 	t.Run("reconciles", func(t *testing.T) {
-		cleaner.On("reconciled", mock.Anything).Once()
+		applied := mockApplier.expectApply(t, nil)
+		// mockApplier.On("apply", context.TODO(), someResourcesApplied).Return(nil).Once()
 
-		mockApplier.expectApply(t, func(r resources) (error, error) {
-			if len(r) < 1 {
-				return nil, errors.New("expected some resources to be applied")
-			}
-			return nil, nil
-		})
+		// mockApplier.expectApply(t, func(r resources) (error, error) {
+		// 	if len(r) < 1 {
+		// 		return nil, errors.New("expected some resources to be applied")
+		// 	}
+		// 	return nil, nil
+		// })
 		require.NoError(t, underTest.Reconcile(context.TODO(), &v1beta1.ClusterConfig{
 			Spec: &v1beta1.ClusterSpec{
 				Network: &v1beta1.Network{
@@ -157,8 +149,10 @@ func TestReconciler_Lifecycle(t *testing.T) {
 				},
 			},
 		}))
-		mockApplier.awaitCalls(t)
-		cleaner.AssertExpectations(t)
+		// mockApplier.awaitCalls(t)
+		// mockApplier.AssertExpectations(t)
+		assert.NotEmpty(t, applied(), "Expected some resources to be applied")
+		cleaner.awaitState(t, "reconciled")
 	})
 
 	t.Run("stops", func(t *testing.T) {
@@ -167,26 +161,26 @@ func TestReconciler_Lifecycle(t *testing.T) {
 
 	t.Run("stop_may_be_called_again", func(t *testing.T) {
 		require.NoError(t, underTest.Stop())
-		cleaner.AssertExpectations(t)
+		cleaner.assertState(t, "stop")
 	})
 
 	t.Run("reinit_fails", func(t *testing.T) {
 		err := underTest.Init(context.TODO())
 		require.Error(t, err)
 		assert.Equal(t, "cannot initialize: workerconfig.reconcilerStopped", err.Error())
-		cleaner.AssertExpectations(t)
+		cleaner.assertState(t, "stop")
 	})
 
 	t.Run("restart_fails", func(t *testing.T) {
 		err := underTest.Start(context.TODO())
 		require.Error(t, err)
 		assert.Equal(t, "cannot start: workerconfig.reconcilerStopped", err.Error())
-		cleaner.AssertExpectations(t)
+		cleaner.assertState(t, "stop")
 	})
 }
 
 func TestReconciler_ResourceGeneration(t *testing.T) {
-	cleaner := new(mockCleaner)
+	cleaner := newMockCleaner()
 	clients := testutil.NewFakeClientFactory()
 	underTest, err := NewReconciler(
 		constant.GetConfig(t.TempDir()),
@@ -206,7 +200,6 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 	log.SetLevel(logrus.DebugLevel)
 	underTest.log = log
 
-	cleaner.On("init").Once()
 	require.NoError(t, underTest.Init(context.TODO()))
 
 	mockKubernetesEndpoints(t, clients)
@@ -214,19 +207,17 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 
 	require.NoError(t, underTest.Start(context.TODO()))
 	t.Cleanup(func() {
-		cleaner.On("stop").Once()
 		assert.NoError(t, underTest.Stop())
-		cleaner.AssertExpectations(t)
 	})
 
-	cleaner.On("reconciled", mock.Anything).Once()
+	applied := mockApplier.expectApply(t, nil)
 
-	var appliedResources resources
-	mockApplier.expectApply(t, noResourcesApplied)
-	mockApplier.expectApply(t, func(r resources) (error, error) {
-		appliedResources = r
-		return nil, nil
-	})
+	// var appliedResources resources
+	// mockApplier.expectApply(t, noResourcesApplied)
+	// mockApplier.expectApply(t, func(r resources) (error, error) {
+	// 	appliedResources = r
+	// 	return nil, nil
+	// })
 	require.NoError(t, underTest.Reconcile(context.TODO(), &v1beta1.ClusterConfig{
 		Spec: &v1beta1.ClusterSpec{
 			WorkerProfiles: v1beta1.WorkerProfiles{{
@@ -254,7 +245,6 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 			},
 		},
 	}))
-	mockApplier.awaitCalls(t)
 
 	configMaps := map[string]func(t *testing.T, expected obj){
 		"worker-config-default-1.25": func(t *testing.T, expected obj) {
@@ -274,6 +264,7 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 		},
 	}
 
+	appliedResources := applied()
 	assert.Len(t, appliedResources, len(configMaps)+4)
 
 	for name, mod := range configMaps {
@@ -348,7 +339,7 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 
 func TestReconciler_ReconcilesOnChangesOnly(t *testing.T) {
 	cluster := v1beta1.DefaultClusterConfig(nil)
-	cleaner := new(mockCleaner)
+	cleaner := newMockCleaner()
 	clients := testutil.NewFakeClientFactory()
 	underTest, err := NewReconciler(
 		constant.GetConfig(t.TempDir()),
@@ -367,68 +358,76 @@ func TestReconciler_ReconcilesOnChangesOnly(t *testing.T) {
 	log := logrus.New()
 	log.SetLevel(logrus.DebugLevel)
 	underTest.log = log
-	logs := test.NewLocal(log)
+	// logs := test.NewLocal(log)
 
 	// clients.Client.CoreV1().(*fake.FakeCoreV1).PrependReactor("list", "endpoints", func(k8stesting.Action) (bool, runtime.Object, error) {
 	// 	// Otherwise this would replace the mocked API servers again
 	// 	return true, nil, errors.New("disabled for testing")
 	// })
 
-	cleaner.On("init").Once()
 	require.NoError(t, underTest.Init(context.TODO()))
 
 	mockKubernetesEndpoints(t, clients)
 	mockApplier := installMockApplier(t, underTest)
 
-	mockApplier.expectApply(t, noResourcesApplied)
+	// mockApplier.expectApply(t, noResourcesApplied)
 	require.NoError(t, underTest.Start(context.TODO()))
 	t.Cleanup(func() {
-		cleaner.On("stop")
 		assert.NoError(t, underTest.Stop())
-		cleaner.AssertExpectations(t)
 	})
-	mockApplier.awaitCalls(t)
-
-	cleaner.On("reconciled", mock.Anything)
+	// mockApplier.awaitCalls(t)
 
 	expectApply := func(t *testing.T) {
 		t.Helper()
-		mockApplier.expectApply(t, someResourcesApplied)
+		applied := mockApplier.expectApply(t, nil)
 		assert.NoError(t, underTest.Reconcile(context.TODO(), cluster))
-		mockApplier.awaitCalls(t)
+		appliedResources := applied()
+		assert.NotEmpty(t, applied, "Expected some resources to be applied")
+
+		for _, r := range appliedResources {
+			pp, found, err := u.NestedString(r.Object, "data", "defaultImagePullPolicy")
+			assert.NoError(t, err)
+			if found {
+				t.Logf("%s/%s: %s", r.GetKind(), r.GetName(), pp)
+			}
+		}
+
+		cleaner.awaitState(t, "reconciled")
 	}
 
 	expectCached := func(t *testing.T) {
 		t.Helper()
-		mockApplier.expectApply(t, noResourcesApplied)
+		// mockApplier.expectApply(t, noResourcesApplied)
 		assert.NoError(t, underTest.Reconcile(context.TODO(), cluster))
-		mockApplier.awaitCalls(t)
+		// mockApplier.awaitCalls(t)
 	}
 
 	expectApplyButFail := func(t *testing.T) {
 		t.Helper()
-		mockApplier.expectApply(t, func(r resources) (error, error) {
-			if _, err := someResourcesApplied(r); err != nil {
-				return nil, err
-			}
-			return assert.AnError, nil
-		})
-		assert.NoError(t, underTest.Reconcile(context.TODO(), cluster))
-		mockApplier.awaitCalls(t)
-		assert.NoError(t, retry.Do(
-			func() error {
-				for _, entry := range logs.AllEntries() {
-					if entry.Level == logrus.ErrorLevel {
-						if err, ok := entry.Data[logrus.ErrorKey].(error); ok && err == assert.AnError {
-							return nil
-						}
-					}
-				}
-				return errors.New("no error logged")
-			},
-			retry.LastErrorOnly(true),
-			retry.MaxDelay(500*time.Millisecond),
-		), "Expected the mocked error to be logged")
+		applied := mockApplier.expectApply(t, assert.AnError)
+		// mockApplier.expectApply(t, func(r resources) (error, error) {
+		// 	if _, err := someResourcesApplied(r); err != nil {
+		// 		return nil, err
+		// 	}
+		// 	return assert.AnError, nil
+		// })
+		assert.ErrorIs(t, underTest.Reconcile(context.TODO(), cluster), assert.AnError)
+		// mockApplier.awaitCalls(t)
+		assert.NotEmpty(t, applied(), "Expected some resources to be applied")
+		// assert.NoError(t, retry.Do(
+		// 	func() error {
+		// 		for _, entry := range logs.AllEntries() {
+		// 			if entry.Level == logrus.ErrorLevel {
+		// 				if err, ok := entry.Data[logrus.ErrorKey].(error); ok && err == assert.AnError {
+		// 					return nil
+		// 				}
+		// 			}
+		// 		}
+		// 		return errors.New("no error logged")
+		// 	},
+		// 	retry.LastErrorOnly(true),
+		// 	retry.MaxDelay(500*time.Millisecond),
+		// ), "Expected the mocked error to be logged")
 	}
 
 	// Set some value that affects worker configs.
@@ -662,128 +661,114 @@ func makeKubeletConfig(t *testing.T, mods ...func(obj)) string {
 // }
 
 type mockApplier struct {
-	callsPtr    atomic.Pointer[mockApplierCalls]
-	applyCalled <-chan mockApplyCalled
+	ptr atomic.Pointer[[]mockApplierCall]
 }
 
-type mockApplierCalls struct {
-	callbacks  []mockApplierCallbackInfo
-	nextOffset uint
-}
+type mockApplierCall = func(resources) error
 
-type mockApplierCallbackInfo struct {
-	testName string
-	callback mockApplierCallback
-}
+func (m *mockApplier) expectApply(t *testing.T, retval error) func() resources {
+	ch := make(chan resources, 1)
 
-type mockApplierCallback = func(resources) (error, error)
-
-type mockApplyCalled struct {
-	offset uint
-	err    error
-}
-
-func (m *mockApplier) expectApply(t *testing.T, callback mockApplierCallback) {
-	for {
-		state := m.callsPtr.Load()
-		newState := *state
-		newState.callbacks = append(newState.callbacks, mockApplierCallbackInfo{
-			testName: t.Name(), callback: callback,
-		})
-		if m.callsPtr.CompareAndSwap(state, &newState) {
-			return
-		}
-	}
-}
-
-func (m *mockApplier) awaitCalls(t *testing.T) {
-	wantedOffset, wait := func() (uint, bool) {
-		state := m.callsPtr.Load()
-		maxOffset := uint(len(state.callbacks))
-		if state.nextOffset < maxOffset {
-			return maxOffset - 1, true
-		}
-		return 0, false
-	}()
-
-	if !wait {
-		return
-	}
-
-	for timeout := time.After(10 * time.Second); ; {
+	recv := func() resources {
 		select {
-		case lastCalled, ok := <-m.applyCalled:
+		case lastCalled, ok := <-ch:
 			if !ok {
-				require.Fail(t, "channel closed unexpectedly")
+				require.Fail(t, "Channel closed unexpectedly")
 			}
-			t.Logf("Seen call to apply(): %+#v", lastCalled)
-			require.NoError(t, lastCalled.err, "Call #%d to apply failed verification", lastCalled.offset+1)
-			if lastCalled.offset >= wantedOffset {
-				return
-			}
+			return lastCalled
 
-		case <-timeout:
-			require.Fail(t,
-				"timed out while waiting for call to apply()",
-				"currently called %d times, waiting for call %d",
-				m.callsPtr.Load().nextOffset, wantedOffset+1,
-			)
+		case <-time.After(10 * time.Second):
+			require.Fail(t, "Timed out while waiting for call to apply()")
+			return nil // function diverges above
 		}
 	}
+
+	send := func(r resources) error {
+		defer close(ch)
+		if r == nil { // called during test cleanup
+			return nil
+		}
+
+		ch <- r
+		return retval
+	}
+
+	for {
+		calls := m.ptr.Load()
+		newCalls, len := *calls, len(*calls)
+		newCalls = make([]mockApplierCall, len+1)
+		copy(newCalls, *calls)
+		newCalls[len] = send
+		if m.ptr.CompareAndSwap(calls, &newCalls) {
+			break
+		}
+	}
+
+	return recv
 }
 
 func installMockApplier(t *testing.T, underTest *Reconciler) *mockApplier {
-	applyCalled := make(chan mockApplyCalled, 3)
-	mockApplier := mockApplier{applyCalled: applyCalled}
-	mockApplier.callsPtr.Store(&mockApplierCalls{})
+	mockApplier := mockApplier{}
+	mockApplier.ptr.Store(new([]mockApplierCall))
 
 	underTest.mu.Lock()
 	defer underTest.mu.Unlock()
 
-	state := underTest.load()
-	initialized, ok := state.(reconcilerInitialized)
-	require.True(t, ok, "unexpected state: %T", state)
+	underTestState := underTest.load()
+	initialized, ok := underTestState.(reconcilerInitialized)
+	require.True(t, ok, "unexpected state: %T", underTestState)
 	require.NotNil(t, initialized.apply)
 	t.Cleanup(func() {
-		close(applyCalled)
+		for _, call := range *mockApplier.ptr.Swap(nil) {
+			call(nil)
+		}
 	})
 
 	initialized.apply = func(ctx context.Context, r resources) error {
+		if r == nil {
+			panic("cannot call apply() with nil resources")
+		}
+
 		for {
-			state := mockApplier.callsPtr.Load()
-			offset := state.nextOffset
-			if offset >= uint(len(state.callbacks)) {
-				err := errors.New("unmocked call to apply")
-				applyCalled <- mockApplyCalled{offset, err}
-				return err
+			expected := mockApplier.ptr.Load()
+			if len(*expected) < 1 {
+				panic("unexpected call to apply")
 			}
-			newState := *state
-			newState.nextOffset = offset + 1
-			if mockApplier.callsPtr.CompareAndSwap(state, &newState) {
-				info := state.callbacks[offset]
-				ret, err := info.callback(r)
-				if err != nil {
-					applyCalled <- mockApplyCalled{offset, fmt.Errorf("%s: %w", info.testName, err)}
-					return err
-				}
-				applyCalled <- mockApplyCalled{offset, nil}
-				return ret
+
+			newExpected := (*expected)[1:]
+			if mockApplier.ptr.CompareAndSwap(expected, &newExpected) {
+				return (*expected)[0](r)
 			}
 		}
 	}
 
-	// initialized.apply = func(_ context.Context, resources resources) error {
-	// 	mockApply.timesCalled.Add(1)
-	// 	mockApply.lastApplied.Store(&resources)
-	// 	if errPtr := mockApply.err.Load(); errPtr != nil {
-	// 		return *errPtr
-	// 	}
-	// 	return nil
-	// }
-
 	underTest.store(initialized)
 	return &mockApplier
 }
+
+// type mockApplier struct {
+// 	mock.Mock
+// }
+
+// func installMockApplier(t *testing.T, underTest *Reconciler) *mockApplier {
+// 	mockApplier := mockApplier{}
+
+// 	underTest.mu.Lock()
+// 	defer underTest.mu.Unlock()
+
+// 	state := underTest.load()
+// 	initialized, ok := state.(reconcilerInitialized)
+// 	require.True(t, ok, "unexpected state: %T", state)
+// 	require.NotNil(t, initialized.apply)
+
+// 	initialized.apply = func(ctx context.Context, r resources) error {
+// 		args := mockApplier.Called("apply")
+// 		return args.Error(0)
+// 	}
+// 	underTest.store(initialized)
+
+// 	return &mockApplier
+// }
 
 func mockKubernetesEndpoints(t *testing.T, clients testutil.FakeClientFactory) {
 	client, err := clients.GetClient()
@@ -814,8 +799,68 @@ func mockKubernetesEndpoints(t *testing.T, clients testutil.FakeClientFactory) {
 	})
 }
 
-type mockCleaner struct{ mock.Mock }
+type mockCleaner struct {
+	mu    sync.Cond
+	state atomic.Value
+}
 
-func (m *mockCleaner) init()                          { m.Called() }
-func (m *mockCleaner) reconciled(ctx context.Context) { m.Called(ctx) }
-func (m *mockCleaner) stop()                          { m.Called() }
+func newMockCleaner() *mockCleaner {
+	return &mockCleaner{
+		mu: sync.Cond{L: new(sync.Mutex)},
+	}
+}
+
+func (m *mockCleaner) assertState(t *testing.T, state string) {
+	t.Helper()
+	assert.Equal(t, state, m.state.Load(), "Unexpected cleaner state")
+}
+
+func (m *mockCleaner) awaitState(t *testing.T, state string) {
+	t.Helper()
+
+	var timeout bool
+	timeouter := time.AfterFunc(10*time.Second, func() {
+		m.mu.L.Lock()
+		defer m.mu.L.Unlock()
+		timeout = true
+		m.mu.Broadcast()
+	})
+	defer timeouter.Stop()
+
+	m.mu.L.Lock()
+	defer m.mu.L.Unlock()
+
+	for {
+		if timeout {
+			require.Fail(t, "Timeout while awaiting cleaner state", state)
+		}
+		if m.state.Load() == state {
+			return
+		}
+		m.mu.Wait()
+	}
+}
+
+func (m *mockCleaner) init() {
+	if !m.state.CompareAndSwap(nil, "init") {
+		panic("unexpected call to init()")
+	}
+	m.mu.Broadcast()
+}
+
+func (m *mockCleaner) reconciled(ctx context.Context) {
+	state := m.state.Load()
+	if (state != "init" && state != "reconciled") || !m.state.CompareAndSwap(state, "reconciled") {
+		panic("unexpected call to stop()")
+	}
+
+	m.mu.Broadcast()
+}
+
+func (m *mockCleaner) stop() {
+	state := m.state.Load()
+	if state == "stop" || !m.state.CompareAndSwap(state, "stop") {
+		panic("unexpected call to stop()")
+	}
+	m.mu.Broadcast()
+}
