@@ -75,7 +75,7 @@ type Reconciler struct {
 	cleaner             cleaner
 
 	mu            mtex
-	state         atomic.Pointer[any]
+	state         interface{}
 	clusterDNSIP  net.IP
 	clusterDomain string
 	// doApply  func(context.Context, resources) error
@@ -164,9 +164,8 @@ func NewReconciler(k0sVars constant.CfgVars, nodeSpec *v1beta1.ClusterSpec, clie
 			dir:           filepath.Join(k0sVars.ManifestsDir, "kubelet"),
 			clientFactory: clientFactory,
 		},
+		state: reconcilerCreated{clientFactory},
 	}
-
-	reconciler.store(reconcilerCreated{clientFactory})
 
 	return reconciler, nil
 }
@@ -181,7 +180,7 @@ func (r *Reconciler) Init(context.Context) error {
 	defer r.mu.Unlock()
 
 	var created reconcilerCreated
-	switch state := r.load().(type) {
+	switch state := r.state.(type) {
 	case reconcilerCreated:
 		created = state
 	default:
@@ -212,7 +211,7 @@ func (r *Reconciler) Init(context.Context) error {
 	}
 
 	r.cleaner.init()
-	r.store(reconcilerInitialized{client, apply})
+	r.state = reconcilerInitialized{client, apply}
 	return nil
 }
 
@@ -221,7 +220,7 @@ func (r *Reconciler) Start(ctx context.Context) error {
 	defer r.mu.Unlock()
 
 	var initialized reconcilerInitialized
-	switch state := r.load().(type) {
+	switch state := r.state.(type) {
 	case reconcilerInitialized:
 		initialized = state
 	default:
@@ -282,7 +281,7 @@ func (r *Reconciler) Start(ctx context.Context) error {
 		}()
 	}
 
-	r.store(started)
+	r.state = started
 	return nil
 }
 
@@ -354,24 +353,12 @@ func (r *Reconciler) reconcile(ctx context.Context, updates <-chan updateFunc, a
 	}
 }
 
-func (r *Reconciler) store(state any) {
-	r.state.Store(&state)
-}
-
-func (r *Reconciler) load() any {
-	ptr := r.state.Load()
-	if ptr == nil {
-		return nil
-	}
-	return *ptr
-}
-
 func (r *Reconciler) Reconcile(ctx context.Context, cluster *v1beta1.ClusterConfig) error {
 	done, err := func() (<-chan error, error) {
 		r.mu.Lock()
 		defer r.mu.Unlock()
 
-		started, ok := r.load().(reconcilerStarted)
+		started, ok := r.state.(reconcilerStarted)
 		if !ok {
 			return nil, errors.New("not started, cannot reconcile")
 		}
@@ -417,15 +404,13 @@ func (r *Reconciler) Stop() error {
 		r.mu.Lock()
 		defer r.mu.Unlock()
 
-		load := r.load()
-		r.log.Debugf("Stop: %T", load)
-		switch state := load.(type) {
+		switch state := r.state.(type) {
 		case nil:
-			r.store(reconcilerStopped{})
+			r.state = reconcilerStopped{}
 			r.cleaner.stop()
 			return nil, nil
 		case reconcilerStarted:
-			r.store(reconcilerStopped{state.stopped})
+			r.state = reconcilerStopped{state.stopped}
 			go state.stop()
 			return state.stopped, nil
 		case reconcilerStopped:
@@ -434,19 +419,21 @@ func (r *Reconciler) Stop() error {
 			return nil, fmt.Errorf("don't know how to stop: %T", state)
 		}
 	}()
-
 	if err != nil {
 		return err
 	}
 
-	if stopped != nil {
-		r.log.Debug("Stop: awaiting")
-		<-stopped
-		r.store(reconcilerStopped{})
-		r.log.Debug("Stop: received")
-	} else {
+	if stopped == nil {
 		r.log.Debug("Stop: already stopped")
+		return nil
 	}
+
+	r.log.Debug("Stop: awaiting")
+	<-stopped
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.state = reconcilerStopped{}
+	r.log.Debug("Stop: received")
 	return nil
 }
 
