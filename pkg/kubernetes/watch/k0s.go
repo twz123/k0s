@@ -17,13 +17,14 @@ limitations under the License.
 package watch
 
 import (
-	corev1 "k8s.io/api/core/v1"
+	autopilotv1beta2 "github.com/k0sproject/k0s/pkg/apis/autopilot.k0sproject.io/v1beta2"
+	k0sv1beta1 "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 )
 
-func Nodes(client Provider[*corev1.NodeList]) *Watcher[corev1.Node] {
-	return FromClient[*corev1.NodeList, corev1.Node](client)
+func ClusterConfigs(client Provider[*k0sv1beta1.ClusterConfigList]) *Watcher[k0sv1beta1.ClusterConfig] {
+	return FromClient[*k0sv1beta1.ClusterConfigList, k0sv1beta1.ClusterConfig](client)
 }
 
-func Pods(client Provider[*corev1.PodList]) *Watcher[corev1.Pod] {
-	return FromClient[*corev1.PodList, corev1.Pod](client)
+func Plans(client Provider[*autopilotv1beta2.PlanList]) *Watcher[autopilotv1beta2.Plan] {
+	return FromClient[*autopilotv1beta2.PlanList, autopilotv1beta2.Plan](client)
 }

@@ -27,7 +27,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/tools/cache"
 	watchtools "k8s.io/client-go/tools/watch"
@@ -45,6 +44,7 @@ type Watcher[T any] struct {
 
 	includeDeletions bool
 	fieldSelector    string
+	errorCallback    func(error) bool
 }
 
 // Provider represents the backend for [Watcher]. It is compatible with
@@ -111,6 +111,14 @@ func (w *Watcher[T]) WithFieldSelector(selector fields.Selector) *Watcher[T] {
 	return w
 }
 
+// WithErrorCallback sets this Watcher's error callback. It's invoked every time
+// an error occurs and determines if the watch should terminate with that error
+// (true), or execute a retry (false).
+func (w *Watcher[T]) WithErrorCallback(callback func(error) bool) *Watcher[T] {
+	w.errorCallback = callback
+	return w
+}
+
 // Until runs a watch until condition returns true. It will error out in case
 // the context gets canceled or the condition returns an error.
 func (w *Watcher[T]) Until(ctx context.Context, condition func(*T) (bool, error)) error {
@@ -128,7 +136,7 @@ func (w *Watcher[T]) Until(ctx context.Context, condition func(*T) (bool, error)
 		return false, nil
 	}
 
-	return retry(ctx, func(ctx context.Context) error {
+	return retry(ctx, w.errorCallback, func(ctx context.Context) error {
 		return w.run(ctx, listCondition, condition)
 	})
 }
@@ -140,13 +148,14 @@ func itemsFromList[L metav1.ListInterface, I any]() (func(L) []I, error) {
 	index, err := func() ([]int, error) {
 		var list L
 		var items []I
-		v := reflect.ValueOf(list)
-		if v.Type().Kind() != reflect.Pointer {
-			return nil, fmt.Errorf("not a pointer type: %T", list)
+		listType := reflect.TypeOf(list)
+		if listType.Kind() != reflect.Pointer {
+			return nil, fmt.Errorf("not a pointer type: %s", listType)
 		}
-		itemsField, ok := v.Type().Elem().FieldByName("Items")
-		if !ok || itemsField.Type != reflect.TypeOf(items) {
-			return nil, fmt.Errorf(`expected an "Items" field of type %T in %T`, items, list)
+		itemsType := reflect.TypeOf(items)
+		itemsField, ok := listType.Elem().FieldByName("Items")
+		if !ok || itemsField.Type != itemsType {
+			return nil, fmt.Errorf(`expected an "Items" field of type %s in %s`, itemsType, listType)
 		}
 		return itemsField.Index, nil
 	}()
@@ -161,7 +170,7 @@ func itemsFromList[L metav1.ListInterface, I any]() (func(L) []I, error) {
 	}, nil
 }
 
-type unrecoverable struct{ error }
+type noRetry struct{ error }
 
 var errResourceTooOld = errors.New("resource too old")
 
@@ -176,7 +185,7 @@ func (w *Watcher[T]) run(ctx context.Context, listCallback func([]T) (bool, erro
 			return err
 		}
 		if ok, err := listCallback(items); err != nil {
-			return unrecoverable{err}
+			return noRetry{err}
 		} else if ok {
 			return nil
 		}
@@ -216,8 +225,8 @@ func (w *Watcher[T]) run(ctx context.Context, listCallback func([]T) (bool, erro
 				item, ok := any(event.Object).(*T)
 				if !ok {
 					var example T
-					err := fmt.Errorf("got an event of type %q with an object of type %T, expected type %T", event.Type, event.Object, &example)
-					return unrecoverable{err}
+					err = error(&apierrors.UnexpectedObjectError{Object: event.Object})
+					return fmt.Errorf("got an event of type %q, expecting an object of type %T: (%T) %w", event.Type, &example, event.Object, err)
 				}
 
 				if suppressDeletions && isDeleted(item) {
@@ -225,7 +234,7 @@ func (w *Watcher[T]) run(ctx context.Context, listCallback func([]T) (bool, erro
 				}
 
 				if ok, err := watchCallback(item); err != nil {
-					return err
+					return noRetry{err}
 				} else if ok {
 					return nil
 				}
@@ -254,33 +263,39 @@ func isDeleted(resource any) bool {
 	return ok && deletable.GetDeletionTimestamp() != nil
 }
 
-func retry(ctx context.Context, runWatch func(context.Context) error) error {
-	return wait.PollImmediateUntilWithContext(ctx, 10*time.Second, func(ctx context.Context) (done bool, err error) {
-		for {
-			err := runWatch(ctx)
-			if err == errResourceTooOld {
-				// Start over without delay.
-				continue
-			}
-
-			if err == nil {
-				// No error means the callbacks returned success. The watch is done.
-				return true, nil
-			}
-
-			if err, ok := err.(unrecoverable); ok {
-				// That's an unrecoverable error, bail out.
-				return true, err.error
-			}
-
-			if err == ctx.Err() {
-				// The context has been canceled. Good bye.
-				return true, err
-			}
-
-			// Retry all other errors.
-			// FIXME Maybe log those errors here. Needs some logger.
-			return false, nil
+func retry(ctx context.Context, errorCallback func(error) bool, runWatch func(context.Context) error) error {
+	for {
+		err := runWatch(ctx)
+		if err == nil {
+			// No error means the callbacks returned success. The watch is done.
+			return nil
 		}
-	})
+
+		if err == errResourceTooOld {
+			// Start over without delay.
+			continue
+		}
+
+		if err == ctx.Err() {
+			// The context has been canceled. Good bye.
+			return err
+		}
+
+		if err, ok := err.(noRetry); ok {
+			return err.error
+		}
+
+		// Ask the callback about any other errors.
+		if errorCallback != nil && errorCallback(err) {
+			return err
+		}
+
+		// Retry in 10 secs.
+		select {
+		case <-time.After(10 * time.Second):
+			continue
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 }

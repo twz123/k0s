@@ -28,7 +28,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
+	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
+	aggregatorclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
 )
 
 // Poll tries a condition func until it returns true, an error or the specified
@@ -67,26 +68,29 @@ func waitForKubeRouterReady(kc *kubernetes.Clientset) wait.ConditionWithContextF
 	return waitForDaemonSet(kc, "kube-router")
 }
 
-func WaitForMetricsReady(c *rest.Config) error {
-	apiServiceClientset, err := clientset.NewForConfig(c)
+func WaitForMetricsReady(ctx context.Context, c *rest.Config) error {
+	clientset, err := aggregatorclient.NewForConfig(c)
 	if err != nil {
 		return err
 	}
 
-	return fallbackPoll(func(ctx context.Context) (done bool, err error) {
-		apiService, err := apiServiceClientset.ApiregistrationV1().APIServices().Get(ctx, "v1beta1.metrics.k8s.io", metav1.GetOptions{})
-		if err != nil {
-			return false, nil
-		}
+	type (
+		service     = apiregistrationv1.APIService
+		serviceList = apiregistrationv1.APIServiceList
+	)
 
-		for _, c := range apiService.Status.Conditions {
-			if c.Type == "Available" && c.Status == "True" {
-				return true, nil
+	client := clientset.ApiregistrationV1().APIServices()
+	return watch.FromClient[*serviceList, service](client).
+		WithObjectName("v1beta1.metrics.k8s.io").
+		Until(ctx, func(service *service) (bool, error) {
+			for _, c := range service.Status.Conditions {
+				if c.Type == "Available" && c.Status == apiregistrationv1.ConditionTrue {
+					return true, nil
+				}
 			}
-		}
 
-		return false, nil
-	})
+			return false, nil
+		})
 }
 
 // WaitForDaemonSet waits for daemon set be ready.

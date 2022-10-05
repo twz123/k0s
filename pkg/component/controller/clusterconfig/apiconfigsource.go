@@ -18,23 +18,21 @@ package clusterconfig
 
 import (
 	"context"
-	"time"
 
-	cfgClient "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/clientset/typed/k0s.k0sproject.io/v1beta1"
+	k0sclient "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/clientset/typed/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/constant"
 	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
+	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
+
 	"github.com/sirupsen/logrus"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var _ ConfigSource = (*apiConfigSource)(nil)
 
 type apiConfigSource struct {
-	configClient cfgClient.ClusterConfigInterface
+	configClient k0sclient.ClusterConfigInterface
 	resultChan   chan *v1beta1.ClusterConfig
-
-	lastKnownVersion string
 }
 
 func NewAPIConfigSource(kubeClientFactory kubeutil.ClientFactoryInterface) (ConfigSource, error) {
@@ -50,20 +48,24 @@ func NewAPIConfigSource(kubeClientFactory kubeutil.ClientFactoryInterface) (Conf
 }
 
 func (a *apiConfigSource) Release(ctx context.Context) {
+	log := logrus.WithField("component", "clusterconfig.apiConfigSource")
+	watch := watch.ClusterConfigs(a.configClient).
+		WithObjectName(constant.ClusterConfigObjectName).
+		WithErrorCallback(func(err error) bool {
+			log.WithError(err).Error("Failed to watch for updates to cluster configuration, starting over after backoff ...")
+			return false
+		})
+
+	var lastKnownVersion string
 	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				err := a.getAndSendConfig(ctx)
-				if err != nil {
-					logrus.Errorf("failed to source and propagate cluster config: %v", err)
-				}
-			case <-ctx.Done():
-				return
+		watch.Until(ctx, func(cfg *v1beta1.ClusterConfig) (bool, error) {
+			// Push changes only when the config actually changes
+			if lastKnownVersion != cfg.ResourceVersion {
+				lastKnownVersion = cfg.ResourceVersion
+				a.resultChan <- cfg
 			}
-		}
+			return false, nil
+		})
 	}()
 }
 
@@ -79,19 +81,4 @@ func (a apiConfigSource) Stop() {
 
 func (a *apiConfigSource) NeedToStoreInitialConfig() bool {
 	return true
-}
-
-func (a *apiConfigSource) getAndSendConfig(ctx context.Context) error {
-	cfg, err := a.configClient.Get(ctx, constant.ClusterConfigObjectName, v1.GetOptions{})
-	if err != nil {
-		return err
-	}
-	// Push changes only when the config actually changes
-	if a.lastKnownVersion == cfg.ResourceVersion {
-		return nil
-	}
-	a.lastKnownVersion = cfg.ResourceVersion
-	a.resultChan <- cfg
-
-	return nil
 }
