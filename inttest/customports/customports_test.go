@@ -135,7 +135,7 @@ func (ds *Suite) TestControllerJoinsWithCustomPort() {
 	ds.Require().NoError(common.WaitForDaemonSet(kc, "konnectivity-agent"), "konnectivity-agent did not start")
 
 	ds.T().Log("waiting to get logs from pods")
-	ds.Require().NoError(common.WaitForPodLogs(kc, "kube-system"))
+	ds.Require().NoError(common.WaitForPodLogs(ds.Context(), kc, "kube-system"))
 
 	// https://github.com/k0sproject/k0s/issues/1202
 	ds.T().Run("kubeconfigIncludesExternalAddress", func(t *testing.T) {

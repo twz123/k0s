@@ -42,6 +42,7 @@ import (
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	apclient "github.com/k0sproject/k0s/pkg/apis/autopilot.k0sproject.io/v1beta2/clientset"
+	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
 	extclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 
 	corev1 "k8s.io/api/core/v1"
@@ -766,23 +767,24 @@ func (s *FootlooseSuite) ExtensionsClient(node string, k0sKubeconfigArgs ...stri
 }
 
 // WaitForNodeReady wait that we see the given node in "Ready" state in kubernetes API
-func (s *FootlooseSuite) WaitForNodeReady(node string, kc *kubernetes.Clientset) error {
-	s.T().Logf("waiting to see %s ready in kube API", node)
-	return Poll(s.ctx, func(ctx context.Context) (done bool, err error) {
-		n, err := kc.CoreV1().Nodes().Get(ctx, node, metav1.GetOptions{})
-		if err != nil {
-			return false, nil
-		}
+func (s *FootlooseSuite) WaitForNodeReady(name string, kc *kubernetes.Clientset) error {
+	s.T().Logf("waiting to see %s ready in kube API", name)
+	return watch.Nodes(kc.CoreV1().Nodes()).
+		WithObjectName(name).
+		Until(s.Context(), func(n *corev1.Node) (bool, error) {
+			for _, nc := range n.Status.Conditions {
+				if nc.Type == corev1.NodeReady {
+					if nc.Status == corev1.ConditionTrue {
+						s.T().Logf("%s is ready in API", n.Name)
+						return true, nil
+					}
 
-		for _, nc := range n.Status.Conditions {
-			if nc.Type == "Ready" && nc.Status == "True" {
-				s.T().Logf("%s is Ready in API", node)
-				return true, nil
+					break
+				}
 			}
-		}
 
-		return false, nil
-	})
+			return false, nil
+		})
 }
 
 // GetNodeLabels return the labels of given node
