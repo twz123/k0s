@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -45,9 +46,9 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	apclient "github.com/k0sproject/k0s/pkg/apis/autopilot.k0sproject.io/v1beta2/clientset"
 	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
-	extclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 
 	corev1 "k8s.io/api/core/v1"
+	apiextv1 "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -673,24 +674,47 @@ func (s *FootlooseSuite) SSH(node string) (*SSHConnection, error) {
 		return nil, err
 	}
 
-	hostPort, err := m.HostPort(22)
+	port, err := m.HostPort(22)
 	if err != nil {
 		return nil, err
 	}
 
-	ssh := &SSHConnection{
-		Address: "localhost", // We're always SSH'ing through port mappings
-		User:    "root",
-		Port:    hostPort,
-		KeyPath: s.clusterConfig.Cluster.PrivateKey,
-	}
+	ctx := s.Context()
 
-	err = ssh.Connect(s.Context())
+	// We're always SSH'ing through port mappings. Only use IPv4 addresses, as
+	// the SSH connections won't work via IPv6.
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, "localhost")
 	if err != nil {
 		return nil, err
 	}
 
-	return ssh, nil
+	var errs error
+	for _, ipAddr := range ips {
+		ip := ipAddr.IP.To4()
+		if ip == nil {
+			continue
+		}
+
+		ssh := &SSHConnection{
+			IP:      ip,
+			User:    "root",
+			Port:    uint16(port),
+			KeyPath: s.clusterConfig.Cluster.PrivateKey,
+		}
+
+		if err := ssh.Connect(ctx); err != nil {
+			errs = multierr.Append(errs, err)
+			continue
+		}
+
+		return ssh, nil
+	}
+
+	if errs == nil {
+		return nil, errors.New("no IPv4 address found for localhost")
+	}
+
+	return nil, errs
 }
 
 func (s *FootlooseSuite) InspectMachines(hostnames []string) ([]*cluster.Machine, error) {
@@ -754,7 +778,7 @@ func (s *FootlooseSuite) GetKubeConfig(node string, k0sKubeconfigArgs ...string)
 	if err != nil {
 		return nil, fmt.Errorf("can't parse port value `%s`: %w", cfg.Host, err)
 	}
-	port, err := strconv.ParseInt(hostURL.Port(), 10, 32)
+	port, err := strconv.ParseUint(hostURL.Port(), 10, 16)
 	if err != nil {
 		return nil, fmt.Errorf("can't parse port value `%s`: %w", hostURL.Port(), err)
 	}
@@ -762,7 +786,8 @@ func (s *FootlooseSuite) GetKubeConfig(node string, k0sKubeconfigArgs ...string)
 	if err != nil {
 		return nil, fmt.Errorf("footloose machine has to have %d port mapped: %w", port, err)
 	}
-	cfg.Host = fmt.Sprintf("localhost:%d", hostPort)
+	hostURL.Host = net.JoinHostPort(ssh.IP.String(), strconv.Itoa(hostPort))
+	cfg.Host = hostURL.String()
 	return cfg, nil
 }
 
@@ -822,13 +847,13 @@ func (s *FootlooseSuite) AutopilotClient(node string, k0sKubeconfigArgs ...strin
 }
 
 // ExtensionsClient returns a client for accessing the extensions schema
-func (s *FootlooseSuite) ExtensionsClient(node string, k0sKubeconfigArgs ...string) (*extclient.ApiextensionsV1Client, error) {
+func (s *FootlooseSuite) ExtensionsClient(node string, k0sKubeconfigArgs ...string) (*apiextv1.ApiextensionsV1Client, error) {
 	cfg, err := s.GetKubeConfig(node, k0sKubeconfigArgs...)
 	if err != nil {
 		return nil, err
 	}
 
-	return extclient.NewForConfig(cfg)
+	return apiextv1.NewForConfig(cfg)
 }
 
 // WaitForNodeReady wait that we see the given node in "Ready" state in kubernetes API

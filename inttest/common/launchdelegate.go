@@ -204,7 +204,7 @@ func configureK0sServiceArgs(ctx context.Context, conn *SSHConnection, k0sType s
 
 	_, err := conn.ExecWithOutput(ctx, cmd)
 	if err != nil {
-		return fmt.Errorf("failed to execute '%s' on %s: %w", cmd, conn.Address, err)
+		return fmt.Errorf("failed to execute %q on %s: %w", cmd, conn.Address(), err)
 	}
 
 	return nil

@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"os"
@@ -34,12 +33,16 @@ import (
 
 // SSHConnection describes an SSH connection
 type SSHConnection struct {
-	Address string
+	IP      net.IP
+	Port    uint16
 	User    string
-	Port    int
 	KeyPath string
 
 	client *ssh.Client
+}
+
+func (c *SSHConnection) Address() string {
+	return net.JoinHostPort(c.IP.String(), strconv.FormatUint(uint64(c.Port), 10))
 }
 
 // Disconnect closes the SSH connection
@@ -58,7 +61,7 @@ func (c *SSHConnection) Connect(ctx context.Context) error {
 		User:            c.User,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
-	address := fmt.Sprintf("%s:%d", c.Address, c.Port)
+	address := c.Address()
 
 	sshAgentSock := os.Getenv("SSH_AUTH_SOCK")
 	signer, err := ssh.ParsePrivateKey(key)
