@@ -381,6 +381,7 @@ func (r *Reconciler) start(initialized *reconcilerInitialized) error {
 			return
 		}
 
+		var lastObservedVersion string
 		wait.UntilWithContext(ctx, func(ctx context.Context) {
 			if err := func() error {
 				kubeClient, err := r.NewClient()
@@ -388,11 +389,15 @@ func (r *Reconciler) start(initialized *reconcilerInitialized) error {
 					return fmt.Errorf("failed to obtain load-balanced Kubernetes client: %w", err)
 				}
 
-				return watchEndpointsResource(ctx, r.log, kubeClient.CoreV1(), func(endpoints *corev1.Endpoints) error {
+				lastObservedVersion, err = watchEndpointsResource(ctx, lastObservedVersion, kubeClient.CoreV1(), func(endpoints *corev1.Endpoints) error {
 					return updateAPIServerAddresses(ctx, endpoints, updates, initialized.apiServersBackupFilePath)
 				})
+				return err
 			}(); err != nil {
-				r.log.WithError(err).Error("Failed to watch for Kubernetes API server address changes")
+				r.log.WithError(err).Errorf(
+					"Failed to watch for Kubernetes API server address changes, last observed version was %q",
+					lastObservedVersion,
+				)
 			}
 		}, 10*time.Second)
 	}()
