@@ -33,28 +33,27 @@ import (
 
 	goruntime "runtime"
 
+	"github.com/cloudflare/cfssl/log"
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/applier"
 	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/constant"
 	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
+	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/cache"
-	watchtools "k8s.io/client-go/tools/watch"
 	kubeletv1beta1 "k8s.io/kubelet/config/v1beta1"
 	"k8s.io/utils/pointer"
 
 	"github.com/sirupsen/logrus"
+	"go.uber.org/multierr"
 	"golang.org/x/exp/slices"
 	"sigs.k8s.io/yaml"
 )
@@ -283,10 +282,15 @@ func (r *Reconciler) Start(context.Context) error {
 			gr := string(bytes.Fields(buf[:n])[1])
 			defer r.log.Info("API Server watch done -- ", gr)
 			r.log.Debug("Starting API server watch -- ", gr)
+			var lastObservedVersion string
 			wait.UntilWithContext(updatersCtx, func(ctx context.Context) {
-				err := watchAPIServers(ctx, r.log, initialized.client, updates)
+				var err error
+				lastObservedVersion, err = watchAPIServers(ctx, lastObservedVersion, initialized.client, updates)
 				if err != nil {
-					r.log.WithError(err).Error("Failed to watch for API server addresses")
+					r.log.WithError(err).Errorf(
+						"Failed to watch for API server addresses (last observed resource version is %q)",
+						lastObservedVersion,
+					)
 				}
 			}, 10*time.Second)
 		}()
@@ -454,101 +458,56 @@ func (r *Reconciler) Stop() error {
 	return nil
 }
 
-func watchAPIServers(ctx context.Context, log logrus.FieldLogger, client kubernetes.Interface, updates chan<- updateFunc) error {
-	endpoints := client.CoreV1().Endpoints("default")
-	fieldSelector := fields.OneTermEqualSelector(metav1.ObjectNameField, "kubernetes").String()
-
-	var initialResourceVersion string
-	{
-		log.Debug("Listing API server endpoints")
-		initial, err := endpoints.List(ctx, metav1.ListOptions{FieldSelector: fieldSelector})
-		if err != nil {
-			return err
-		}
-
-		initialResourceVersion = initial.ResourceVersion
-
-		log.Debug("Initial resource revision for API servers watch: ", initialResourceVersion)
-		if len(initial.Items) != 1 {
-			logrus.Debug("Didn't find exactly one Endpoints object for API servers, but ", len(initial.Items))
-		}
-		if len(initial.Items) > 0 {
-			if err := updateAPIServers(ctx, log, &initial.Items[0], updates); err != nil {
-				return err
-			}
-		}
-	}
-
-	changes, err := watchtools.NewRetryWatcher(initialResourceVersion, &cache.ListWatch{
-		WatchFunc: func(opts metav1.ListOptions) (watch.Interface, error) {
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-
-			opts.FieldSelector = fieldSelector
-			// opts.Watch = true
-			opts.TimeoutSeconds = pointer.Int64(30)
-			// opts.ResourceVersionMatch = metav1.ResourceVersionMatchNotOlderThan
-			log.Debugf("Watching Endpoints: %+#v", opts)
-			return endpoints.Watch(ctx, opts)
-		},
-	})
-	if err != nil {
-		return err
-	}
-	defer changes.Stop()
-
-	for {
-		log.Debug("Awaiting API server changes")
-
-		select {
-		case event, ok := <-changes.ResultChan():
-			if !ok {
-				return errors.New("result channel closed unexpectedly")
-			}
-
-			switch event.Type {
-			case watch.Added, watch.Modified:
-				logrus.Infof("Changes to API servers: %s %#+v", event.Type, event.Object)
-				e, ok := event.Object.(*corev1.Endpoints)
-				if !ok {
-					logrus.Warnf("Unsupported type %T: %#+v", event.Type, event.Object)
-					continue
+func watchAPIServers(ctx context.Context, lastObservedVersion string, client kubernetes.Interface, updates chan<- updateFunc) (string, error) {
+	err := watch.Endpoints(client.CoreV1().Endpoints("default")).WithObjectName("kubernetes").Until(
+		ctx, func(endpoints *corev1.Endpoints) (bool, error) {
+			err := func() error {
+				apiServers, err := extractAPIServerAddresses(endpoints)
+				if err != nil {
+					return err
 				}
-				return updateAPIServers(ctx, log, e, updates)
-			case watch.Deleted:
-				logrus.Warnf("Ignoring deletion of %#+v", event.Object)
-			case watch.Error:
-				logrus.WithError(apierrors.FromObject(event.Object)).Error("Error while watching API server endpoints")
-			default:
-				logrus.Debugf("Ignoring event for API servers: %s %#+v", event.Type, event.Object)
+
+				return updateAPIServers(ctx, apiServers, updates)
+			}()
+			if err != nil {
+				return false, err
 			}
 
-		case <-ctx.Done():
-			log.WithError(ctx.Err()).Debug("API server watch stopped")
-			return nil
-		}
-	}
+			lastObservedVersion = endpoints.ResourceVersion
+			return false, nil
+		},
+	)
+
+	return lastObservedVersion, err
 }
 
-func updateAPIServers(ctx context.Context, log logrus.FieldLogger, e *corev1.Endpoints, updates chan<- updateFunc) error {
-	log.Debug("Updating API servers")
-
+func extractAPIServerAddresses(endpoints *corev1.Endpoints) (apiServers, error) {
+	var warnings error
 	apiServers := []hostPort{}
-	for sIdx, subset := range e.Subsets {
+
+	for sIdx, subset := range endpoints.Subsets {
 		var ports []uint16
-		for _, port := range subset.Ports {
+		for pIdx, port := range subset.Ports {
 			// FIXME: is a more sophisticated port detection required?
 			// E.g. does the service object need to be inspected?
-			if port.Protocol == corev1.ProtocolTCP && port.Name == "https" {
-				if port.Port > 0 && port.Port <= math.MaxUint16 {
-					ports = append(ports, uint16(port.Port))
-				}
+			if port.Protocol != corev1.ProtocolTCP || port.Name != "https" {
+				continue
 			}
+
+			if port.Port < 0 || port.Port > math.MaxUint16 {
+				path := field.NewPath("subsets").Index(sIdx).Child("ports").Index(pIdx).Child("port")
+				warning := field.Invalid(path, port.Port, "out of range")
+				warnings = multierr.Append(warnings, warning)
+				continue
+			}
+
+			ports = append(ports, uint16(port.Port))
 		}
 
 		if len(ports) < 1 {
-			log.Warnf("No suitable ports found in subset %d: %+#v", sIdx, subset.Ports)
+			path := field.NewPath("subsets").Index(sIdx)
+			warning := field.Forbidden(path, "no suitable TCP/https ports found")
+			warnings = multierr.Append(warnings, warning)
 			continue
 		}
 
@@ -558,7 +517,9 @@ func updateAPIServers(ctx context.Context, log logrus.FieldLogger, e *corev1.End
 				host = address.Hostname
 			}
 			if host == "" {
-				log.Warnf("Failed to get host from address %d/%d: %+#v", sIdx, aIdx, address)
+				path := field.NewPath("addresses").Index(aIdx)
+				warning := field.Forbidden(path, "neither ip nor hostname specified")
+				warnings = multierr.Append(warnings, warning)
 				continue
 			}
 
@@ -571,9 +532,13 @@ func updateAPIServers(ctx context.Context, log logrus.FieldLogger, e *corev1.End
 	if len(apiServers) < 1 {
 		// Never update the API servers with an empty list. This cannot
 		// be right in any case, and would never recover.
-		return errors.New("no API server addresses discovered")
+		return nil, multierr.Append(errors.New("no API server addresses discovered"), warnings)
 	}
 
+	return apiServers, nil
+}
+
+func updateAPIServers(ctx context.Context, apiServers apiServers, updates chan<- updateFunc) error {
 	done := make(chan error, 1)
 	update := func(s *snapshot) chan<- error {
 		s.apiServers = apiServers
