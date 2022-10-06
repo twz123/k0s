@@ -21,22 +21,17 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net/http"
-
-	"go.uber.org/multierr"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/watch"
-	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
-	"k8s.io/client-go/tools/cache"
-	watchtools "k8s.io/client-go/tools/watch"
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
-	"github.com/sirupsen/logrus"
-	"golang.org/x/sync/errgroup"
+	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/validation/field"
+	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	"sigs.k8s.io/yaml"
+
+	"go.uber.org/multierr"
+	"golang.org/x/sync/errgroup"
 )
 
 // hostPort represents a Kubernetes API server address to be used for node-local
@@ -48,71 +43,19 @@ type hostPort struct {
 
 // watchEndpointsResource watches the default/kubernetes Endpoints resource,
 // calling callback whenever changes are observed.
-func watchEndpointsResource(ctx context.Context, log logrus.FieldLogger, client corev1client.CoreV1Interface, callback func(*corev1.Endpoints) error) error {
-	endpoints := client.Endpoints("default")
-	fieldSelector := fields.OneTermEqualSelector(metav1.ObjectNameField, "kubernetes").String()
-
-listAndWatch:
-	for {
-		initial, err := endpoints.List(ctx, metav1.ListOptions{FieldSelector: fieldSelector})
-		if err != nil {
-			return err
-		}
-		if len(initial.Items) != 1 {
-			return fmt.Errorf("didn't find exactly one Endpoints object for API servers, but %d", len(initial.Items))
-		}
-		if err := callback(&initial.Items[0]); err != nil {
-			return err
-		}
-
-		changes, err := watchtools.NewRetryWatcher(initial.ResourceVersion, &cache.ListWatch{
-			WatchFunc: func(opts metav1.ListOptions) (watch.Interface, error) {
-				opts.FieldSelector = fieldSelector
-				return endpoints.Watch(ctx, opts)
-			},
-		})
-		if err != nil {
-			return err
-		}
-		defer changes.Stop()
-
-		for {
-			select {
-			case event, ok := <-changes.ResultChan():
-				if !ok {
-					return errors.New("result channel closed unexpectedly")
-				}
-
-				switch event.Type {
-				case watch.Added, watch.Modified:
-					if ep, ok := event.Object.(*corev1.Endpoints); ok && ep.GetName() == "kubernetes" && ep.GetNamespace() == "default" {
-						if err := callback(ep); err != nil {
-							return err
-						}
-						continue
-					}
-					fallthrough
-
-				case watch.Deleted:
-					return fmt.Errorf("unexpected watch event: %s %#+v", event.Type, event.Object)
-				case watch.Bookmark:
-					log.Debugf("Bookmark received while watching API servers: %#+v", event.Object)
-				case watch.Error:
-					err := apierrors.FromObject(event.Object)
-					var statusErr *apierrors.StatusError
-					if errors.As(err, &statusErr) && statusErr.ErrStatus.Code == http.StatusGone {
-						log.WithError(err).Debug("Resource too old while watching API serverss, starting over")
-						continue listAndWatch
-					}
-
-					return fmt.Errorf("watch error: %w", err)
-				}
-
-			case <-ctx.Done():
-				return nil
+func watchEndpointsResource(ctx context.Context, lastObservedVersion string, client corev1client.CoreV1Interface, callback func(*corev1.Endpoints) error) (string, error) {
+	err := watch.Endpoints(client.Endpoints("default")).WithObjectName("kubernetes").Until(
+		ctx, func(endpoints *corev1.Endpoints) (bool, error) {
+			if err := callback(endpoints); err != nil {
+				return false, err
 			}
-		}
-	}
+
+			lastObservedVersion = endpoints.ResourceVersion
+			return false, nil
+		},
+	)
+
+	return lastObservedVersion, err
 }
 
 func updateAPIServerAddresses(ctx context.Context, endpoints *corev1.Endpoints, updates chan<- podStateUpdateFunc, backupFilePath string) error {
@@ -152,23 +95,32 @@ func updateAPIServerAddresses(ctx context.Context, endpoints *corev1.Endpoints, 
 }
 
 func extractAPIServerAddresses(endpoints *corev1.Endpoints) ([]hostPort, error) {
-	addresses := []hostPort{}
-
 	var warnings error
+	apiServers := []hostPort{}
+
 	for sIdx, subset := range endpoints.Subsets {
 		var ports []uint16
-		for _, port := range subset.Ports {
+		for pIdx, port := range subset.Ports {
 			// FIXME: is a more sophisticated port detection required?
 			// E.g. does the service object need to be inspected?
-			if port.Protocol == corev1.ProtocolTCP && port.Name == "https" {
-				if port.Port > 0 && port.Port <= math.MaxUint16 {
-					ports = append(ports, uint16(port.Port))
-				}
+			if port.Protocol != corev1.ProtocolTCP || port.Name != "https" {
+				continue
 			}
+
+			if port.Port < 0 || port.Port > math.MaxUint16 {
+				path := field.NewPath("subsets").Index(sIdx).Child("ports").Index(pIdx).Child("port")
+				warning := field.Invalid(path, port.Port, "out of range")
+				warnings = multierr.Append(warnings, warning)
+				continue
+			}
+
+			ports = append(ports, uint16(port.Port))
 		}
 
 		if len(ports) < 1 {
-			warnings = multierr.Append(warnings, fmt.Errorf("no suitable ports found in subset %d: %+#v", sIdx, subset.Ports))
+			path := field.NewPath("subsets").Index(sIdx)
+			warning := field.Forbidden(path, "no suitable TCP/https ports found")
+			warnings = multierr.Append(warnings, warning)
 			continue
 		}
 
@@ -178,23 +130,25 @@ func extractAPIServerAddresses(endpoints *corev1.Endpoints) ([]hostPort, error) 
 				host = address.Hostname
 			}
 			if host == "" {
-				warnings = multierr.Append(warnings, fmt.Errorf("failed to get host from address %d/%d: %+#v", sIdx, aIdx, address))
+				path := field.NewPath("addresses").Index(aIdx)
+				warning := field.Forbidden(path, "neither ip nor hostname specified")
+				warnings = multierr.Append(warnings, warning)
 				continue
 			}
 
 			for _, port := range ports {
-				addresses = append(addresses, hostPort{host, port})
+				apiServers = append(apiServers, hostPort{host, port})
 			}
 		}
 	}
 
-	if len(addresses) < 1 {
+	if len(apiServers) < 1 {
 		// Never update the API servers with an empty list. This cannot
 		// be right in any case, and would never recover.
 		return nil, multierr.Append(errors.New("no API server addresses discovered"), warnings)
 	}
 
-	return addresses, nil
+	return apiServers, nil
 }
 
 // func parseHostPort(address string, defaultPort uint16) (*nllbHostPort, error) {
