@@ -140,6 +140,12 @@ jobs:
     name: Unit test
     needs: build
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [linux, windows]
+        include:
+          - target: linux
+            check-image-validity: "true"
 
     steps:
       - name: Check out code into the Go module directory
@@ -148,19 +154,19 @@ jobs:
       - name: Cache GOCACHE
         uses: actions/cache@v3
         with:
-          key: ${{ runner.os }}-unittest-gocache-linux-${{ github.ref_name }}-${{ github.sha }}
+          key: ${{ runner.os }}-unittest-gocache-${{ matrix.target }}-${{ github.ref_name }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-unittest-gocache-linux-${{ github.ref_name }}-
-            ${{ runner.os }}-build-gocache-linux-${{ github.ref_name }}-
+            ${{ runner.os }}-unittest-gocache-${{ matrix.target }}-${{ github.ref_name }}-
+            ${{ runner.os }}-build-gocache-${{ matrix.target }}-${{ github.ref_name }}-
           path: |
             build/cache/go/build
 
       - name: Cache GOMODCACHE
         uses: actions/cache@v3
         with:
-          key: ${{ runner.os }}-unittest-gomodcache-linux-${{ hashFiles('go.sum') }}
+          key: ${{ runner.os }}-unittest-gomodcache-${{ matrix.target }}-${{ hashFiles('go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-build-gomodcache-linux-${{ hashFiles('go.sum') }}
+            ${{ runner.os }}-build-gomodcache-${{ matrix.target }}-${{ hashFiles('go.sum') }}
           path: |
             build/cache/go/mod
 
@@ -173,6 +179,7 @@ jobs:
           make check-unit
 
       - name: Validate OCI images manifests
+        if: matrix.check-image-validity
         run: make check-image-validity
 
   smoketest:
