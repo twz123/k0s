@@ -55,7 +55,7 @@ func TestObjectExistsWithPlatform(t *testing.T) {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:   "controller0",
-						Labels: aptcomm.DefaultNodeLabels(),
+						Labels: aptcomm.LinuxAMD64NodeLabels(),
 					},
 				},
 			},
@@ -106,7 +106,7 @@ func TestObjectExistsWithPlatform(t *testing.T) {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:   "controller0",
-						Labels: aptcomm.DefaultNodeLabels(),
+						Labels: aptcomm.LinuxAMD64NodeLabels(),
 					},
 				},
 			},
@@ -128,7 +128,7 @@ func TestObjectExistsWithPlatform(t *testing.T) {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:   "worker0",
-						Labels: aptcomm.DefaultNodeLabels(),
+						Labels: aptcomm.LinuxAMD64NodeLabels(),
 					},
 				},
 			},
@@ -179,7 +179,7 @@ func TestObjectExistsWithPlatform(t *testing.T) {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:   "worker0",
-						Labels: aptcomm.DefaultNodeLabels(),
+						Labels: aptcomm.LinuxAMD64NodeLabels(),
 					},
 				},
 			},

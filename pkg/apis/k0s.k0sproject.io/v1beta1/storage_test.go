@@ -17,9 +17,13 @@ limitations under the License.
 package v1beta1
 
 import (
+	"net/url"
+	"path/filepath"
 	"testing"
 
+	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -55,7 +59,7 @@ func TestStorageSpec_IsJoinable(t *testing.T) {
 			storage: StorageSpec{
 				Type: "kine",
 				Kine: &KineConfig{
-					DataSource: "sqlite://foobar",
+					DataSource: "sqlite:foobar",
 				},
 			},
 			want: false,
@@ -110,7 +114,17 @@ spec:
 	assert.NoError(t, err)
 	assert.Equal(t, "kine", c.Spec.Storage.Type)
 	assert.NotNil(t, c.Spec.Storage.Kine)
-	assert.Equal(t, "sqlite:///var/lib/k0s/db/state.db?mode=rwc&_journal=WAL&cache=shared", c.Spec.Storage.Kine.DataSource)
+	ds, err := url.Parse(c.Spec.Storage.Kine.DataSource)
+	require.NoError(t, err, "Not a valid URL: %q", c.Spec.Storage.Kine.DataSource)
+	assert.Equal(t, "sqlite", ds.Scheme)
+	assert.Equal(t, filepath.Join(constant.DataDirDefault, "db", "state.db"), ds.Path)
+	q, err := url.ParseQuery(ds.RawQuery)
+	require.NoError(t, err, "Invalid query string: %q", ds.RawQuery)
+	assert.Equal(t, url.Values{
+		"mode":     []string{"rwc"},
+		"_journal": []string{"WAL"},
+		"cache":    []string{"shared"},
+	}, q)
 }
 
 type storageSuite struct {

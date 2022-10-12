@@ -1,3 +1,6 @@
+//go:build !windows
+// +build !windows
+
 /*
 Copyright 2022 k0s authors
 
@@ -20,7 +23,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -123,61 +125,6 @@ func TestGetEnv(t *testing.T) {
 	for _, e := range oldEnv {
 		kv := strings.SplitN(e, "=", 2)
 		os.Setenv(kv[0], kv[1])
-	}
-}
-
-func TestRespawn(t *testing.T) {
-	tmpDir := t.TempDir()
-	pingFifoPath := filepath.Join(tmpDir, "pingfifo")
-	pongFifoPath := filepath.Join(tmpDir, "pongfifo")
-
-	err := syscall.Mkfifo(pingFifoPath, 0666)
-	if err != nil {
-		t.Errorf("Failed to create fifo %s: %v", pingFifoPath, err)
-	}
-	err = syscall.Mkfifo(pongFifoPath, 0666)
-	if err != nil {
-		t.Errorf("Failed to create fifo %s: %v", pongFifoPath, err)
-	}
-
-	s := Supervisor{
-		Name:           "supervisor-test-respawn",
-		BinPath:        "/bin/sh",
-		RunDir:         ".",
-		Args:           []string{"-c", fmt.Sprintf("cat %s && echo pong > %s", pingFifoPath, pongFifoPath)},
-		TimeoutRespawn: 1 * time.Millisecond,
-	}
-	err = s.Supervise()
-	if err != nil {
-		t.Errorf("Failed to start %s: %v", s.Name, err)
-	}
-
-	// wait til process starts up. fifo will block the write til process reads it
-	err = os.WriteFile(pingFifoPath, []byte("ping 1"), 0644)
-	if err != nil {
-		t.Errorf("Failed to write to fifo %s: %v", pingFifoPath, err)
-	}
-
-	// save the pid
-	process := s.GetProcess()
-
-	// read the pong to unblock the process so it can exit
-	_, _ = os.ReadFile(pongFifoPath)
-
-	// wait til the respawned process again reads the ping fifo
-	err = os.WriteFile(pingFifoPath, []byte("ping 2"), 0644)
-	if err != nil {
-		t.Errorf("Failed to write to fifo %s: %v", pingFifoPath, err)
-	}
-
-	// test that a new process got re-spawned
-	if process.Pid == s.GetProcess().Pid {
-		t.Errorf("Respawn failed: %s", s.Name)
-	}
-
-	err = s.Stop()
-	if err != nil {
-		t.Errorf("Failed to stop %s: %v", s.Name, err)
 	}
 }
 

@@ -60,7 +60,7 @@ func TestNewPlan(t *testing.T) {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:   "worker0",
-						Labels: aptcomm.DefaultNodeLabels(),
+						Labels: aptcomm.LinuxAMD64NodeLabels(),
 					},
 				},
 			},
@@ -103,7 +103,7 @@ func TestNewPlan(t *testing.T) {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:   "workerMISSING",
-						Labels: aptcomm.DefaultNodeLabels(),
+						Labels: aptcomm.LinuxAMD64NodeLabels(),
 					},
 				},
 			},
@@ -146,7 +146,7 @@ func TestNewPlan(t *testing.T) {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:   "controller0",
-						Labels: aptcomm.DefaultNodeLabels(),
+						Labels: aptcomm.LinuxAMD64NodeLabels(),
 					},
 				},
 				&v1.Node{
@@ -202,7 +202,7 @@ func TestNewPlan(t *testing.T) {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:   "worker0",
-						Labels: aptcomm.DefaultNodeLabels(),
+						Labels: aptcomm.LinuxAMD64NodeLabels(),
 					},
 				},
 			},

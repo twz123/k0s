@@ -60,7 +60,7 @@ func TestSchedulable(t *testing.T) {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:        "controller0",
-						Annotations: aptcomm.DefaultNodeLabels(),
+						Annotations: aptcomm.LinuxAMD64NodeLabels(),
 					},
 				},
 			},
@@ -129,7 +129,7 @@ func TestSchedulable(t *testing.T) {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:   "controller0",
-						Labels: aptcomm.DefaultNodeLabels(),
+						Labels: aptcomm.LinuxAMD64NodeLabels(),
 					},
 				},
 			},

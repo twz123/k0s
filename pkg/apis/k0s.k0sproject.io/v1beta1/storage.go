@@ -19,6 +19,7 @@ package v1beta1
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -67,15 +68,15 @@ func (s *StorageSpec) IsJoinable() bool {
 		return !s.Etcd.IsExternalClusterUsed()
 	}
 
-	if strings.HasPrefix(s.Kine.DataSource, "sqlite://") {
+	if strings.HasPrefix(s.Kine.DataSource, "sqlite:") {
 		return false
 	}
 
-	if strings.HasPrefix(s.Kine.DataSource, "mysql://") {
+	if strings.HasPrefix(s.Kine.DataSource, "mysql:") {
 		return true
 	}
 
-	if strings.HasPrefix(s.Kine.DataSource, "postgres://") {
+	if strings.HasPrefix(s.Kine.DataSource, "postgres:") {
 		return true
 	}
 
@@ -154,8 +155,26 @@ func DefaultEtcdConfig() *EtcdConfig {
 
 // DefaultKineConfig creates KineConfig with sane defaults
 func DefaultKineConfig(dataDir string) *KineConfig {
+	// Ensure that the path is absolute.
+	path, err := filepath.Abs(filepath.Join(dataDir, "db", "state.db"))
+	if err != nil {
+		// The path is not absolute (i.e. dataDir isn't) and the process failed
+		// to obtain the current working directory. In any case, this is not
+		// going to work.
+		panic(err)
+	}
+
 	return &KineConfig{
-		DataSource: "sqlite://" + dataDir + "/db/state.db?mode=rwc&_journal=WAL&cache=shared",
+		DataSource: (&url.URL{
+			Scheme:   "sqlite",
+			OmitHost: true, // this is always referring to the local machine
+			Path:     path,
+			RawQuery: url.Values{
+				"mode":     []string{"rwc"},
+				"_journal": []string{"WAL"},
+				"cache":    []string{"shared"},
+			}.Encode(),
+		}).String(),
 	}
 }
 

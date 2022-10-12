@@ -19,8 +19,10 @@ package config
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -259,7 +261,10 @@ spec:
 		expected string
 	}{
 		{"Storage_Type", cfg.Spec.Storage.Type, "kine"},
-		{"Kine_DataSource", cfg.Spec.Storage.Kine.DataSource, "sqlite:///var/lib/k0s/db/state.db"},
+		{"Kine_DataSource", cfg.Spec.Storage.Kine.DataSource, (&url.URL{
+			Scheme: "sqlite",
+			Path:   filepath.Join(constant.DataDirDefault, "db", "state.db"),
+		}).String()},
 	}
 
 	for _, tc := range testCases {
