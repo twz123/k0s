@@ -44,3 +44,14 @@ issues:
     - linters:
         - staticcheck
       text: "^SA1019:"
+
+
+  # enable:
+  #  - errorlint  # Find problems with the error wrapping scheme introduced in Go 1.13
+
+  #   #- gocritic          # Opinionated Go source code linter
+  #   #- nosprintfhostport # Checks for misuse of Sprintf to construct a host with port in a URL
+  #   #- paralleltest      # Detects missing usage of t.Parallel() method in Go tests
+  #   #- prealloc          # Finds slice declarations that could potentially be pre-allocated
+  #   # - reassign # Checks that package variables are not reassigned
+  #   #- tenv              # Detects the usage of os.Setenv instead of t.Setenv since Go 1.17
