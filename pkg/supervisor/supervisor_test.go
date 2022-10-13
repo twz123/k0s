@@ -21,12 +21,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
-	"strings"
 	"sync"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/k0sproject/k0s/internal/testutil"
+
+	"github.com/stretchr/testify/require"
 )
 
 type SupervisorTest struct {
@@ -86,43 +88,72 @@ func TestSupervisorStart(t *testing.T) {
 	}
 }
 
-func TestGetEnv(t *testing.T) {
-	// backup environment vars
-	oldEnv := os.Environ()
+func TestEnvForComponent(t *testing.T) {
+	t.Parallel()
 
-	os.Clearenv()
-	os.Setenv("k3", "v3")
-	os.Setenv("PATH", "/bin")
-	os.Setenv("k2", "v2")
-	os.Setenv("FOO_k3", "foo_v3")
-	os.Setenv("k4", "v4")
-	os.Setenv("FOO_k2", "foo_v2")
-	os.Setenv("FOO_HTTPS_PROXY", "a.b.c:1080")
-	os.Setenv("HTTPS_PROXY", "1.2.3.4:8888")
-	os.Setenv("k1", "v1")
-	os.Setenv("FOO_PATH", "/usr/local/bin")
+	testEnv := []string{
+		// Default values
+		"PATH=default-path",
+		"HTTPS_PROXY=default-proxy:8888",
+		"k1=v1", // this will be overridden
+		"k2=v2", // this will remain untouched
 
-	env := getEnv("/var/lib/k0s", "foo", false)
-	sort.Strings(env)
-	expected := "[HTTPS_PROXY=a.b.c:1080 PATH=/var/lib/k0s/bin:/usr/local/bin k1=v1 k2=foo_v2 k3=foo_v3 k4=v4]"
-	actual := fmt.Sprintf("%s", env)
-	if actual != expected {
-		t.Errorf("Failed in env processing with keepEnvPrefix=false, expected: %q, actual: %q", expected, actual)
+		// Overrides for foo
+		"FOO_PATH=foo-path",
+		"FOO_HTTPS_PROXY=foo-proxy:1080",
+		"FOO_k1=foo_v1", // this overrides k1
+		"FOO_k3=foo_v3", // this is not in the default values at all
 	}
 
-	env = getEnv("/var/lib/k0s", "foo", true)
-	sort.Strings(env)
-	expected = "[FOO_PATH=/usr/local/bin FOO_k2=foo_v2 FOO_k3=foo_v3 HTTPS_PROXY=a.b.c:1080 PATH=/var/lib/k0s/bin:/bin k1=v1 k2=v2 k3=v3 k4=v4]"
-	actual = fmt.Sprintf("%s", env)
-	if actual != expected {
-		t.Errorf("Failed in env processing with keepEnvPrefix=true, expected: %q, actual: %q", expected, actual)
-	}
+	for _, test := range []struct {
+		name          string
+		keepEnvPrefix bool
+		expected      []string
+	}{
+		{"keepEnvPrefix", true, []string{
+			"PATH=" + // dataDir's bin in front of the default PATH
+				"data-dir" + string(filepath.Separator) + "bin" +
+				string(filepath.ListSeparator) +
+				"default-path",
+			"HTTPS_PROXY=foo-proxy:1080", // default proxy is overridden
 
-	//restore environment vars
-	os.Clearenv()
-	for _, e := range oldEnv {
-		kv := strings.SplitN(e, "=", 2)
-		os.Setenv(kv[0], kv[1])
+			// Default values as is
+			"k1=v1",
+			"k2=v2",
+
+			// foo's values as is, without FOO_HTTPS_PROXY
+			"FOO_PATH=foo-path",
+			"FOO_k1=foo_v1",
+			"FOO_k3=foo_v3",
+		}},
+
+		{"dropEnvPrefix", false, []string{
+			"PATH=" + // dataDir's bin in front of foo's FOO_PATH
+				"data-dir" + string(filepath.Separator) + "bin" +
+				string(filepath.ListSeparator) +
+				"foo-path",
+			"HTTPS_PROXY=foo-proxy:1080", // default proxy is overridden
+
+			// Values are merged together
+			"k1=foo_v1",
+			"k2=v2",
+			"k3=foo_v3",
+		}},
+	} {
+		test := test // so that the func gets its own copy of the var
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Clone testEnv first, as Permute will modify it.
+			testEnv := append([]string(nil), testEnv...)
+
+			// Try all permutations of testEnv to ensure that sort order doesn't matter.
+			testutil.Permute(testEnv, func() bool {
+				env := envForComponent(testEnv, "data-dir", "foo", test.keepEnvPrefix)
+				require.ElementsMatch(t, test.expected, env, "For test env: %v", testEnv)
+				return true
+			})
+		})
 	}
 }
 

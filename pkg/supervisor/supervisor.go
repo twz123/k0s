@@ -22,7 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"sort"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -137,7 +137,7 @@ func (s *Supervisor) Supervise() error {
 			s.mutex.Lock()
 			s.cmd = exec.Command(s.BinPath, s.Args...)
 			s.cmd.Dir = s.DataDir
-			s.cmd.Env = getEnv(s.DataDir, s.Name, s.KeepEnvPrefix)
+			s.cmd.Env = envForComponent(os.Environ(), s.DataDir, s.Name, s.KeepEnvPrefix)
 
 			// detach from the process group so children don't
 			// get signals sent directly to parent.
@@ -204,47 +204,60 @@ func (s *Supervisor) Stop() error {
 // Prepare the env for exec:
 // - handle component specific env
 // - inject k0s embedded bins into path
-func getEnv(dataDir, component string, keepEnvPrefix bool) []string {
-	env := os.Environ()
-	componentPrefix := fmt.Sprintf("%s_", strings.ToUpper(component))
-
-	// put the component specific env vars in the front.
-	sort.Slice(env, func(i, j int) bool { return strings.HasPrefix(env[i], componentPrefix) })
-
-	overrides := map[string]struct{}{}
-	i := 0
-	for _, e := range env {
-		kv := strings.SplitN(e, "=", 2)
-		k, v := kv[0], kv[1]
-		// if there is already a correspondent component specific env, skip it.
-		if _, ok := overrides[k]; ok {
-			continue
-		}
-		if strings.HasPrefix(k, componentPrefix) {
-			var shouldOverride bool
-			k1 := strings.TrimPrefix(k, componentPrefix)
-			switch k1 {
-			// always override proxy env
-			case "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY":
-				shouldOverride = true
-			default:
-				if !keepEnvPrefix {
-					shouldOverride = true
-				}
-			}
-			if shouldOverride {
-				k = k1
-				overrides[k] = struct{}{}
-			}
-		}
-		env[i] = fmt.Sprintf("%s=%s", k, v)
-		if k == "PATH" {
-			env[i] = fmt.Sprintf("PATH=%s:%s", path.Join(dataDir, "bin"), v)
-		}
-		i++
+func envForComponent(env []string, dataDir, component string, keepEnvPrefix bool) []string {
+	type entry struct {
+		value         string
+		fromComponent bool
 	}
 
-	return env[:i]
+	componentPrefix := fmt.Sprintf("%s_", strings.ToUpper(component))
+	mergedEnv := make(map[string]entry, len(env))
+
+	for _, e := range env {
+		name, value, _ := strings.Cut(e, "=")
+		normalizedName := strings.TrimPrefix(name, componentPrefix)
+		fromComponent := name != normalizedName
+		prevEntry := mergedEnv[name] // rely on the zero value for missing env vars
+
+		// Apply some special cases for certain env vars.
+		switch normalizedName {
+		// Always override proxy env vars. Never emit prefixed versions of those.
+		case "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY":
+			if prevEntry.fromComponent {
+				// The previous entry was already from a prefixed env var.
+				// Don't override it.
+				break
+			}
+
+			mergedEnv[normalizedName] = entry{value, fromComponent}
+			continue
+
+		// Prefix PATH with the k0s bindir.
+		case "PATH":
+			// Leave the component's path unchanged if env prefixes are kept.
+			if fromComponent && keepEnvPrefix {
+				break
+			}
+
+			value = filepath.Join(dataDir, "bin") + string(filepath.ListSeparator) + value
+		}
+
+		// Only store the new value if the previous one didn't come from a prefixed env var.
+		if !prevEntry.fromComponent {
+			if !keepEnvPrefix {
+				// Drop the component's prefix from the env var's name.
+				name = normalizedName
+			}
+			mergedEnv[name] = entry{value, fromComponent}
+		}
+	}
+
+	out := make([]string, 0, len(mergedEnv))
+	for name, entry := range mergedEnv {
+		out = append(out, name+"="+entry.value)
+	}
+
+	return out
 }
 
 // GetProcess returns the last started process
