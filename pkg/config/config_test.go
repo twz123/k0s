@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"runtime"
 	"testing"
 
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/clientset/fake"
@@ -239,26 +240,25 @@ spec:
 	k0sVars := constant.GetConfig(tempDir)
 	k0sVars.DefaultStorageType = "kine"
 
-	err := loadingRules.InitRuntimeConfig(k0sVars)
-	if err != nil {
-		t.Fatalf("failed to initialize k0s config: %s", err.Error())
-	}
+	require.NoError(t, loadingRules.InitRuntimeConfig(k0sVars))
 
 	cfg, err := loadingRules.Load()
-	if err != nil {
-		t.Fatalf("failed to load config: %s", err.Error())
-	}
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	require.NotNil(t, cfg.Spec)
+	require.NotNil(t, cfg.Spec.Storage)
 
 	if cfg == nil {
 		t.Fatal("received an empty config! failing")
 	}
 
-	assert.Equal(t, "kine", cfg.Spec.Storage.Type, "Storage type mismatch")
-	assert.Contains(t,
-		cfg.Spec.Storage.Kine.DataSource,
-		fmt.Sprintf("sqlite://%s/db/state.db", tempDir),
-		"Data source mismatch",
-	)
+	assert.Equal(t, "kine", cfg.Spec.Storage.Type)
+	require.NotNil(t, cfg.Spec.Storage.Kine)
+	expectedKineDataSource := "sqlite:///var/lib/k0s/db/state.db?_journal=WAL&cache=shared&mode=rwc"
+	if runtime.GOOS == "windows" {
+		expectedKineDataSource = "sqlite:///C:%5Cvar%5Clib%5Ck0s%5Cdb%5Cstate.db?_journal=WAL&cache=shared&mode=rwc"
+	}
+	assert.Equal(t, expectedKineDataSource, cfg.Spec.Storage.Kine.DataSource)
 }
 
 func TestSingleNodeConfigWithEtcd(t *testing.T) {

@@ -17,9 +17,14 @@ limitations under the License.
 package v1beta1
 
 import (
+	"net/url"
+	"path/filepath"
+	"runtime"
 	"testing"
 
+	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -55,7 +60,7 @@ func TestStorageSpec_IsJoinable(t *testing.T) {
 			storage: StorageSpec{
 				Type: "kine",
 				Kine: &KineConfig{
-					DataSource: "sqlite://foobar",
+					DataSource: "sqlite:foobar",
 				},
 			},
 			want: false,
@@ -106,11 +111,28 @@ spec:
   storage:
     type: kine
 `
+	expectedPath := filepath.Join(constant.DataDirDefault, "db", "state.db")
+	if runtime.GOOS == "windows" {
+		expectedPath = "/" + expectedPath
+	}
+
 	c, err := ConfigFromString(yaml)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "kine", c.Spec.Storage.Type)
-	assert.NotNil(t, c.Spec.Storage.Kine)
-	assert.Equal(t, "sqlite:///var/lib/k0s/db/state.db?mode=rwc&_journal=WAL&cache=shared", c.Spec.Storage.Kine.DataSource)
+	require.NotNil(t, c.Spec.Storage.Kine)
+	t.Logf("Inspecting Kine DataSource: %q", c.Spec.Storage.Kine.DataSource)
+	ds, err := url.Parse(c.Spec.Storage.Kine.DataSource)
+	require.NoError(t, err, "Not a valid URL")
+	assert.Equal(t, "sqlite", ds.Scheme)
+	assert.Empty(t, ds.Host)
+	assert.Equal(t, expectedPath, ds.Path)
+	q, err := url.ParseQuery(ds.RawQuery)
+	require.NoError(t, err, "Invalid query string: %q", ds.RawQuery)
+	assert.Equal(t, url.Values{
+		"mode":     []string{"rwc"},
+		"_journal": []string{"WAL"},
+		"cache":    []string{"shared"},
+	}, q)
 }
 
 type storageSuite struct {

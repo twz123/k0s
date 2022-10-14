@@ -20,6 +20,7 @@ limitations under the License.
 package genbindata
 
 import (
+	"bytes"
 	"compress/gzip"
 	"errors"
 	"flag"
@@ -28,9 +29,12 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"text/template"
 
-	"golang.org/x/sync/errgroup"
+	"github.com/k0sproject/k0s/internal/pkg/file"
+	"go.uber.org/multierr"
 )
 
 type fileInfo struct {
@@ -40,28 +44,44 @@ type fileInfo struct {
 	Offset, Size, OriginalSize int64
 }
 
-func compressFiles(dirs []string, prefix string) ([]fileInfo, error) {
-	var tmpFiles []fileInfo
+type fileInfos []fileInfo
+
+func (f fileInfos) removeTempFiles() (err error) {
+	for _, info := range f {
+		if rmErr := os.Remove(info.TempFile); rmErr != nil && !os.IsNotExist(rmErr) {
+			err = multierr.Append(err, rmErr)
+		}
+	}
+	return
+}
+
+func compressFiles(dirs []string, prefix string) (_ fileInfos, err error) {
+	var tmpFiles fileInfos
+	defer func() {
+		if err != nil {
+			err = multierr.Append(err, tmpFiles.removeTempFiles())
+		}
+	}()
 
 	// compress the files
-	g := new(errgroup.Group)
+	var wg errWaitGroup
 	for _, dir := range dirs {
 		files, err := os.ReadDir(dir)
 		if err != nil {
 			return nil, err
 		}
 		for _, f := range files {
-			tmpf, err := os.CreateTemp("", f.Name())
-			if err != nil {
-				return nil, err
-			}
-
 			info, err := f.Info()
 			if err != nil {
 				return nil, err
 			}
 			filePath := path.Join(dir, f.Name())
 			name := strings.TrimPrefix(filePath, prefix) + ".gz"
+			tmpf, err := os.CreateTemp("", f.Name())
+			if err != nil {
+				return nil, err
+			}
+
 			tmpFiles = append(tmpFiles, fileInfo{
 				Name:         name,
 				Path:         filePath,
@@ -69,17 +89,20 @@ func compressFiles(dirs []string, prefix string) ([]fileInfo, error) {
 				OriginalSize: info.Size(),
 			})
 
-			gz, err := gzip.NewWriterLevel(tmpf, gzip.BestCompression)
-			if err != nil {
-				return nil, err
-			}
+			wg.Go(func() (err error) {
+				defer multierr.AppendInvoke(&err, multierr.Close(tmpf))
+				gz, err := gzip.NewWriterLevel(tmpf, gzip.BestCompression)
+				if err != nil {
+					return err
+				}
+				defer multierr.AppendInvoke(&err, multierr.Close(gz))
 
-			inf, err := os.Open(filePath)
-			if err != nil {
-				return nil, err
-			}
+				inf, err := interruptibleReadCloserFrom(func() (io.ReadCloser, error) { return os.Open(filePath) }, wg.Err)
+				if err != nil {
+					return err
+				}
+				defer multierr.AppendInvoke(&err, multierr.Close(inf))
 
-			g.Go(func() error {
 				size, err := io.Copy(gz, inf)
 				if err != nil {
 					return err
@@ -90,15 +113,13 @@ func compressFiles(dirs []string, prefix string) ([]fileInfo, error) {
 					return err
 				}
 
-				inf.Close()
-				gz.Close()
 				fmt.Fprintf(os.Stderr, "%s: %d/%d MiB\n", name, fi.Size()/(1024*1024), size/(1024*1024))
 				return nil
 			})
 		}
 	}
 
-	err := g.Wait()
+	err = wg.Wait()
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +127,7 @@ func compressFiles(dirs []string, prefix string) ([]fileInfo, error) {
 	return tmpFiles, nil
 }
 
-func GenBindata(name string, args ...string) error {
+func GenBindata(name string, args ...string) (err error) {
 	var prefix, pkg, outfile, gofile string
 
 	var bindata []fileInfo
@@ -117,7 +138,7 @@ func GenBindata(name string, args ...string) error {
 	flags.StringVar(&pkg, "pkg", "main", "Package name to use in the generated code.")
 	flags.StringVar(&outfile, "o", "./bindata", "Optional name of the output file to be generated.")
 	flags.StringVar(&gofile, "gofile", "./bindata.go", "Optional name of the go file to be generated.")
-	err := flags.Parse(args)
+	err = flags.Parse(args)
 	if err != nil || flags.NArg() == 0 {
 		buf := flags.Output().(*strings.Builder)
 		if err != nil {
@@ -132,43 +153,44 @@ func GenBindata(name string, args ...string) error {
 	if err != nil {
 		return err
 	}
-
-	outf, err := os.Create(outfile)
-	if err != nil {
-		return err
-	}
-	defer outf.Close()
+	defer multierr.AppendInvoke(&err, multierr.Invoke(tmpFiles.removeTempFiles))
 
 	var offset int64
+	err = file.WriteAtomically(outfile, 0644, func(outf io.Writer) error {
+		fmt.Fprintf(os.Stderr, "Writing %s...\n", outfile)
+		for _, t := range tmpFiles {
+			err := func() (err error) {
+				inf, err := os.Open(t.TempFile)
+				if err != nil {
+					return err
+				}
+				defer multierr.AppendInvoke(&err, multierr.Close(inf))
 
-	fmt.Fprintf(os.Stderr, "Writing %s...\n", outfile)
-	for _, t := range tmpFiles {
-		inf, err := os.Open(t.TempFile)
-		if err != nil {
-			return err
+				size, err := io.Copy(outf, inf)
+				if err != nil {
+					return err
+				}
+
+				t.Offset = offset
+				t.Size = size
+				bindata = append(bindata, t)
+
+				offset += size
+				return nil
+			}()
+			if err != nil {
+				return err
+			}
 		}
 
-		size, err := io.Copy(outf, inf)
-		inf.Close()
-		if err != nil {
-			return err
-		}
-		os.Remove(t.TempFile)
-
-		t.Offset = offset
-		t.Size = size
-		bindata = append(bindata, t)
-
-		offset += size
-	}
-
-	f, err := os.Create(gofile)
+		return nil
+	})
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
-	return packageTemplate.Execute(f, struct {
+	var buf bytes.Buffer
+	err = packageTemplate.Execute(&buf, struct {
 		OutFile     string
 		Pkg         string
 		BinData     []fileInfo
@@ -179,6 +201,84 @@ func GenBindata(name string, args ...string) error {
 		BinData:     bindata,
 		BinDataSize: offset,
 	})
+	if err != nil {
+		return err
+	}
+
+	return file.WriteContentAtomically(gofile, buf.Bytes(), 0644)
+}
+
+type errWaitGroup struct {
+	wg     sync.WaitGroup
+	errPtr atomic.Pointer[error]
+}
+
+func (g *errWaitGroup) Go(fn func() error) {
+	g.wg.Add(1)
+	go func() {
+		defer g.wg.Done()
+		err := fn()
+		if err == nil {
+			return
+		}
+		for {
+			prevErr := g.errPtr.Load()
+			if prevErr != nil {
+				if errors.Is(err, errInterrupted) {
+					return
+				}
+				err = multierr.Append(*prevErr, err)
+			}
+			if g.errPtr.CompareAndSwap(prevErr, &err) {
+				return
+			}
+		}
+	}()
+}
+
+func (g *errWaitGroup) Err() error {
+	if g.errPtr.Load() != nil {
+		return errInterrupted
+	}
+
+	return nil
+}
+
+func (g *errWaitGroup) Wait() error {
+	g.wg.Wait()
+	errPtr := g.errPtr.Load()
+	if errPtr != nil {
+		return *errPtr
+	}
+
+	return nil
+}
+
+var errInterrupted = errors.New("interrupted")
+
+type interruptibleReadCloser struct {
+	inner       io.ReadCloser
+	interrupted func() error
+}
+
+func interruptibleReadCloserFrom(open func() (io.ReadCloser, error), interrupted func() error) (*interruptibleReadCloser, error) {
+	inner, err := open()
+	if err != nil {
+		return nil, err
+	}
+
+	return &interruptibleReadCloser{inner, interrupted}, nil
+}
+
+func (r *interruptibleReadCloser) Read(bytes []byte) (int, error) {
+	if err := r.interrupted(); err != nil {
+		return 0, err
+	}
+	return r.inner.Read(bytes)
+}
+
+func (r *interruptibleReadCloser) Close() error {
+	return r.inner.Close()
 }
 
 var packageTemplate = template.Must(template.New("").Parse(`// Code generated by go generate; DO NOT EDIT.

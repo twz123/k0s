@@ -18,6 +18,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -106,8 +107,7 @@ func (s *Supervisor) Supervise() error {
 	defer s.startStopMutex.Unlock()
 	// check if it is already started
 	if s.cancel != nil {
-		s.log.Warn("Already started")
-		return nil
+		return errors.New("already started")
 	}
 	s.log = logrus.WithField("component", s.Name)
 	s.PidFile = path.Join(s.RunDir, s.Name) + ".pid"
@@ -129,9 +129,7 @@ func (s *Supervisor) Supervise() error {
 	s.done = make(chan bool)
 
 	go func() {
-		defer func() {
-			close(s.done)
-		}()
+		defer close(s.done)
 
 		s.log.Info("Starting to supervise")
 		restarts := 0

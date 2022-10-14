@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
@@ -35,9 +36,12 @@ func TestApiServerSuite(t *testing.T) {
 }
 
 func (a *apiServerSuite) TestGetEtcdArgs() {
+	certRootDir := filepath.Join(constant.DataDirDefault, "pki")
+	etcdCertDir := filepath.Join(constant.DataDirDefault, "pki", "etcd")
+
 	k0sVars := constant.CfgVars{
-		CertRootDir: "/var/lib/k0s/pki",
-		EtcdCertDir: "/var/lib/k0s/pki/etcd",
+		CertRootDir: certRootDir,
+		EtcdCertDir: etcdCertDir,
 	}
 
 	a.T().Run("internal etcd cluster", func(t *testing.T) {
@@ -53,9 +57,9 @@ func (a *apiServerSuite) TestGetEtcdArgs() {
 		a.Nil(err)
 		a.Len(result, 4)
 		a.Contains(result[0], "--etcd-servers=https://127.0.0.1:2379")
-		a.Contains(result[1], "--etcd-cafile=/var/lib/k0s/pki/etcd/ca.crt")
-		a.Contains(result[2], "--etcd-certfile=/var/lib/k0s/pki/apiserver-etcd-client.crt")
-		a.Contains(result[3], "--etcd-keyfile=/var/lib/k0s/pki/apiserver-etcd-client.key")
+		a.Contains(result[1], "--etcd-cafile="+filepath.Join(etcdCertDir, "ca.crt"))
+		a.Contains(result[2], "--etcd-certfile="+filepath.Join(certRootDir, "apiserver-etcd-client.crt"))
+		a.Contains(result[3], "--etcd-keyfile="+filepath.Join(certRootDir, "apiserver-etcd-client.key"))
 	})
 
 	a.T().Run("external etcd cluster with TLS", func(t *testing.T) {

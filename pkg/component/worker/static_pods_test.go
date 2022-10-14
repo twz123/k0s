@@ -20,7 +20,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
+	"os"
+	"runtime"
+	"syscall"
 	"testing"
 	"time"
 
@@ -311,7 +315,7 @@ func TestStaticPods_Lifecycle(t *testing.T) {
 	t.Run("health_check_fails_after_stopped", func(t *testing.T) {
 		err := underTest.Ready()
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "connection refused")
+		assert.True(t, isConnRefused(err), "Expected connection refused: %v", err)
 	})
 
 	t.Run("does_not_serve_content_anymore", func(t *testing.T) {
@@ -326,7 +330,7 @@ func TestStaticPods_Lifecycle(t *testing.T) {
 
 		resp, err := http.DefaultClient.Do(req.WithContext(ctx))
 		if assert.Error(t, err) {
-			assert.Contains(t, err.Error(), "connection refused")
+			assert.True(t, isConnRefused(err), "Expected connection refused: %v", err)
 		} else {
 			assert.NoError(t, resp.Body.Close())
 		}
@@ -371,4 +375,26 @@ func newList(t *testing.T, items ...[]byte) map[string]interface{} {
 		"kind":       "PodList",
 		"items":      parsedItems,
 	}
+}
+
+func isConnRefused(err error) bool {
+	// https://github.com/golang/go/issues/45621
+	// https://cs.opensource.google/go/x/sys/+/87db552b00fd1d5e9f6b1d3a845e5d711b98f7e2:windows/zerrors_windows.go;l=2693
+	const WSAECONNREFUSED syscall.Errno = 10061 // == 0x274d
+
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		var syscallErr *os.SyscallError
+		if errors.As(opErr.Err, &syscallErr) {
+			if runtime.GOOS == "windows" {
+				if syscallErr.Syscall == "connectex" {
+					return syscallErr.Err == WSAECONNREFUSED
+				}
+			} else if syscallErr.Syscall == "connect" {
+				return syscallErr.Err == syscall.ECONNREFUSED
+			}
+		}
+	}
+
+	return false
 }
