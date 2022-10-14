@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"strings"
+	"runtime"
 	"testing"
 	"time"
 
@@ -32,6 +32,7 @@ import (
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -239,36 +240,21 @@ spec:
 	k0sVars := constant.GetConfig("")
 	k0sVars.DefaultStorageType = "kine"
 
-	err := loadingRules.InitRuntimeConfig(k0sVars)
-	if err != nil {
-		t.Fatalf("failed to initialize k0s config: %s", err.Error())
-	}
+	require.NoError(t, loadingRules.InitRuntimeConfig(k0sVars))
 
 	cfg, err := loadingRules.Load()
-	if err != nil {
-		t.Fatalf("failed to load config: %s", err.Error())
-	}
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	require.NotNil(t, cfg.Spec)
+	require.NotNil(t, cfg.Spec.Storage)
 
-	if cfg == nil {
-		t.Fatal("received an empty config! failing")
+	assert.Equal(t, "kine", cfg.Spec.Storage.Type)
+	require.NotNil(t, cfg.Spec.Storage.Kine)
+	expectedKineDataSource := "sqlite:///var/lib/k0s/db/state.db?_journal=WAL&cache=shared&mode=rwc"
+	if runtime.GOOS == "windows" {
+		expectedKineDataSource = "sqlite:///C:%5Cvar%5Clib%5Ck0s%5Cdb%5Cstate.db?_journal=WAL&cache=shared&mode=rwc"
 	}
-
-	testCases := []struct {
-		name     string
-		got      string
-		expected string
-	}{
-		{"Storage_Type", cfg.Spec.Storage.Type, "kine"},
-		{"Kine_DataSource", cfg.Spec.Storage.Kine.DataSource, "sqlite:///var/lib/k0s/db/state.db"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(fmt.Sprintf("%s eq %s", tc.name, tc.expected), func(t *testing.T) {
-			if !strings.Contains(tc.got, tc.expected) {
-				t.Fatalf("expected to read '%s' for the %s test value. Got: %s", tc.expected, tc.name, tc.got)
-			}
-		})
-	}
+	assert.Equal(t, expectedKineDataSource, cfg.Spec.Storage.Kine.DataSource)
 }
 
 func TestSingleNodeConfigWithEtcd(t *testing.T) {

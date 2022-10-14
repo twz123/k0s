@@ -248,7 +248,7 @@ smoketests: $(smoketests)
 .PHONY: check-unit
 check-unit: GO_TEST_RACE ?= -race
 check-unit: go.sum codegen
-	$(GO) test -tags=hack $(GO_TEST_RACE) -ldflags='$(LD_FLAGS)' `$(GO) list -tags=hack $(GO_DIRS)`
+	$(GO) test -tags=hack $(GO_TEST_RACE) -timeout=5m -ldflags='$(LD_FLAGS)' `$(GO) list -tags=hack $(GO_DIRS)`
 
 .PHONY: check-image-validity
 check-image-validity: go.sum

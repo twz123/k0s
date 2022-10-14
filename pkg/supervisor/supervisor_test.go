@@ -17,6 +17,7 @@ limitations under the License.
 package supervisor
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -27,6 +28,12 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
+	"github.com/k0sproject/k0s/internal/testutil"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type SupervisorTest struct {
@@ -35,13 +42,14 @@ type SupervisorTest struct {
 }
 
 func TestSupervisorStart(t *testing.T) {
+	tmpDir := t.TempDir()
 	var testSupervisors = []*SupervisorTest{
 		{
 			shouldFail: false,
 			proc: Supervisor{
 				Name:    "supervisor-test-sleep",
-				BinPath: "/bin/sh",
-				RunDir:  ".",
+				BinPath: "sh",
+				RunDir:  tmpDir,
 				Args:    []string{"-c", "sleep 1s"},
 			},
 		},
@@ -49,8 +57,8 @@ func TestSupervisorStart(t *testing.T) {
 			shouldFail: false,
 			proc: Supervisor{
 				Name:    "supervisor-test-fail",
-				BinPath: "/bin/sh",
-				RunDir:  ".",
+				BinPath: "sh",
+				RunDir:  tmpDir,
 				Args:    []string{"-c", "false"},
 			},
 		},
@@ -58,16 +66,16 @@ func TestSupervisorStart(t *testing.T) {
 			shouldFail: true,
 			proc: Supervisor{
 				Name:    "supervisor-test-non-executable",
-				BinPath: "/tmp",
-				RunDir:  ".",
+				BinPath: tmpDir,
+				RunDir:  tmpDir,
 			},
 		},
 		{
 			shouldFail: true,
 			proc: Supervisor{
 				Name:    "supervisor-test-rundir-fail",
-				BinPath: "/tmp",
-				RunDir:  "/bin/sh/foo/bar",
+				BinPath: tmpDir,
+				RunDir:  filepath.Join(tmpDir, "foo", "bar"),
 			},
 		},
 	}
@@ -126,77 +134,86 @@ func TestGetEnv(t *testing.T) {
 	}
 }
 
-func TestRespawn(t *testing.T) {
+func TestRespawnX(t *testing.T) {
 	tmpDir := t.TempDir()
-	pingFifoPath := filepath.Join(tmpDir, "pingfifo")
-	pongFifoPath := filepath.Join(tmpDir, "pongfifo")
-
-	err := syscall.Mkfifo(pingFifoPath, 0666)
-	if err != nil {
-		t.Errorf("Failed to create fifo %s: %v", pingFifoPath, err)
-	}
-	err = syscall.Mkfifo(pongFifoPath, 0666)
-	if err != nil {
-		t.Errorf("Failed to create fifo %s: %v", pongFifoPath, err)
-	}
+	defer testutil.Chdir(t, tmpDir)()
 
 	s := Supervisor{
 		Name:           "supervisor-test-respawn",
-		BinPath:        "/bin/sh",
-		RunDir:         ".",
-		Args:           []string{"-c", fmt.Sprintf("cat %s && echo pong > %s", pingFifoPath, pongFifoPath)},
+		BinPath:        "sh",
+		RunDir:         t.TempDir(),
+		Args:           []string{"-xc", "echo 1 > ping && while [ ! -f pong ]; do sleep 0.02; done && rm ping pong"},
 		TimeoutRespawn: 1 * time.Millisecond,
 	}
-	err = s.Supervise()
-	if err != nil {
-		t.Errorf("Failed to start %s: %v", s.Name, err)
-	}
 
-	// wait til process starts up. fifo will block the write til process reads it
-	err = os.WriteFile(pingFifoPath, []byte("ping 1"), 0644)
-	if err != nil {
-		t.Errorf("Failed to write to fifo %s: %v", pingFifoPath, err)
-	}
+	require.NoError(t, s.Supervise())
+	t.Cleanup(func() { assert.NoError(t, s.Stop()) })
+
+	// wait until process starts up
+	waitForPing := func() func() error {
+		w, err := fsnotify.NewWatcher()
+		require.NoError(t, err)
+		t.Cleanup(func() { assert.NoError(t, w.Close()) })
+		require.NoError(t, w.Add("."))
+
+		var prev os.FileInfo
+		return func() error {
+			timeout := time.NewTimer(3 * time.Second)
+			defer timeout.Stop()
+
+			for {
+				select {
+				case event := <-w.Events:
+					t.Logf("Event: %v", event)
+					if filepath.Base(event.Name) == "ping" && event.Has(fsnotify.Write) {
+						current, err := os.Stat("ping")
+						if err != nil {
+							return err
+						}
+						if prev == nil || current.ModTime().After(prev.ModTime()) {
+							prev = current
+							return nil
+						}
+					}
+				case err := <-w.Errors:
+					return fmt.Errorf("error while watching file system: %w", err)
+				case <-timeout.C:
+					return errors.New("failed to wait for ping")
+				}
+			}
+		}
+	}()
+	require.NoError(t, waitForPing())
 
 	// save the pid
 	process := s.GetProcess()
 
-	// read the pong to unblock the process so it can exit
-	_, _ = os.ReadFile(pongFifoPath)
+	// send the pong to unblock the process so it can exit
+	require.NoError(t, os.WriteFile("pong", []byte{}, 0644))
 
-	// wait til the respawned process again reads the ping fifo
-	err = os.WriteFile(pingFifoPath, []byte("ping 2"), 0644)
-	if err != nil {
-		t.Errorf("Failed to write to fifo %s: %v", pingFifoPath, err)
-	}
+	// wait until the respawned process again touches ping
+	require.NoError(t, waitForPing())
 
 	// test that a new process got re-spawned
-	if process.Pid == s.GetProcess().Pid {
-		t.Errorf("Respawn failed: %s", s.Name)
-	}
-
-	err = s.Stop()
-	if err != nil {
-		t.Errorf("Failed to stop %s: %v", s.Name, err)
-	}
+	assert.NotEqual(t, process.Pid, s.GetProcess().Pid)
 }
 
 func TestStopWhileRespawn(t *testing.T) {
 	falsePath, err := exec.LookPath("false")
 	if err != nil {
-		t.Errorf("could not find a path for 'false' executable: %s", err)
+		t.Fatalf("could not find a path for 'false' executable: %s", err)
 	}
 
 	s := Supervisor{
 		Name:           "supervisor-test-stop-while-respawn",
 		BinPath:        falsePath,
-		RunDir:         ".",
+		RunDir:         t.TempDir(),
 		Args:           []string{},
 		TimeoutRespawn: 1 * time.Second,
 	}
 	err = s.Supervise()
 	if err != nil {
-		t.Errorf("Failed to start %s: %v", s.Name, err)
+		t.Fatalf("Failed to start %s: %v", s.Name, err)
 	}
 
 	// wait til the process exits
@@ -215,8 +232,8 @@ func TestStopWhileRespawn(t *testing.T) {
 func TestMultiThread(t *testing.T) {
 	s := Supervisor{
 		Name:    "supervisor-test-multithread",
-		BinPath: "/bin/sh",
-		RunDir:  ".",
+		BinPath: "sh",
+		RunDir:  t.TempDir(),
 		Args:    []string{"-c", "sleep 1s"},
 	}
 	var wg sync.WaitGroup
