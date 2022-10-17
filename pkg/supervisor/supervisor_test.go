@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -29,8 +30,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/k0sproject/k0s/internal/testutil"
+	"github.com/sirupsen/logrus"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -95,6 +96,10 @@ func TestSupervisorStart(t *testing.T) {
 }
 
 func TestGetEnv(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("On Windows, this test breaks other tests in this package.")
+	}
+
 	// backup environment vars
 	oldEnv := os.Environ()
 
@@ -135,67 +140,130 @@ func TestGetEnv(t *testing.T) {
 }
 
 func TestRespawnX(t *testing.T) {
+	// t.Log("==========================================================")
+	defer func() {
+		if t.Failed() {
+			t.Log("**********************************************************")
+		}
+	}()
+
 	tmpDir := t.TempDir()
+	logrus.Infof("Running test in %s", tmpDir)
 	defer testutil.Chdir(t, tmpDir)()
 
+	// s := Supervisor{
+	// 	Name:    "supervisor-test-respawn",
+	// 	BinPath: "sh",
+	// 	RunDir:  t.TempDir(),
+	// 	Args: []string{"-ec", `
+	// 		echo 1 > ping
+	// 		echo Sent ping
+	// 		while [ ! -f pong ]; do :; done
+	// 		echo Got pong: $(cat pong)
+	// 		rm ping pong
+	// 	`},
+	// 	TimeoutRespawn: 1 * time.Millisecond,
+	// }
+
 	s := Supervisor{
-		Name:           "supervisor-test-respawn",
-		BinPath:        "sh",
-		RunDir:         t.TempDir(),
-		Args:           []string{"-xc", "echo 1 > ping && while [ ! -f pong ]; do sleep 0.02; done && rm ping pong"},
+		Name:    "supervisor-test-respawn",
+		BinPath: "sh",
+		RunDir:  t.TempDir(),
+		Args: []string{"-ec", `
+			while :; do
+				marker=$(cat ping) || continue
+				rm ping
+				printf 1 > "$marker"
+				while [ -f "$marker" ]; do :; done
+				exit 0
+			done
+		`},
 		TimeoutRespawn: 1 * time.Millisecond,
 	}
 
 	require.NoError(t, s.Supervise())
 	t.Cleanup(func() { assert.NoError(t, s.Stop()) })
+	waitForPing := func(marker string) error {
+		if err := os.WriteFile("ping", []byte(marker), 0644); err != nil {
+			return err
+		}
+
+		until := time.Now().Add(5 * time.Second)
+		for {
+			stat, err := os.Stat(marker)
+			if err == nil {
+				if stat.IsDir() {
+					return fmt.Errorf("Expected a file: %s", marker)
+				}
+				return nil
+			}
+			if os.IsNotExist(err) {
+				if time.Now().After(until) {
+					return errors.New("timed out while waiting for ping")
+				}
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+			return err
+		}
+	}
 
 	// wait until process starts up
-	waitForPing := func() func() error {
-		w, err := fsnotify.NewWatcher()
-		require.NoError(t, err)
-		t.Cleanup(func() { assert.NoError(t, w.Close()) })
-		require.NoError(t, w.Add("."))
+	// waitForPing := func() func() error {
+	// 	w, err := fsnotify.NewWatcher()
+	// 	require.NoError(t, err)
+	// 	t.Cleanup(func() { assert.NoError(t, w.Close()) })
+	// 	require.NoError(t, w.Add("."))
 
-		var prev os.FileInfo
-		return func() error {
-			timeout := time.NewTimer(3 * time.Second)
-			defer timeout.Stop()
+	// 	var prevTime *time.Time
+	// 	return func() error {
+	// 		timeout := time.NewTimer(3 * time.Second)
+	// 		defer timeout.Stop()
 
-			for {
-				select {
-				case event := <-w.Events:
-					t.Logf("Event: %v", event)
-					if filepath.Base(event.Name) == "ping" && event.Has(fsnotify.Write) {
-						current, err := os.Stat("ping")
-						if err != nil {
-							return err
-						}
-						if prev == nil || current.ModTime().After(prev.ModTime()) {
-							prev = current
-							return nil
-						}
-					}
-				case err := <-w.Errors:
-					return fmt.Errorf("error while watching file system: %w", err)
-				case <-timeout.C:
-					return errors.New("failed to wait for ping")
-				}
-			}
-		}
-	}()
-	require.NoError(t, waitForPing())
+	// 		for {
+	// 			select {
+	// 			case <-timeout.C:
+	// 				return errors.New("failed to wait for ping")
+	// 			case err := <-w.Errors:
+	// 				return fmt.Errorf("failed to watch file system: %w", err)
+	// 			case event := <-w.Events:
+	// 				// t.Logf("Event: %v", event)
+	// 				// logrus.Infof("Event: %v", event)
+	// 				if event.Has(fsnotify.Write) && filepath.Base(event.Name) == "ping" {
+	// 					current, err := os.Stat("ping")
+	// 					if err != nil {
+	// 						logrus.WithError(err).Error("Ping stat failed")
+	// 						return err
+	// 					}
+	// 					currentTime := current.ModTime()
+	// 					if prevTime == nil || currentTime.After(*prevTime) {
+	// 						// t.Log("Recording new ping mod time:", currentTime)
+	// 						prevTime = &currentTime
+	// 						return nil
+	// 					}
+	// 				}
+	// 			}
+	// 		}
+	// 	}
+	// }()
+
+	require.NoError(t, waitForPing("first"))
 
 	// save the pid
-	process := s.GetProcess()
+	pid := s.GetProcess().Pid
+	logrus.Infof("Got ping, PID is %d, removing marker", pid)
+	require.NoError(t, os.Remove("first"))
 
 	// send the pong to unblock the process so it can exit
-	require.NoError(t, os.WriteFile("pong", []byte{}, 0644))
+	require.NoError(t, os.WriteFile("pong", []byte(fmt.Sprintf("seen pid %d", pid)), 0644))
 
+	logrus.Infof("Waiting for ping after sending pong for PID %d", pid)
 	// wait until the respawned process again touches ping
-	require.NoError(t, waitForPing())
+	require.NoError(t, waitForPing("second"))
+	logrus.Infof("Got ping a second time")
 
 	// test that a new process got re-spawned
-	assert.NotEqual(t, process.Pid, s.GetProcess().Pid)
+	assert.NotEqual(t, pid, s.GetProcess().Pid)
 }
 
 func TestStopWhileRespawn(t *testing.T) {

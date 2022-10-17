@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -79,10 +80,40 @@ func (s *Supervisor) processWaitQuit(ctx context.Context) bool {
 	select {
 	case <-ctx.Done():
 		for {
-			s.log.Infof("Shutting down pid %d", s.cmd.Process.Pid)
-			err := s.cmd.Process.Signal(syscall.SIGTERM)
-			if err != nil {
-				s.log.Warnf("Failed to send SIGTERM to pid %d: %s", s.cmd.Process.Pid, err)
+			if runtime.GOOS == "windows" {
+				// Graceful shutdown not implemented on Windows. This requires
+				// attaching to the target process's console and generating a
+				// CTRL+BREAK (or CTRL+C) event. Since a process can only be
+				// attached to a single console at a time, this would require
+				// k0s to detach from its own console, which is definitely not
+				// something that k0s wants to do. There might be ways to do
+				// this by generating the event via a separate helper process,
+				// but that's left open here as a TODO.
+				// https://learn.microsoft.com/en-us/windows/console/freeconsole
+				// https://learn.microsoft.com/en-us/windows/console/attachconsole
+				// https://learn.microsoft.com/en-us/windows/console/generateconsolectrlevent
+				// https://learn.microsoft.com/en-us/windows/console/ctrl-c-and-ctrl-break-signals
+
+				// Another possibility *might* be to allocate a pseudo console
+				// for supervised processes and close that pseudo console to
+				// initiate a graceful shutdown. The introductory blog post for
+				// the ConPTY API mentions: "Client applications attached to the
+				// ConPTY will also terminated, as if they were running in a
+				// console window that was closed." Not sure how this pans out
+				// on the supervised process side. This requires Windows 10
+				// October 2018 Update (version 1809).
+				// https://devblogs.microsoft.com/commandline/windows-command-line-introducing-the-windows-pseudo-console-conpty/
+				// https://learn.microsoft.com/en-us/windows/console/createpseudoconsole
+				// https://learn.microsoft.com/en-us/windows/console/closepseudoconsole
+				s.log.Infof("Killing pid %d", s.cmd.Process.Pid)
+				if err := s.cmd.Process.Kill(); err != nil {
+					s.log.Warnf("Failed to kill pid %d: %s", s.cmd.Process.Pid, err)
+				}
+			} else {
+				s.log.Infof("Shutting down pid %d", s.cmd.Process.Pid)
+				if err := s.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+					s.log.Warnf("Failed to send SIGTERM to pid %d: %s", s.cmd.Process.Pid, err)
+				}
 			}
 			select {
 			case <-time.After(s.TimeoutStop):
