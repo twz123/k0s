@@ -17,11 +17,17 @@ limitations under the License.
 package cnichange
 
 import (
+	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/k0sproject/k0s/internal/pkg/buf"
+	"github.com/k0sproject/k0s/internal/pkg/buf/ring"
+	"github.com/k0sproject/k0s/inttest/common"
 
 	"github.com/stretchr/testify/suite"
-
-	"github.com/k0sproject/k0s/inttest/common"
 )
 
 type CNIChangeSuite struct {
@@ -42,7 +48,40 @@ func (s *CNIChangeSuite) TestK0sGetsUpButRejectsToChangeCNI() {
 
 	s.PutFile(s.ControllerNode(0), "/tmp/k0s.yaml", k0sConfig)
 	s.T().Log("restarting k0s with new cni, this should fail")
-	_, err = sshC1.ExecWithOutput(s.Context(), "/usr/local/bin/k0s controller --debug --config /tmp/k0s.yaml")
+
+	lastLogLines := ring.NewBuffer[string](10)
+	push := func() func(prefix string, line []byte) error {
+		var mu sync.Mutex
+		return func(prefix string, line []byte) error {
+			mu.Lock()
+			defer mu.Unlock()
+			lastLogLines.PushBack(prefix + string(line))
+			return nil
+		}
+	}()
+
+	outWriter := buf.LineWriter{WriteLine: func(line []byte) error { return push("k0s-out: ", line) }}
+	errWriter := buf.LineWriter{WriteLine: func(line []byte) error { return push("k0s-err: ", line) }}
+
+	// If this doesn't fail within a minute, the startup probably succeeded.
+	ctx, cancel := context.WithCancel(s.Context())
+	defer cancel()
+	var timeout atomic.Bool
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-time.After(1 * time.Minute):
+			timeout.Store(true)
+			cancel()
+		}
+	}()
+
+	err = sshC1.Exec(ctx, "/usr/local/bin/k0s controller --config /tmp/k0s.yaml", common.SSHStreams{
+		Out: &outWriter, Err: &errWriter,
+	})
+	_, _ = outWriter.Flush(false), errWriter.Flush(false)
+	lastLogLines.ForEach(func(line string) { s.T().Log(line) })
+	s.Require().False(timeout.Load(), "Timed out while waiting for k0s to fail")
 	s.Require().Error(err)
 }
 
