@@ -15,7 +15,6 @@ smoketests := \
 	check-byocri \
 	check-calico \
 	check-cli \
-	check-cnichange \
 	check-configchange \
 	check-ctr \
 	check-customports \
