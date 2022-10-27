@@ -843,6 +843,7 @@ func (s *FootlooseSuite) WaitForNodeReady(name string, kc *kubernetes.Clientset)
 	s.T().Logf("waiting to see %s ready in kube API", name)
 	return watch.Nodes(kc.CoreV1().Nodes()).
 		WithObjectName(name).
+		WithErrorCallback(RetryWatchErrors(s.T().Logf)).
 		Until(s.Context(), func(n *corev1.Node) (bool, error) {
 			for _, nc := range n.Status.Conditions {
 				if nc.Type == corev1.NodeReady {
@@ -873,6 +874,7 @@ func (s *FootlooseSuite) GetNodeLabels(node string, kc *kubernetes.Clientset) (m
 func (s *FootlooseSuite) WaitForNodeLabel(kc *kubernetes.Clientset, node, labelKey, labelValue string) error {
 	return watch.Nodes(kc.CoreV1().Nodes()).
 		WithObjectName(node).
+		WithErrorCallback(RetryWatchErrors(s.T().Logf)).
 		Until(s.Context(), func(node *corev1.Node) (bool, error) {
 			for k, v := range node.Labels {
 				if labelKey == k {
