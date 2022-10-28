@@ -28,11 +28,15 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/utils/pointer"
+
+	"github.com/sirupsen/logrus"
 )
 
 type VersionedResource interface {
 	GetResourceVersion() string
 }
+
+var FIXME logrus.FieldLogger = logrus.WithField("component", "FIXME/watch.Watcher")
 
 // Watcher offers a convenient way of watching Kubernetes resources. An
 // ephemeral alternative to Reflectors and Indexers, useful for one-shot tasks
@@ -234,6 +238,8 @@ func (w *Watcher[T]) run(ctx context.Context, condition Condition[T]) error {
 }
 
 func (w *Watcher[T]) list(ctx context.Context, condition Condition[T]) (*startWatch, error) {
+	FIXME.WithField("condition", fmt.Sprintf("%p", condition)).Infof("Listing resources")
+
 	const maxListDurationSecs = 30
 	ctx, cancel := context.WithTimeout(ctx, (maxListDurationSecs+10)*time.Second)
 	defer cancel()
@@ -263,6 +269,8 @@ func (w *Watcher[T]) list(ctx context.Context, condition Condition[T]) (*startWa
 }
 
 func (w *Watcher[T]) watch(ctx context.Context, resourceVersion string, condition Condition[T]) (*startWatch, error) {
+	FIXME.WithField("condition", fmt.Sprintf("%p", condition)).Infof("Starting to watch at resource version %q", resourceVersion)
+
 	const maxWatchDurationSecs = 120
 	watcher, err := w.Watch(ctx, metav1.ListOptions{
 		ResourceVersion:     resourceVersion,
@@ -289,6 +297,7 @@ func (w *Watcher[T]) watch(ctx context.Context, resourceVersion string, conditio
 
 		case event, ok := <-watcher.ResultChan():
 			if !ok {
+				FIXME.WithField("condition", fmt.Sprintf("%p", condition)).Infof("Watch result channel closed, restarting (%v)", startWatch)
 				// The server closed the watch remotely.
 				// This usually happens after maxWatchDurationSecs have passed.
 				return startWatch, nil
@@ -305,6 +314,7 @@ func (w *Watcher[T]) watch(ctx context.Context, resourceVersion string, conditio
 }
 
 func (w *Watcher[T]) processWatchEvent(event *watch.Event, condition Condition[T]) (*startWatch, error) {
+	FIXME.WithField("condition", fmt.Sprintf("%p", condition)).Infof("Processing watch event %q: %v ", event.Type, event.Object)
 	switch event.Type {
 	case watch.Added, watch.Modified, watch.Deleted:
 		if w.includeDeletions || event.Type != watch.Deleted {
@@ -371,6 +381,8 @@ func retry(ctx context.Context, errorCallback ErrorCallback, runWatch func(conte
 			// The watch is done.
 			return nil
 		}
+
+		FIXME.WithError(err).WithField("errorCallback", fmt.Sprintf("%p", errorCallback)).Infof("Error in watch")
 
 		if err, ok := err.(conditionError); ok {
 			// The user-specified condition returned an error.
