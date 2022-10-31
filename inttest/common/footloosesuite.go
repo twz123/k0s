@@ -191,6 +191,12 @@ func (s *FootlooseSuite) SetupSuite() {
 	go func() {
 		defer cleanupTasks.Done()
 		<-ctx.Done()
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			// Record a test failure when the deadline has been exceeded. This
+			// is to ensure that the test is actually marked as failed and the
+			// cluster state will be recorded.
+			assert.Fail(t, "Test deadline exceeded")
+		}
 
 		t.Logf("Cleaning up")
 
@@ -724,7 +730,7 @@ func (s *FootlooseSuite) StopController(name string) error {
 
 func (s *FootlooseSuite) Reset(name string) error {
 	ssh, err := s.SSH(name)
-	s.NoError(err)
+	s.Require().NoError(err)
 	defer ssh.Disconnect()
 	resetCommand := fmt.Sprintf("%s reset --debug", s.K0sFullPath)
 	_, err = ssh.ExecWithOutput(s.Context(), resetCommand)
@@ -837,6 +843,7 @@ func (s *FootlooseSuite) WaitForNodeReady(name string, kc *kubernetes.Clientset)
 	s.T().Logf("waiting to see %s ready in kube API", name)
 	return watch.Nodes(kc.CoreV1().Nodes()).
 		WithObjectName(name).
+		WithErrorCallback(RetryWatchErrors(s.T().Logf)).
 		Until(s.Context(), func(n *corev1.Node) (bool, error) {
 			for _, nc := range n.Status.Conditions {
 				if nc.Type == corev1.NodeReady {
@@ -867,6 +874,7 @@ func (s *FootlooseSuite) GetNodeLabels(node string, kc *kubernetes.Clientset) (m
 func (s *FootlooseSuite) WaitForNodeLabel(kc *kubernetes.Clientset, node, labelKey, labelValue string) error {
 	return watch.Nodes(kc.CoreV1().Nodes()).
 		WithObjectName(node).
+		WithErrorCallback(RetryWatchErrors(s.T().Logf)).
 		Until(s.Context(), func(node *corev1.Node) (bool, error) {
 			for k, v := range node.Labels {
 				if labelKey == k {
@@ -1262,6 +1270,10 @@ func (s *FootlooseSuite) GetControllerIPAddress(idx int) string {
 	return s.getIPAddress(s.ControllerNode(idx))
 }
 
+func (s *FootlooseSuite) GetWorkerIPAddress(idx int) string {
+	return s.getIPAddress(s.WorkerNode(idx))
+}
+
 func (s *FootlooseSuite) GetLBAddress() string {
 	return s.getIPAddress(s.LBNode())
 }
@@ -1334,18 +1346,17 @@ func (s *FootlooseSuite) GetMembers(idx int) map[string]string {
 	// our etcd instances doesn't listen on public IP, so test is performed by calling CLI tools over ssh
 	// which in general even makes sense, we can test tooling as well
 	sshCon, err := s.SSH(s.ControllerNode(idx))
-	s.NoError(err)
+	s.Require().NoError(err)
 	defer sshCon.Disconnect()
 	output, err := sshCon.ExecWithOutput(s.Context(), "/usr/local/bin/k0s etcd member-list")
+	s.Require().NoError(err)
 	output = lastLine(output)
-	s.NoError(err)
 
 	members := struct {
 		Members map[string]string `json:"members"`
 	}{}
 
-	err = json.Unmarshal([]byte(output), &members)
-	s.NoError(err, err)
+	s.Require().NoError(json.Unmarshal([]byte(output), &members))
 
 	return members.Members
 }
