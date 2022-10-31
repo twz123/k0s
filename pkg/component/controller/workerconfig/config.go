@@ -18,7 +18,10 @@ package workerconfig
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
+	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/applier"
 	"github.com/k0sproject/k0s/pkg/constant"
 
@@ -31,8 +34,19 @@ import (
 
 // workerConfig represents the worker config for a given profile.
 type workerConfig struct {
-	kubeletConfiguration kubeletv1beta1.KubeletConfiguration
+	apiServers             apiServers
+	kubeletConfiguration   kubeletv1beta1.KubeletConfiguration
+	nodeLocalLoadBalancer  *v1beta1.NodeLocalLoadBalancer
+	konnectivityAgentPort  uint16
+	defaultImagePullPolicy corev1.PullPolicy
 }
+
+type hostPort struct {
+	host string
+	port uint16
+}
+
+type apiServers []hostPort
 
 func (c *workerConfig) toConfigMap(name string) (*corev1.ConfigMap, error) {
 	kubeletConfig, err := yaml.Marshal(c.kubeletConfiguration)
@@ -41,7 +55,21 @@ func (c *workerConfig) toConfigMap(name string) (*corev1.ConfigMap, error) {
 	}
 
 	data := map[string]string{
-		"kubeletConfiguration": string(kubeletConfig),
+		"apiServers":             c.apiServers.String(),
+		"kubeletConfiguration":   string(kubeletConfig),
+		"defaultImagePullPolicy": string(c.defaultImagePullPolicy),
+	}
+
+	if c.nodeLocalLoadBalancer.IsEnabled() {
+		nllbBytes, err := yaml.Marshal(c.nodeLocalLoadBalancer)
+		if err != nil {
+			return nil, err
+		}
+		data["nodeLocalLoadBalancer"] = string(nllbBytes)
+	}
+
+	if c.konnectivityAgentPort != 0 {
+		data["konnectivityAgentPort"] = strconv.FormatUint(uint64(c.konnectivityAgentPort), 10)
 	}
 
 	return &corev1.ConfigMap{
@@ -54,4 +82,44 @@ func (c *workerConfig) toConfigMap(name string) (*corev1.ConfigMap, error) {
 		},
 		Data: data,
 	}, nil
+}
+
+func (hp *hostPort) String() string {
+	return fmt.Sprintf("%s:%d", hp.host, hp.port)
+}
+
+// func parseAPIServer(hostPort string) (apiServer, error) {
+// 	split := strings.SplitN(hostPort, ":", 2)
+// 	if len(split) != 2 {
+// 		return apiServer{}, fmt.Errorf("invalid format, expected <host>:<port>, got: %q", hostPort)
+// 	}
+// 	if net.ParseIP(split[0]) == nil && len(validation.IsDNS1123Subdomain(split[0])) > 0 {
+// 		return apiServer{}, fmt.Errorf("host is neither an IP nor a domain name: %q", hostPort)
+// 	}
+// 	port, err := strconv.ParseUint(split[1], 10, 16)
+// 	if err != nil {
+// 		return apiServer{}, fmt.Errorf("invalid port number (%w): %q", err, hostPort)
+// 	}
+
+// 	return apiServer{split[0], uint16(port)}, nil
+// }
+
+func (s apiServers) String() string {
+	var str strings.Builder
+	for pos, hp := range s {
+		if pos > 0 {
+			str.WriteRune(',')
+		}
+		str.WriteString(hp.String())
+	}
+
+	return str.String()
+}
+
+func (s apiServers) DeepCopy() apiServers {
+	if s == nil {
+		return nil
+	}
+
+	return append((apiServers)(nil), s...)
 }

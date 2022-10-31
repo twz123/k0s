@@ -472,10 +472,11 @@ func (c *command) start(ctx context.Context) error {
 
 	if !slices.Contains(c.DisableComponents, constant.KubeControllerManagerComponentName) {
 		c.ClusterComponents.Add(ctx, &controller.Manager{
-			LogLevel:   c.Logging[constant.KubeControllerManagerComponentName],
-			K0sVars:    c.K0sVars,
-			SingleNode: c.SingleNode,
-			ExtraArgs:  c.KubeControllerManagerExtraArgs,
+			LogLevel:              c.Logging[constant.KubeControllerManagerComponentName],
+			K0sVars:               c.K0sVars,
+			SingleNode:            c.SingleNode,
+			ServiceClusterIPRange: c.NodeConfig.Spec.Network.BuildServiceCIDR(c.NodeConfig.Spec.API.Address),
+			ExtraArgs:             c.KubeControllerManagerExtraArgs,
 		})
 	}
 

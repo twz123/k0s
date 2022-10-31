@@ -26,6 +26,7 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/strictyaml"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	"go.uber.org/multierr"
 )
@@ -90,14 +91,14 @@ func (c *ClusterConfig) StripDefaults() *ClusterConfig {
 	if reflect.DeepEqual(c.Spec.Storage, DefaultStorageSpec()) {
 		c.Spec.ControllerManager = nil
 	}
-	if reflect.DeepEqual(copy.Spec.Network, DefaultNetwork()) {
+	if reflect.DeepEqual(copy.Spec.Images, DefaultClusterImages()) {
+		copy.Spec.Images = nil
+	}
+	if reflect.DeepEqual(copy.Spec.Network, DefaultNetwork(copy.Spec.Images)) {
 		copy.Spec.Network = nil
 	}
 	if reflect.DeepEqual(copy.Spec.Telemetry, DefaultClusterTelemetry()) {
 		copy.Spec.Telemetry = nil
-	}
-	if reflect.DeepEqual(copy.Spec.Images, DefaultClusterImages()) {
-		copy.Spec.Images = nil
 	}
 	if reflect.DeepEqual(copy.Spec.Konnectivity, DefaultKonnectivitySpec()) {
 		copy.Spec.Konnectivity = nil
@@ -233,8 +234,11 @@ func (c *ClusterConfig) UnmarshalJSON(data []byte) error {
 	if jc.Spec.Extensions == nil {
 		jc.Spec.Extensions = DefaultExtensions()
 	}
+	if jc.Spec.Images == nil {
+		jc.Spec.Images = DefaultClusterImages()
+	}
 	if jc.Spec.Network == nil {
-		jc.Spec.Network = DefaultNetwork()
+		jc.Spec.Network = DefaultNetwork(jc.Spec.Images)
 	}
 	if jc.Spec.API == nil {
 		jc.Spec.API = DefaultAPISpec()
@@ -247,9 +251,6 @@ func (c *ClusterConfig) UnmarshalJSON(data []byte) error {
 	}
 	if jc.Spec.Install == nil {
 		jc.Spec.Install = DefaultInstallSpec()
-	}
-	if jc.Spec.Images == nil {
-		jc.Spec.Images = DefaultClusterImages()
 	}
 	if jc.Spec.Telemetry == nil {
 		jc.Spec.Telemetry = DefaultClusterTelemetry()
@@ -270,15 +271,16 @@ func DefaultClusterSpec(defaultStorage ...*StorageSpec) *ClusterSpec {
 		storage = defaultStorage[0]
 	}
 
+	defaultClusterImages := DefaultClusterImages()
 	return &ClusterSpec{
 		Extensions:        DefaultExtensions(),
 		Storage:           storage,
-		Network:           DefaultNetwork(),
+		Network:           DefaultNetwork(defaultClusterImages),
 		API:               DefaultAPISpec(),
 		ControllerManager: DefaultControllerManagerSpec(),
 		Scheduler:         DefaultSchedulerSpec(),
 		Install:           DefaultInstallSpec(),
-		Images:            DefaultClusterImages(),
+		Images:            defaultClusterImages,
 		Telemetry:         DefaultClusterTelemetry(),
 		Konnectivity:      DefaultKonnectivitySpec(),
 	}
@@ -310,6 +312,33 @@ func (s *ClusterSpec) Validate() (errs []error) {
 		if err := multierr.Combine(field.Validate()...); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", name, err))
 		}
+	}
+
+	for _, vErr := range s.ValidateNodeLocalLoadBalancer(field.NewPath("spec")) {
+		errs = append(errs, vErr)
+	}
+
+	return
+}
+
+func (s *ClusterSpec) ValidateNodeLocalLoadBalancer(path *field.Path) (errs field.ErrorList) {
+	if s.Network == nil || !s.Network.NodeLocalLoadBalancer.IsEnabled() {
+		return
+	}
+
+	if s.API == nil {
+		return
+	}
+
+	path = path.Child("network", "nodeLocalLoadBalancer")
+	if s.API.TunneledNetworkingMode {
+		detail := "node-local load balancing cannot be used in tunneled networking mode"
+		errs = append(errs, field.Forbidden(path, detail))
+	}
+
+	if s.API.ExternalAddress != "" {
+		detail := "node-local load balancing cannot be used in conjunction with an external Kubernetes API server address"
+		errs = append(errs, field.Forbidden(path, detail))
 	}
 
 	return

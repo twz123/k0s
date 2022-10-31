@@ -99,7 +99,7 @@ func (s *ConfigSuite) TestK0sGetsUp() {
 		originalConfig, err := cfgClient.Get(context.Background(), "k0s", metav1.GetOptions{})
 		s.Require().NoError(err)
 		newConfig := originalConfig.DeepCopy()
-		newConfig.Spec.Network = v1beta1.DefaultNetwork()
+		newConfig.Spec.Network = v1beta1.DefaultNetwork(nil)
 		newConfig.Spec.Network.PodCIDR = "invalid ip address"
 		_, err = cfgClient.Update(context.Background(), newConfig, metav1.UpdateOptions{})
 		s.Require().NoError(err)
@@ -117,7 +117,7 @@ func (s *ConfigSuite) TestK0sGetsUp() {
 		originalConfig, err := cfgClient.Get(context.Background(), "k0s", metav1.GetOptions{})
 		s.Require().NoError(err)
 		newConfig := originalConfig.DeepCopy()
-		newConfig.Spec.Network = v1beta1.DefaultNetwork()
+		newConfig.Spec.Network = v1beta1.DefaultNetwork(nil)
 		newConfig.Spec.Network.KubeRouter.AutoMTU = false
 		newConfig.Spec.Network.KubeRouter.MTU = 1300
 

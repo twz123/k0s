@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net"
 
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	utilnet "k8s.io/utils/net"
 
 	"github.com/asaskevich/govalidator"
@@ -35,6 +36,12 @@ type Network struct {
 	KubeProxy  *KubeProxy  `json:"kubeProxy"`
 	KubeRouter *KubeRouter `json:"kuberouter"`
 
+	// nodeLocalLoadBalancer defines the configuration options related to k0s's
+	// node-local load balancing feature.
+	// NOTE: This feature is experimental, and currently unsupported on ARMv7!
+	// +optional
+	NodeLocalLoadBalancer *NodeLocalLoadBalancer `json:"nodeLocalLoadBalancer,omitempty"`
+
 	// Pod network CIDR to use in the cluster
 	PodCIDR string `json:"podCIDR"`
 	// Network provider (valid values: calico, kuberouter, or custom)
@@ -46,15 +53,16 @@ type Network struct {
 }
 
 // DefaultNetwork creates the Network config struct with sane default values
-func DefaultNetwork() *Network {
+func DefaultNetwork(clusterImages *ClusterImages) *Network {
 	return &Network{
-		PodCIDR:       "10.244.0.0/16",
-		ServiceCIDR:   "10.96.0.0/12",
-		Provider:      "kuberouter",
-		KubeRouter:    DefaultKubeRouter(),
-		DualStack:     DefaultDualStack(),
-		KubeProxy:     DefaultKubeProxy(),
-		ClusterDomain: "cluster.local",
+		PodCIDR:               "10.244.0.0/16",
+		ServiceCIDR:           "10.96.0.0/12",
+		Provider:              "kuberouter",
+		KubeRouter:            DefaultKubeRouter(),
+		DualStack:             DefaultDualStack(),
+		KubeProxy:             DefaultKubeProxy(),
+		NodeLocalLoadBalancer: DefaultNodeLocalLoadBalancer(clusterImages),
+		ClusterDomain:         "cluster.local",
 	}
 }
 
@@ -74,10 +82,12 @@ func (n *Network) Validate() []error {
 		errors = append(errors, fmt.Errorf("invalid pod CIDR %q", n.PodCIDR))
 	}
 
+	// if n.ServiceCIDR != "" {
 	_, _, err = net.ParseCIDR(n.ServiceCIDR)
 	if err != nil {
 		errors = append(errors, fmt.Errorf("invalid service CIDR %q", n.ServiceCIDR))
 	}
+	// }
 
 	if !govalidator.IsDNSName(n.ClusterDomain) {
 		errors = append(errors, fmt.Errorf("invalid clusterDomain %q", n.ClusterDomain))
@@ -98,6 +108,10 @@ func (n *Network) Validate() []error {
 	}
 
 	errors = append(errors, n.KubeProxy.Validate()...)
+	for _, err := range n.NodeLocalLoadBalancer.Validate(field.NewPath("spec", "network", "nodeLocalLoadBalancer")) {
+		errors = append(errors, err)
+	}
+
 	return errors
 }
 

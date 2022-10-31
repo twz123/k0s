@@ -199,7 +199,7 @@ spec:
 	assert.NoError(t, err)
 	assert.Equal(t, DefaultClusterImages(), c.Spec.Images)
 	assert.Equal(t, DefaultStorageSpec(), c.Spec.Storage)
-	assert.Equal(t, DefaultNetwork(), c.Spec.Network)
+	assert.Equal(t, DefaultNetwork(c.Spec.Images), c.Spec.Network)
 	assert.Equal(t, DefaultAPISpec(), c.Spec.API)
 	assert.Equal(t, DefaultExtensions(), c.Spec.Extensions)
 	assert.Equal(t, DefaultStorageSpec(), c.Spec.Storage)
