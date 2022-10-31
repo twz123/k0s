@@ -32,10 +32,10 @@ type DisabledComponentsSuite struct {
 
 func (s *DisabledComponentsSuite) TestK0sGetsUp() {
 
-	s.NoError(s.InitController(0, "--disable-components konnectivity-server,kube-scheduler,kube-controller-manager,control-api,csr-approver,kube-proxy,coredns,network-provider,helm,metrics-server,kubelet-config,system-rbac"))
+	s.NoError(s.InitController(0, "--disable-components control-api,coredns,csr-approver,helm,konnectivity-server,kube-controller-manager,kube-proxy,kube-scheduler,metrics-server,network-provider,system-rbac,worker-config"))
 
 	kc, err := s.KubeClient(s.ControllerNode(0))
-	s.NoError(err)
+	s.Require().NoError(err)
 
 	if pods, err := kc.CoreV1().Pods("kube-system").List(s.Context(), v1.ListOptions{
 		Limit: 100,
@@ -44,7 +44,8 @@ func (s *DisabledComponentsSuite) TestK0sGetsUp() {
 	}
 
 	ssh, err := s.SSH(s.ControllerNode(0))
-	s.NoError(err)
+	s.Require().NoError(err)
+	defer ssh.Disconnect()
 	s.True(s.processExists("kube-apiserver", ssh))
 	s.False(s.processExists("konnectivity-server", ssh))
 	s.False(s.processExists("kube-scheduler", ssh))
