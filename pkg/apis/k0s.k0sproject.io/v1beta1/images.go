@@ -168,6 +168,15 @@ func DefaultClusterImages() *ClusterImages {
 	}
 }
 
+func (ci *ClusterImages) OverrideImageRepository(image *ImageSpec) {
+	if ci == nil {
+		ci = DefaultClusterImages()
+	}
+	if ci.Repository != "" {
+		image.Image = overrideRepository(ci.Repository, image.Image)
+	}
+}
+
 func getHostName(imageName string) string {
 	i := strings.IndexRune(imageName, '/')
 	if i == -1 || (!strings.ContainsAny(imageName[:i], ".:") && imageName[:i] != "localhost") {

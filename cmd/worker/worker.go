@@ -33,6 +33,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/component/status"
 	"github.com/k0sproject/k0s/pkg/component/worker"
 	workerconfig "github.com/k0sproject/k0s/pkg/component/worker/config"
+	"github.com/k0sproject/k0s/pkg/component/worker/nllb"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/install"
 	"github.com/k0sproject/k0s/pkg/kubernetes"
@@ -129,6 +130,39 @@ func (c *Command) Start(ctx context.Context) error {
 	}
 
 	componentManager := component.NewManager()
+
+	var staticPods worker.StaticPods
+
+	if !c.SingleNode {
+		nodeLocalLoadBalancer, err := workerConfig.NodeLocalLoadBalancer()
+		if err != nil {
+			return fmt.Errorf("failed to obtain node-local load balancer configuration: %w", err)
+		}
+		if nodeLocalLoadBalancer.IsEnabled() {
+			sp := worker.NewStaticPods()
+
+			konnectivityAgentPort, err := workerConfig.KonnectivityAgentPort()
+			if err != nil {
+				return err
+			}
+
+			pullPolicy, err := workerConfig.DefaultImagePullPolicy()
+			if err != nil {
+				return err
+			}
+
+			reconciler, err := nllb.NewReconciler(&c.K0sVars, sp, nodeLocalLoadBalancer, konnectivityAgentPort, pullPolicy)
+			if err != nil {
+				return fmt.Errorf("failed to create node-local load balancer reconciler: %w", err)
+			}
+			kubeletKubeconfig = reconciler.GetKubeletKubeconfig()
+			staticPods = sp
+
+			componentManager.Add(ctx, sp)
+			componentManager.Add(ctx, reconciler)
+		}
+	}
+
 	if runtime.GOOS == "windows" && c.CriSocket == "" {
 		return fmt.Errorf("windows worker needs to have external CRI")
 	}
@@ -144,9 +178,6 @@ func (c *Command) Start(ctx context.Context) error {
 		c.WorkerProfile = "default-windows"
 	}
 
-	staticPods := worker.NewStaticPods()
-	componentManager.Add(ctx, staticPods)
-
 	{
 		kubeletConfiguration, err := workerConfig.KubeletConfiguration()
 		if err != nil {
@@ -157,9 +188,9 @@ func (c *Command) Start(ctx context.Context) error {
 			CRISocket:           c.CriSocket,
 			EnableCloudProvider: c.CloudProvider,
 			K0sVars:             c.K0sVars,
+			StaticPods:          staticPods,
 			Kubeconfig:          kubeletKubeconfig,
 			Configuration:       kubeletConfiguration,
-			StaticPods:          staticPods,
 			LogLevel:            c.Logging["kubelet"],
 			Labels:              c.Labels,
 			Taints:              c.Taints,

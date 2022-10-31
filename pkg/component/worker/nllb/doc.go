@@ -14,20 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package watch
-
-import (
-	corev1 "k8s.io/api/core/v1"
-)
-
-func Endpoints(client Provider[*corev1.EndpointsList]) *Watcher[corev1.Endpoints] {
-	return FromClient[*corev1.EndpointsList, corev1.Endpoints](client)
-}
-
-func Nodes(client Provider[*corev1.NodeList]) *Watcher[corev1.Node] {
-	return FromClient[*corev1.NodeList, corev1.Node](client)
-}
-
-func Pods(client Provider[*corev1.PodList]) *Watcher[corev1.Pod] {
-	return FromClient[*corev1.PodList, corev1.Pod](client)
-}
+// Package nllb contains all components used to implement node-local load
+// balancing across Kubernetes API servers for worker nodes.
+package nllb

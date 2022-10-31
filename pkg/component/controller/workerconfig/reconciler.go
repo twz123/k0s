@@ -17,9 +17,11 @@ limitations under the License.
 package workerconfig
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"path/filepath"
 	"reflect"
@@ -31,27 +33,34 @@ import (
 
 	goruntime "runtime"
 
+	"github.com/cloudflare/cfssl/log"
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/applier"
 	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/constant"
 	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
+	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	kubeletv1beta1 "k8s.io/kubelet/config/v1beta1"
 	"k8s.io/utils/pointer"
 
 	"github.com/sirupsen/logrus"
+	"go.uber.org/multierr"
 	"golang.org/x/exp/slices"
 	"sigs.k8s.io/yaml"
 )
 
 type resources = []*unstructured.Unstructured
+
+// type mtex = TalkingMutex
 
 type mtex = sync.Mutex
 
@@ -61,12 +70,19 @@ type Reconciler struct {
 	log logrus.FieldLogger
 
 	konnectivityEnabled bool
+	watchAPIServers     bool
 	cleaner             cleaner
 
 	mu            mtex
 	state         interface{}
 	clusterDNSIP  net.IP
 	clusterDomain string
+	// doApply  func(context.Context, resources) error
+	// cancel   context.CancelFunc
+	// stopChan <-chan struct{}
+
+	// snapshot    snapshot
+	// lastApplied *snapshot
 }
 
 var _ component.Component = (*Reconciler)(nil)
@@ -140,6 +156,7 @@ func NewReconciler(k0sVars constant.CfgVars, nodeSpec *v1beta1.ClusterSpec, clie
 		clusterDomain:       nodeSpec.Network.ClusterDomain,
 		clusterDNSIP:        clusterDNSIP,
 		konnectivityEnabled: konnectivityEnabled,
+		watchAPIServers:     !nodeSpec.API.TunneledNetworkingMode,
 		cleaner: &kubeletConfigCleaner{
 			log: log,
 
@@ -218,6 +235,9 @@ func (r *Reconciler) Start(context.Context) error {
 	reconcilersCtx, cancelReconcilers := context.WithCancel(context.Background())
 	var reconcilersDone sync.WaitGroup
 
+	updatersCtx, cancelUpdaters := context.WithCancel(context.Background())
+	var updatersDone sync.WaitGroup
+
 	{ // set up stop facility
 		stopped := make(chan struct{})
 		var stopCalled atomic.Bool
@@ -229,6 +249,11 @@ func (r *Reconciler) Start(context.Context) error {
 
 			r.log.Debug("Stopping: Stop cleaner")
 			r.cleaner.stop()
+
+			r.log.Debug("Stopping: Canceling updaters")
+			cancelUpdaters()
+			r.log.Debug("Stopping: Waiting for updaters to exit")
+			updatersDone.Wait()
 
 			r.log.Debug("Stopping: Canceling reconcilers")
 			close(updates)
@@ -248,6 +273,29 @@ func (r *Reconciler) Start(context.Context) error {
 		r.runReconcileLoop(reconcilersCtx, updates, initialized.apply)
 	}()
 
+	if r.watchAPIServers {
+		updatersDone.Add(1)
+		go func() {
+			defer updatersDone.Done()
+			buf := make([]byte, 64)
+			n := goruntime.Stack(buf, false)
+			gr := string(bytes.Fields(buf[:n])[1])
+			defer r.log.Info("API Server watch done -- ", gr)
+			r.log.Debug("Starting API server watch -- ", gr)
+			var lastObservedVersion string
+			wait.UntilWithContext(updatersCtx, func(ctx context.Context) {
+				var err error
+				lastObservedVersion, err = watchAPIServers(ctx, lastObservedVersion, initialized.client, updates)
+				if err != nil {
+					r.log.WithError(err).Errorf(
+						"Failed to watch for API server addresses (last observed resource version is %q)",
+						lastObservedVersion,
+					)
+				}
+			}, 10*time.Second)
+		}()
+	}
+
 	r.state = started
 	return nil
 }
@@ -260,7 +308,7 @@ func (r *Reconciler) runReconcileLoop(ctx context.Context, updates <-chan update
 			return err
 		}
 
-		if desiredState.configSnapshot == nil {
+		if desiredState.configSnapshot == nil || (r.watchAPIServers && len(desiredState.apiServers) < 1) {
 			r.log.Debug("Skipping reconciliation, snapshot not yet complete")
 			return nil
 		}
@@ -410,6 +458,108 @@ func (r *Reconciler) Stop() error {
 	return nil
 }
 
+func watchAPIServers(ctx context.Context, lastObservedVersion string, client kubernetes.Interface, updates chan<- updateFunc) (string, error) {
+	err := watch.Endpoints(client.CoreV1().Endpoints("default")).WithObjectName("kubernetes").Until(
+		ctx, func(endpoints *corev1.Endpoints) (bool, error) {
+			err := func() error {
+				apiServers, err := extractAPIServerAddresses(endpoints)
+				if err != nil {
+					return err
+				}
+
+				return updateAPIServers(ctx, apiServers, updates)
+			}()
+			if err != nil {
+				return false, err
+			}
+
+			lastObservedVersion = endpoints.ResourceVersion
+			return false, nil
+		},
+	)
+
+	return lastObservedVersion, err
+}
+
+func extractAPIServerAddresses(endpoints *corev1.Endpoints) (apiServers, error) {
+	var warnings error
+	apiServers := []hostPort{}
+
+	for sIdx, subset := range endpoints.Subsets {
+		var ports []uint16
+		for pIdx, port := range subset.Ports {
+			// FIXME: is a more sophisticated port detection required?
+			// E.g. does the service object need to be inspected?
+			if port.Protocol != corev1.ProtocolTCP || port.Name != "https" {
+				continue
+			}
+
+			if port.Port < 0 || port.Port > math.MaxUint16 {
+				path := field.NewPath("subsets").Index(sIdx).Child("ports").Index(pIdx).Child("port")
+				warning := field.Invalid(path, port.Port, "out of range")
+				warnings = multierr.Append(warnings, warning)
+				continue
+			}
+
+			ports = append(ports, uint16(port.Port))
+		}
+
+		if len(ports) < 1 {
+			path := field.NewPath("subsets").Index(sIdx)
+			warning := field.Forbidden(path, "no suitable TCP/https ports found")
+			warnings = multierr.Append(warnings, warning)
+			continue
+		}
+
+		for aIdx, address := range subset.Addresses {
+			host := address.IP
+			if host == "" {
+				host = address.Hostname
+			}
+			if host == "" {
+				path := field.NewPath("addresses").Index(aIdx)
+				warning := field.Forbidden(path, "neither ip nor hostname specified")
+				warnings = multierr.Append(warnings, warning)
+				continue
+			}
+
+			for _, port := range ports {
+				apiServers = append(apiServers, hostPort{host, port})
+			}
+		}
+	}
+
+	if len(apiServers) < 1 {
+		// Never update the API servers with an empty list. This cannot
+		// be right in any case, and would never recover.
+		return nil, multierr.Append(errors.New("no API server addresses discovered"), warnings)
+	}
+
+	return apiServers, nil
+}
+
+func updateAPIServers(ctx context.Context, apiServers apiServers, updates chan<- updateFunc) error {
+	done := make(chan error, 1)
+	update := func(s *snapshot) chan<- error {
+		s.apiServers = apiServers
+		return done
+	}
+
+	log.Debug("Updating API servers: Enqueueing update")
+
+	select {
+	case updates <- update:
+		select {
+		case err := <-done:
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 type resource interface {
 	runtime.Object
 	metav1.Object
@@ -417,6 +567,8 @@ type resource interface {
 
 func generateResources(clusterDomain string, clusterDNSIP net.IP, snapshot *snapshot) (resources, error) {
 	builder := &configBuilder{
+		apiServers:    snapshot.apiServers,
+		specSnapshot:  snapshot.specSnapshot,
 		clusterDNSIP:  clusterDNSIP,
 		clusterDomain: clusterDomain,
 	}
@@ -565,12 +717,15 @@ func buildRBACResources(configMaps []*corev1.ConfigMap) []resource {
 }
 
 type configBuilder struct {
+	apiServers
+	specSnapshot
 	clusterDNSIP  net.IP
 	clusterDomain string
 }
 
 func (b *configBuilder) build() *workerConfig {
 	c := &workerConfig{
+		apiServers: append((apiServers)(nil), b.apiServers...),
 		kubeletConfiguration: kubeletv1beta1.KubeletConfiguration{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: kubeletv1beta1.SchemeGroupVersion.String(),
@@ -593,6 +748,9 @@ func (b *configBuilder) build() *workerConfig {
 			ServerTLSBootstrap: true,
 			EventRecordQPS:     pointer.Int32(0),
 		},
+		nodeLocalLoadBalancer:  b.nodeLocalLoadBalancer.DeepCopy(),
+		konnectivityAgentPort:  b.konnectivityAgentPort,
+		defaultImagePullPolicy: b.defaultImagePullPolicy,
 	}
 
 	return c

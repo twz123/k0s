@@ -71,7 +71,7 @@ func TestGetConfigFromFile(t *testing.T) {
 		t.Fatalf("failed to initialize k0s config: %s", err.Error())
 	}
 
-	cfg, err := loadingRules.Load()
+	cfg, err := loadingRules.Load(context.TODO())
 	if err != nil {
 		t.Fatalf("failed to load config: %s", err.Error())
 	}
@@ -118,7 +118,7 @@ spec:
 		t.Fatalf("failed to initialize k0s config: %s", err.Error())
 	}
 
-	cfg, err := loadingRules.Load()
+	cfg, err := loadingRules.Load(context.TODO())
 	if err != nil {
 		t.Fatalf("failed to load config: %s", err.Error())
 	}
@@ -154,7 +154,7 @@ func TestConfigFromDefaults(t *testing.T) {
 		t.Fatalf("failed to initialize k0s config: %s", err.Error())
 	}
 
-	cfg, err := loadingRules.Load()
+	cfg, err := loadingRules.Load(context.TODO())
 	if err != nil {
 		t.Fatalf("failed to load config: %s", err.Error())
 	}
@@ -198,7 +198,7 @@ func TestNodeConfigWithAPIConfig(t *testing.T) {
 		t.Fatalf("failed to initialize k0s config: %s", err.Error())
 	}
 
-	cfg, err := loadingRules.Load()
+	cfg, err := loadingRules.Load(context.TODO())
 	if err != nil {
 		t.Fatalf("failed to fetch Node Config: %s", err.Error())
 	}
@@ -244,7 +244,7 @@ spec:
 		t.Fatalf("failed to initialize k0s config: %s", err.Error())
 	}
 
-	cfg, err := loadingRules.Load()
+	cfg, err := loadingRules.Load(context.TODO())
 	if err != nil {
 		t.Fatalf("failed to load config: %s", err.Error())
 	}
@@ -281,7 +281,7 @@ spec:
 		t.Fatalf("failed to initialize k0s config: %s", err.Error())
 	}
 
-	cfg, err := loadingRules.Load()
+	cfg, err := loadingRules.Load(context.TODO())
 	if err != nil {
 		t.Fatalf("failed to load config: %s", err.Error())
 	}
@@ -323,7 +323,7 @@ func TestAPIConfig(t *testing.T) {
 		t.Fatalf("failed to initialize k0s config: %s", err.Error())
 	}
 
-	cfg, err := loadingRules.Load()
+	cfg, err := loadingRules.Load(context.TODO())
 	if err != nil {
 		t.Fatalf("failed to fetch Node Config: %s", err.Error())
 	}
