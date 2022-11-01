@@ -285,9 +285,6 @@ func TestPodReconciler_EnvoyBootstrapConfig_Template(t *testing.T) {
 
 			ip := parsed.o("static_resources").a("listeners").o(0).o("address").o("socket_address")["address"]
 			assert.Equal(t, "::1", ip)
-
-			eps := parsed.o("static_resources").a("clusters").o(0).o("load_assignment").a("endpoints").o(0).a("lb_endpoints")
-			assert.Len(t, eps, test.expected)
 		})
 	}
 }
