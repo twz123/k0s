@@ -20,10 +20,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/suite"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/k0sproject/k0s/inttest/common"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/stretchr/testify/suite"
 )
 
 type CalicoSuite struct {
@@ -44,7 +45,7 @@ func (s *CalicoSuite) TestK0sGetsUp() {
 	err = s.WaitForNodeReady("worker1", kc)
 	s.NoError(err)
 
-	calicoDaemonset, err := kc.AppsV1().DaemonSets("kube-system").Get(context.TODO(), "calico-node", v1.GetOptions{})
+	calicoDaemonset, err := kc.AppsV1().DaemonSets("kube-system").Get(context.TODO(), "calico-node", metav1.GetOptions{})
 	s.Require().NoError(err)
 	var calicoCustomEnvVarsFound int
 	for _, v := range calicoDaemonset.Spec.Template.Spec.Containers[0].Env {

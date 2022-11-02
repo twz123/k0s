@@ -191,6 +191,12 @@ func (s *FootlooseSuite) SetupSuite() {
 	go func() {
 		defer cleanupTasks.Done()
 		<-ctx.Done()
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			// Record a test failure when the deadline has been exceeded. This
+			// is to ensure that the test is actually marked as failed and the
+			// cluster state will be recorded.
+			assert.Fail(t, "Test deadline exceeded")
+		}
 
 		t.Logf("Cleaning up")
 
@@ -837,6 +843,7 @@ func (s *FootlooseSuite) WaitForNodeReady(name string, kc *kubernetes.Clientset)
 	s.T().Logf("waiting to see %s ready in kube API", name)
 	return watch.Nodes(kc.CoreV1().Nodes()).
 		WithObjectName(name).
+		WithErrorCallback(RetryWatchErrors(s.T().Logf)).
 		Until(s.Context(), func(n *corev1.Node) (bool, error) {
 			for _, nc := range n.Status.Conditions {
 				if nc.Type == corev1.NodeReady {
@@ -867,6 +874,7 @@ func (s *FootlooseSuite) GetNodeLabels(node string, kc *kubernetes.Clientset) (m
 func (s *FootlooseSuite) WaitForNodeLabel(kc *kubernetes.Clientset, node, labelKey, labelValue string) error {
 	return watch.Nodes(kc.CoreV1().Nodes()).
 		WithObjectName(node).
+		WithErrorCallback(RetryWatchErrors(s.T().Logf)).
 		Until(s.Context(), func(node *corev1.Node) (bool, error) {
 			for k, v := range node.Labels {
 				if labelKey == k {
@@ -909,7 +917,6 @@ func nodeValuePatchAdd(ctx context.Context, node string, kc *kubernetes.Clientse
 }
 
 // WaitForKubeAPI waits until we see kube API online on given node.
-// Timeouts with error return in 5 mins
 func (s *FootlooseSuite) WaitForKubeAPI(node string, k0sKubeconfigArgs ...string) error {
 	s.T().Logf("waiting for kube api to start on node %s", node)
 	return Poll(s.Context(), func(context.Context) (done bool, err error) {
