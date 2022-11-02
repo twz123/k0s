@@ -55,6 +55,15 @@ metadata:
 	assert.Equal(t, addr, c.Spec.Storage.Etcd.PeerAddress)
 }
 
+func TestEmptyClusterSpec(t *testing.T) {
+	underTest := ClusterConfig{
+		Spec: &ClusterSpec{},
+	}
+
+	errs := underTest.Validate()
+	assert.Nil(t, errs)
+}
+
 func TestEtcdDefaults(t *testing.T) {
 	yamlData := `
 apiVersion: k0s.k0sproject.io/v1beta1
@@ -129,7 +138,7 @@ spec:
 	assert.NoError(t, err)
 	errors := c.Validate()
 	assert.Equal(t, 1, len(errors))
-	assert.Equal(t, "unsupported network provider: invalidProvider", errors[0].Error())
+	assert.Equal(t, `network: unsupported provider: "invalidProvider"`, errors[0].Error())
 }
 
 func TestApiExternalAddress(t *testing.T) {

@@ -23,6 +23,7 @@ import (
 	"os/signal"
 	"runtime"
 	"syscall"
+	"time"
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
@@ -31,9 +32,15 @@ import (
 	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/component/status"
 	"github.com/k0sproject/k0s/pkg/component/worker"
+	workerconfig "github.com/k0sproject/k0s/pkg/component/worker/config"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/install"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/tools/clientcmd"
+
+	"github.com/avast/retry-go"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -114,7 +121,9 @@ func (c *Command) Start(ctx context.Context) error {
 		}
 	}
 
-	kubeletConfigClient, err := worker.LoadKubeletConfigClient(c.K0sVars)
+	kubeletKubeconfig := worker.NewKubeletKubeconfig(&c.K0sVars)
+
+	workerConfig, err := loadWorkerConfig(ctx, c.WorkerProfile, kubeletKubeconfig.ToKubeconfigGetter())
 	if err != nil {
 		return err
 	}
@@ -135,18 +144,25 @@ func (c *Command) Start(ctx context.Context) error {
 		c.WorkerProfile = "default-windows"
 	}
 
-	componentManager.Add(ctx, &worker.Kubelet{
-		CRISocket:           c.CriSocket,
-		EnableCloudProvider: c.CloudProvider,
-		K0sVars:             c.K0sVars,
-		KubeletConfigClient: kubeletConfigClient,
-		LogLevel:            c.Logging["kubelet"],
-		Profile:             c.WorkerProfile,
-		Labels:              c.Labels,
-		Taints:              c.Taints,
-		ExtraArgs:           c.KubeletExtraArgs,
-		IPTablesMode:        c.WorkerOptions.IPTablesMode,
-	})
+	{
+		kubeletConfiguration, err := workerConfig.KubeletConfiguration()
+		if err != nil {
+			return fmt.Errorf("failed to obtain Kubelet configuration: %w", err)
+		}
+
+		componentManager.Add(ctx, &worker.Kubelet{
+			CRISocket:           c.CriSocket,
+			EnableCloudProvider: c.CloudProvider,
+			K0sVars:             c.K0sVars,
+			Kubeconfig:          kubeletKubeconfig,
+			Configuration:       kubeletConfiguration,
+			LogLevel:            c.Logging["kubelet"],
+			Labels:              c.Labels,
+			Taints:              c.Taints,
+			ExtraArgs:           c.KubeletExtraArgs,
+			IPTablesMode:        c.WorkerOptions.IPTablesMode,
+		})
+	}
 
 	if runtime.GOOS == "windows" {
 		if c.TokenArg == "" {
@@ -209,7 +225,40 @@ func (c *Command) Start(ctx context.Context) error {
 
 	// Stop components
 	if err := componentManager.Stop(); err != nil {
-		logrus.WithError(err).Error("error while stoping component manager")
+		logrus.WithError(err).Error("error while stopping component manager")
 	}
 	return nil
+}
+
+func loadWorkerConfig(ctx context.Context, profile string, getter clientcmd.KubeconfigGetter) (workerConfig workerconfig.Interface, err error) {
+	err = retry.Do(
+		func() error {
+			client, err := kubernetes.NewClient(getter)
+			if err != nil {
+				return fmt.Errorf("failed to create Kubernetes client to load worker configuration: %w", err)
+			}
+
+			config, err := workerconfig.Load(ctx, client, profile)
+			if err != nil {
+				err = fmt.Errorf("failed to load configuration for worker profile %q: %w", profile, err)
+				if apierrors.IsUnauthorized(err) {
+					err = fmt.Errorf("the k0s worker node credentials are invalid, the node needs to be rejoined into the cluster with a fresh bootstrap token: %w", err)
+					err = retry.Unrecoverable(err)
+				}
+
+				return err
+			}
+
+			workerConfig = config
+			return nil
+		},
+		retry.Context(ctx),
+		retry.LastErrorOnly(true),
+		retry.Delay(500*time.Millisecond),
+		retry.OnRetry(func(attempt uint, err error) {
+			logrus.WithError(err).Debugf("Failed to load configuration for worker profile in attempt #%d, retrying after backoff", attempt+1)
+		}),
+	)
+
+	return
 }
