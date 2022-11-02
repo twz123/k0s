@@ -22,7 +22,7 @@ import (
 	"os"
 	"time"
 
-	cfgClient "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/clientset/typed/k0s.k0sproject.io/v1beta1"
+	k0sclient "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/clientset/typed/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/component/controller/clusterconfig"
@@ -38,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/sirupsen/logrus"
+	"go.uber.org/multierr"
 )
 
 // ClusterConfigReconciler reconciles a ClusterConfig object
@@ -46,8 +47,7 @@ type ClusterConfigReconciler struct {
 	ComponentManager  *component.Manager
 	KubeClientFactory kubeutil.ClientFactoryInterface
 
-	configClient  cfgClient.ClusterConfigInterface
-	kubeConfig    string
+	configClient  k0sclient.ClusterConfigInterface
 	leaderElector leaderelector.Interface
 	log           *logrus.Entry
 	saver         manifestsSaver
@@ -71,7 +71,6 @@ func NewClusterConfigReconciler(leaderElector leaderelector.Interface, k0sVars c
 		ComponentManager:  mgr,
 		YamlConfig:        cfg,
 		KubeClientFactory: kubeClientFactory,
-		kubeConfig:        k0sVars.AdminKubeConfigPath,
 		leaderElector:     leaderElector,
 		log:               logrus.WithFields(logrus.Fields{"component": "clusterConfig-reconciler"}),
 		saver:             s,
@@ -135,18 +134,18 @@ func (r *ClusterConfigReconciler) Start(ctx context.Context) error {
 					r.log.Debug("config source closed channel")
 					return
 				}
-				errors := cfg.Validate()
-				var err error
-				if len(errors) > 0 {
-					err = fmt.Errorf("failed to validate config: %v", errors)
+				err := multierr.Combine(cfg.Validate()...)
+				if err != nil {
+					err = fmt.Errorf("failed to validate cluster configuration: %w", err)
 				} else {
 					err = r.ComponentManager.Reconcile(ctx, cfg)
 				}
 				r.reportStatus(statusCtx, cfg, err)
 				if err != nil {
-					r.log.Errorf("cluster-config reconcile failed: %s", err.Error())
+					r.log.WithError(err).Error("Failed to reconcile cluster configuration")
+				} else {
+					r.log.Debug("Successfully reconciled cluster configuration")
 				}
-				r.log.Debugf("reconciling cluster-config done")
 			case <-ctx.Done():
 				return
 			}

@@ -21,8 +21,9 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/asaskevich/govalidator"
 	utilnet "k8s.io/utils/net"
+
+	"github.com/asaskevich/govalidator"
 )
 
 var _ Validateable = (*Network)(nil)
@@ -59,23 +60,27 @@ func DefaultNetwork() *Network {
 
 // Validate validates all the settings make sense and should work
 func (n *Network) Validate() []error {
+	if n == nil {
+		return nil
+	}
+
 	var errors []error
 	if n.Provider != "calico" && n.Provider != "custom" && n.Provider != "kuberouter" {
-		errors = append(errors, fmt.Errorf("unsupported network provider: %s", n.Provider))
+		errors = append(errors, fmt.Errorf("unsupported provider: %q", n.Provider))
 	}
 
 	_, _, err := net.ParseCIDR(n.PodCIDR)
 	if err != nil {
-		errors = append(errors, fmt.Errorf("invalid pod CIDR %s", n.PodCIDR))
+		errors = append(errors, fmt.Errorf("invalid pod CIDR %q", n.PodCIDR))
 	}
 
 	_, _, err = net.ParseCIDR(n.ServiceCIDR)
 	if err != nil {
-		errors = append(errors, fmt.Errorf("invalid service CIDR %s", n.ServiceCIDR))
+		errors = append(errors, fmt.Errorf("invalid service CIDR %q", n.ServiceCIDR))
 	}
 
 	if !govalidator.IsDNSName(n.ClusterDomain) {
-		errors = append(errors, fmt.Errorf("invalid clusterDomain %s", n.ClusterDomain))
+		errors = append(errors, fmt.Errorf("invalid clusterDomain %q", n.ClusterDomain))
 	}
 
 	if n.DualStack.Enabled {
@@ -84,13 +89,14 @@ func (n *Network) Validate() []error {
 		}
 		_, _, err := net.ParseCIDR(n.DualStack.IPv6PodCIDR)
 		if err != nil {
-			errors = append(errors, fmt.Errorf("invalid pod IPv6 CIDR %s", n.DualStack.IPv6PodCIDR))
+			errors = append(errors, fmt.Errorf("invalid pod IPv6 CIDR %q", n.DualStack.IPv6PodCIDR))
 		}
 		_, _, err = net.ParseCIDR(n.DualStack.IPv6ServiceCIDR)
 		if err != nil {
-			errors = append(errors, fmt.Errorf("invalid service IPv6 CIDR %s", n.DualStack.IPv6ServiceCIDR))
+			errors = append(errors, fmt.Errorf("invalid service IPv6 CIDR %q", n.DualStack.IPv6ServiceCIDR))
 		}
 	}
+
 	errors = append(errors, n.KubeProxy.Validate()...)
 	return errors
 }
@@ -99,7 +105,7 @@ func (n *Network) Validate() []error {
 func (n *Network) DNSAddress() (string, error) {
 	_, ipnet, err := net.ParseCIDR(n.ServiceCIDR)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse service CIDR %s: %w", n.ServiceCIDR, err)
+		return "", fmt.Errorf("failed to parse service CIDR %q: %w", n.ServiceCIDR, err)
 	}
 
 	address := ipnet.IP.To4()
@@ -115,7 +121,7 @@ func (n *Network) DNSAddress() (string, error) {
 	}
 
 	if !ipnet.Contains(address) {
-		return "", fmt.Errorf("failed to calculate a valid DNS address: %s", address.String())
+		return "", fmt.Errorf("failed to calculate a valid DNS address: %q", address.String())
 	}
 
 	return address.String(), nil
@@ -131,7 +137,7 @@ func (n *Network) InternalAPIAddresses() ([]string, error) {
 
 	parsedCIDRs, err := utilnet.ParseCIDRs(cidrs)
 	if err != nil {
-		return nil, fmt.Errorf("can't parse service cidr to build internal API address: %w", err)
+		return nil, fmt.Errorf("can't parse service CIDR to build internal API address: %w", err)
 	}
 
 	stringifiedAddresses := make([]string, len(parsedCIDRs))

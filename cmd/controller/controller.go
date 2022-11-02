@@ -39,6 +39,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/component/controller"
 	"github.com/k0sproject/k0s/pkg/component/controller/clusterconfig"
 	"github.com/k0sproject/k0s/pkg/component/controller/leaderelector"
+	"github.com/k0sproject/k0s/pkg/component/controller/workerconfig"
 	"github.com/k0sproject/k0s/pkg/component/status"
 	"github.com/k0sproject/k0s/pkg/component/worker"
 	"github.com/k0sproject/k0s/pkg/config"
@@ -430,8 +431,18 @@ func (c *command) start(ctx context.Context) error {
 		c.ClusterComponents.Add(ctx, metrics)
 	}
 
-	if !slices.Contains(c.DisableComponents, constant.KubeletConfigComponentName) {
-		c.ClusterComponents.Add(ctx, controller.NewKubeletConfig(c.K0sVars, adminClientFactory))
+	if !slices.Contains(c.DisableComponents, constant.WorkerConfigComponentName) {
+		if !slices.Contains(c.DisableComponents, constant.KubeletConfigComponentName) {
+			reconciler, err := workerconfig.NewReconciler(c.K0sVars, c.NodeConfig.Spec, adminClientFactory)
+			if err != nil {
+				return err
+			}
+			c.ClusterComponents.Add(ctx, reconciler)
+		} else {
+			logrus.Warnf("Usage of deprecated component name %q, please switch to %q",
+				constant.KubeletConfigComponentName, constant.WorkerConfigComponentName,
+			)
+		}
 	}
 
 	if !slices.Contains(c.DisableComponents, constant.SystemRbacComponentName) {
