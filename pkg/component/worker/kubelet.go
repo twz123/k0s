@@ -134,9 +134,12 @@ func (k *Kubelet) Init(_ context.Context) error {
 func (k *Kubelet) Start(ctx context.Context) error {
 	cmd := "kubelet"
 
-	staticPodURL, err := k.StaticPods.ManifestURL()
-	if err != nil {
-		return err
+	var staticPodURL string
+	if k.StaticPods != nil {
+		var err error
+		if staticPodURL, err = k.StaticPods.ManifestURL(); err != nil {
+			return err
+		}
 	}
 
 	kubeletConfigData := kubeletConfig{
@@ -245,8 +248,8 @@ func (k *Kubelet) Stop() error {
 
 func (k *Kubelet) prepareLocalKubeletConfig(kubeletConfigData kubeletConfig) (string, error) {
 	preparedConfig := k.Configuration.DeepCopy()
-	preparedConfig.Authentication.X509.ClientCAFile = kubeletConfigData.ClientCAFile
-	preparedConfig.VolumePluginDir = kubeletConfigData.VolumePluginDir
+	preparedConfig.Authentication.X509.ClientCAFile = kubeletConfigData.ClientCAFile // filepath.Join(k.K0sVars.CertRootDir, "ca.crt")
+	preparedConfig.VolumePluginDir = kubeletConfigData.VolumePluginDir               // k.K0sVars.KubeletVolumePluginDir
 	preparedConfig.KubeReservedCgroup = kubeletConfigData.KubeReservedCgroup
 	preparedConfig.KubeletCgroups = kubeletConfigData.KubeletCgroups
 	preparedConfig.ResolverConfig = pointer.String(kubeletConfigData.ResolvConf)

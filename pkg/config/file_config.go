@@ -47,20 +47,6 @@ func (rules *ClientConfigLoadingRules) InitRuntimeConfig(k0sVars constant.CfgVar
 	return rules.writeConfig(yamlData, cfg.Spec.Storage)
 }
 
-// readRuntimeConfig returns the configuration from the runtime configuration file
-func (rules *ClientConfigLoadingRules) readRuntimeConfig() (clusterConfig *v1beta1.ClusterConfig, err error) {
-	if rules.RuntimeConfigPath == "" {
-		rules.RuntimeConfigPath = runtimeConfigPathDefault
-	}
-
-	config, err := rules.ParseRuntimeConfig()
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse config from %q: %w", rules.RuntimeConfigPath, err)
-	}
-
-	return config, err
-}
-
 // generic function that reads a config file, and returns a ClusterConfig object
 
 // ParseRuntimeConfig parses the `--config` flag and generates a config object
@@ -86,13 +72,13 @@ func (rules *ClientConfigLoadingRules) ParseRuntimeConfig() (*v1beta1.ClusterCon
 		// read config from runtime config
 		f, err := os.Open(rules.RuntimeConfigPath)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to open runtime config file: %w", err)
 		}
 		defer f.Close()
 
 		cfg, err = v1beta1.ConfigFromReader(f, storage)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to obtain runtime config from %s: %w", rules.RuntimeConfigPath, err)
 		}
 		return cfg, nil
 	}
@@ -100,7 +86,12 @@ func (rules *ClientConfigLoadingRules) ParseRuntimeConfig() (*v1beta1.ClusterCon
 	switch CfgFile {
 	// stdin input
 	case "-":
-		return v1beta1.ConfigFromReader(os.Stdin, storage)
+		cfg, err := v1beta1.ConfigFromReader(os.Stdin, storage)
+		if err != nil {
+			return nil, fmt.Errorf("failed to obtain config from standard input: %w", err)
+		}
+		return cfg, nil
+
 	case "":
 		// if no config is set, look for config in the default location
 		// if it does not exist there either, generate default config
@@ -114,18 +105,18 @@ func (rules *ClientConfigLoadingRules) ParseRuntimeConfig() (*v1beta1.ClusterCon
 
 		cfg, err = v1beta1.ConfigFromReader(f, storage)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to obtain config from %s: %w", constant.K0sConfigPathDefault, err)
 		}
 	default:
 		f, err := os.Open(CfgFile)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to open config file: %w", err)
 		}
 		defer f.Close()
 
 		cfg, err = v1beta1.ConfigFromReader(f, storage)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to obtain config from %s: %w", CfgFile, err)
 		}
 	}
 	if cfg.Spec.Storage.Type == v1beta1.KineStorageType && cfg.Spec.Storage.Kine == nil {
@@ -149,7 +140,7 @@ func (rules *ClientConfigLoadingRules) ParseRuntimeConfig() (*v1beta1.ClusterCon
 }
 
 // generate default config and return the config object
-func (rules *ClientConfigLoadingRules) generateDefaults(defaultStorage *v1beta1.StorageSpec) (config *v1beta1.ClusterConfig) {
+func (rules *ClientConfigLoadingRules) generateDefaults(defaultStorage *v1beta1.StorageSpec) *v1beta1.ClusterConfig {
 	logrus.Debugf("no config file given, using defaults")
 	return v1beta1.DefaultClusterConfig(defaultStorage)
 }

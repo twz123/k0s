@@ -63,7 +63,7 @@ func (c *ConfigGetter) FakeConfigFromFile() *v1beta1.ClusterConfig {
 		K0sVars:           c.k0sVars,
 	}
 
-	cfg, err := loadingRules.Load()
+	cfg, err := loadingRules.Load(context.TODO())
 	require.NoError(c.t, err, "failed to load fake config from file")
 	return cfg
 }
@@ -81,13 +81,13 @@ func (c *ConfigGetter) FakeAPIConfig() *v1beta1.ClusterConfig {
 		K0sVars:           c.k0sVars,
 	}
 
-	cfg, err := loadingRules.Load()
+	cfg, err := loadingRules.Load(context.TODO())
 	require.NoError(c.t, err, "failed to load cluster config")
 	return cfg
 }
 
 func (c *ConfigGetter) initRuntimeConfig() string {
-	cfg, err := v1beta1.ConfigFromString(c.YamlData, c.getStorageSpec())
+	cfg, err := v1beta1.ConfigFromString(c.YamlData, c.getStorageSpec()...)
 	require.NoError(c.t, err, "failed to parse config")
 
 	data, err := yaml.Marshal(&cfg)
@@ -101,7 +101,7 @@ func (c *ConfigGetter) initRuntimeConfig() string {
 }
 
 func (c *ConfigGetter) createFakeAPIConfig(client k0sv1beta1.K0sV1beta1Interface) {
-	cfg, err := v1beta1.ConfigFromString(c.YamlData, c.getStorageSpec())
+	cfg, err := v1beta1.ConfigFromString(c.YamlData, c.getStorageSpec()...)
 	require.NoError(c.t, err, "failed to parse config")
 
 	clusterConfigs := client.ClusterConfigs(constant.ClusterConfigNamespace)
@@ -112,14 +112,13 @@ func (c *ConfigGetter) createFakeAPIConfig(client k0sv1beta1.K0sV1beta1Interface
 	require.NoError(c.t, err, "failed to create clusterConfig in the API")
 }
 
-func (c *ConfigGetter) getStorageSpec() *v1beta1.StorageSpec {
-	var storage *v1beta1.StorageSpec
-
+func (c *ConfigGetter) getStorageSpec() []*v1beta1.StorageSpec {
 	if c.k0sVars.DefaultStorageType == "kine" {
-		storage = &v1beta1.StorageSpec{
+		return []*v1beta1.StorageSpec{{
 			Type: v1beta1.KineStorageType,
 			Kine: v1beta1.DefaultKineConfig(c.k0sVars.DataDir),
-		}
+		}}
 	}
-	return storage
+
+	return nil
 }
