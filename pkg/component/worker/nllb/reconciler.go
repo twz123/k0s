@@ -51,6 +51,7 @@ import (
 	"k8s.io/utils/pointer"
 
 	"github.com/sirupsen/logrus"
+	"go.uber.org/multierr"
 	"sigs.k8s.io/yaml"
 )
 
@@ -530,25 +531,24 @@ func (r *Reconciler) reconcile(c *reconcilerConfig, updates <-chan podStateUpdat
 }
 
 func (r *Reconciler) updateLoadBalancerConfig(c *reconcilerConfig, state *podState) error {
-	err := file.WriteAtomically(filepath.Join(c.envoyDir, "envoy.yaml"), 0444, func(file io.Writer) error {
-		bufferedWriter := bufio.NewWriter(file)
-		if err := envoyBootstrapConfig.Execute(bufferedWriter, state); err != nil {
-			return fmt.Errorf("failed to generate configuration: %w", err)
+	var errs error
+	for fileName, template := range map[string]*template.Template{
+		"envoy.yaml": envoyBootstrapConfig,
+		"cds.yaml":   envoyClustersConfig,
+	} {
+		err := file.WriteAtomically(filepath.Join(c.envoyDir, fileName), 0444, func(file io.Writer) error {
+			bufferedWriter := bufio.NewWriter(file)
+			if err := template.Execute(bufferedWriter, state); err != nil {
+				return fmt.Errorf("failed to render template: %w", err)
+			}
+			return bufferedWriter.Flush()
+		})
+		if err != nil {
+			errs = multierr.Append(errs, fmt.Errorf("failed to write %s: %w", fileName, err))
 		}
-		return bufferedWriter.Flush()
-	})
-
-	if err != nil {
-		return err
 	}
 
-	return file.WriteAtomically(filepath.Join(c.envoyDir, "cds.yaml"), 0444, func(file io.Writer) error {
-		bufferedWriter := bufio.NewWriter(file)
-		if err := envoyClustersConfig.Execute(bufferedWriter, state); err != nil {
-			return fmt.Errorf("failed to generate CDS configuration: %w", err)
-		}
-		return bufferedWriter.Flush()
-	})
+	return errs
 }
 
 // admin:
@@ -564,9 +564,8 @@ dynamic_resources:
   cds_config:
     path: /etc/envoy/cds.yaml
 
-{{- $localKonnectivityPort := .Shared.KonnectivityAgentBindPort -}}
-{{- $remoteKonnectivityPort := .LoadBalancer.KonnectivityServerPort }}
-
+{{ $localKonnectivityPort := .Shared.KonnectivityServerBindPort -}}
+{{- $remoteKonnectivityPort := .LoadBalancer.KonnectivityServerPort -}}
 static_resources:
   listeners:
   - name: apiserver
@@ -593,7 +592,7 @@ static_resources:
   {{- end }}
 `))
 
-var envoyClustersConfig = template.Must(template.New("cds.yaml").Parse(`
+var envoyClustersConfig = template.Must(template.New("Clusters").Parse(`
 {{- $localKonnectivityPort := .Shared.KonnectivityServerBindPort -}}
 {{- $remoteKonnectivityPort := .LoadBalancer.KonnectivityServerPort -}}
 resources:

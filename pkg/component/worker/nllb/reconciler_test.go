@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"text/template"
 
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/component/worker"
@@ -261,49 +262,80 @@ func (m *staticPodMock) Drop() {
 	m.Called()
 }
 
-func TestPodReconciler_EnvoyBootstrapConfig_Template(t *testing.T) {
-	var buf bytes.Buffer
-
-	for _, test := range []struct {
+func TestPodReconciler_EnvoyTemplates(t *testing.T) {
+	for _, tpl := range []struct {
 		name     string
-		expected int
-		servers  []hostPort
+		template *template.Template
+		check    func(t *testing.T, parsed jo, expected int)
 	}{
-		{"empty", 0, []hostPort{}},
-		{"one", 1, []hostPort{{"foo", 16}}},
-		{"two", 2, []hostPort{{"foo", 16}, {"bar", 17}}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			var state podState
-			state.Shared.LBAddr = net.IPv6loopback
-			state.LoadBalancer.UpstreamServers = test.servers
-			assert.NoError(t, envoyBootstrapConfig.Execute(&buf, &state))
-			t.Logf("rendered: %s", buf.String())
-
-			var parsed jo
-			require.NoError(t, yaml.Unmarshal(buf.Bytes(), &parsed), "invalid YAML in envoy config")
-
-			ip := parsed.o("static_resources").a("listeners").o(0).o("address").o("socket_address")["address"]
+		{"Bootstrap", envoyBootstrapConfig, func(t *testing.T, parsed jo, _ int) {
+			ip := parsed.o("static_resources").a("listeners").o(0).o("address").o("socket_address").obj["address"]
 			assert.Equal(t, "::1", ip)
+		}},
+		{"Clusters", envoyClustersConfig, func(t *testing.T, parsed jo, expected int) {
+			eps := parsed.a("resources").o(0).o("load_assignment").a("endpoints").o(0).a("lb_endpoints").arr
+			assert.Len(t, eps, expected)
+		}},
+	} {
+		t.Run(tpl.name, func(t *testing.T) {
+			for _, test := range []struct {
+				name     string
+				expected int
+				servers  []hostPort
+			}{
+				{"empty", 0, []hostPort{}},
+				{"one", 1, []hostPort{{"foo", 16}}},
+				{"two", 2, []hostPort{{"foo", 16}, {"bar", 17}}},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					var state podState
+					state.Shared.LBAddr = net.IPv6loopback
+					state.LoadBalancer.UpstreamServers = test.servers
+
+					var buf bytes.Buffer
+					require.NoError(t, tpl.template.Execute(&buf, &state))
+					t.Cleanup(func() {
+						if t.Failed() {
+							t.Logf("Rendered template: %s", buf.String())
+						}
+					})
+
+					parsed := jo{t: t}
+					require.NoError(t, yaml.Unmarshal(buf.Bytes(), &parsed.obj), "invalid YAML in envoy config")
+					tpl.check(t, parsed, test.expected)
+				})
+			}
 		})
 	}
 }
 
-type jo map[string]interface{}
-type ja []interface{}
+type jo struct {
+	t   *testing.T
+	obj map[string]any
+}
+
+type ja struct {
+	t   *testing.T
+	arr []any
+}
 
 func (o jo) o(key string) jo {
-	return jo(o[key].(map[string]interface{}))
+	o.t.Helper()
+	obj, ok := o.obj[key].(map[string]any)
+	require.True(o.t, ok, "cannot access object %q", key)
+	return jo{o.t, obj}
 }
 
 func (o jo) a(key string) ja {
-	return ja(o[key].([]interface{}))
+	o.t.Helper()
+	arr, ok := o.obj[key].([]any)
+	require.True(o.t, ok, "cannot access array %q", key)
+	return ja{o.t, arr}
 }
 
 func (a ja) o(key uint) jo {
-	return jo(a[key].(map[string]interface{}))
+	a.t.Helper()
+	obj, ok := a.arr[key].(map[string]any)
+	require.True(a.t, ok, "cannot access object %q", key)
+	return jo{a.t, obj}
 }
-
-// func (a ja) a(key uint) ja {
-// 	return ja(a[key].([]interface{}))
-// }
