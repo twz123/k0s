@@ -42,10 +42,10 @@ require (
 	github.com/vishvananda/netlink v1.1.1-0.20210330154013-f5de75959ad5
 	github.com/weaveworks/footloose v0.0.0-20210208164054-2862489574a3
 	github.com/zcalusic/sysinfo v0.0.0-20210905121133-6fa2f969a900
-	go.etcd.io/etcd/api/v3 v3.5.4
-	go.etcd.io/etcd/client/pkg/v3 v3.5.4
-	go.etcd.io/etcd/client/v3 v3.5.4
-	go.etcd.io/etcd/etcdutl/v3 v3.5.4
+	go.etcd.io/etcd/api/v3 v3.5.5
+	go.etcd.io/etcd/client/pkg/v3 v3.5.5
+	go.etcd.io/etcd/client/v3 v3.5.5
+	go.etcd.io/etcd/etcdutl/v3 v3.5.5
 	go.uber.org/zap v1.21.0
 	golang.org/x/crypto v0.0.0-20220411220226-7b82a4e95df4
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
@@ -96,6 +96,7 @@ require (
 	github.com/blang/semver v3.5.1+incompatible // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 // indirect
+	github.com/cenkalti/backoff/v4 v4.1.2 // indirect
 	github.com/census-instrumentation/opencensus-proto v0.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/chai2010/gettext-go v0.0.0-20160711120539-c6fed771bfd5 // indirect
@@ -235,11 +236,11 @@ require (
 	github.com/zmap/zcrypto v0.0.0-20210511125630-18f1e0152cfc // indirect
 	github.com/zmap/zlint/v3 v3.1.0 // indirect
 	go.etcd.io/bbolt v1.3.6 // indirect
-	go.etcd.io/etcd/client/v2 v2.305.4 // indirect
+	go.etcd.io/etcd/client/v2 v2.305.5 // indirect
 	go.etcd.io/etcd/etcdctl/v3 v3.5.4 // indirect
-	go.etcd.io/etcd/pkg/v3 v3.5.4 // indirect
-	go.etcd.io/etcd/raft/v3 v3.5.4 // indirect
-	go.etcd.io/etcd/server/v3 v3.5.4 // indirect
+	go.etcd.io/etcd/pkg/v3 v3.5.5 // indirect
+	go.etcd.io/etcd/raft/v3 v3.5.5 // indirect
+	go.etcd.io/etcd/server/v3 v3.5.5 // indirect
 	go.etcd.io/etcd/tests/v3 v3.5.4 // indirect
 	go.etcd.io/etcd/v3 v3.5.4 // indirect
 	go.opencensus.io v0.23.0 // indirect
@@ -248,6 +249,9 @@ require (
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.20.0 // indirect
 	go.opentelemetry.io/otel v1.3.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp v0.20.0 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/internal/retry v1.3.0 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.3.0 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.3.0 // indirect
 	go.opentelemetry.io/otel/metric v0.20.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.3.0 // indirect
 	go.opentelemetry.io/otel/sdk/export/metric v0.20.0 // indirect
