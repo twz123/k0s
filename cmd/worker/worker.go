@@ -30,8 +30,10 @@ import (
 	"github.com/k0sproject/k0s/pkg/component"
 	"github.com/k0sproject/k0s/pkg/component/status"
 	"github.com/k0sproject/k0s/pkg/component/worker"
+	workerconfig "github.com/k0sproject/k0s/pkg/component/worker/config"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/install"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -106,12 +108,16 @@ func (c *Command) Start(ctx context.Context) error {
 		return err
 	}
 
-	kubeletConfigClient, err := worker.LoadKubeletConfigClient(c.K0sVars)
+	kubeletKubeconfigPath := c.K0sVars.KubeletAuthConfigPath
+	workerConfig, err := (&workerconfig.Loader{
+		Kubeconfig: kubernetes.KubeconfigFromFile(kubeletKubeconfigPath),
+	}).Load(ctx, c.WorkerProfile)
 	if err != nil {
 		return err
 	}
 
 	componentManager := component.NewManager()
+
 	if runtime.GOOS == "windows" && c.CriSocket == "" {
 		return fmt.Errorf("windows worker needs to have external CRI")
 	}
@@ -127,18 +133,25 @@ func (c *Command) Start(ctx context.Context) error {
 		c.WorkerProfile = "default-windows"
 	}
 
-	componentManager.Add(ctx, &worker.Kubelet{
-		CRISocket:           c.CriSocket,
-		EnableCloudProvider: c.CloudProvider,
-		K0sVars:             c.K0sVars,
-		KubeletConfigClient: kubeletConfigClient,
-		LogLevel:            c.Logging["kubelet"],
-		Profile:             c.WorkerProfile,
-		Labels:              c.Labels,
-		Taints:              c.Taints,
-		ExtraArgs:           c.KubeletExtraArgs,
-		IPTablesMode:        c.WorkerOptions.IPTablesMode,
-	})
+	{
+		kubeletConfiguration, err := workerConfig.KubeletConfiguration()
+		if err != nil {
+			return fmt.Errorf("failed to obtain Kubelet configuration: %w", err)
+		}
+
+		componentManager.Add(ctx, &worker.Kubelet{
+			CRISocket:           c.CriSocket,
+			EnableCloudProvider: c.CloudProvider,
+			K0sVars:             c.K0sVars,
+			Kubeconfig:          kubeletKubeconfigPath,
+			Configuration:       *kubeletConfiguration,
+			LogLevel:            c.Logging["kubelet"],
+			Labels:              c.Labels,
+			Taints:              c.Taints,
+			ExtraArgs:           c.KubeletExtraArgs,
+			IPTablesMode:        c.WorkerOptions.IPTablesMode,
+		})
+	}
 
 	if runtime.GOOS == "windows" {
 		if c.TokenArg == "" {
@@ -201,7 +214,7 @@ func (c *Command) Start(ctx context.Context) error {
 
 	// Stop components
 	if err := componentManager.Stop(); err != nil {
-		logrus.WithError(err).Error("error while stoping component manager")
+		logrus.WithError(err).Error("error while stopping component manager")
 	}
 	return nil
 }
