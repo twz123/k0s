@@ -35,10 +35,10 @@ func IsValidLease(lease coordinationv1.Lease) bool {
 	return leaseExpiry.After(time.Now())
 }
 
-func GetControlPlaneNodeCount(ctx context.Context, kubeClient kubernetes.Interface) (uint, error) {
+func GetControlPlaneNodeCount(ctx context.Context, kubeClient kubernetes.Interface) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	var count uint
+	var count int
 	leases, err := kubeClient.CoordinationV1().Leases("kube-node-lease").List(ctx, v1.ListOptions{})
 	if err != nil {
 		return 0, err

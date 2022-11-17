@@ -52,8 +52,8 @@ type Konnectivity struct {
 
 	supervisor          *supervisor.Supervisor
 	uid                 int
-	serverCount         uint
-	serverCountChan     chan uint
+	serverCount         int
+	serverCountChan     chan int
 	stopFunc            context.CancelFunc
 	clusterConfig       *v1beta1.ClusterConfig
 	log                 *logrus.Entry
@@ -90,7 +90,7 @@ func (k *Konnectivity) Init(_ context.Context) error {
 // Run ..
 func (k *Konnectivity) Start(ctx context.Context) error {
 	// Buffered chan to send updates for the count of servers
-	k.serverCountChan = make(chan uint, 1)
+	k.serverCountChan = make(chan int, 1)
 
 	ctx, k.stopFunc = context.WithCancel(ctx)
 
@@ -150,7 +150,7 @@ func (k *Konnectivity) runServer(ctx context.Context) {
 			// restart only if the count actually changes and we've got the global config
 			if count != k.serverCount && k.clusterConfig != nil {
 				args := k.defaultArgs()
-				args["--server-count"] = strconv.FormatUint(uint64(count), 10)
+				args["--server-count"] = strconv.Itoa(count)
 				if args.Equals(previousArgs) {
 					logrus.Info("no changes detected for konnectivity-server")
 				}
@@ -204,7 +204,7 @@ type konnectivityAgentConfig struct {
 	AgentPort              int32
 	KASPort                int64
 	Image                  string
-	ServerCount            uint
+	ServerCount            int
 	PullPolicy             string
 	TunneledNetworkingMode bool
 }
@@ -270,7 +270,7 @@ func (k *Konnectivity) runLeaseCounter(ctx context.Context) {
 	}
 }
 
-func (k *Konnectivity) countLeaseHolders(ctx context.Context) (uint, error) {
+func (k *Konnectivity) countLeaseHolders(ctx context.Context) (int, error) {
 	client, err := k.KubeClientFactory.GetClient()
 	if err != nil {
 		return 0, err
