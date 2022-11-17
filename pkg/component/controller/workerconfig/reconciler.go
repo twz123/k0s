@@ -179,9 +179,15 @@ func (r *Reconciler) Start(context.Context) error {
 	reconcilersCtx, cancelReconcilers := context.WithCancel(context.Background())
 	var reconcilersDone sync.WaitGroup
 
+	// Will be locked during callbacks of the leader elector.
+	// TODO: Replace this with some "callback removal" procedure, once available.
+	var leaderElectorMu sync.Mutex
+
+	// Set to true once the reconciler gets stopped.
+	var stopCalled atomic.Bool
+
 	{ // set up stop facility
 		stopped := make(chan struct{})
-		var stopCalled atomic.Bool
 		started.stop = func() {
 			if stopCalled.Swap(true) {
 				return
@@ -190,6 +196,12 @@ func (r *Reconciler) Start(context.Context) error {
 
 			r.log.Debug("Stopping: Stop cleaner")
 			r.cleaner.stop()
+
+			// Acquire leader elector mutex to ensure that there are no
+			// concurrent leader elector callbacks still running that might want
+			// to write to the updates channel.
+			leaderElectorMu.Lock()
+			defer leaderElectorMu.Unlock()
 
 			r.log.Debug("Stopping: Canceling reconcilers")
 			close(updates)
@@ -208,6 +220,24 @@ func (r *Reconciler) Start(context.Context) error {
 		r.log.Info("Starting reconciliation loop")
 		r.runReconcileLoop(reconcilersCtx, updates, initialized.apply)
 	}()
+
+	r.leaderElector.AddAcquiredLeaseCallback(func() {
+		go func() {
+			leaderElectorMu.Lock()
+			defer leaderElectorMu.Unlock()
+			if !stopCalled.Load() {
+				updates <- func(s *snapshot) chan<- error {
+					done := make(chan error, 1)
+					r.log.Debug("Processing leader elector event")
+					go func() {
+						err := <-done
+						r.log.Debugf("Leader elector event processed: %v", err)
+					}()
+					return done
+				}
+			}
+		}()
+	})
 
 	r.state = started
 	return nil
