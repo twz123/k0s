@@ -227,13 +227,7 @@ func (r *Reconciler) Start(context.Context) error {
 			defer leaderElectorMu.Unlock()
 			if !stopCalled.Load() {
 				updates <- func(s *snapshot) chan<- error {
-					done := make(chan error, 1)
-					r.log.Debug("Processing leader elector event")
-					go func() {
-						err := <-done
-						r.log.Debugf("Leader elector event processed: %v", err)
-					}()
-					return done
+					return nil
 				}
 			}
 		}()

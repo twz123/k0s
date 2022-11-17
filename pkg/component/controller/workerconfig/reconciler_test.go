@@ -35,15 +35,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	kubeletv1beta1 "k8s.io/kubelet/config/v1beta1"
 	"k8s.io/utils/pointer"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"k8s.io/client-go/kubernetes/typed/core/v1/fake"
-	k8stesting "k8s.io/client-go/testing"
 	"sigs.k8s.io/yaml"
 )
 
@@ -55,7 +52,6 @@ type (
 
 func TestReconciler_Lifecycle(t *testing.T) {
 	cleaner := newMockCleaner()
-	clients := testutil.NewFakeClientFactory()
 	underTest, err := NewReconciler(
 		constant.GetConfig(t.TempDir()),
 		&k0sv1beta1.ClusterSpec{
@@ -65,7 +61,7 @@ func TestReconciler_Lifecycle(t *testing.T) {
 				ServiceCIDR:   "99.99.99.0/24",
 			},
 		},
-		clients,
+		testutil.NewFakeClientFactory(),
 		&leaderelector.Dummy{Leader: true},
 	)
 	require.NoError(t, err)
@@ -94,7 +90,6 @@ func TestReconciler_Lifecycle(t *testing.T) {
 	})
 
 	mockApplier := installMockApplier(t, underTest)
-	mockKubernetesEndpoints(t, clients)
 
 	stopTest := func() func(t *testing.T) {
 		var once sync.Once
@@ -161,7 +156,6 @@ func TestReconciler_Lifecycle(t *testing.T) {
 
 func TestReconciler_ResourceGeneration(t *testing.T) {
 	cleaner := newMockCleaner()
-	clients := testutil.NewFakeClientFactory()
 	underTest, err := NewReconciler(
 		constant.GetConfig(t.TempDir()),
 		&k0sv1beta1.ClusterSpec{
@@ -171,7 +165,7 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 				ServiceCIDR:   "99.99.99.0/24",
 			},
 		},
-		clients,
+		testutil.NewFakeClientFactory(),
 		&leaderelector.Dummy{Leader: true},
 	)
 	require.NoError(t, err)
@@ -183,7 +177,6 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 
 	require.NoError(t, underTest.Init(context.TODO()))
 
-	mockKubernetesEndpoints(t, clients)
 	mockApplier := installMockApplier(t, underTest)
 
 	require.NoError(t, underTest.Start(context.TODO()))
@@ -306,7 +299,6 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 func TestReconciler_ReconcilesOnChangesOnly(t *testing.T) {
 	cluster := k0sv1beta1.DefaultClusterConfig(nil)
 	cleaner := newMockCleaner()
-	clients := testutil.NewFakeClientFactory()
 	underTest, err := NewReconciler(
 		constant.GetConfig(t.TempDir()),
 		&k0sv1beta1.ClusterSpec{
@@ -316,7 +308,7 @@ func TestReconciler_ReconcilesOnChangesOnly(t *testing.T) {
 				ServiceCIDR:   "99.99.99.0/24",
 			},
 		},
-		clients,
+		testutil.NewFakeClientFactory(),
 		&leaderelector.Dummy{Leader: true},
 	)
 	require.NoError(t, err)
@@ -328,7 +320,6 @@ func TestReconciler_ReconcilesOnChangesOnly(t *testing.T) {
 
 	require.NoError(t, underTest.Init(context.TODO()))
 
-	mockKubernetesEndpoints(t, clients)
 	mockApplier := installMockApplier(t, underTest)
 
 	require.NoError(t, underTest.Start(context.TODO()))
@@ -490,6 +481,45 @@ func TestReconciler_ReconcileLoopClosesDoneChannels(t *testing.T) {
 	}
 }
 
+func TestReconciler_LeaderElection(t *testing.T) {
+	var le mockLeaderElector
+	cluster := k0sv1beta1.DefaultClusterConfig(nil)
+	cleaner := newMockCleaner()
+	underTest, err := NewReconciler(
+		constant.GetConfig(t.TempDir()),
+		&k0sv1beta1.ClusterSpec{
+			API: &k0sv1beta1.APISpec{},
+			Network: &k0sv1beta1.Network{
+				ClusterDomain: "test.local",
+				ServiceCIDR:   "99.99.99.0/24",
+			},
+		},
+		testutil.NewFakeClientFactory(),
+		&le,
+	)
+	require.NoError(t, err)
+	underTest.cleaner = cleaner
+
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
+	underTest.log = log
+
+	require.NoError(t, underTest.Init(context.TODO()))
+
+	mockApplier := installMockApplier(t, underTest)
+
+	require.NoError(t, underTest.Start(context.TODO()))
+	t.Cleanup(func() {
+		assert.NoError(t, underTest.Stop())
+	})
+
+	assert.NoError(t, underTest.Reconcile(context.TODO(), cluster))
+
+	applied := mockApplier.expectApply(t, nil)
+	le.activate()
+	assert.NotEmpty(t, applied(), "Expected some resources to be applied")
+}
+
 func requireKubelet(t *testing.T, resources []*unstructured.Unstructured, name string) string {
 	configMap := find(t, "No ConfigMap found with name "+name,
 		resources, func(resource *unstructured.Unstructured) bool {
@@ -634,35 +664,6 @@ func installMockApplier(t *testing.T, underTest *Reconciler) *mockApplier {
 	return &mockApplier
 }
 
-func mockKubernetesEndpoints(t *testing.T, clients testutil.FakeClientFactory) {
-	client, err := clients.GetClient()
-	require.NoError(t, err)
-
-	ep := corev1.Endpoints{
-		ObjectMeta: metav1.ObjectMeta{ResourceVersion: t.Name()},
-		Subsets: []corev1.EndpointSubset{{
-			Addresses: []corev1.EndpointAddress{
-				{IP: "127.10.10.1"},
-			},
-			Ports: []corev1.EndpointPort{
-				{Name: "https", Port: 6443, Protocol: corev1.ProtocolTCP},
-			},
-		}},
-	}
-
-	epList := corev1.EndpointsList{
-		ListMeta: metav1.ListMeta{ResourceVersion: t.Name()},
-		Items:    []corev1.Endpoints{ep},
-	}
-
-	_, err = client.CoreV1().Endpoints("default").Create(context.TODO(), ep.DeepCopy(), metav1.CreateOptions{})
-	require.NoError(t, err)
-
-	clients.Client.CoreV1().(*fake.FakeCoreV1).PrependReactor("list", "endpoints", func(k8stesting.Action) (bool, runtime.Object, error) {
-		return true, epList.DeepCopy(), nil
-	})
-}
-
 type mockCleaner struct {
 	mu    sync.Cond
 	state atomic.Value
@@ -727,4 +728,40 @@ func (m *mockCleaner) stop() {
 		panic(fmt.Sprintf("unexpected call to stop(): %v", state))
 	}
 	m.mu.Broadcast()
+}
+
+type mockLeaderElector struct {
+	mu       sync.Mutex
+	leader   bool
+	acquired []func()
+}
+
+func (e *mockLeaderElector) activate() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.leader {
+		e.leader = true
+		for _, fn := range e.acquired {
+			fn()
+		}
+	}
+}
+
+func (e *mockLeaderElector) IsLeader() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.leader
+}
+
+func (e *mockLeaderElector) AddAcquiredLeaseCallback(fn func()) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.acquired = append(e.acquired, fn)
+	if e.leader {
+		fn()
+	}
+}
+
+func (e *mockLeaderElector) AddLostLeaseCallback(func()) {
+	panic("not expected to be called in tests")
 }
