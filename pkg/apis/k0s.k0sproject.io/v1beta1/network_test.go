@@ -234,9 +234,8 @@ func (s *NetworkSuite) TestValidation() {
 		n.ClusterDomain = ".invalid-cluster-domain"
 
 		errors := n.Validate()
-		s.NotNil(errors)
 		if s.Len(errors, 1) {
-			s.Contains(errors[0].Error(), `invalid clusterDomain ".invalid-cluster-domain"`)
+			s.ErrorContains(errors[0], `invalid clusterDomain ".invalid-cluster-domain"`)
 		}
 	})
 
@@ -277,9 +276,8 @@ func (s *NetworkSuite) TestValidation() {
 		n.KubeProxy.Mode = "foobar"
 
 		errors := n.Validate()
-		s.NotNil(errors)
 		if s.Len(errors, 1) {
-			s.Equal(errors[0].Error(), "unsupported mode foobar for kubeProxy config")
+			s.ErrorContains(errors[0], "unsupported mode foobar for kubeProxy config")
 		}
 	})
 

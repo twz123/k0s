@@ -117,7 +117,6 @@ func (c *Command) Start(ctx context.Context) error {
 	}
 
 	componentManager := component.NewManager()
-
 	if runtime.GOOS == "windows" && c.CriSocket == "" {
 		return fmt.Errorf("windows worker needs to have external CRI")
 	}
@@ -133,25 +132,23 @@ func (c *Command) Start(ctx context.Context) error {
 		c.WorkerProfile = "default-windows"
 	}
 
-	{
-		kubeletConfiguration, err := workerConfig.KubeletConfiguration()
-		if err != nil {
-			return fmt.Errorf("failed to obtain Kubelet configuration: %w", err)
-		}
-
-		componentManager.Add(ctx, &worker.Kubelet{
-			CRISocket:           c.CriSocket,
-			EnableCloudProvider: c.CloudProvider,
-			K0sVars:             c.K0sVars,
-			Kubeconfig:          kubeletKubeconfigPath,
-			Configuration:       *kubeletConfiguration,
-			LogLevel:            c.Logging["kubelet"],
-			Labels:              c.Labels,
-			Taints:              c.Taints,
-			ExtraArgs:           c.KubeletExtraArgs,
-			IPTablesMode:        c.WorkerOptions.IPTablesMode,
-		})
+	kubeletConfiguration, err := workerConfig.KubeletConfiguration()
+	if err != nil {
+		return fmt.Errorf("failed to obtain Kubelet configuration: %w", err)
 	}
+
+	componentManager.Add(ctx, &worker.Kubelet{
+		CRISocket:           c.CriSocket,
+		EnableCloudProvider: c.CloudProvider,
+		K0sVars:             c.K0sVars,
+		Kubeconfig:          kubeletKubeconfigPath,
+		Configuration:       *kubeletConfiguration,
+		LogLevel:            c.Logging["kubelet"],
+		Labels:              c.Labels,
+		Taints:              c.Taints,
+		ExtraArgs:           c.KubeletExtraArgs,
+		IPTablesMode:        c.WorkerOptions.IPTablesMode,
+	})
 
 	if runtime.GOOS == "windows" {
 		if c.TokenArg == "" {

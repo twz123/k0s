@@ -60,9 +60,10 @@ in are properly formatted and valued as k0s will not validate those flags.
 
 Kubelet configuration fields can also be set via a worker profiles. Worker
 profiles are defined in the main k0s.yaml and are used to generate ConfigMaps
-containing a custom `kubelet.config.k8s.io` object. To see examples of k0s.yaml
-containing worker profiles: [go here](./configuration.md#specworkerprofiles).
-For a list of possible Kubelet configuration fields: [go
+containing a custom `kubelet.config.k8s.io/v1beta1/KubeletConfiguration` object.
+To see examples of k0s.yaml containing worker profiles: [go
+here](./configuration.md#specworkerprofiles). For a list of possible Kubelet
+configuration fields: [go
 here](https://kubernetes.io/docs/reference/config-api/kubelet-config.v1beta1/).
 
 ## IPTables Mode

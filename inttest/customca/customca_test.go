@@ -54,7 +54,6 @@ func (s *CustomCASuite) TestK0sGetsUp() {
 	s.Require().NoError(err)
 
 	s.NoError(s.InitController(0))
-	s.Require().NoError(s.WaitForKubeAPI(s.ControllerNode(0)))
 
 	s.NoError(s.RunWorkersWithToken(token))
 

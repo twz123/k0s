@@ -921,6 +921,7 @@ func nodeValuePatchAdd(ctx context.Context, node string, kc *kubernetes.Clientse
 }
 
 // WaitForKubeAPI waits until we see kube API online on given node.
+// Timeouts with error return in 5 mins
 func (s *FootlooseSuite) WaitForKubeAPI(node string, k0sKubeconfigArgs ...string) error {
 	s.T().Logf("waiting for kube api to start on node %s", node)
 	return Poll(s.Context(), func(context.Context) (done bool, err error) {

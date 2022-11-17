@@ -21,13 +21,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/k0sproject/k0s/inttest/common"
-
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
-
 	"github.com/stretchr/testify/suite"
+	corev1 "k8s.io/api/core/v1"
+
+	"github.com/k0sproject/k0s/inttest/common"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 type MetricScraperSuite struct {
@@ -56,7 +55,7 @@ func (s *MetricScraperSuite) waitForPushgateway() error {
 	}
 
 	return wait.PollImmediate(time.Second, 2*time.Minute, func() (done bool, err error) {
-		pods, err := kc.CoreV1().Pods("k0s-system").List(s.Context(), metav1.ListOptions{})
+		pods, err := kc.CoreV1().Pods("k0s-system").List(s.Context(), v1.ListOptions{})
 		if err != nil {
 			return false, nil
 		}
