@@ -28,27 +28,29 @@ import (
 	"time"
 
 	"github.com/k0sproject/k0s/internal/testutil"
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
+	k0sv1beta1 "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/component/controller/leaderelector"
 	"github.com/k0sproject/k0s/pkg/constant"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	u "k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	kubeletv1beta1 "k8s.io/kubelet/config/v1beta1"
+	"k8s.io/utils/pointer"
 
 	"github.com/sirupsen/logrus"
-	"sigs.k8s.io/yaml"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/client-go/kubernetes/typed/core/v1/fake"
 	k8stesting "k8s.io/client-go/testing"
+	"sigs.k8s.io/yaml"
 )
 
 type (
-	obj = map[string]any
-	arr = []any
+	obj           = map[string]any
+	arr           = []any
+	kubeletConfig = kubeletv1beta1.KubeletConfiguration
 )
 
 func TestReconciler_Lifecycle(t *testing.T) {
@@ -56,9 +58,9 @@ func TestReconciler_Lifecycle(t *testing.T) {
 	clients := testutil.NewFakeClientFactory()
 	underTest, err := NewReconciler(
 		constant.GetConfig(t.TempDir()),
-		&v1beta1.ClusterSpec{
-			API: &v1beta1.APISpec{},
-			Network: &v1beta1.Network{
+		&k0sv1beta1.ClusterSpec{
+			API: &k0sv1beta1.APISpec{},
+			Network: &k0sv1beta1.Network{
 				ClusterDomain: "test.local",
 				ServiceCIDR:   "99.99.99.0/24",
 			},
@@ -119,12 +121,12 @@ func TestReconciler_Lifecycle(t *testing.T) {
 
 	t.Run("reconciles", func(t *testing.T) {
 		applied := mockApplier.expectApply(t, nil)
-		require.NoError(t, underTest.Reconcile(context.TODO(), &v1beta1.ClusterConfig{
-			Spec: &v1beta1.ClusterSpec{
-				Network: &v1beta1.Network{
+		require.NoError(t, underTest.Reconcile(context.TODO(), &k0sv1beta1.ClusterConfig{
+			Spec: &k0sv1beta1.ClusterSpec{
+				Network: &k0sv1beta1.Network{
 					ClusterDomain: "reconcile.local",
 				},
-				Images: &v1beta1.ClusterImages{
+				Images: &k0sv1beta1.ClusterImages{
 					DefaultPullPolicy: string(corev1.PullNever),
 				},
 			},
@@ -162,9 +164,9 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 	clients := testutil.NewFakeClientFactory()
 	underTest, err := NewReconciler(
 		constant.GetConfig(t.TempDir()),
-		&v1beta1.ClusterSpec{
-			API: &v1beta1.APISpec{},
-			Network: &v1beta1.Network{
+		&k0sv1beta1.ClusterSpec{
+			API: &k0sv1beta1.APISpec{},
+			Network: &k0sv1beta1.Network{
 				ClusterDomain: "test.local",
 				ServiceCIDR:   "99.99.99.0/24",
 			},
@@ -191,40 +193,40 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 
 	applied := mockApplier.expectApply(t, nil)
 
-	require.NoError(t, underTest.Reconcile(context.TODO(), &v1beta1.ClusterConfig{
-		Spec: &v1beta1.ClusterSpec{
-			WorkerProfiles: v1beta1.WorkerProfiles{{
+	require.NoError(t, underTest.Reconcile(context.TODO(), &k0sv1beta1.ClusterConfig{
+		Spec: &k0sv1beta1.ClusterSpec{
+			WorkerProfiles: k0sv1beta1.WorkerProfiles{{
 				Name:   "profile_XXX",
 				Config: []byte(`{"authentication": {"anonymous": {"enabled": true}}}`),
 			}, {
 				Name:   "profile_YYY",
 				Config: []byte(`{"authentication": {"webhook": {"cacheTTL": "15s"}}}`),
 			}},
-			Network: &v1beta1.Network{
+			Network: &k0sv1beta1.Network{
 				ClusterDomain: "test.local",
 				ServiceCIDR:   "10.254.254.0/24",
 			},
-			Images: &v1beta1.ClusterImages{
+			Images: &k0sv1beta1.ClusterImages{
 				DefaultPullPolicy: string(corev1.PullNever),
 			},
 		},
 	}))
 
-	configMaps := map[string]func(t *testing.T, expected obj){
-		"worker-config-default-1.25": func(t *testing.T, expected obj) {
-			require.NoError(t, u.SetNestedField(expected, true, "cgroupsPerQOS"))
+	configMaps := map[string]func(t *testing.T, expected *kubeletConfig){
+		"worker-config-default-1.25": func(t *testing.T, expected *kubeletConfig) {
+			expected.CgroupsPerQOS = pointer.Bool(true)
 		},
 
-		"worker-config-default-windows-1.25": func(t *testing.T, expected obj) {
-			require.NoError(t, u.SetNestedField(expected, false, "cgroupsPerQOS"))
+		"worker-config-default-windows-1.25": func(t *testing.T, expected *kubeletConfig) {
+			expected.CgroupsPerQOS = pointer.Bool(false)
 		},
 
-		"worker-config-profile_XXX-1.25": func(t *testing.T, expected obj) {
-			require.NoError(t, u.SetNestedField(expected, true, "authentication", "anonymous", "enabled"))
+		"worker-config-profile_XXX-1.25": func(t *testing.T, expected *kubeletConfig) {
+			expected.Authentication.Anonymous.Enabled = pointer.Bool(true)
 		},
 
-		"worker-config-profile_YYY-1.25": func(t *testing.T, expected obj) {
-			require.NoError(t, u.SetNestedField(expected, "15s", "authentication", "webhook", "cacheTTL"))
+		"worker-config-profile_YYY-1.25": func(t *testing.T, expected *kubeletConfig) {
+			expected.Authentication.Webhook.CacheTTL = metav1.Duration{Duration: 15 * time.Second}
 		},
 	}
 
@@ -234,7 +236,7 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 	for name, mod := range configMaps {
 		t.Run(name, func(t *testing.T) {
 			kubelet := requireKubelet(t, appliedResources, name)
-			expected := makeKubeletConfig(t, func(expected obj) { mod(t, expected) })
+			expected := makeKubeletConfig(t, func(expected *kubeletConfig) { mod(t, expected) })
 			assert.JSONEq(t, expected, kubelet)
 		})
 	}
@@ -243,12 +245,12 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 
 	t.Run("Role", func(t *testing.T) {
 		role := find(t, "Expected to find a Role named "+rbacName,
-			appliedResources, func(resource *u.Unstructured) bool {
+			appliedResources, func(resource *unstructured.Unstructured) bool {
 				return resource.GetKind() == "Role" && resource.GetName() == rbacName
 			},
 		)
 
-		rules, ok, err := u.NestedSlice(role.Object, "rules")
+		rules, ok, err := unstructured.NestedSlice(role.Object, "rules")
 		require.NoError(t, err)
 		require.True(t, ok, "No rules field")
 		require.Len(t, rules, 1, "Expected a single rule")
@@ -256,7 +258,7 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 		rule, ok := rules[0].(obj)
 		require.True(t, ok, "Invalid rule")
 
-		resourceNames, ok, err := u.NestedStringSlice(rule, "resourceNames")
+		resourceNames, ok, err := unstructured.NestedStringSlice(rule, "resourceNames")
 		require.NoError(t, err)
 		require.True(t, ok, "No resourceNames field")
 
@@ -268,12 +270,12 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 
 	t.Run("RoleBinding", func(t *testing.T) {
 		binding := find(t, "Expected to find a RoleBinding named "+rbacName,
-			appliedResources, func(resource *u.Unstructured) bool {
+			appliedResources, func(resource *unstructured.Unstructured) bool {
 				return resource.GetKind() == "RoleBinding" && resource.GetName() == rbacName
 			},
 		)
 
-		roleRef, ok, err := u.NestedMap(binding.Object, "roleRef")
+		roleRef, ok, err := unstructured.NestedMap(binding.Object, "roleRef")
 		if assert.NoError(t, err) && assert.True(t, ok, "No roleRef field") {
 			expected := obj{
 				"apiGroup": "rbac.authorization.k8s.io",
@@ -284,7 +286,7 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 			assert.Equal(t, expected, roleRef)
 		}
 
-		subjects, ok, err := u.NestedSlice(binding.Object, "subjects")
+		subjects, ok, err := unstructured.NestedSlice(binding.Object, "subjects")
 		if assert.NoError(t, err) && assert.True(t, ok, "No subjects field") {
 			expected := arr{obj{
 				"apiGroup": "rbac.authorization.k8s.io",
@@ -302,14 +304,14 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 }
 
 func TestReconciler_ReconcilesOnChangesOnly(t *testing.T) {
-	cluster := v1beta1.DefaultClusterConfig(nil)
+	cluster := k0sv1beta1.DefaultClusterConfig(nil)
 	cleaner := newMockCleaner()
 	clients := testutil.NewFakeClientFactory()
 	underTest, err := NewReconciler(
 		constant.GetConfig(t.TempDir()),
-		&v1beta1.ClusterSpec{
-			API: &v1beta1.APISpec{},
-			Network: &v1beta1.Network{
+		&k0sv1beta1.ClusterSpec{
+			API: &k0sv1beta1.APISpec{},
+			Network: &k0sv1beta1.Network{
 				ClusterDomain: "test.local",
 				ServiceCIDR:   "99.99.99.0/24",
 			},
@@ -342,7 +344,7 @@ func TestReconciler_ReconcilesOnChangesOnly(t *testing.T) {
 		assert.NotEmpty(t, applied, "Expected some resources to be applied")
 
 		for _, r := range appliedResources {
-			pp, found, err := u.NestedString(r.Object, "data", "defaultImagePullPolicy")
+			pp, found, err := unstructured.NestedString(r.Object, "data", "defaultImagePullPolicy")
 			assert.NoError(t, err)
 			if found {
 				t.Logf("%s/%s: %s", r.GetKind(), r.GetName(), pp)
@@ -365,19 +367,19 @@ func TestReconciler_ReconcilesOnChangesOnly(t *testing.T) {
 	}
 
 	// Set some value that affects worker configs.
-	cluster.Spec.WorkerProfiles = v1beta1.WorkerProfiles{{Name: "foo", Config: json.RawMessage(`{"nodeLeaseDurationSeconds": 1}`)}}
+	cluster.Spec.WorkerProfiles = k0sv1beta1.WorkerProfiles{{Name: "foo", Config: json.RawMessage(`{"nodeLeaseDurationSeconds": 1}`)}}
 	t.Run("first_time_apply", expectApply)
 	t.Run("second_time_cached", expectCached)
 
 	// Change that value, so that configs need to be reapplied.
-	cluster.Spec.WorkerProfiles = v1beta1.WorkerProfiles{{Name: "foo", Config: json.RawMessage(`{"nodeLeaseDurationSeconds": 2}`)}}
+	cluster.Spec.WorkerProfiles = k0sv1beta1.WorkerProfiles{{Name: "foo", Config: json.RawMessage(`{"nodeLeaseDurationSeconds": 2}`)}}
 	t.Run("third_time_apply_fails", expectApplyButFail)
 
 	// After an error, expect a reapplication in any case.
 	t.Run("fourth_time_apply", expectApply)
 
 	// Even if the last successfully applied config is restored, expect it to be applied after a failure.
-	cluster.Spec.WorkerProfiles = v1beta1.WorkerProfiles{{Name: "foo", Config: json.RawMessage(`{"nodeLeaseDurationSeconds": 1}`)}}
+	cluster.Spec.WorkerProfiles = k0sv1beta1.WorkerProfiles{{Name: "foo", Config: json.RawMessage(`{"nodeLeaseDurationSeconds": 1}`)}}
 	t.Run("fifth_time_apply", expectApply)
 	t.Run("sixth_time_cached", expectCached)
 }
@@ -394,9 +396,9 @@ func TestReconciler_Cleaner_CleansUpManifestsOnInit(t *testing.T) {
 	t.Run("leaves_unrelated_files_alone", func(t *testing.T) {
 		underTest, err := NewReconciler(
 			k0sVars,
-			&v1beta1.ClusterSpec{
-				API: &v1beta1.APISpec{},
-				Network: &v1beta1.Network{
+			&k0sv1beta1.ClusterSpec{
+				API: &k0sv1beta1.APISpec{},
+				Network: &k0sv1beta1.Network{
 					ClusterDomain: "test.local",
 					ServiceCIDR:   "99.99.99.0/24",
 				},
@@ -417,9 +419,9 @@ func TestReconciler_Cleaner_CleansUpManifestsOnInit(t *testing.T) {
 	t.Run("prunes_empty_folder", func(t *testing.T) {
 		underTest, err := NewReconciler(
 			k0sVars,
-			&v1beta1.ClusterSpec{
-				API: &v1beta1.APISpec{},
-				Network: &v1beta1.Network{
+			&k0sv1beta1.ClusterSpec{
+				API: &k0sv1beta1.APISpec{},
+				Network: &k0sv1beta1.Network{
 					ClusterDomain: "test.local",
 					ServiceCIDR:   "99.99.99.0/24",
 				},
@@ -488,13 +490,13 @@ func TestReconciler_ReconcileLoopClosesDoneChannels(t *testing.T) {
 	}
 }
 
-func requireKubelet(t *testing.T, resources []*u.Unstructured, name string) string {
+func requireKubelet(t *testing.T, resources []*unstructured.Unstructured, name string) string {
 	configMap := find(t, "No ConfigMap found with name "+name,
-		resources, func(resource *u.Unstructured) bool {
+		resources, func(resource *unstructured.Unstructured) bool {
 			return resource.GetKind() == "ConfigMap" && resource.GetName() == name
 		},
 	)
-	kubeletConfigYAML, ok, err := u.NestedString(configMap.Object, "data", "kubeletConfiguration")
+	kubeletConfigYAML, ok, err := unstructured.NestedString(configMap.Object, "data", "kubeletConfiguration")
 	require.NoError(t, err)
 	require.True(t, ok, "No data.kubeletConfiguration field")
 	kubeletConfigJSON, err := yaml.YAMLToJSONStrict([]byte(kubeletConfigYAML))
@@ -513,73 +515,35 @@ func find[T any](t *testing.T, failureMessage string, items []T, filter func(T) 
 	return item
 }
 
-func makeKubeletConfig(t *testing.T, mods ...func(obj)) string {
-	kubelet := u.Unstructured{
-		Object: obj{
-			"apiVersion": "kubelet.config.k8s.io/v1beta1",
-			"authentication": obj{
-				"anonymous": obj{},
-				"webhook": obj{
-					"cacheTTL": "0s",
-				},
-				"x509": obj{},
-			},
-			"authorization": obj{
-				"webhook": obj{
-					"cacheAuthorizedTTL":   "0s",
-					"cacheUnauthorizedTTL": "0s",
-				},
-			},
-			"clusterDNS": arr{
-				"99.99.99.10",
-			},
-			"clusterDomain":                    "test.local",
-			"cpuManagerReconcilePeriod":        "0s",
-			"eventRecordQPS":                   0,
-			"evictionPressureTransitionPeriod": "0s",
-			"failSwapOn":                       false,
-			"fileCheckFrequency":               "0s",
-			"httpCheckFrequency":               "0s",
-			"imageMinimumGCAge":                "0s",
-			"kind":                             "KubeletConfiguration",
-			"logging": obj{
-				"flushFrequency": 0,
-				"options": obj{
-					"json": obj{
-						"infoBufferSize": "0",
-					},
-				},
-				"verbosity": 0,
-			},
-			"memorySwap":                      obj{},
-			"nodeStatusReportFrequency":       "0s",
-			"nodeStatusUpdateFrequency":       "0s",
-			"rotateCertificates":              true,
-			"runtimeRequestTimeout":           "0s",
-			"serverTLSBootstrap":              true,
-			"shutdownGracePeriod":             "0s",
-			"shutdownGracePeriodCriticalPods": "0s",
-			"streamingConnectionIdleTimeout":  "0s",
-			"syncFrequency":                   "0s",
-			"tlsCipherSuites": arr{
-				"TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
-				"TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
-				"TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305",
-				"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
-				"TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
-				"TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305",
-				"TLS_RSA_WITH_AES_128_GCM_SHA256",
-				"TLS_RSA_WITH_AES_256_GCM_SHA384",
-			},
-			"volumeStatsAggPeriod": "0s",
+func makeKubeletConfig(t *testing.T, mods ...func(*kubeletConfig)) string {
+	kubeletConfig := kubeletConfig{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: kubeletv1beta1.SchemeGroupVersion.String(),
+			Kind:       "KubeletConfiguration",
+		},
+		ClusterDNS:         []string{"99.99.99.10"},
+		ClusterDomain:      "test.local",
+		EventRecordQPS:     pointer.Int32(0),
+		FailSwapOn:         pointer.Bool(false),
+		RotateCertificates: true,
+		ServerTLSBootstrap: true,
+		TLSCipherSuites: []string{
+			"TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+			"TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+			"TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305",
+			"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+			"TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+			"TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305",
+			"TLS_RSA_WITH_AES_128_GCM_SHA256",
+			"TLS_RSA_WITH_AES_256_GCM_SHA384",
 		},
 	}
 
 	for _, mod := range mods {
-		mod(kubelet.Object)
+		mod(&kubeletConfig)
 	}
 
-	json, err := kubelet.MarshalJSON()
+	json, err := json.Marshal(&kubeletConfig)
 	require.NoError(t, err)
 	return string(json)
 }
