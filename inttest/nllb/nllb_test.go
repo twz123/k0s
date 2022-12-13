@@ -59,7 +59,11 @@ func (s *suite) TestNodeLocalLoadBalancing() {
 			Spec: &v1beta1.ClusterSpec{
 				Network: func() *v1beta1.Network {
 					network := v1beta1.DefaultNetwork()
-					network.NodeLocalLoadBalancing.Enabled = true
+					network.NodeLocalLoadBalancing = &v1beta1.NodeLocalLoadBalancing{
+						Enabled: true,
+						Type:    v1beta1.NllbTypeHAProxy,
+						HAProxy: v1beta1.DefaultHAProxy(),
+					}
 					return network
 				}(),
 
@@ -261,7 +265,7 @@ func (s *suite) checkClusterReadiness(ctx context.Context, clients *kubernetes.C
 			if err := wait.PollImmediateUntilWithContext(ctx, 1*time.Second, func(ctx context.Context) (bool, error) {
 				ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 				defer cancel()
-				logs, err := clients.CoreV1().Pods(kubeSystem).GetLogs(nllbPodName, &corev1.PodLogOptions{}).Stream(ctx)
+				logs, err := clients.CoreV1().Pods(kubeSystem).GetLogs(nllbPodName, &corev1.PodLogOptions{Container: "nllb"}).Stream(ctx)
 				if err != nil {
 					if logsErr == nil || err.Error() != logsErr.Error() {
 						s.T().Logf("No logs yet from %s/%s: %v", kubeSystem, nllbPodName, err)

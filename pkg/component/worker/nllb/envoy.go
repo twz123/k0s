@@ -248,7 +248,7 @@ func writeEnvoyConfigFiles(params *envoyParams, filesParams *envoyFilesParams) e
 }
 
 func (e *envoyProxy) provision() error {
-	manifest := makePodManifest(&e.config.envoyParams, &e.config.envoyPodParams)
+	manifest := makeEnvoyPodManifest(&e.config.envoyParams, &e.config.envoyPodParams)
 	if err := e.pod.SetManifest(manifest); err != nil {
 		return err
 	}
@@ -257,7 +257,7 @@ func (e *envoyProxy) provision() error {
 	return nil
 }
 
-func makePodManifest(params *envoyParams, podParams *envoyPodParams) corev1.Pod {
+func makeEnvoyPodManifest(params *envoyParams, podParams *envoyPodParams) corev1.Pod {
 	return corev1.Pod{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Pod"},
 		ObjectMeta: metav1.ObjectMeta{

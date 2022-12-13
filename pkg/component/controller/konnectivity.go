@@ -268,19 +268,19 @@ func (k *Konnectivity) writeKonnectivityAgent() error {
 	if k.clusterConfig.Spec.Network != nil {
 		nllb := k.clusterConfig.Spec.Network.NodeLocalLoadBalancing
 		if nllb.IsEnabled() {
+			// FIXME: Transitions from non-node-local load balanced to
+			// node-local load balanced setups will be problematic: The
+			// controller will update the DaemonSet with localhost, but the
+			// worker nodes won't reconcile their state (yet) and need to be
+			// restarted manually in order to start their load balancer.
+			// Transitions in the other direction suffer from the same
+			// limitation, but that will be less grave, as the node-local load
+			// balancers will remain operational until the next node restart and
+			// the agents will stay connected.
+
 			switch nllb.Type {
 			case v1beta1.NllbTypeEnvoyProxy:
 				k.log.Debugf("Enabling node-local load balancing via %s", nllb.Type)
-
-				// FIXME: Transitions from non-node-local load balanced to
-				// node-local load balanced setups will be problematic: The
-				// controller will update the DaemonSet with localhost, but the
-				// worker nodes won't reconcile their state (yet) and need to be
-				// restarted manually in order to start their load balancer.
-				// Transitions in the other direction suffer from the same
-				// limitation, but that will be less grave, as the node-local
-				// load balancers will remain operational until the next node
-				// restart and the agents will stay connected.
 
 				// The node-local load balancer will run in the host network, so
 				// the agent needs to do the same in order to use it.
@@ -298,6 +298,27 @@ func (k *Konnectivity) writeKonnectivityAgent() error {
 					cfg.ProxyServerPort = uint16(*nllb.EnvoyProxy.KonnectivityServerBindPort)
 				} else {
 					cfg.ProxyServerPort = uint16(*v1beta1.DefaultEnvoyProxy().KonnectivityServerBindPort)
+				}
+
+			case v1beta1.NllbTypeHAProxy:
+				k.log.Debugf("Enabling node-local load balancing via %s", nllb.Type)
+
+				// The node-local load balancer will run in the host network, so
+				// the agent needs to do the same in order to use it.
+				cfg.HostNetwork = true
+
+				// FIXME: This is not exactly on par with the way it's
+				// implemented on the worker side, i.e. there's no fallback if
+				// localhost doesn't resolve to a loopback address. But this
+				// would require some shenanigans to pull in node-specific
+				// values here. A possible solution would be to convert the
+				// konnectivity agent to a static Pod as well.
+				cfg.ProxyServerHost = "localhost"
+
+				if nllb.HAProxy.KonnectivityServerBindPort != nil {
+					cfg.ProxyServerPort = uint16(*nllb.HAProxy.KonnectivityServerBindPort)
+				} else {
+					cfg.ProxyServerPort = uint16(*v1beta1.DefaultHAProxy().KonnectivityServerBindPort)
 				}
 			default:
 				return fmt.Errorf("unsupported node-local load balancer type: %q", k.clusterConfig.Spec.Network.NodeLocalLoadBalancing.Type)

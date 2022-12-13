@@ -447,8 +447,9 @@ spec:
                           nodes. Default: false'
                         type: boolean
                       envoyProxy:
-                        description: envoyProxy contains configuration options related
-                          to the "EnvoyProxy" type of load balancing.
+                        description: 'envoyProxy contains configuration options related
+                          to the "EnvoyProxy" type of load balancing. NOTE: Currently
+                          unsupported on ARMv7!'
                         properties:
                           apiServerBindPort:
                             default: 7443
@@ -490,12 +491,56 @@ spec:
                             minimum: 1
                             type: integer
                         type: object
+                      haproxy:
+                        description: haproxy contains configuration options related
+                          to the "HAProxy" type of load balancing.
+                        properties:
+                          apiServerBindPort:
+                            default: 7443
+                            description: 'apiServerBindPort is the port number on
+                              which to bind the HAProxy load balancer for the Kubernetes
+                              API server to on a worker''s loopback interface. This
+                              must be a valid port number, 0 < x < 65536. Default:
+                              7443'
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
+                            type: integer
+                          image:
+                            description: image specifies the OCI image that's being
+                              used to run HAProxy.
+                            properties:
+                              image:
+                                type: string
+                              version:
+                                type: string
+                            type: object
+                          imagePullPolicy:
+                            description: imagePullPolicy specifies the pull policy
+                              being used to run HAProxy. Defaults to the default image
+                              pull policy.
+                            enum:
+                            - Always
+                            - Never
+                            - IfNotPresent
+                            type: string
+                          konnectivityServerBindPort:
+                            default: 7132
+                            description: 'konnectivityServerBindPort is the port number
+                              on which to bind the HAProxy load balancer for the konnectivity
+                              server to on a worker''s loopback interface. This must
+                              be a valid port number, 0 < x < 65536. Default: 7132'
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
+                            type: integer
+                        type: object
                       type:
                         description: type indicates the type of the node-local load
-                          balancer to deploy. Currently, the only supported type is
-                          "EnvoyProxy".
+                          balancer to deploy.
                         enum:
                         - EnvoyProxy
+                        - HAProxy
                         type: string
                     type: object
                   podCIDR:
