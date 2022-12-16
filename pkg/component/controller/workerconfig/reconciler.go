@@ -56,8 +56,28 @@ import (
 
 type resources = []*unstructured.Unstructured
 
-// Reconciler maintains ConfigMaps that hold configuration to be
-// used on k0s worker nodes, depending on their selected worker profile.
+// Reconciler maintains ConfigMaps that hold configuration to be used on k0s
+// worker nodes, depending on their selected worker profile.
+//
+// The Reconciler reacts to three sources:
+//   - Changes to the ClusterConfig pushed via [Reconciler.Reconcile].
+//   - Changes to the API server IP addresses by watching the default/kubernetes
+//     Endpoints resource.
+//   - Becoming the leader via registering to the leader elector.
+//
+// Reconciliation is modeled in an MPSC style queue. The inputs produce updates
+// to the desired state by sending those to the "updates" channel. A single
+// goroutine ([Reconciler.runReconcileLoop]) will receive those updates from the
+// channel, apply them to the desired state and perform the actual
+// reconciliation, if required. Both the producers as well as the consumer may
+// be interrupted asynchronously. As a consequence, the sender side of the
+// update channel has to react to multiple signals. Once to the cancellation of
+// the caller of the send operation. This is modeled via the usual context
+// parameter. On the other hand, senders have to react to the termination of the
+// consumer, too, since no updates won't be processed anymore in that case. This
+// is modeled via the "stopped" channel, which will be closed when the
+// reconciliation loop exits, typically as a result of [Reconciler.Stop] being
+// called.
 type Reconciler struct {
 	log logrus.FieldLogger
 
@@ -247,6 +267,10 @@ func (r *Reconciler) Start(context.Context) error {
 //
 // Any failed reconciliations will be retried roughly every minute, until they
 // succeed.
+//
+// This models the consuming side of an MPSC queue. Multiple update sources (the
+// producers) may enqueue updates to be processed by the reconciliation loop
+// (the single consumer).
 func (r *Reconciler) runReconcileLoop(ctx context.Context, updates <-chan updateFunc, apply func(context.Context, resources) error) {
 	var desiredState, reconciledState snapshot
 
@@ -344,7 +368,24 @@ func (r *Reconciler) Reconcile(ctx context.Context, cluster *v1beta1.ClusterConf
 
 var errStoppedConcurrently = errors.New("stopped concurrently")
 
-// reconcile enqueues the given update and awaits its reconciliation.
+// reconcile enqueues the given update and waits for it to be processed,
+// returning the outcome.
+//
+// This models the producing side of an MPSC queue. Multiple sources (the
+// producers) may enqueue updates to the desired state to be processed by the
+// reconciliation loop (the single consumer). Whenever the update has been
+// processed, the result of that operation is returned, i.e. if there was an
+// error or the update has been processed without problems.
+//
+// This function may be interrupted either:
+//   - By the caller via the context, i.e. the caller is no longer willing to
+//     wait for the update to be processed. In this case, an error that's
+//     wrapping the context's error is being returned.
+//   - Or by the Reconciler's [Reconciler.Stop] method (via the "stopped"
+//     channel), which indicates that the reconciliation loop has been
+//     terminated asynchronously and no further updates will be processed. In
+//     this case, an error that's wrapping [errStoppedConcurrently] is being
+//     returned.
 func reconcile(ctx context.Context, updates chan<- updateFunc, stopped <-chan struct{}, update func(*snapshot)) error {
 	recoDone := make(chan error, 1)
 
