@@ -464,7 +464,7 @@ spec:
                             type: integer
                           image:
                             description: image specifies the OCI image that's being
-                              used to run Envoy.
+                              used for the Envoy Pod.
                             properties:
                               image:
                                 type: string
@@ -473,8 +473,8 @@ spec:
                             type: object
                           imagePullPolicy:
                             description: imagePullPolicy specifies the pull policy
-                              being used to run Envoy. Defaults to the default image
-                              pull policy.
+                              being used for the Envoy Pod. Defaults to the default
+                              image pull policy.
                             enum:
                             - Always
                             - Never
@@ -536,8 +536,9 @@ spec:
                             type: integer
                         type: object
                       type:
+                        default: EnvoyProxy
                         description: type indicates the type of the node-local load
-                          balancer to deploy.
+                          balancer to deploy on worker nodes.
                         enum:
                         - EnvoyProxy
                         - HAProxy
