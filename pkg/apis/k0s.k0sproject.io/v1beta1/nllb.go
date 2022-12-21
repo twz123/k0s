@@ -89,8 +89,16 @@ func (n *NodeLocalLoadBalancing) setDefaults() {
 	if n.Type == "" {
 		n.Type = NllbTypeEnvoyProxy
 	}
-	if n.EnvoyProxy == nil {
-		n.EnvoyProxy = DefaultEnvoyProxy()
+
+	switch n.Type {
+	case NllbTypeEnvoyProxy:
+		if n.EnvoyProxy == nil {
+			n.EnvoyProxy = DefaultEnvoyProxy()
+		}
+	case NllbTypeHAProxy:
+		if n.HAProxy == nil {
+			n.HAProxy = DefaultHAProxy()
+		}
 	}
 }
 
