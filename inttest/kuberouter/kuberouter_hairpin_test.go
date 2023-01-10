@@ -17,11 +17,23 @@ limitations under the License.
 package kuberouter
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/k0sproject/k0s/inttest/common"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/remotecommand"
+	"k8s.io/client-go/util/exec"
+
+	"github.com/avast/retry-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -39,7 +51,10 @@ func (s *KubeRouterHairpinSuite) TestK0sGetsUp() {
 	s.PutFile(s.ControllerNode(0), "/var/lib/k0s/manifests/test/service.yaml", serviceManifest)
 	s.Require().NoError(s.RunWorkers())
 
-	kc, err := s.KubeClient("controller0", "")
+	restConfig, err := s.GetKubeConfig("controller0")
+	s.Require().NoError(err)
+
+	kc, err := kubernetes.NewForConfig(restConfig)
 	s.Require().NoError(err)
 
 	err = s.WaitForNodeReady("worker0", kc)
@@ -56,13 +71,8 @@ func (s *KubeRouterHairpinSuite) TestK0sGetsUp() {
 	s.Require().NoError(err)
 
 	s.T().Run("check hairpin mode", func(t *testing.T) {
-		// All done via SSH as it's much simpler :)
-		// e.g. execing via client-go is super complex and would require too much wiring
-		ssh, err := s.SSH(s.ControllerNode(0))
-		require.NoError(t, err)
-		defer ssh.Disconnect()
+		ctx := s.Context()
 
-		const curl = "k0s kc exec -n default hairpin-pod -c curl -- curl"
 		for _, test := range []struct {
 			dnsName string
 			desc    string
@@ -77,13 +87,76 @@ func (s *KubeRouterHairpinSuite) TestK0sGetsUp() {
 			},
 		} {
 			t.Run(test.desc, func(t *testing.T) {
-				output, err := ssh.ExecWithOutput(s.Context(), fmt.Sprintf("%s --connect-timeout 5 -sS http://%s", curl, test.dnsName))
-				if !assert.NoError(t, err) || !assert.Contains(t, output, "Thank you for using nginx.") {
-					t.Log(output)
-				}
+				err := retry.Do(
+					func() error {
+						ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+						defer cancel()
+						stdout, stderr, err := execCurl(ctx, t, restConfig, fmt.Sprintf("http://%s", test.dnsName))
+
+						if err != nil {
+							// retry all errors that don't indicate a curl failure
+							var exitErr exec.ExitError
+							if !errors.As(err, &exitErr) {
+								return err
+							}
+
+							if stdout != "" {
+								t.Log("Stdout:", stdout)
+							}
+							if stderr != "" {
+								t.Log("Stderr:", stderr)
+							}
+							assert.Fail(t, err.Error())
+							return nil
+						}
+
+						assert.Empty(t, stderr, "Something was written to stderr")
+						assert.Contains(t, stdout, "Thank you for using nginx.")
+						return nil
+					},
+					retry.Context(ctx),
+					retry.LastErrorOnly(true),
+					retry.OnRetry(func(attempt uint, err error) {
+						t.Logf("Failed to invoke curl in attempt #%d, retrying after backoff: %v", attempt+1, err)
+					}),
+				)
+
+				assert.NoError(t, err, "Failed to invoke curl")
 			})
 		}
 	})
+}
+
+func execCurl(ctx context.Context, t *testing.T, restConfig *rest.Config, url string) (stdout, stderr string, _ error) {
+	client, err := kubernetes.NewForConfig(restConfig)
+	require.NoError(t, err)
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	parameterCodec := runtime.NewParameterCodec(scheme)
+
+	req := client.CoreV1().RESTClient().Post().
+		Resource("pods").SubResource("exec").
+		Namespace("default").Name("hairpin-pod").
+		VersionedParams(&corev1.PodExecOptions{
+			Container: "curl",
+			Command:   []string{"curl", "--connect-timeout", "5", "-sS", url},
+			Stdout:    true,
+			Stderr:    true,
+		}, parameterCodec)
+
+	exec, err := remotecommand.NewSPDYExecutor(restConfig, "POST", req.URL())
+	require.NoError(t, err)
+
+	var outBytes bytes.Buffer
+	var errBytes bytes.Buffer
+
+	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdout: &outBytes,
+		Stderr: &errBytes,
+	})
+
+	return outBytes.String(), errBytes.String(), err
 }
 
 func TestKubeRouterHairpinSuite(t *testing.T) {
