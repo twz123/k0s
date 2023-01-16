@@ -90,7 +90,10 @@ func (k *Kine) Init(_ context.Context) error {
 	}
 
 	k.bypassClient, err = etcd.NewClientWithConfig(clientv3.Config{
-		Endpoints: []string{fmt.Sprintf("unix://%s", k.K0sVars.KineSocketPath)},
+		Endpoints: []string{(&url.URL{
+			Scheme: "unix", OmitHost: true,
+			Path: filepath.ToSlash(k.K0sVars.KineSocketPath),
+		}).String()},
 	})
 	if err != nil {
 		return fmt.Errorf("can't create bypass etcd client: %w", err)
@@ -103,6 +106,10 @@ func (k *Kine) Start(ctx context.Context) error {
 	logrus.Info("Starting kine")
 	logrus.Debugf("datasource: %s", k.Config.DataSource)
 	k.ctx = ctx
+	sockURL := url.URL{
+		Scheme: "unix", OmitHost: true,
+		Path: filepath.ToSlash(k.K0sVars.KineSocketPath),
+	}
 	k.supervisor = supervisor.Supervisor{
 		Name:    "kine",
 		BinPath: assets.BinPath("kine", k.K0sVars.BinDir),
@@ -110,7 +117,7 @@ func (k *Kine) Start(ctx context.Context) error {
 		RunDir:  k.K0sVars.RunDir,
 		Args: []string{
 			fmt.Sprintf("--endpoint=%s", k.Config.DataSource),
-			fmt.Sprintf("--listen-address=unix://%s", k.K0sVars.KineSocketPath),
+			fmt.Sprintf("--listen-address=%s", &sockURL),
 		},
 		UID: k.uid,
 		GID: k.gid,
