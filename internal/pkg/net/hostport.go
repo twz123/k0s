@@ -52,38 +52,39 @@ func ParseHostPort(hostPort string) (*HostPort, error) {
 }
 
 func ParseHostPortWithDefault(hostPort string, defaultPort uint16) (*HostPort, error) {
-	var port uint16
 	host, portStr, err := net.SplitHostPort(hostPort)
 	if err != nil {
 		addrErr := &net.AddrError{}
 		if errors.As(err, &addrErr) {
 			if defaultPort != 0 && addrErr.Err == "missing port in address" {
-				host = addrErr.Addr
-				port = defaultPort
-			} else {
-				return nil, errors.New(addrErr.Err)
-			}
-		} else {
-			return nil, err
-		}
-	} else {
-		parsed, err := strconv.ParseUint(portStr, 10, 16)
-		if err != nil {
-			switch {
-			case errors.Is(err, strconv.ErrSyntax):
-				err = fmt.Errorf("port is not a positive number: %q", portStr)
-			case errors.Is(err, strconv.ErrRange):
-				err = fmt.Errorf("port is out of range: %s", portStr)
-			default:
-				err = fmt.Errorf("invalid port: %q: %w", portStr, err)
+				return NewHostPort(addrErr.Addr, defaultPort)
 			}
 
-			return nil, err
+			return nil, errors.New(addrErr.Err)
 		}
-		port = uint16(parsed)
+
+		return nil, err
 	}
 
-	return NewHostPort(host, port)
+	return ParseHostAndPort(host, portStr)
+}
+
+func ParseHostAndPort(host, port string) (*HostPort, error) {
+	parsed, err := strconv.ParseUint(port, 10, 16)
+	if err != nil {
+		switch {
+		case errors.Is(err, strconv.ErrSyntax):
+			err = fmt.Errorf("port is not a positive number: %q", port)
+		case errors.Is(err, strconv.ErrRange):
+			err = fmt.Errorf("port is out of range: %s", port)
+		default:
+			err = fmt.Errorf("failed to parse port: %q: %w", port, err)
+		}
+
+		return nil, err
+	}
+
+	return NewHostPort(host, uint16(parsed))
 }
 
 func (h *HostPort) String() string {

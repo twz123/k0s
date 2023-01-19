@@ -119,12 +119,12 @@ func NewReconciler(
 			dir:        filepath.Join(runtimeDir, "envoy"),
 			staticPods: staticPods,
 		}
-	case v1beta1.NllbTypeHAProxy:
-		loadBalancer = &haproxy{
-			log:        logrus.WithFields(logrus.Fields{"component": "nllb.haproxy"}),
-			dir:        filepath.Join(runtimeDir, "haproxy"),
-			staticPods: staticPods,
-		}
+	// case v1beta1.NllbTypeHAProxy:
+	// 	loadBalancer = &haproxy{
+	// 		log:        logrus.WithFields(logrus.Fields{"component": "nllb.haproxy"}),
+	// 		rootDir:    filepath.Join(runtimeDir, "haproxy"),
+	// 		staticPods: staticPods,
+	// 	}
 	default:
 		return nil, fmt.Errorf("unsupported node-local load balancing type: %q", workerProfile.NodeLocalLoadBalancing.Type)
 	}
