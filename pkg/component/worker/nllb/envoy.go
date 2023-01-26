@@ -181,7 +181,7 @@ func (e *envoyProxy) getAPIServerAddress() (*k0snet.HostPort, error) {
 	return k0snet.NewHostPort(e.config.bindIP.String(), e.config.apiServerBindPort)
 }
 
-func (e *envoyProxy) updateAPIServers(apiServers []k0snet.HostPort) error {
+func (e *envoyProxy) updateAPIServers(_ context.Context, apiServers []k0snet.HostPort) error {
 	if e.config == nil {
 		return errors.New("not yet started")
 	}

@@ -520,8 +520,8 @@ func (m *backendMock) stop() {
 	m.Called()
 }
 
-func (m *backendMock) updateAPIServers(apiServers []net.HostPort) error {
-	args := m.Called(apiServers)
+func (m *backendMock) updateAPIServers(ctx context.Context, apiServers []net.HostPort) error {
+	args := m.Called(ctx, apiServers)
 	return args.Error(0)
 }
 

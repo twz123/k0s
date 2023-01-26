@@ -86,7 +86,7 @@ type backend interface {
 	start(ctx context.Context, profile workerconfig.Profile, apiServers []k0snet.HostPort) error
 
 	getAPIServerAddress() (*k0snet.HostPort, error)
-	updateAPIServers([]k0snet.HostPort) error
+	updateAPIServers(context.Context, []k0snet.HostPort) error
 
 	stop()
 }
@@ -119,12 +119,12 @@ func NewReconciler(
 			dir:        filepath.Join(runtimeDir, "envoy"),
 			staticPods: staticPods,
 		}
-	// case v1beta1.NllbTypeHAProxy:
-	// 	loadBalancer = &haproxy{
-	// 		log:        logrus.WithFields(logrus.Fields{"component": "nllb.haproxy"}),
-	// 		rootDir:    filepath.Join(runtimeDir, "haproxy"),
-	// 		staticPods: staticPods,
-	// 	}
+	case v1beta1.NllbTypeHAProxy:
+		loadBalancer = &haproxy{
+			log:        logrus.WithFields(logrus.Fields{"component": "nllb.haproxy"}),
+			rootDir:    filepath.Join(runtimeDir, "haproxy"),
+			staticPods: staticPods,
+		}
 	default:
 		return nil, fmt.Errorf("unsupported node-local load balancing type: %q", workerProfile.NodeLocalLoadBalancing.Type)
 	}
@@ -334,14 +334,15 @@ func (r *Reconciler) runReconcileLoop(ctx context.Context) {
 		}
 
 		if slices.Equal(desiredAPIServers, actualAPIServers) {
+			r.log.Debug("API server addresses are up to date: %s", desiredAPIServers)
 			continue
 		}
 
-		if err := r.loadBalancer.updateAPIServers(desiredAPIServers); err != nil {
+		if err := r.loadBalancer.updateAPIServers(ctx, slices.Clone(desiredAPIServers)); err != nil {
 			r.log.WithError(err).Error("Failed to update API server addresses")
 		} else {
 			actualAPIServers = desiredAPIServers
-			r.log.Info("Updated API server addresses")
+			r.log.Info("Updated API server addresses: %s", actualAPIServers)
 		}
 	}
 }

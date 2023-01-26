@@ -20,7 +20,6 @@ import (
 	"bufio"
 	"context"
 	"io"
-	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -28,6 +27,7 @@ import (
 	"testing"
 
 	k0snet "github.com/k0sproject/k0s/internal/pkg/net"
+	"github.com/sirupsen/logrus"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,10 +45,8 @@ func TestWriteHAProxyConfigFiles(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			configDir := t.TempDir()
-			reloadDir := t.TempDir()
 			underTest := haproxy{
 				configDir: configDir,
-				reloadDir: reloadDir,
 				config: &haproxyConfig{
 					haproxyParams: haproxyParams{
 						bindIP:            net.IPv6loopback,
@@ -88,20 +86,17 @@ func TestWriteHAProxyConfigFiles(t *testing.T) {
 
 				assert.Equal(t, test.expected, numAPIServers)
 			})
-
-			t.Run("reload", func(t *testing.T) {
-				stat, err := os.Stat(filepath.Join(reloadDir, "reload"))
-				require.NoError(t, err)
-				assert.False(t, stat.IsDir())
-				assert.Equal(t, fs.FileMode(0666), stat.Mode())
-				assert.Equal(t, int64(0), stat.Size())
-			})
 		})
 	}
 }
 
 func Test_ShowServersState_Success(t *testing.T) {
-	output := strings.Join([]string{
+	newHostPort := func(host string, port uint16) k0snet.HostPort {
+		hostPort, err := k0snet.NewHostPort(host, port)
+		require.NoError(t, err)
+		return *hostPort
+	}
+	serversState := strings.Join([]string{
 		"1",
 		"# be_id be_name srv_id srv_name srv_addr srv_op_state srv_admin_state srv_uweight srv_iweight srv_time_since_last_change srv_check_status srv_check_result srv_check_health srv_check_state srv_agent_state bk_f_forced_id srv_f_forced_id srv_fqdn srv_port srvrecord srv_use_ssl srv_check_port srv_check_addr srv_agent_addr srv_agent_port",
 		"3 upstream_apiservers 1 apiserver-0 10.81.146.113 2 0 1 1 10787 6 3 4 6 0 0 0 - 6443 - 0 0 - - 0",
@@ -113,43 +108,32 @@ func Test_ShowServersState_Success(t *testing.T) {
 		"",
 		"",
 	}, "\n")
+	expectedUpstreamAPIServers := map[string]serverState{
+		"apiserver-0": {newHostPort("10.81.146.113", 6443), false, true},
+		"apiserver-1": {newHostPort("10.81.146.184", 6443), false, true},
+		"apiserver-2": {newHostPort("10.81.146.254", 6443), false, true},
+	}
+	expectedUpstreamKonnectivityServers := map[string]serverState{
+		"konnectivity-server-0": {newHostPort("10.81.146.113", 8132), false, false},
+		"konnectivity-server-1": {newHostPort("10.81.146.184", 8132), false, false},
+		"konnectivity-server-2": {newHostPort("10.81.146.254", 8132), false, false},
+	}
 
 	sendRaw := func(_ context.Context, cmd []byte) (io.ReadCloser, error) {
 		require.Equal(t, []byte("show servers state\n"), cmd)
-		return io.NopCloser(strings.NewReader(output)), nil
+		return io.NopCloser(strings.NewReader(serversState)), nil
 	}
 
-	underTest := haproxySender{sendRaw}
+	underTest := haproxySender{
+		logrus.StandardLogger().WithField("test", t.Name()),
+		sendRaw,
+	}
 
 	servers, err := underTest.ShowServersState(context.TODO())
 	require.NoError(t, err)
 	assert.Len(t, servers, 2)
-
-	backendServers := servers["upstream_apiservers"]
-	if assert.Len(t, backendServers, 3) {
-		assert.Equal(t, backendServers[0].name, "apiserver-0")
-		assert.Equal(t, backendServers[0].address.Host(), "10.81.146.113")
-		assert.Equal(t, backendServers[0].address.Port(), uint16(6443))
-		assert.Equal(t, backendServers[1].name, "apiserver-1")
-		assert.Equal(t, backendServers[1].address.Host(), "10.81.146.184")
-		assert.Equal(t, backendServers[1].address.Port(), uint16(6443))
-		assert.Equal(t, backendServers[2].name, "apiserver-2")
-		assert.Equal(t, backendServers[2].address.Host(), "10.81.146.254")
-		assert.Equal(t, backendServers[2].address.Port(), uint16(6443))
-	}
-
-	backendServers = servers["upstream_konnectivity_servers"]
-	if assert.Len(t, backendServers, 3) {
-		assert.Equal(t, backendServers[0].name, "konnectivity-server-0")
-		assert.Equal(t, backendServers[0].address.Host(), "10.81.146.113")
-		assert.Equal(t, backendServers[0].address.Port(), uint16(8132))
-		assert.Equal(t, backendServers[1].name, "konnectivity-server-1")
-		assert.Equal(t, backendServers[1].address.Host(), "10.81.146.184")
-		assert.Equal(t, backendServers[1].address.Port(), uint16(8132))
-		assert.Equal(t, backendServers[2].name, "konnectivity-server-2")
-		assert.Equal(t, backendServers[2].address.Host(), "10.81.146.254")
-		assert.Equal(t, backendServers[2].address.Port(), uint16(8132))
-	}
+	assert.Equal(t, expectedUpstreamAPIServers, servers["upstream_apiservers"])
+	assert.Equal(t, expectedUpstreamKonnectivityServers, servers["upstream_konnectivity_servers"])
 }
 
 func Test_ShowServersState_UnknownCommand(t *testing.T) {
@@ -168,7 +152,10 @@ func Test_ShowServersState_UnknownCommand(t *testing.T) {
 		return io.NopCloser(strings.NewReader(output)), nil
 	}
 
-	underTest := haproxySender{sendRaw}
+	underTest := haproxySender{
+		logrus.StandardLogger().WithField("test", t.Name()),
+		sendRaw,
+	}
 
 	servers, err := underTest.ShowServersState(context.TODO())
 	if assert.Error(t, err) {

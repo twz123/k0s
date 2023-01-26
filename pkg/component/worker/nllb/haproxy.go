@@ -22,11 +22,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
 	"net"
-	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"text/template"
@@ -45,6 +44,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/utils/pointer"
 
 	"github.com/sirupsen/logrus"
@@ -60,13 +60,14 @@ type haproxy struct {
 
 	runDir    string // The run directory for the haproxy pod.
 	configDir string // Directory in which the haproxy config files are stored.
-	reloadDir string // Directory on which the haproxy reloader will operate.
 
 	pod    worker.StaticPod
 	config *haproxyConfig
+
+	reconcileMu sync.Mutex
 }
 
-// var _ backend = (*haproxy)(nil)
+var _ backend = (*haproxy)(nil)
 
 // haproxyParams holds common parameters that are shared between all reconcilable parts.
 type haproxyParams struct {
@@ -106,8 +107,7 @@ type haproxyConfig struct {
 }
 
 const (
-	haproxyCfgFile          = "haproxy.cfg"
-	haproxyReloadMarkerFile = "reload"
+	haproxyCfgFile = "haproxy.cfg"
 )
 
 type batch []func() error
@@ -117,7 +117,6 @@ func (b *batch) Add(f func() error) { *b = append(*b, f) }
 func (h *haproxy) init(ctx context.Context) error {
 	h.runDir = filepath.Join(h.rootDir, "run")
 	h.configDir = filepath.Join(h.rootDir, "config")
-	h.reloadDir = filepath.Join(h.rootDir, "reload")
 
 	if err := dir.Init(h.rootDir, 0700); err != nil {
 		return err
@@ -127,9 +126,6 @@ func (h *haproxy) init(ctx context.Context) error {
 		return err
 	}
 	if err := dir.Init(h.configDir, 0755); err != nil {
-		return err
-	}
-	if err := dir.Init(h.reloadDir, 0777); err != nil {
 		return err
 	}
 
@@ -224,74 +220,233 @@ func (h *haproxy) updateAPIServers(ctx context.Context, apiServers []k0snet.Host
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reconcileErr = h.reconcileHAProxy(ctx, apiServers)
+		for {
+			var ok bool
+			ok, reconcileErr = h.reconcileHAProxy(ctx, apiServers)
+			if reconcileErr == nil && !ok {
+				select {
+				case <-ctx.Done():
+					reconcileErr = ctx.Err()
+				case <-time.After(1 * time.Second):
+					continue
+				}
+			}
+			return
+		}
 	}()
 
 	wg.Wait()
 	return multierr.Append(filesErr, reconcileErr)
 }
 
-func (h *haproxy) reconcileHAProxy(ctx context.Context, apiServers []k0snet.HostPort) error {
-	var sender haproxySender = func(ctx context.Context, cmd []byte) (io.ReadCloser, error) {
-		return sendToUnixSocket(ctx, filepath.Join(h.runDir, "haproxy.sock"), cmd)
-	}
+func (h *haproxy) reconcileHAProxy(ctx context.Context, apiServers []k0snet.HostPort) (bool, error) {
+	sender := haproxySender{h.log, func(ctx context.Context, cmd []byte) (io.ReadCloser, error) {
+		return sendToUNIXSocket(ctx, filepath.Join(h.runDir, "haproxy.sock"), cmd)
+	}}
 
-	servers, err := sender.DumpServers(ctx)
+	servers, err := sender.ShowServersState(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	var batch batch
 
-	upstreamAPIServers := servers["upstream_apiservers"]
-	for _, server := range upstreamAPIServers {
-		idx := slices.IndexFunc(apiServers, func(apiServer k0snet.HostPort) bool {
-			return apiServer == server.address
+	// Calculate changes to API server backend
+	addrsToAdd := slices.Clone(apiServers)
+	for server, state := range servers["upstream_apiservers"] {
+		server := server
+
+		idx := slices.IndexFunc(addrsToAdd, func(candidate k0snet.HostPort) bool {
+			return candidate == state.addr
 		})
-		if idx < 0 {
+
+		if idx >= 0 {
+			upToDate := true
+
+			if !state.checkEnabled {
+				upToDate = false
+				h.log.Debugf("Enabling health checks for API server address %s", &state.addr)
+				batch.Add(func() error {
+					err := sender.EnableHealth(ctx, "upstream_apiservers", server)
+					if err != nil {
+						return fmt.Errorf("while enabling health checks for upstream_apiservers/%s: %w", server, err)
+					}
+					return nil
+				})
+			}
+
+			if state.maint {
+				upToDate = false
+				h.log.Debugf("Enabling API server address %s", &state.addr)
+				batch.Add(func() error {
+					err := sender.SetServerState(ctx, "upstream_apiservers", server, "ready")
+					if err != nil {
+						return fmt.Errorf("while putting upstream_apiservers/%s into ready state: %w", server, err)
+					}
+					return nil
+				})
+			}
+
+			if upToDate {
+				h.log.Debugf("API server address %s up to date", &state.addr)
+			}
+
+			addrsToAdd = slices.Delete(addrsToAdd, idx, idx+1)
+			continue
+		}
+
+		h.log.Debugf("Removing API server address %s", &state.addr)
+		if !state.maint {
 			batch.Add(func() error {
-				server := "FIXME"
-				err := sender.AddServer(ctx, "upstream_apiservers", server)
+				// The server must be put in maintenance mode prior to its deletion.
+				err := sender.SetServerState(ctx, "upstream_apiservers", server, "maint")
 				if err != nil {
-					return fmt.Errorf("while reconciling upstream_apiservers/%s: %w", server, err)
+					return fmt.Errorf("while putting upstream_apiservers/%s into maintenance state: %w", server, err)
+				}
+				return nil
+			})
+		}
+
+		batch.Add(func() error {
+			_, err := sender.DeleteServer(ctx, "upstream_apiservers", server)
+			if err != nil {
+				return fmt.Errorf("while deleting upstream_apiservers/%s: %w", server, err)
+			}
+			return nil
+		})
+	}
+	for _, addr := range addrsToAdd {
+		h.log.Debugf("Adding API server address %s", &addr)
+		server := names.SimpleNameGenerator.GenerateName("apiserver-")
+		batch.Add(func() error {
+			err := sender.AddServer(ctx, "upstream_apiservers", server, addr.String(), "check")
+			if err != nil {
+				return fmt.Errorf("while adding upstream_apiservers/%s: %w", server, err)
+			}
+			return nil
+		})
+		batch.Add(func() error {
+			err := sender.SetServerState(ctx, "upstream_apiservers", server, "ready")
+			if err != nil {
+				return fmt.Errorf("while putting upstream_apiservers/%s into ready state: %w", server, err)
+			}
+			return nil
+		})
+		batch.Add(func() error {
+			err := sender.EnableHealth(ctx, "upstream_apiservers", server)
+			if err != nil {
+				return fmt.Errorf("while enabling health checks for upstream_apiservers/%s into ready state: %w", server, err)
+			}
+			return nil
+		})
+	}
+
+	// Calculate changes to Konnectivity backend
+	addrsToAdd = slices.Clone(apiServers)
+	for server, state := range servers["upstream_konnectivity_servers"] {
+		if state.addr.Port() == h.config.konnectivityServerPort {
+			server := server
+
+			idx := slices.IndexFunc(addrsToAdd, func(apiServer k0snet.HostPort) bool {
+				return apiServer.Host() == state.addr.Host()
+			})
+
+			if idx >= 0 {
+				if state.maint {
+					h.log.Debugf("Enabling Konnectivity server address %s", &state.addr)
+					batch.Add(func() error {
+						err := sender.SetServerState(ctx, "upstream_konnectivity_servers", server, "ready")
+						if err != nil {
+							return fmt.Errorf("while putting upstream_konnectivity_servers/%s into ready state: %w", server, err)
+						}
+						return nil
+					})
+				} else {
+					h.log.Debugf("Konnectivity server address %s up to date", &state.addr)
+				}
+
+				addrsToAdd = slices.Delete(addrsToAdd, idx, idx+1)
+				continue
+			}
+		}
+
+		h.log.Debugf("Removing Konnectivity server address %s", &state.addr)
+		server := server
+
+		if !state.maint {
+			batch.Add(func() error {
+				// The server must be put in maintenance mode prior to its deletion.
+				err := sender.SetServerState(ctx, "upstream_konnectivity_servers", server, "maint")
+				if err != nil {
+					return fmt.Errorf("while putting upstream_konnectivity_servers/%s into maintenance state: %w", server, err)
+				}
+				return nil
+			})
+		}
+
+		batch.Add(func() error {
+			_, err := sender.DeleteServer(ctx, "upstream_konnectivity_servers", server)
+			if err != nil {
+				return fmt.Errorf("while deleting upstream_konnectivity_servers/%s: %w", server, err)
+			}
+			return nil
+		})
+	}
+	for _, addr := range addrsToAdd {
+		konnectivityPort := strconv.FormatUint(uint64(h.config.konnectivityServerPort), 10)
+		konnectivityAddr := net.JoinHostPort(addr.Host(), konnectivityPort)
+
+		h.log.Debugf("Adding Konnectivity server address %s", konnectivityAddr)
+		server := names.SimpleNameGenerator.GenerateName("konnectivity-server-")
+		batch.Add(func() error {
+			err := sender.AddServer(ctx, "upstream_konnectivity_servers", server, konnectivityAddr)
+			if err != nil {
+				return fmt.Errorf("while adding upstream_konnectivity_servers/%s: %w", server, err)
+			}
+			return nil
+		})
+		batch.Add(func() error {
+			err := sender.SetServerState(ctx, "upstream_konnectivity_servers", server, "ready")
+			if err != nil {
+				return fmt.Errorf("while putting upstream_konnectivity_servers/%s into ready state: %w", server, err)
+			}
+			return nil
+		})
+	}
+
+	// Try to delete any unknown servers.
+	delete(servers, "upstream_apiservers")
+	delete(servers, "upstream_konnectivity_servers")
+	for backend, servers := range servers {
+		for server := range servers {
+			backend, server := backend, server
+			batch.Add(func() error {
+				_, err := sender.DeleteServer(ctx, backend, server)
+				if err != nil {
+					return fmt.Errorf("while deleting %s/%s: %w", backend, server, err)
 				}
 				return nil
 			})
 		}
 	}
 
-	upstreamKonnectivityServers := servers["upstream_konnectivity_servers"]
+	if len(batch) < 1 {
+		return true, nil
+	}
 
-	// Try to delete any unknown servers.
-	delete(servers, "upstream_apiservers")
-	delete(servers, "upstream_konnectivity_servers")
-	for backend, servers := range servers {
-		for _, server := range servers {
-			if err := ctx.Err(); err != nil {
-				err := fmt.Errorf("%w while reconciling servers", err)
-				return multierr.Append(err, errs)
+	var errs error
+	for _, op := range batch {
+		errs = multierr.Combine(errs, op())
+		if err := ctx.Err(); err != nil {
+			if !errors.Is(errs, err) {
+				errs = multierr.Combine(err, errs)
 			}
 
-			err := sender.DeleteServer(ctx, backend, server.name)
-			if err != nil {
-				err := fmt.Errorf("while reconciling %s/%s: %w", backend, server, err)
-				errs = multierr.Append(errs, err)
-			}
+			break
 		}
 	}
 
-	return errs
-}
-
-func (h *haproxy) reconcileAPIServers(apiServers []k0snet.HostPort) error {
-
-	if h.config == nil {
-		return errors.New("not yet started")
-	}
-	h.config.haproxyFilesParams.apiServers = apiServers
-
-	return h.writeConfigFiles()
-
+	return false, errs
 }
 
 func (h *haproxy) stop() {
@@ -306,7 +461,6 @@ func (h *haproxy) stop() {
 
 	for _, file := range []struct{ desc, name string }{
 		{"HAProxy config", haproxyCfgFile},
-		{"HAProxy reload marker", haproxyReloadMarkerFile},
 	} {
 		path := filepath.Join(h.configDir, file.name)
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -355,11 +509,6 @@ func (h *haproxy) writeConfigFiles() (err error) {
 		return err
 	}
 
-	reloadMarkerPath := filepath.Join(h.reloadDir, haproxyReloadMarkerFile)
-	if err := file.WriteContentAtomically(reloadMarkerPath, []byte{}, 0666); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -373,15 +522,6 @@ func (h *haproxy) provision() error {
 }
 
 func (h *haproxy) makePodManifest() corev1.Pod {
-	const reloader = `while :; do
-sleep 1
-if [ -e reload ]; then
-	rm -f -- reload
-	kill -s SIGUSR2 $(cat /run/nllb/haproxy.pid)
-fi
-done
-`
-
 	hostPathDir := corev1.HostPathDirectory
 	noCapabilities := &corev1.SecurityContext{
 		ReadOnlyRootFilesystem:   pointer.Bool(true),
@@ -432,21 +572,6 @@ done
 						},
 					},
 				},
-			}, {
-				Name:            "reloader",
-				Image:           h.config.image.URI(),
-				ImagePullPolicy: h.config.pullPolicy,
-				SecurityContext: noCapabilities,
-				Command:         []string{"sh", "-ec", reloader},
-				WorkingDir:      "/reloader",
-				VolumeMounts: []corev1.VolumeMount{{
-					Name:      "reloader",
-					MountPath: "/reloader",
-				}, {
-					Name:      "run",
-					MountPath: "/run/nllb",
-					ReadOnly:  true,
-				}},
 			}},
 			Volumes: []corev1.Volume{{
 				Name: "run",
@@ -464,45 +589,41 @@ done
 						Path: h.configDir,
 					},
 				},
-			}, {
-				Name: "reloader",
-				VolumeSource: corev1.VolumeSource{
-					HostPath: &corev1.HostPathVolumeSource{
-						Type: &hostPathDir,
-						Path: h.reloadDir,
-					},
-				},
 			}},
 		},
 	}
 }
 
-func xoxo() {
-	const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	// Seed the random number generator
-	rand.Seed(time.Now().UnixNano())
-
-	// Generate a random string of 8 characters
-	b := make([]byte, 8)
-	for i := range b {
-		b[i] = letterBytes[rand.Intn(len(letterBytes))]
-	}
-	s := string(b)
-	fmt.Println(s)
+type haproxySender struct {
+	log  logrus.FieldLogger
+	send func(ctx context.Context, cmd []byte) (io.ReadCloser, error)
 }
 
-type haproxySender func(ctx context.Context, cmd []byte) (io.ReadCloser, error)
-
 // HAProxy server addresses keyed by their name.
-type haproxyServers = map[string]k0snet.HostPort
+type haproxyServers = map[string]serverState
+
+type serverState struct {
+	addr         k0snet.HostPort
+	maint        bool
+	checkEnabled bool
+}
 
 // Dump all the the servers found in the running configuration, grouped by backends.
-func (sender haproxySender) DumpServers(ctx context.Context) (map[string]haproxyServers, error) {
+func (s *haproxySender) ShowServersState(ctx context.Context) (map[string]haproxyServers, error) {
+	//revive:disable:var-naming
+	const (
+		SRV_ADMF_FMAINT = 0x01 // The server was explicitly forced into maintenance.
+		CHK_ST_ENABLED  = 0x04 // This check is currently administratively enabled.
+	)
+	//revive:enable:var-naming
+
 	// https://docs.haproxy.org/2.7/management.html#9.3-show%20servers%20state
-	lines, err := sender.sendCommand(ctx, "show servers state")
+	lines, err := s.sendCommand(ctx, "show servers state")
 	if err != nil {
 		return nil, err
 	}
+
+	s.log.Debug(strings.Join(lines, "\n"))
 
 	// The dump has the following format:
 	// - first line contains the format version (1 in this specification);
@@ -541,6 +662,14 @@ func (sender haproxySender) DumpServers(ctx context.Context) (map[string]haproxy
 	if srvPortIdx < 0 {
 		return nil, fmt.Errorf("no srv_port column: %s", lines[1])
 	}
+	srvAdminStateIdx := slices.Index(headers, "srv_admin_state")
+	if srvPortIdx < 0 {
+		return nil, fmt.Errorf("no srv_admin_state column: %s", lines[1])
+	}
+	srvCheckStateIdx := slices.Index(headers, "srv_check_state")
+	if srvPortIdx < 0 {
+		return nil, fmt.Errorf("no srv_check_state column: %s", lines[1])
+	}
 
 	servers := make(map[string]haproxyServers)
 	for _, line := range lines[2:] {
@@ -552,8 +681,15 @@ func (sender haproxySender) DumpServers(ctx context.Context) (map[string]haproxy
 		if len(fields) != len(headers) {
 			return nil, fmt.Errorf("mismatch between headers and fields: %v vs. %v", headers, fields)
 		}
-
 		addr, err := k0snet.ParseHostAndPort(fields[srvAddrIdx], fields[srvPortIdx])
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse server %v: %w", fields, err)
+		}
+		srvAdminState, err := strconv.ParseUint(fields[srvAdminStateIdx], 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse server %v: %w", fields, err)
+		}
+		srvCheckState, err := strconv.ParseUint(fields[srvCheckStateIdx], 10, 32)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse server %v: %w", fields, err)
 		}
@@ -566,48 +702,98 @@ func (sender haproxySender) DumpServers(ctx context.Context) (map[string]haproxy
 			servers[backendName] = backendServers
 		}
 
-		backendServers[serverName] = *addr
+		backendServers[serverName] = serverState{
+			*addr,
+			srvAdminState&SRV_ADMF_FMAINT != 0,
+			srvCheckState&CHK_ST_ENABLED != 0,
+		}
 	}
 
+	s.log.Debug(servers)
 	return servers, nil
 }
 
-func (sender haproxySender) DeleteServer(ctx context.Context, backend, server string) (errs error) {
-	// The server must be put in maintenance mode prior to its deletion.
-	// https://docs.haproxy.org/2.7/management.html#9.3-set%20server
-	response, err := sender.sendCommand(ctx, fmt.Sprintf("set server %s/%s state maint", backend, server))
-	if err == nil && !slices.Equal(response, []string{"", ""}) {
-		err = fmt.Errorf("unexpected response: %v", response)
+// Instantiate a new server attached to the backend.
+//
+// https://docs.haproxy.org/2.7/management.html#9.3-add%20server
+func (s *haproxySender) AddServer(ctx context.Context, backend, server string, keywords ...string) error {
+	cmd := fmt.Sprintf("add server %s/%s", backend, server)
+	response, err := s.sendCommand(ctx, strings.Join(append([]string{cmd}, keywords...), " "))
+	switch {
+	case err != nil:
+		return err
+	case slices.Equal(response, []string{"New server registered.", ""}):
+		return nil
+	default:
+		return fmt.Errorf("unexpected response: %q", strings.Join(response, "\n"))
 	}
-	if err != nil {
-		err = fmt.Errorf("failed to put server in maintenance mode: %w", err)
-		errs = multierr.Append(errs, err)
-	}
-
-	// https://docs.haproxy.org/2.7/management.html#9.3-del%20server
-	// NB: The delete operation is cancelled if the serveur still has active or
-	// idle connection or its connection queue is not empty.
-	response, err = sender.sendCommand(ctx, fmt.Sprintf("del server %s/%s", backend, server))
-	if err == nil && !slices.Equal(response, []string{"", ""}) {
-		err = fmt.Errorf("unexpected response: %v", response)
-	}
-	if err != nil {
-		err = fmt.Errorf("failed to delete server: %w", err)
-		errs = multierr.Append(errs, err)
-	}
-
-	return errs
 }
 
-func (sender haproxySender) sendCommand(ctx context.Context, cmd string) (lines []string, err error) {
-	response, err := sender(ctx, []byte(cmd+"\n"))
+// Remove the server from the given backend. The server will implicitly be put
+// in maintenance mode prior to its deletion. The operation is cancelled if the
+// serveur still has active or idle connection or its connection queue is not
+// empty.
+//
+// https://docs.haproxy.org/2.7/management.html#9.3-del%20server
+func (s *haproxySender) DeleteServer(ctx context.Context, backend, server string) (bool, error) {
+	response, err := s.sendCommand(ctx, fmt.Sprintf("del server %s/%s", backend, server))
+	switch {
+	case err != nil:
+		return false, fmt.Errorf("failed to delete server: %w", err)
+	case slices.Equal(response, []string{"Server deleted."}):
+		return true, nil
+	case slices.Equal(response, []string{"Server still has connections attached to it, cannot remove it."}):
+		return false, nil
+	default:
+		return false, fmt.Errorf("unexpected response: %q", strings.Join(response, "\n"))
+	}
+}
+
+// Force a server's administrative state to a new state. This can be useful to
+// disable load balancing and/or any traffic to a server. Setting the state to
+//
+//   - "ready" puts the server in normal mode
+//   - "maint" disables any traffic to the server as well as any health checks
+//   - "drain" only removes the server from load balancing but still allows it
+//     to be checked and to accept new persistent connections
+//
+// https://docs.haproxy.org/2.7/management.html#9.3-set%20server
+func (s *haproxySender) SetServerState(ctx context.Context, backend, server, state string) error {
+	response, err := s.sendCommand(ctx, fmt.Sprintf("set server %s/%s state %s", backend, server, state))
+	switch {
+	case err != nil:
+		return err
+	case slices.Equal(response, []string{""}):
+		return nil
+	default:
+		return fmt.Errorf("unexpected response: %q", strings.Join(response, "\n"))
+	}
+}
+
+// This will enable sending of health checks.
+//
+// https://docs.haproxy.org/2.7/management.html#9.3-enable%20health
+func (s *haproxySender) EnableHealth(ctx context.Context, backend, server string) error {
+	response, err := s.sendCommand(ctx, fmt.Sprintf("enable health %s/%s", backend, server))
+	switch {
+	case err != nil:
+		return err
+	case slices.Equal(response, []string{""}):
+		return nil
+	default:
+		return fmt.Errorf("unexpected response: %q", strings.Join(response, "\n"))
+	}
+}
+
+func (s *haproxySender) sendCommand(ctx context.Context, cmd string) (lines []string, err error) {
+	s.log.Debug("Sending command: ", cmd)
+	response, err := s.send(ctx, []byte(cmd+"\n"))
 	if err != nil {
 		return nil, err
 	}
 	defer func() { err = multierr.Append(err, response.Close()) }()
 
 	scanner := bufio.NewScanner(bufio.NewReader(response))
-	scanner.Split(bufio.ScanLines)
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}
@@ -622,11 +808,9 @@ func (sender haproxySender) sendCommand(ctx context.Context, cmd string) (lines 
 	return lines, nil
 }
 
-func sendToUnixSocket(ctx context.Context, path string, cmd []byte) (conn net.Conn, err error) {
-	address := url.URL{Scheme: "unix", Path: path}
-
+func sendToUNIXSocket(ctx context.Context, path string, cmd []byte) (conn net.Conn, err error) {
 	var dialer net.Dialer
-	conn, err = dialer.DialContext(ctx, "unix", address.String())
+	conn, err = dialer.DialContext(ctx, "unix", path)
 	if err != nil {
 		return nil, err
 	}
@@ -649,8 +833,7 @@ func sendToUnixSocket(ctx context.Context, path string, cmd []byte) (conn net.Co
 
 var haproxyCfgTemplate = template.Must(template.New(haproxyCfgFile).Parse(`
 global
-  pidfile /run/nllb/haproxy.pid
-  stats socket /run/nllb/haproxy.sock mode 600 level admin
+  stats socket /run/nllb/haproxy.sock mode 666 level admin
 
 defaults
   mode tcp
