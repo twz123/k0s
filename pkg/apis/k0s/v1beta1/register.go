@@ -26,7 +26,7 @@ import (
 var SchemeGroupVersion = schema.GroupVersion{Group: k0s.GroupName, Version: Version}
 
 var (
-	SchemeBuilder = runtime.NewSchemeBuilder(addKnownTypes)
+	SchemeBuilder = runtime.NewSchemeBuilder(addKnownTypes, RegisterDefaults)
 	AddToScheme   = SchemeBuilder.AddToScheme
 )
 

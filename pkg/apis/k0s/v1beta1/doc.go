@@ -16,6 +16,7 @@ limitations under the License.
 
 // +kubebuilder:object:generate=true
 // +groupName=k0s.k0sproject.io
+// +k8s:defaulter-gen=TypeMeta
 
 // Package v1beta1 is the v1beta1 version of the API.
 package v1beta1

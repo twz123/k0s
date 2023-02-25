@@ -125,7 +125,7 @@ pkg/apis/autopilot/v1beta2/.controller-gen.stamp: gen_output_dir = autopilot
 
 pkg/apis/%/.controller-gen.stamp: .k0sbuild.docker-image.k0s hack/tools/boilerplate.go.txt hack/tools/Makefile.variables
 	rm -rf 'static/manifests/$(gen_output_dir)/CustomResourceDefinition'
-	rm -f -- '$(dir $@)'zz_*.go
+	rm -f -- '$(dir $@)'zz_generated.deepcopy.go
 	CGO_ENABLED=0 $(GO) install sigs.k8s.io/controller-tools/cmd/controller-gen@v$(controller-gen_version)
 	$(GO_ENV) controller-gen \
 	  crd \
@@ -133,6 +133,14 @@ pkg/apis/%/.controller-gen.stamp: .k0sbuild.docker-image.k0s hack/tools/boilerpl
 	  output:crd:artifacts:config=./static/manifests/$(gen_output_dir)/CustomResourceDefinition \
 	  object:headerFile=hack/tools/boilerplate.go.txt
 	touch -- '$@'
+
+codegen_targets += pkg/apis/k0s/v1beta1/zz_generated.defaults.go
+pkg/apis/k0s/v1beta1/zz_generated.defaults.go: $(shell find pkg/apis/k0s/v1beta1/ -type f -name \*.go -not -name \*_test.go -not -name zz_\*)
+
+pkg/apis/%/zz_generated.defaults.go: .k0sbuild.docker-image.k0s hack/tools/boilerplate.go.txt embedded-bins/Makefile.variables
+	CGO_ENABLED=0 $(GO) run k8s.io/code-generator/cmd/defaulter-gen@v$(kubernetes_version:1.%=0.%) \
+	  --go-header-file hack/tools/boilerplate.go.txt \
+	  --input-dirs=github.com/k0sproject/k0s/$(dir $@)
 
 clientset_input_dirs := pkg/apis/autopilot/v1beta2 pkg/apis/k0s/v1beta1
 codegen_targets += pkg/client/clientset/.client-gen.stamp
