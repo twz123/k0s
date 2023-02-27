@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	cfgClient "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/clientset/typed/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
+	cfgClient "github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1/clientset/typed/k0s.k0sproject.io/v1beta1"
 	"github.com/k0sproject/k0s/pkg/constant"
 
 	corev1 "k8s.io/api/core/v1"
