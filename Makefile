@@ -82,6 +82,11 @@ GO_ENV ?= docker run --rm \
 	k0sbuild.docker-image.k0s
 GO ?= $(GO_ENV) go
 
+# https://www.gnu.org/software/make/manual/make.html#Simple-Assignment
+nullstring :=
+space := $(nullstring) # space now holds a single space
+comma := ,
+
 .PHONY: build
 ifeq ($(TARGET_OS),windows)
 build: k0s.exe
@@ -129,22 +134,17 @@ pkg/apis/%/.controller-gen.stamp: .k0sbuild.docker-image.k0s hack/tools/boilerpl
 	  object:headerFile=hack/tools/boilerplate.go.txt
 	touch -- '$@'
 
-codegen_targets += pkg/apis/k0s.k0sproject.io/v1beta1/.client-gen.stamp
-pkg/apis/k0s.k0sproject.io/v1beta1/.client-gen.stamp: $(shell find pkg/apis/k0s.k0sproject.io/v1beta1/ -maxdepth 1 -type f -name \*.go -not -name zz_\*.go)
-
-codegen_targets += pkg/apis/autopilot.k0sproject.io/v1beta2/.client-gen.stamp
-pkg/apis/autopilot.k0sproject.io/v1beta2/.client-gen.stamp: $(shell find pkg/apis/autopilot.k0sproject.io/v1beta2/ -maxdepth 1 -type f -name \*.go -not -name zz_\*.go)
-
-pkg/apis/%/.client-gen.stamp: .k0sbuild.docker-image.k0s hack/tools/boilerplate.go.txt embedded-bins/Makefile.variables
-	$(eval groupver := $(@:pkg/apis/%/.client-gen.stamp=%))
-	rm -rf 'pkg/apis/$(groupver)/clientset/'
-	CGO_ENABLED=0 $(GO) run k8s.io/code-generator/cmd/client-gen@v$(patsubst 1.%,0.%,$(kubernetes_version)) \
+clientset_inputs := autopilot k0s
+codegen_targets += pkg/client/clientset/
+pkg/client/clientset/: $(shell find $(clientset_inputs:%=pkg/apis/%.k0sproject.io) -type f -name \*.go -not -name zz_\*.go)
+pkg/client/clientset/: .k0sbuild.docker-image.k0s hack/tools/boilerplate.go.txt embedded-bins/Makefile.variables
+	rm -rf -- '$@'
+	CGO_ENABLED=0 $(GO) run k8s.io/code-generator/cmd/client-gen@v$(kubernetes_version:1.%=0.%) \
 	  --go-header-file hack/tools/boilerplate.go.txt \
-	  --input=$(groupver) \
 	  --input-base=github.com/k0sproject/k0s/pkg/apis \
+	  --input=$(subst $(space),$(comma),$(patsubst pkg/apis/%/,%,$(wildcard $(clientset_inputs:%=pkg/apis/%.k0sproject.io/v*/)))) \
 	  --clientset-name=clientset \
-	  --output-package=github.com/k0sproject/k0s/pkg/apis/$(groupver)
-	touch -- '$@'
+	  --output-package=github.com/k0sproject/k0s/$(dir $(@:/=))
 
 codegen_targets += static/zz_generated_assets.go
 static_asset_dirs := static/manifests static/misc
