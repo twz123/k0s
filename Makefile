@@ -111,30 +111,55 @@ $(K0S_GO_BUILD_CACHE):
 go.sum: go.mod .k0sbuild.docker-image.k0s
 	$(GO) mod tidy && touch -c -- '$@'
 
-codegen_targets += pkg/apis/helm.k0sproject.io/v1beta1/.controller-gen.stamp
-pkg/apis/helm.k0sproject.io/v1beta1/.controller-gen.stamp: $(shell find pkg/apis/helm.k0sproject.io/v1beta1/  -maxdepth 1 -type f -name \*.go)
-pkg/apis/helm.k0sproject.io/v1beta1/.controller-gen.stamp: gen_output_dir = helm
+deepcopy_file = pkg/apis/$(1).k0sproject.io/$(2)/zz_generated.deepcopy.go
+crd_file = static/manifests/$(1)/CustomResourceDefinition/$(2).yaml
+define_controller_gen_deps = $(call deepcopy_file,$(1),$(2)) $(call crd_file,$(1),$(2)): \
+	$(shell find pkg/apis/$(1).k0sproject.io/$(2) -maxdepth 1 -type f -name \*.go -not -name \*_test.go -not -name zz_*)
 
-codegen_targets += pkg/apis/k0s.k0sproject.io/v1beta1/.controller-gen.stamp
-pkg/apis/k0s.k0sproject.io/v1beta1/.controller-gen.stamp: $(shell find pkg/apis/k0s.k0sproject.io/v1beta1/ -maxdepth 1 -type f -name \*.go)
-pkg/apis/k0s.k0sproject.io/v1beta1/.controller-gen.stamp: gen_output_dir = v1beta1
+# define pkg/apis autogeneration
 
-codegen_targets += pkg/apis/autopilot.k0sproject.io/v1beta2/.controller-gen.stamp
-pkg/apis/autopilot.k0sproject.io/v1beta2/.controller-gen.stamp: $(shell find pkg/apis/autopilot.k0sproject.io/v1beta2/ -maxdepth 1 -type f -name \*.go)
-pkg/apis/autopilot.k0sproject.io/v1beta2/.controller-gen.stamp: gen_output_dir = autopilot
+controller_gen_inputs += autopilot/v1beta2
+$(call define_controller_gen_deps,autopilot,v1beta2)
+clientset_inputs += autopilot
 
-pkg/apis/%/.controller-gen.stamp: .k0sbuild.docker-image.k0s hack/tools/boilerplate.go.txt hack/tools/Makefile.variables
-	rm -rf 'static/manifests/$(gen_output_dir)/CustomResourceDefinition'
-	rm -f -- '$(dir $@)'zz_*.go
-	CGO_ENABLED=0 $(GO) install sigs.k8s.io/controller-tools/cmd/controller-gen@v$(controller-gen_version)
-	$(GO_ENV) controller-gen \
+controller_gen_inputs += helm/v1beta1
+$(call define_controller_gen_deps,helm,v1beta1)
+
+controller_gen_inputs += k0s/v1beta1
+$(call define_controller_gen_deps,k0s,v1beta1)
+clientset_inputs += k0s
+
+# controller-gen rules
+
+deepcopy_files := $(foreach input,$(controller_gen_inputs),$(call deepcopy_file,$(patsubst %/,%,$(dir $(input))),$(notdir $(input))))
+codegen_targets += $(deepcopy_files)
+$(deepcopy_files): .k0sbuild.docker-image.k0s hack/tools/Makefile.variables hack/tools/boilerplate.go.txt
+	CGO_ENABLED=0 $(GO) run sigs.k8s.io/controller-tools/cmd/controller-gen@v$(controller-gen_version) \
+	  object:headerFile=hack/tools/boilerplate.go.txt \
+	  paths='./$(dir $@)...' \
+	  output:stdout > '$@.tmp' || { \
+	    code=$$?; \
+	    rm -f -- '$@.tmp'; \
+	    exit $$code; \
+	  }
+	mv -- '$@.tmp' '$@'
+
+crd_files := $(foreach input,$(controller_gen_inputs),$(call crd_file,$(patsubst %/,%,$(dir $(input))),$(notdir $(input))))
+codegen_targets += $(crd_files)
+$(crd_files): .k0sbuild.docker-image.k0s hack/tools/Makefile.variables
+	mkdir -p -- '$(dir $@)'
+	GO_ENABLED=0 $(GO) run sigs.k8s.io/controller-tools/cmd/controller-gen@v$(controller-gen_version) \
 	  crd \
-	  paths="./$(dir $@)..." \
-	  output:crd:artifacts:config=./static/manifests/$(gen_output_dir)/CustomResourceDefinition \
-	  object:headerFile=hack/tools/boilerplate.go.txt
-	touch -- '$@'
+	  paths='./$(dir $(firstword $(filter %.go,$^)))...' \
+	  output:stdout > '$@.tmp' || { \
+	    code=$$?; \
+	    rm -f -- '$@.tmp'; \
+	    exit $$code; \
+	  }
+	mv -- '$@.tmp' '$@'
 
-clientset_inputs := autopilot k0s
+# client-gen rules
+
 codegen_targets += pkg/client/clientset/
 pkg/client/clientset/: $(shell find $(clientset_inputs:%=pkg/apis/%.k0sproject.io) -type f -name \*.go -not -name zz_\*.go)
 pkg/client/clientset/: .k0sbuild.docker-image.k0s hack/tools/boilerplate.go.txt embedded-bins/Makefile.variables
@@ -145,6 +170,8 @@ pkg/client/clientset/: .k0sbuild.docker-image.k0s hack/tools/boilerplate.go.txt 
 	  --input=$(subst $(space),$(comma),$(patsubst pkg/apis/%/,%,$(wildcard $(clientset_inputs:%=pkg/apis/%.k0sproject.io/v*/)))) \
 	  --clientset-name=clientset \
 	  --output-package=github.com/k0sproject/k0s/$(dir $(@:/=))
+
+# asset generation rules
 
 codegen_targets += static/zz_generated_assets.go
 static_asset_dirs := static/manifests static/misc
@@ -176,6 +203,8 @@ endif
 # needed for unit tests on macos
 pkg/assets/zz_generated_offsets_darwin.go:
 	$(print_empty_generated_offsets) > $@
+
+# main k0s targets
 
 k0s: TARGET_OS = linux
 k0s: BUILD_GO_CGO_ENABLED = 1

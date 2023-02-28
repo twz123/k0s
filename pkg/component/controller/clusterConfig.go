@@ -223,12 +223,12 @@ func (r *ClusterConfigReconciler) createClusterConfig(ctx context.Context) error
 }
 
 func (r *ClusterConfigReconciler) writeCRD() error {
-	crd, err := static.AssetDir("manifests/v1beta1/CustomResourceDefinition")
+	crd, err := static.AssetDir("manifests/k0s/CustomResourceDefinition")
 	if err != nil {
 		r.log.Errorf("error retrieving api-config manifests: %s. will retry", err.Error())
 	}
 	for _, filename := range crd {
-		content, err := static.Asset(fmt.Sprintf("manifests/v1beta1/CustomResourceDefinition/%s", filename))
+		content, err := static.Asset(fmt.Sprintf("manifests/k0s/CustomResourceDefinition/%s", filename))
 		if err != nil {
 			return fmt.Errorf("failed to fetch crd `%s`: %v", filename, err)
 		}
