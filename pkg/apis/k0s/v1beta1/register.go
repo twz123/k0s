@@ -17,19 +17,24 @@ limitations under the License.
 package v1beta1
 
 import (
-	k0s "github.com/k0sproject/k0s/pkg/apis/k0s"
+	"github.com/k0sproject/k0s/pkg/apis/k0s"
 
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"sigs.k8s.io/controller-runtime/pkg/scheme"
 )
+
+var SchemeGroupVersion = schema.GroupVersion{Group: k0s.GroupName, Version: Version}
 
 var (
-	// SchemeGroupVersion is group version used to register these objects
-	SchemeGroupVersion = schema.GroupVersion{Group: k0s.GroupName, Version: Version}
-
-	// SchemeBuilder is used to add go types to the GroupVersionKind scheme
-	SchemeBuilder = &scheme.Builder{GroupVersion: SchemeGroupVersion}
-
-	// AddToScheme adds the types in this group-version to the given scheme.
-	AddToScheme = SchemeBuilder.AddToScheme
+	SchemeBuilder = runtime.NewSchemeBuilder(addKnownTypes)
+	AddToScheme   = SchemeBuilder.AddToScheme
 )
+
+func addKnownTypes(scheme *runtime.Scheme) error {
+	// Add all kubebuilder:object:root=true types here.
+	scheme.AddKnownTypes(SchemeGroupVersion,
+		&ClusterConfig{},
+		&ClusterConfigList{},
+	)
+	return nil
+}

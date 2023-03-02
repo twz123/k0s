@@ -152,10 +152,6 @@ type ClusterConfigList struct {
 	Items           []ClusterConfig `json:"items"`
 }
 
-func init() {
-	SchemeBuilder.Register(&ClusterConfig{}, &ClusterConfigList{})
-}
-
 var _ Validateable = (*ControllerManagerSpec)(nil)
 
 // IsZero needed to omit empty object from yaml output
