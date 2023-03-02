@@ -1,5 +1,5 @@
 /*
-Copyright 2021 k0s authors
+Copyright 2020 k0s authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -121,9 +121,7 @@ func (c *Command) Start(ctx context.Context) error {
 		return err
 	}
 
-	pr := prober.New()
-	go pr.Run(ctx)
-	componentManager := manager.New(pr)
+	componentManager := manager.New(prober.DefaultProber)
 
 	var staticPods worker.StaticPods
 
@@ -194,7 +192,7 @@ func (c *Command) Start(ctx context.Context) error {
 		}
 
 		componentManager.Add(ctx, &status.Status{
-			Prober: pr,
+			Prober: prober.DefaultProber,
 			StatusInformation: status.K0sStatus{
 				Pid:           os.Getpid(),
 				Role:          "worker",

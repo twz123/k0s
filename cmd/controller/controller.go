@@ -1,5 +1,5 @@
 /*
-Copyright 2021 k0s authors
+Copyright 2020 k0s authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -32,7 +32,7 @@ import (
 	k0slog "github.com/k0sproject/k0s/internal/pkg/log"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
 	"github.com/k0sproject/k0s/internal/pkg/sysinfo"
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
+	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/applier"
 	"github.com/k0sproject/k0s/pkg/build"
 	"github.com/k0sproject/k0s/pkg/certificate"
@@ -123,10 +123,8 @@ func NewControllerCmd() *cobra.Command {
 }
 
 func (c *command) start(ctx context.Context) error {
-	pr := prober.New()
-	go pr.Run(ctx)
-	c.NodeComponents = manager.New(pr)
-	c.ClusterComponents = manager.New(pr)
+	c.NodeComponents = manager.New(prober.DefaultProber)
+	c.ClusterComponents = manager.New(prober.DefaultProber)
 
 	perfTimer := performance.NewTimer("controller-start").Buffer().Start()
 
@@ -258,7 +256,7 @@ func (c *command) start(ctx context.Context) error {
 		)
 	}
 	c.NodeComponents.Add(ctx, &status.Status{
-		Prober: pr,
+		Prober: prober.DefaultProber,
 		StatusInformation: status.K0sStatus{
 			Pid:           os.Getpid(),
 			Role:          "controller",
@@ -516,7 +514,6 @@ func (c *command) start(ctx context.Context) error {
 
 	if c.EnableWorker {
 		perfTimer.Checkpoint("starting-worker")
-
 		if err := c.startWorker(ctx, c.WorkerProfile); err != nil {
 			logrus.WithError(err).Error("Failed to start controller worker")
 		} else {

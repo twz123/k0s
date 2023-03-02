@@ -22,7 +22,7 @@ import (
 	"fmt"
 
 	"github.com/k0sproject/k0s/internal/pkg/templatewriter"
-	"github.com/k0sproject/k0s/pkg/apis/k0s.k0sproject.io/v1beta1"
+	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/constant"
 
@@ -170,7 +170,6 @@ data:
              {{- if not .AutoMTU }}
              "mtu": {{ .MTU }},
              {{- end }}
-             "auto-mtu": {{ .AutoMTU }},
              "bridge":"kube-bridge",
              "isDefaultGateway":true,
              "hairpinMode": {{ .CNIHairpin }},
@@ -284,6 +283,9 @@ spec:
         - "--bgp-graceful-restart=true"
         - "--metrics-port={{ .MetricsPort }}"
         - "--hairpin-mode={{ .GlobalHairpin }}"
+        {{- if not .AutoMTU }}
+        - "--auto-mtu=false"
+        {{- end }}
         {{- if .PeerRouterIPs }}
         - "--peer-router-ips={{ .PeerRouterIPs }}"
         {{- end }}

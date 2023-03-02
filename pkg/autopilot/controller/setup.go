@@ -1,4 +1,4 @@
-// Copyright 2022 k0s authors
+// Copyright 2021 k0s authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,7 +20,8 @@ import (
 	"runtime"
 	"time"
 
-	apv1beta2 "github.com/k0sproject/k0s/pkg/apis/autopilot.k0sproject.io/v1beta2"
+	autopilot "github.com/k0sproject/k0s/pkg/apis/autopilot"
+	apv1beta2 "github.com/k0sproject/k0s/pkg/apis/autopilot/v1beta2"
 	apcli "github.com/k0sproject/k0s/pkg/autopilot/client"
 	apcomm "github.com/k0sproject/k0s/pkg/autopilot/common"
 	apconst "github.com/k0sproject/k0s/pkg/autopilot/constant"
@@ -226,7 +227,7 @@ func (sc *setupController) waitForControlNodesCRD(ctx context.Context, cf apcli.
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	return watch.FromClient[*crdList, crd](extClient.CustomResourceDefinitions()).
-		WithObjectName(fmt.Sprintf("controlnodes.%s", apv1beta2.SchemeGroupVersion.Group)).
+		WithObjectName(fmt.Sprintf("controlnodes.%s", autopilot.GroupName)).
 		WithErrorCallback(func(err error) (time.Duration, error) {
 			if retryDelay, e := watch.IsRetryable(err); e == nil {
 				sc.log.WithError(err).Debugf(
