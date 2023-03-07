@@ -26,5 +26,14 @@ RUN go install github.com/golang/mock/mockgen@v1.4.4 && \
         -ldflags="${BUILD_GO_LDFLAGS} ${BUILD_GO_LDFLAGS_EXTRA}" \
         -o bin/proxy-server cmd/server/main.go
 
+# Ensure that everything is statically linked
+RUN dyn="$(scanelf -BF '%i %n' /apiserver-network-proxy/bin/proxy-server | { grep -v '^  ' || [ $? = 1 ]; })" && { \
+    [ -z "$dyn" ] || { \
+      echo Not all executables are statically linked; \
+      echo "$dyn"; \
+      exit 1; \
+    } 1>&2; \
+  }
+
 FROM scratch
 COPY --from=build /apiserver-network-proxy/bin/proxy-server /bin/konnectivity-server

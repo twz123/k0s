@@ -30,5 +30,14 @@ RUN make \
 	GO_BUILD_FLAGS="${BUILD_GO_FLAGS}" \
 	EXTRA_LDFLAGS="${BUILD_GO_LDFLAGS_EXTRA}"
 
+# Ensure that everything is statically linked
+RUN dyn="$(scanelf -BF '%i %n' /go/src/github.com/containerd/containerd/bin/* | { grep -v '^  ' || [ $? = 1 ]; })" && { \
+    [ -z "$dyn" ] || { \
+      echo Not all executables are statically linked; \
+      echo "$dyn"; \
+      exit 1; \
+    } 1>&2; \
+  }
+
 FROM scratch
 COPY --from=build /go/src/github.com/containerd/containerd/bin/* /bin/

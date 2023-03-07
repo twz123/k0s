@@ -23,5 +23,14 @@ RUN CGO_ENABLED=${BUILD_GO_CGO_ENABLED} \
         -ldflags="${BUILD_GO_LDFLAGS} ${BUILD_GO_LDFLAGS_EXTRA} -X github.com/k3s-io/kine/pkg/version.Version=v$VERSION -X github.com/k3s-io/kine/pkg/version.GitCommit=$(git rev-parse --short HEAD)" \
         -o kine
 
+# Ensure that everything is statically linked
+RUN dyn="$(scanelf -BF '%i %n' /kine/kine | { grep -v '^  ' || [ $? = 1 ]; })" && { \
+    [ -z "$dyn" ] || { \
+      echo Not all executables are statically linked; \
+      echo "$dyn"; \
+      exit 1; \
+    } 1>&2; \
+  }
+
 FROM scratch
 COPY --from=build /kine/kine /bin/kine

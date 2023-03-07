@@ -23,5 +23,14 @@ RUN CGO_ENABLED=${BUILD_GO_CGO_ENABLED} \
         -ldflags="${BUILD_GO_LDFLAGS} ${BUILD_GO_LDFLAGS_EXTRA} -X=go.etcd.io/etcd/api/v3/version.GitSHA=$(git rev-parse --short HEAD || echo "GitNotFound")" \
         -o /bin/etcd
 
+# Ensure that everything is statically linked
+RUN dyn="$(scanelf -BF '%i %n' /bin/etcd | { grep -v '^  ' || [ $? = 1 ]; })" && { \
+    [ -z "$dyn" ] || { \
+      echo Not all executables are statically linked; \
+      echo "$dyn"; \
+      exit 1; \
+    } 1>&2; \
+  }
+
 FROM scratch
 COPY --from=build /bin/etcd /bin/etcd

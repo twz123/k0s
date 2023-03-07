@@ -37,5 +37,14 @@ RUN \
     mv /go/src/github.com/kubernetes/kubernetes/_output/local/bin/*/*/$cmd$binarySuffix /out/; \
   done
 
+# Ensure that everything is statically linked
+RUN dyn="$(scanelf -BF '%i %n' /out/* | { grep -v '^  ' || [ $? = 1 ]; })" && { \
+    [ -z "$dyn" ] || { \
+      echo Not all executables are statically linked; \
+      echo "$dyn"; \
+      exit 1; \
+    } 1>&2; \
+  }
+
 FROM scratch
 COPY --from=build out/* /bin/
