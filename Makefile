@@ -113,30 +113,42 @@ $(K0S_GO_BUILD_CACHE):
 go.sum: go.mod .k0sbuild.docker-image.k0s
 	$(GO) mod tidy && touch -c -- '$@'
 
-codegen_targets += pkg/apis/helm/v1beta1/.controller-gen.stamp
-pkg/apis/helm/v1beta1/.controller-gen.stamp: $(shell find pkg/apis/helm/v1beta1/ -maxdepth 1 -type f -name \*.go)
-pkg/apis/helm/v1beta1/.controller-gen.stamp: gen_output_dir = helm
+autopilot_codegen_targets := \
+	pkg/apis/autopilot/v1beta2/zz_generated.deepcopy.go \
+	static/manifests/autopilot/CustomResourceDefinition/v1beta2.crd.yaml
+clientset_input_dirs += pkg/apis/autopilot/v1beta2
+codegen_targets += $(autopilot_codegen_targets)
+$(autopilot_codegen_targets): $(shell find pkg/apis/autopilot/v1beta2/ -type f -name \*.go -not -name \*_test.go -not -name zz_*)
 
-codegen_targets += pkg/apis/k0s/v1beta1/.controller-gen.stamp
-pkg/apis/k0s/v1beta1/.controller-gen.stamp: $(shell find pkg/apis/k0s/v1beta1/ -maxdepth 1 -type f -name \*.go)
-pkg/apis/k0s/v1beta1/.controller-gen.stamp: gen_output_dir = v1beta1
+helm_codegen_targets := \
+	pkg/apis/helm/v1beta1/zz_generated.deepcopy.go \
+	static/manifests/helm/CustomResourceDefinition/v1beta1.crd.yaml
+codegen_targets += $(helm_codegen_targets)
+$(helm_codegen_targets): $(shell find pkg/apis/helm/v1beta1/ -type f -name \*.go -not -name \*_test.go -not -name zz_*)
 
-codegen_targets += pkg/apis/autopilot/v1beta2/.controller-gen.stamp
-pkg/apis/autopilot/v1beta2/.controller-gen.stamp: $(shell find pkg/apis/autopilot/v1beta2/ -maxdepth 1 -type f -name \*.go)
-pkg/apis/autopilot/v1beta2/.controller-gen.stamp: gen_output_dir = autopilot
+k0s_codegen_targets := \
+	pkg/apis/k0s/v1beta1/zz_generated.deepcopy.go \
+	static/manifests/k0s/CustomResourceDefinition/v1beta1.crd.yaml
+clientset_input_dirs += pkg/apis/k0s/v1beta1
+codegen_targets += $(k0s_codegen_targets)
+$(k0s_codegen_targets): $(shell find pkg/apis/k0s/v1beta1/ -type f -name \*.go -not -name \*_test.go -not -name zz_*)
 
-pkg/apis/%/.controller-gen.stamp: .k0sbuild.docker-image.k0s hack/tools/boilerplate.go.txt hack/tools/Makefile.variables
-	rm -rf 'static/manifests/$(gen_output_dir)/CustomResourceDefinition'
-	rm -f -- '$(dir $@)'zz_*.go
-	CGO_ENABLED=0 $(GO) install sigs.k8s.io/controller-tools/cmd/controller-gen@v$(controller-gen_version)
-	$(GO_ENV) controller-gen \
+pkg/apis/%/zz_generated.deepcopy.go: .k0sbuild.docker-image.k0s hack/tools/boilerplate.go.txt hack/tools/Makefile.variables
+	mkdir -p -- '$(dir $@)'
+	CGO_ENABLED=0 $(GO) run sigs.k8s.io/controller-tools/cmd/controller-gen@v$(controller-gen_version) \
+	  object:headerFile=hack/tools/boilerplate.go.txt \
+	  paths="./$(dir $(firstword $(filter %.go,$^)))..." \
+	  output:stdout > '$@.tmp'
+	mv -- '$@.tmp' '$@'
+
+static/manifests/%.crd.yaml: .k0sbuild.docker-image.k0s hack/tools/Makefile.variables
+	mkdir -p -- '$(dir $@)'
+	CGO_ENABLED=0 $(GO) run sigs.k8s.io/controller-tools/cmd/controller-gen@v$(controller-gen_version) \
 	  crd \
-	  paths="./$(dir $@)..." \
-	  output:crd:artifacts:config=./static/manifests/$(gen_output_dir)/CustomResourceDefinition \
-	  object:headerFile=hack/tools/boilerplate.go.txt
-	touch -- '$@'
+	  paths="./$(dir $(firstword $(filter %.go,$^)))..." \
+	  output:stdout > '$@.tmp'
+	mv -- '$@.tmp' '$@'
 
-clientset_input_dirs := pkg/apis/autopilot/v1beta2 pkg/apis/k0s/v1beta1
 codegen_targets += pkg/client/clientset/.client-gen.stamp
 pkg/client/clientset/.client-gen.stamp: $(shell find $(clientset_input_dirs) -type f -name \*.go -not -name \*_test.go -not -name zz_\*)
 pkg/client/clientset/.client-gen.stamp: .k0sbuild.docker-image.k0s hack/tools/boilerplate.go.txt embedded-bins/Makefile.variables

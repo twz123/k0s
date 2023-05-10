@@ -330,7 +330,7 @@ func (c *command) start(ctx context.Context) error {
 			return fmt.Errorf("failed to initialize api-config manifests saver: %w", err)
 		}
 
-		c.ClusterComponents.Add(ctx, controller.NewCRD(apiConfigSaver, []string{"v1beta1"}))
+		c.ClusterComponents.Add(ctx, controller.NewCRD(apiConfigSaver, []string{"k0s"}))
 	}
 
 	cfgReconciler, err := controller.NewClusterConfigReconciler(
