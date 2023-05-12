@@ -40,7 +40,7 @@ type pingPong struct {
 }
 
 func makePingPong(t *testing.T) *pingPong {
-	shellPath, err := exec.LookPath("powershell")
+	shellPath, err := exec.LookPath("pwsh")
 	require.NoError(t, err)
 
 	// We need that copy, otherwise tests get cached.

@@ -40,13 +40,13 @@ type SupervisorTest struct {
 func TestSupervisorStart(t *testing.T) {
 	sleep := selectCmd(t,
 		cmd{"sleep", []string{"60"}},
-		cmd{"powershell", []string{"-noprofile", "-noninteractive", "-command", "Start-Sleep -Seconds 60"}},
+		cmd{"pwsh", []string{"-noprofile", "-noninteractive", "-command", "Start-Sleep -Seconds 60"}},
 	)
 
 	fail := selectCmd(t,
 		cmd{"false", []string{}},
 		cmd{"sh", []string{"-c", "exit 1"}},
-		cmd{"powershell", []string{"-noprofile", "-noninteractive", "-command", "exit 1"}},
+		cmd{"pwsh", []string{"-noprofile", "-noninteractive", "-command", "exit 1"}},
 	)
 
 	var testSupervisors = []*SupervisorTest{
@@ -166,7 +166,7 @@ func TestStopWhileRespawn(t *testing.T) {
 	fail := selectCmd(t,
 		cmd{"false", []string{}},
 		cmd{"sh", []string{"-c", "exit 1"}},
-		cmd{"powershell", []string{"-noprofile", "-noninteractive", "-command", "exit 1"}},
+		cmd{"pwsh", []string{"-noprofile", "-noninteractive", "-command", "exit 1"}},
 	)
 
 	s := Supervisor{
@@ -211,7 +211,7 @@ func TestStopWhileRespawn(t *testing.T) {
 func TestMultiThread(t *testing.T) {
 	sleep := selectCmd(t,
 		cmd{"sleep", []string{"60"}},
-		cmd{"powershell", []string{"-noprofile", "-noninteractive", "-command", "Start-Sleep -Seconds 60"}},
+		cmd{"pwsh", []string{"-noprofile", "-noninteractive", "-command", "Start-Sleep -Seconds 60"}},
 	)
 
 	s := Supervisor{
