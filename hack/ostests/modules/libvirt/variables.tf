@@ -13,7 +13,12 @@ variable "resource_name_prefix" {
 variable "libvirt_provider_uri" {
   type        = string
   description = "Libvirt provider's URI"
-  default     = "qemu:///session"
+  default     = "qemu:///system"
+
+  validation {
+    condition     = length(var.libvirt_provider_uri) != 0
+    error_message = "Libvirt provider URI cannot be empty."
+  }
 }
 
 variable "resource_pool_location" {
@@ -66,7 +71,7 @@ variable "machine_image_source" {
   type        = string
   description = "Image source, which can be path on host's filesystem or URL."
   #default     = "alpine-image/image.qcow2"
-  default     = "/home/twieczorek/Repos/k0s-libvirt-machines/alpine-image/image.qcow2"
+  default = "~/Repos/k0s-libvirt-machines/alpine-image/image.qcow2"
 
   validation {
     condition     = length(var.machine_image_source) != 0
