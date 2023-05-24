@@ -1,6 +1,11 @@
 variable "libvirt_provider_uri" {
   type        = string
   description = "Libvirt provider's URI"
+
+  validation {
+    condition     = length(var.libvirt_provider_uri) != 0
+    error_message = "Libvirt provider URI cannot be empty."
+  }
 }
 
 variable "libvirt_resource_pool_name" {

@@ -3,7 +3,7 @@ provider "libvirt" {
 }
 
 locals {
-  libvirt_resource_pool_name = "${var.resource_name_prefix}resource-pool"
+  resource_pool_name = "${var.resource_name_prefix}resource-pool"
 }
 
 resource "tls_private_key" "ssh" {
@@ -19,10 +19,10 @@ resource "tls_private_key" "ssh" {
 
 # Creates a resource pool for virtual machine volumes
 resource "libvirt_pool" "resource_pool" {
-  name = local.libvirt_resource_pool_name
+  name = local.resource_pool_name
 
   type = "dir"
-  path = pathexpand("${trimsuffix(var.resource_pool_location, "/")}/${local.libvirt_resource_pool_name}")
+  path = pathexpand("${trimsuffix(var.resource_pool_location, "/")}/${local.resource_pool_name}")
 }
 
 # Creates base OS image for the machines
