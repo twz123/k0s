@@ -3,21 +3,6 @@ locals {
   k0s_api_port             = 9443
   konnectivity_server_port = 8132
 
-  hosts = concat(
-    [for host in module.controllers.*.info :
-      merge(host, {
-        controller_enabled = true
-        worker_enabled     = var.controller_k0s_enable_worker
-      })
-    ],
-    [for host in module.workers.*.info :
-      merge(host, {
-        controller_enabled = false
-        worker_enabled     = true
-      })
-    ],
-  )
-
   k0sctl_config = {
     apiVersion = "k0sctl.k0sproject.io/v1beta1"
     kind       = "Cluster"
@@ -28,45 +13,45 @@ locals {
         dynamicConfig = var.k0s_dynamic_config
         config = { spec = merge(
           { telemetry = { enabled = false, }, },
-          (var.loadbalancer != null ? { api = {
-            externalAddress = module.loadbalancer.info.ipv4,
-            sans = [
-              module.loadbalancer.info.name,
-              module.loadbalancer.info.ipv4,
-            ],
-          }, } : {}),
+          # (var.loadbalancer != null ? { api = {
+          #   externalAddress = module.loadbalancer.info.ipv4,
+          #   sans = [
+          #     module.loadbalancer.info.name,
+          #     module.loadbalancer.info.ipv4,
+          #   ],
+          # }, } : {}),
           { for k, v in var.k0s_config_spec : k => v if v != null }
         ), }
       }
-      hosts = [for host in local.hosts : merge(
+      hosts = [for host in var.hosts : merge(
         {
-          role = host.controller_enabled ? (host.worker_enabled ? "controller+worker" : "controller") : "worker"
+          role = host.role
           ssh = {
             address = host.ipv4
-            keyPath = local_file.ssh_private_key.filename
+            keyPath = local_sensitive_file.ssh_private_key.filename
             port    = 22
-            user    = var.host_user
+            user    = var.ssh_username
           }
           installFlags = concat(
-            var.k0sctl_k0s_install_flags,
-            host.controller_enabled ? var.k0sctl_k0s_controller_install_flags : [],
-            host.worker_enabled ? var.k0sctl_k0s_worker_install_flags : [],
+            var.k0s_install_flags,
+            contains(["controller", "controller+worker"], host.role) ? var.k0s_controller_install_flags : [],
+            contains(["worker", "controller+worker"], host.role) ? var.k0s_worker_install_flags : [],
           )
           uploadBinary = true
         },
-        var.k0sctl_k0s_binary == null ? {} : {
-          k0sBinaryPath = var.k0sctl_k0s_binary
-        },
-        host.worker_enabled && var.k0sctl_airgap_image_bundle != null ? {
-          files = [
-            {
-              src    = var.k0sctl_airgap_image_bundle
-              dstDir = "/var/lib/k0s/images/"
-              name   = "bundle-file"
-              perm   = "0755"
-            }
-          ]
-        } : {},
+        # var.k0sctl_k0s_binary == null ? {} : {
+        #   k0sBinaryPath = var.k0sctl_k0s_binary
+        # },
+        # var.k0sctl_airgap_image_bundle != null && contains(["worker", "controller+worker"], host.role) ? {
+        #   files = [
+        #     {
+        #       src    = var.k0sctl_airgap_image_bundle
+        #       dstDir = "/var/lib/k0s/images/"
+        #       name   = "bundle-file"
+        #       perm   = "0755"
+        #     }
+        #   ]
+        # } : {},
       )]
     }
   }

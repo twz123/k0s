@@ -35,6 +35,19 @@ resource "libvirt_volume" "base" {
 
 locals {
   machine_user = "k0s"
+
+  machines = concat(
+    [for machine in module.controllers.*.info :
+      merge(machine, {
+        role = var.controller_k0s_enable_worker ? "controller+worker" : "controller"
+      })
+    ],
+    [for machine in module.workers.*.info :
+      merge(machine, {
+        role = "worker"
+      })
+    ],
+  )
 }
 
 module "controllers" {
