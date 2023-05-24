@@ -1,10 +1,16 @@
+resource "local_sensitive_file" "ssh_private_key" {
+  content         = var.ssh_private_key
+  filename        = "${var.workdir}/ssh-private-key.pem"
+  file_permission = "0400"
+}
+
 resource "null_resource" "k0sctl_apply" {
   count = var.k0sctl_binary == null ? 0 : 1
 
   triggers = {
-    k0sctl_config            = jsonencode(local.k0sctl_config)
-    k0s_binary_hash          = var.k0sctl_k0s_binary == null ? null : filesha256(var.k0sctl_k0s_binary)
-    airgap_image_bundle_hash = var.k0sctl_airgap_image_bundle == null ? null : filesha256(var.k0sctl_airgap_image_bundle)
+    k0sctl_config = jsonencode(local.k0sctl_config)
+    # k0s_binary_hash          = var.k0s_binary == null ? null : filesha256(var.k0s_binary)
+    # airgap_image_bundle_hash = var.airgap_image_bundle == null ? null : filesha256(var.k0sctl_airgap_image_bundle)
   }
 
   provisioner "local-exec" {
