@@ -1,7 +1,18 @@
+variable "workdir" {
+  type        = string
+  description = "The directory in which to place files."
+
+  validation {
+    condition     = length(var.workdir) != 0
+    error_message = "The working directory cannot be empty."
+  }
+}
+
 variable "hosts" {
   type = list(
     object({
       name = string,
+      role = string,
       ipv4 = optional(string),
       ipv6 = optional(string),
     })
@@ -10,17 +21,32 @@ variable "hosts" {
   description = "The hosts to be provisoned by k0sctl"
 }
 
-variable "controller_k0s_enable_worker" {
-  type        = bool
-  description = "Whether k0s on the controllers should also schedule workloads."
-  default     = false
+variable "ssh_username" {
+  type        = string
+  description = "The username used to authenticate via SSH."
+
+  validation {
+    condition     = length(var.ssh_username) != 0
+    error_message = "SSH username cannot be empty."
+  }
+}
+
+variable "ssh_private_key" {
+  type        = string
+  description = "The private key used to authenticate via SSH."
+  sensitive   = true
+
+  validation {
+    condition     = length(var.ssh_private_key) != null
+    error_message = "SSH private key cannot be empty."
+  }
 }
 
 # k0s variables
 variable "k0s_version" {
   type        = string
   description = "The k0s version to deploy on the machines. May be an exact version, \"stable\" or \"latest\"."
-  default     = "stable"
+  default     = "v1.27.2+k0s.0"
 }
 
 variable "k0s_dynamic_config" {
@@ -78,7 +104,12 @@ variable "k0s_config_spec" {
     images = optional(map(map(map(string)))),
   })
   description = "The k0s config spec"
-  default     = null
+  default     = {}
+
+  validation {
+    condition     = var.k0s_config_spec != null
+    error_message = "K0s config spec cannot be null."
+  }
 }
 
 # k0sctl variables
@@ -95,15 +126,15 @@ variable "k0s_binary" {
   default     = null
 }
 
-variable "airgap_image_bundle" {
-  type        = string
-  description = <<-EOD
-    Path to the airgap image bundle to be copied to the worker-enabled nodes, or null
-    if it should be downloaded. See https://docs.k0sproject.io/head/airgap-install/
-    for details on that.
-  EOD
-  default     = null
-}
+# variable "airgap_image_bundle" {
+#   type        = string
+#   description = <<-EOD
+#     Path to the airgap image bundle to be copied to the worker-enabled nodes, or null
+#     if it should be downloaded. See https://docs.k0sproject.io/head/airgap-install/
+#     for details on that.
+#   EOD
+#   default     = null
+# }
 
 variable "k0s_install_flags" {
   type        = list(string)
