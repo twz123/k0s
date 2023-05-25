@@ -3,7 +3,7 @@ output "machines" {
 }
 
 output "ssh_username" {
-  value = local.machine_user
+  value = local.ssh_username
 }
 
 output "ssh_private_key" {

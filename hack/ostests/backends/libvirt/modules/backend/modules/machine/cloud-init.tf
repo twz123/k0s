@@ -15,19 +15,19 @@ resource "libvirt_cloudinit_disk" "cloudinit" {
     manage_etc_hosts = true
 
     users = [{
-      name                = var.machine_user
+      name                = var.ssh_username
       sudo                = "ALL=(ALL) NOPASSWD:ALL"
-      home                = "/home/${var.machine_user}"
+      home                = "/home/${var.ssh_username}"
       shell               = "/bin/sh"
       lock_passwd         = true
-      ssh-authorized-keys = [var.machine_ssh_public_key]
+      ssh-authorized-keys = [var.ssh_public_key]
     }]
 
     ssh_pwauth   = false
     disable_root = true
 
     chpasswd = {
-      list   = join(":", [var.machine_user, random_password.password.result])
+      list   = join(":", [var.ssh_username, random_password.password.result])
       expire = false
     }
 
