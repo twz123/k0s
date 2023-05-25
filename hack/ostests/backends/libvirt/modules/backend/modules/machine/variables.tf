@@ -1,13 +1,3 @@
-variable "libvirt_provider_uri" {
-  type        = string
-  description = "Libvirt provider's URI"
-
-  validation {
-    condition     = length(var.libvirt_provider_uri) != 0
-    error_message = "Libvirt provider URI cannot be empty."
-  }
-}
-
 variable "libvirt_resource_pool_name" {
   type        = string
   description = "Name of libvirt the resource pool into which the virtual machine will be placed"
@@ -43,12 +33,12 @@ variable "machine_memory" {
   description = "The amount of RAM (in MiB) allocated to the virtual machine"
 }
 
-variable "machine_user" {
+variable "ssh_username" {
   type        = string
   description = "Username used to SSH into the virtual machine"
 }
 
-variable "machine_ssh_public_key" {
+variable "ssh_public_key" {
   type        = string
   description = "SSH public key used to SSH into the virtual machine"
 }

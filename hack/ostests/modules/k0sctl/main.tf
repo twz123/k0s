@@ -1,9 +1,3 @@
-resource "local_sensitive_file" "ssh_private_key" {
-  content         = var.ssh_private_key
-  filename        = "${var.workdir}/ssh-private-key.pem"
-  file_permission = "0400"
-}
-
 resource "null_resource" "k0sctl_apply" {
   count = var.k0sctl_binary == null ? 0 : 1
 

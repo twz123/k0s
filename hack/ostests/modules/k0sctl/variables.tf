@@ -1,13 +1,3 @@
-variable "workdir" {
-  type        = string
-  description = "The directory in which to place files."
-
-  validation {
-    condition     = length(var.workdir) != 0
-    error_message = "The working directory cannot be empty."
-  }
-}
-
 variable "hosts" {
   type = list(
     object({
@@ -18,7 +8,7 @@ variable "hosts" {
     })
   )
 
-  description = "The hosts to be provisoned by k0sctl"
+  description = "The hosts to be provisoned by k0sctl."
 }
 
 variable "ssh_username" {
@@ -31,14 +21,13 @@ variable "ssh_username" {
   }
 }
 
-variable "ssh_private_key" {
+variable "ssh_private_key_filename" {
   type        = string
-  description = "The private key used to authenticate via SSH."
-  sensitive   = true
+  description = "The name of the private key file used to authenticate via SSH."
 
   validation {
-    condition     = length(var.ssh_private_key) != null
-    error_message = "SSH private key cannot be empty."
+    condition     = length(var.ssh_private_key_filename) != 0
+    error_message = "SSH private key file name cannot be empty."
   }
 }
 

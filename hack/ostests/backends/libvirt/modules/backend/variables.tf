@@ -10,16 +10,7 @@ variable "resource_name_prefix" {
 
 # General libvirt configuration
 
-variable "libvirt_provider_uri" {
-  type        = string
-  description = "Libvirt provider's URI"
-  default     = "qemu:///system"
 
-  validation {
-    condition     = length(var.libvirt_provider_uri) != 0
-    error_message = "Libvirt provider URI cannot be empty."
-  }
-}
 
 variable "resource_pool_location" {
   type        = string
@@ -79,11 +70,11 @@ variable "machine_image_source" {
   }
 }
 
-variable "ssh_user" {
-  type        = string
-  description = "Username used to SSH into virtual machines."
-  default     = "k0s"
-}
+# variable "ssh_user" {
+#   type        = string
+#   description = "Username used to SSH into virtual machines."
+#   default     = "k0s"
+# }
 
 # Controller node parameters
 
@@ -133,8 +124,8 @@ variable "worker_memory" {
 
 # Load balancer variables
 
-variable "loadbalancer_enabled" {
-  type        = bool
-  description = "Whether to provision a load balancer in front of the control plane."
-  default     = false
-}
+# variable "loadbalancer_enabled" {
+#   type        = bool
+#   description = "Whether to provision a load balancer in front of the control plane."
+#   default     = false
+# }
