@@ -28,7 +28,7 @@ locals {
           role = host.role
           ssh = {
             address = host.ipv4
-            keyPath = local_sensitive_file.ssh_private_key.filename
+            keyPath = var.ssh_private_key_filename
             port    = 22
             user    = var.ssh_username
           }
