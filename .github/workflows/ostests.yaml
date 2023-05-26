@@ -1,0 +1,45 @@
+name: OS tests
+
+on:
+  push:
+  # workflow_dispatch:
+  #   aws_region:
+  #     description: "The AWS region where resources will live"
+  #     default: "us-east-1"
+  #     required: true
+
+env:
+  TERRAFORM_VERSION: 1.4.6
+  AWS_REGION: eu-west-1
+  # AWS_REGION: ${{ github.event.inputs.aws_region }}
+
+defaults:
+  run:
+    working-directory: hack/ostests
+
+jobs:
+  foobar:
+    strategy:
+      fail-fast: false
+      matrix:
+        backend:
+          - aws
+          - libvirt
+
+    name: "OS tests :: terraform :: ${{ matrix.backend }}"
+    runs-on: ubuntu-22.04
+
+    defaults:
+      run:
+        working-directory: hack/ostests/backends/${{ matrix.backend }}
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - run: terraform fmt -check
+      - run: terraform init
+      - run: terraform validate -no-color
