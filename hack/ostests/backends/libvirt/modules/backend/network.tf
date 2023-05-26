@@ -13,7 +13,7 @@ resource "random_integer" "network_ipv4" {
 }
 
 resource "libvirt_network" "network" {
-  name = "${var.resource_name_prefix}network"
+  name = "${var.resource_name_prefix}-network"
 
   mode      = "nat"
   autostart = true
@@ -23,7 +23,7 @@ resource "libvirt_network" "network" {
     ] : addr if addr != null
   ]
 
-  domain = var.network_dns_domain == null ? "${var.resource_name_prefix}net.local" : var.network_dns_domain
+  domain = var.network_dns_domain == null ? "${var.resource_name_prefix}-net.local" : var.network_dns_domain
 
   dns {
     enabled    = true

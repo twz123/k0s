@@ -19,7 +19,7 @@ variable "resource_pool_location" {
 
   validation {
     condition     = length(var.resource_pool_location) != 0
-    error_message = "Libvirt resource pool location cannot be empty."
+    error_message = "Libvirt resource pool location may not be empty."
   }
 }
 

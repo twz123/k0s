@@ -50,7 +50,7 @@ variable "cloudinit_extra_runcmds" {
 
   validation {
     condition     = var.cloudinit_extra_runcmds != null
-    error_message = "cloud-init extra runcmds cannot be null."
+    error_message = "cloud-init extra runcmds may not be null."
   }
 }
 
@@ -60,6 +60,6 @@ variable "cloudinit_extra_user_data" {
 
   validation {
     condition     = var.cloudinit_extra_user_data != null
-    error_message = "cloud-init extra data cannot be null."
+    error_message = "cloud-init extra data may not be null."
   }
 }

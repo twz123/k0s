@@ -11,9 +11,10 @@ locals {
     ? var.resource_name_prefix
     : format("%s-", random_pet.resource_name_prefix.0.id)
   )
-  workdir = (var.workdir != null
-    ? pathexpand(var.workdir)
-    : pathexpand("~/.cache/k0s-ostests/libvirt/${local.resource_name_prefix}files")
+
+  cache_dir = (var.cache_dir != null
+    ? pathexpand(var.cache_dir)
+    : pathexpand("~/.cache/k0s-ostests")
   )
 }
 
@@ -25,7 +26,7 @@ module "backend" {
 
 resource "local_sensitive_file" "ssh_private_key" {
   content         = module.backend.ssh_private_key
-  filename        = "${local.workdir}/ssh-private-key.pem"
+  filename        = "${local.cache_dir}/libvirt-${local.resource_name_prefix}-ssh-private-key.pem"
   file_permission = "0400"
 }
 
