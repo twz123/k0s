@@ -2,7 +2,12 @@ output "machines" {
   value = [for machine in concat(aws_instance.controllers.*, aws_instance.workers.*) : {
     name = machine.tags.Name,
     ipv4 = machine.public_ip,
+    role = machine.tags["k0sctl.k0sproject.io/host-role"]
   }]
+}
+
+output "ssh_username" {
+  value = "ubuntu"
 }
 
 output "ssh_private_key" {
