@@ -105,10 +105,11 @@ variable "k0s_config_spec" {
 
 variable "k0sctl_binary" {
   type        = string
-  description = "Path to the k0sctl binary to use for local-exec provisioning, or null to skip k0sctl resources."
+  description = "Path to the k0sctl binary to use for local-exec provisioning."
   default     = "k0sctl"
+  nullable    = false
 
-    validation {
+  validation {
     condition     = length(var.k0sctl_binary) != 0
     error_message = "Path to the k0sctl binary may not be empty."
   }
