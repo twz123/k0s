@@ -10,12 +10,9 @@ on:
 
 env:
   TERRAFORM_VERSION: 1.4.6
+  K0SCTL_VERSION: 0.15.0
   AWS_REGION: eu-west-1
   # AWS_REGION: ${{ github.event.inputs.aws_region }}
-
-defaults:
-  run:
-    working-directory: hack/ostests
 
 jobs:
   terraform:
@@ -47,8 +44,8 @@ jobs:
       - run: terraform init
       - run: terraform validate -no-color
 
-  conformance:
-    name: "OS tests :: conformance"
+  network-conformance:
+    name: "OS tests :: Network conformance"
     runs-on: ubuntu-22.04
 
     defaults:
@@ -56,26 +53,53 @@ jobs:
         working-directory: hack/ostests/backends/aws
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v3
         with:
           persist-credentials: false
 
-      - uses: hashicorp/setup-terraform@v2
+      - name: "Terraform :: Requisites"
+        run: |
+          curl -sSLo k0sctl "https://github.com/k0sproject/k0sctl/releases/download/v${K0SCTL_VERSION}/k0sctl-linux-x64"
+          chmod +x ./k0sctl
+          ./k0sctl version
+
+      - name: "Terraform :: Setup"
+        uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
           terraform_wrapper: false
 
-      - run: terraform init
-        id: init
+      - name: "Terraform :: Init"
+        run: terraform init
+        id: tf-init
 
-      - run: terraform apply -auto-approve
+      - name: "Terraform :: Apply"
+        run: terraform apply -auto-approve
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          TF_VAR_k0sctl_binary: ./k0sctl
+          TF_VAR_kubeconfig: ./kubeconfig
 
-      - run: terraform destroy -auto-approve
-        if: always() && steps.init.conclusion == 'success'
+      - name: "Network conformance tests :: Run"
+        run: make check-network
+        working-directory: inttest
+        continue-on-error: true
+
+      - name: "Network conformance tests :: Retrieve"
+        run: make get-conformance-results
+        working-directory: inttest
+
+      - name: "Network conformance tests :: Upload"
+        uses: actions/upload-artifact@v3
+        with:
+          path: inttest/*_sonobuoy_*.tar.gz
+
+      - name: "Terraform :: Destroy"
+        run: terraform destroy -auto-approve
+        if: always() && steps.tf-init.conclusion == 'success'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
