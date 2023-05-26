@@ -60,9 +60,16 @@ jobs:
 
       - name: "Terraform :: Requisites"
         run: |
-          curl -sSLo k0sctl "https://github.com/k0sproject/k0sctl/releases/download/v${K0SCTL_VERSION}/k0sctl-linux-x64"
-          chmod +x ./k0sctl
-          ./k0sctl version
+          jq --version
+
+          k0sctlBinaryPath="$(pwd)/k0sctl"
+          curl -sSLo "$k0sctlBinaryPath" "https://github.com/k0sproject/k0sctl/releases/download/v${K0SCTL_VERSION}/k0sctl-linux-x64"
+          chmod +x -- "$k0sctlBinaryPath"
+          "$k0sctlBinaryPath" version
+          echo "TF_VAR_k0sctl_binary=$k0sctlBinaryPath" >> "$GITHUB_ENV"
+
+          kubeconfigPath="$(pwd)/kubeconfig"
+          echo "TF_VAR_kubeconfig=$kubeconfigPath" >> "$GITHUB_ENV"
 
       - name: "Terraform :: Setup"
         uses: hashicorp/setup-terraform@v2
@@ -71,8 +78,8 @@ jobs:
           terraform_wrapper: false
 
       - name: "Terraform :: Init"
-        run: terraform init
         id: tf-init
+        run: terraform init
 
       - name: "Terraform :: Apply"
         run: terraform apply -auto-approve
@@ -80,17 +87,15 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
-          TF_VAR_k0sctl_binary: ./k0sctl
-          TF_VAR_kubeconfig: ./kubeconfig
 
       - name: "Network conformance tests :: Run"
-        run: make check-network
         working-directory: inttest
+        run: make check-network
         continue-on-error: true
 
       - name: "Network conformance tests :: Retrieve"
-        run: make get-conformance-results
         working-directory: inttest
+        run: make get-conformance-results
 
       - name: "Network conformance tests :: Upload"
         uses: actions/upload-artifact@v3
