@@ -21,3 +21,15 @@ variable "cache_dir" {
   #   error_message = "The cache directory may not be empty."
   # }
 }
+
+variable "k0sctl_binary" {
+  type        = string
+  description = "Path to the k0sctl binary to use for local-exec provisioning."
+  default     = "k0sctl"
+  nullable    = false
+
+  validation {
+    condition     = length(var.k0sctl_binary) != 0
+    error_message = "Path to the k0sctl binary may not be empty."
+  }
+}
