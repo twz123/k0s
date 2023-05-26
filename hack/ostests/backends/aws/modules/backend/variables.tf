@@ -25,7 +25,7 @@ variable "controller_num_nodes" {
 variable "controller_aws_instance_type" {
   type        = string
   description = "The AWS instance type to use for controller nodes."
-  default     = "c5a.xlarge"
+  default     = "t2.medium"
 }
 
 variable "controller_k0s_enable_worker" {
@@ -45,7 +45,7 @@ variable "worker_num_nodes" {
 variable "worker_aws_instance_type" {
   type        = string
   description = "The AWS instance type to use for worker nodes."
-  default     = "c5a.xlarge"
+  default     = "t2.medium"
 }
 
 # # Load balancer variables

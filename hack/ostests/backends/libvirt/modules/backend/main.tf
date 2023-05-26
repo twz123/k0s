@@ -1,7 +1,3 @@
-locals {
-  resource_pool_name = "${var.resource_name_prefix}resource-pool"
-}
-
 resource "tls_private_key" "ssh" {
   algorithm   = "ECDSA"
   ecdsa_curve = "P384"
@@ -15,15 +11,15 @@ resource "tls_private_key" "ssh" {
 
 # Creates a resource pool for virtual machine volumes
 resource "libvirt_pool" "resource_pool" {
-  name = local.resource_pool_name
+  name = "${var.resource_name_prefix}-resource-pool"
 
   type = "dir"
-  path = pathexpand("${trimsuffix(var.resource_pool_location, "/")}/${local.resource_pool_name}")
+  path = pathexpand("${trimsuffix(var.resource_pool_location, "/")}/${var.resource_name_prefix}-resource-pool")
 }
 
 # Creates base OS image for the machines
 resource "libvirt_volume" "base" {
-  name = "${var.resource_name_prefix}base-volume"
+  name = "${var.resource_name_prefix}-base-volume"
   pool = libvirt_pool.resource_pool.name
 
   source = pathexpand(var.machine_image_source)
@@ -55,7 +51,7 @@ module "controllers" {
   libvirt_base_volume_id     = libvirt_volume.base.id
   libvirt_network_id         = libvirt_network.network.id
 
-  machine_name       = "${var.resource_name_prefix}controller-${count.index}"
+  machine_name       = "${var.resource_name_prefix}-controller-${count.index}"
   machine_dns_domain = libvirt_network.network.domain
 
   machine_num_cpus = var.controller_num_cpus
@@ -74,7 +70,7 @@ module "workers" {
   libvirt_base_volume_id     = libvirt_volume.base.id
   libvirt_network_id         = libvirt_network.network.id
 
-  machine_name       = "${var.resource_name_prefix}worker-${count.index}"
+  machine_name       = "${var.resource_name_prefix}-worker-${count.index}"
   machine_dns_domain = libvirt_network.network.domain
 
   machine_num_cpus = var.worker_num_cpus

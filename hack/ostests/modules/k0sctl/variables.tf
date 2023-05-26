@@ -17,7 +17,7 @@ variable "ssh_username" {
 
   validation {
     condition     = length(var.ssh_username) != 0
-    error_message = "SSH username cannot be empty."
+    error_message = "SSH username may not be empty."
   }
 }
 
@@ -27,7 +27,7 @@ variable "ssh_private_key_filename" {
 
   validation {
     condition     = length(var.ssh_private_key_filename) != 0
-    error_message = "SSH private key file name cannot be empty."
+    error_message = "SSH private key file name may not be empty."
   }
 }
 
@@ -97,7 +97,7 @@ variable "k0s_config_spec" {
 
   validation {
     condition     = var.k0s_config_spec != null
-    error_message = "K0s config spec cannot be null."
+    error_message = "K0s config spec may not be null."
   }
 }
 
@@ -107,6 +107,11 @@ variable "k0sctl_binary" {
   type        = string
   description = "Path to the k0sctl binary to use for local-exec provisioning, or null to skip k0sctl resources."
   default     = "k0sctl"
+
+    validation {
+    condition     = length(var.k0sctl_binary) != 0
+    error_message = "Path to the k0sctl binary may not be empty."
+  }
 }
 
 variable "k0s_binary" {
@@ -132,7 +137,7 @@ variable "k0s_install_flags" {
 
   validation {
     condition     = var.k0s_install_flags != null
-    error_message = "K0s install flags cannot be null."
+    error_message = "K0s install flags may not be null."
   }
 }
 
@@ -143,7 +148,7 @@ variable "k0s_controller_install_flags" {
 
   validation {
     condition     = var.k0s_controller_install_flags != null
-    error_message = "K0s controller install flags cannot be null."
+    error_message = "K0s controller install flags may not be null."
   }
 }
 
@@ -154,6 +159,6 @@ variable "k0s_worker_install_flags" {
 
   validation {
     condition     = var.k0s_worker_install_flags != null
-    error_message = "K0s worker install flags cannot be null."
+    error_message = "K0s worker install flags may not be null."
   }
 }
