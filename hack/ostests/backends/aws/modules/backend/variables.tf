@@ -8,11 +8,17 @@ variable "resource_name_prefix" {
   }
 }
 
-# variable "ssh_user" {
-#   type        = string
-#   description = "Username used to SSH into virtual machines."
-#   default     = "k0s"
-# }
+variable "os" {
+  type = object({
+    ami = object({
+      id        = string
+      user_data = optional(string)
+    })
+    ssh_username = string
+  })
+
+  description = "The OS configuration."
+}
 
 # Controller node parameters
 

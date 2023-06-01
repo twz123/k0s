@@ -7,10 +7,12 @@ output "machines" {
 }
 
 output "ssh_username" {
-  value = "ubuntu"
+  value       = var.os.ssh_username
+  description = "The username that can be used to authenticate via SSH."
 }
 
 output "ssh_private_key" {
-  value     = tls_private_key.ssh.private_key_openssh
-  sensitive = true
+  value       = tls_private_key.ssh.private_key_openssh
+  sensitive   = true
+  description = "The private key that can be used to authenticate via SSH."
 }

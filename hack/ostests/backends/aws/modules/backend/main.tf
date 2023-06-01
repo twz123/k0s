@@ -7,31 +7,15 @@ resource "aws_key_pair" "ssh" {
   public_key = tls_private_key.ssh.public_key_openssh
 }
 
-# Find the latest Canonical Ubuntu 22.04 image
-data "aws_ami" "os" {
-  name_regex  = "ubuntu-jammy"
-  most_recent = true
-
-  filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
-  }
-
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
-  }
-
-  # Owner = Canonical
-  owners = ["099720109477"]
-}
 
 resource "aws_instance" "controllers" {
   count = var.controller_num_nodes
 
-  ami           = data.aws_ami.os.id
+  ami           = var.os.ami.id
   instance_type = var.controller_aws_instance_type
   subnet_id     = data.aws_subnet.az_default.id
+
+  user_data = var.os.ami.user_data
 
   tags = {
     Name                             = format("%s-controller-%d", var.resource_name_prefix, count.index)
@@ -51,9 +35,11 @@ resource "aws_instance" "controllers" {
 resource "aws_instance" "workers" {
   count = var.worker_num_nodes
 
-  ami           = data.aws_ami.os.id
+  ami           = var.os.ami.id
   instance_type = var.worker_aws_instance_type
   subnet_id     = data.aws_subnet.az_default.id
+
+  user_data = var.os.ami.user_data
 
   tags = {
     Name                             = format("%s-worker-%d", var.resource_name_prefix, count.index)
