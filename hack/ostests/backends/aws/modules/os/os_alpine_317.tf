@@ -29,14 +29,13 @@ locals {
     ssh_username = "alpine"
     },
     var.os != "alpine_317" ? {} : {
-      ami = {
-        id = data.aws_ami.alpine_317.0.id
-
-        # k0sctl currently doesn't support BusyBox/doas properly.
-        user_data = <<-EOF
-        #!/usr/bin/env sh
-        apk add coreutils sudo
-      EOF
+      controller_ami = {
+        id        = data.aws_ami.alpine_317.0.id
+        user_data = templatefile("${path.module}/os_alpine_317_userdata.tftpl", { worker = false })
+      }
+      worker_ami = {
+        id        = data.aws_ami.alpine_317.0.id
+        user_data = templatefile("${path.module}/os_alpine_317_userdata.tftpl", { worker = true })
       }
     }
   )

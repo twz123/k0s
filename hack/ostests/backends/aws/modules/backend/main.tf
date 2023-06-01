@@ -7,15 +7,14 @@ resource "aws_key_pair" "ssh" {
   public_key = tls_private_key.ssh.public_key_openssh
 }
 
-
 resource "aws_instance" "controllers" {
   count = var.controller_num_nodes
 
-  ami           = var.os.ami.id
+  ami           = var.os.controller_ami.id
   instance_type = var.controller_aws_instance_type
   subnet_id     = data.aws_subnet.az_default.id
 
-  user_data = var.os.ami.user_data
+  user_data = var.os.controller_ami.user_data
 
   tags = {
     Name                             = format("%s-controller-%d", var.resource_name_prefix, count.index)
@@ -35,11 +34,11 @@ resource "aws_instance" "controllers" {
 resource "aws_instance" "workers" {
   count = var.worker_num_nodes
 
-  ami           = var.os.ami.id
+  ami           = var.os.worker_ami.id
   instance_type = var.worker_aws_instance_type
   subnet_id     = data.aws_subnet.az_default.id
 
-  user_data = var.os.ami.user_data
+  user_data = var.os.worker_ami.user_data
 
   tags = {
     Name                             = format("%s-worker-%d", var.resource_name_prefix, count.index)

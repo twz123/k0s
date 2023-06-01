@@ -27,7 +27,10 @@ locals {
     ssh_username = "ubuntu"
     },
     var.os != "ubuntu_2204" ? {} : {
-      ami = {
+      controller_ami = {
+        id = data.aws_ami.ubuntu_2204.0.id
+      }
+      worker_ami = {
         id = data.aws_ami.ubuntu_2204.0.id
       }
     },

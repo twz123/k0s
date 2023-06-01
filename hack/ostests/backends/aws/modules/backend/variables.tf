@@ -10,7 +10,11 @@ variable "resource_name_prefix" {
 
 variable "os" {
   type = object({
-    ami = object({
+    controller_ami = object({
+      id        = string
+      user_data = optional(string)
+    })
+    worker_ami = object({
       id        = string
       user_data = optional(string)
     })
