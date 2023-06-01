@@ -4,8 +4,13 @@ on:
   # push:
   workflow_dispatch:
     inputs:
-      selected_oses:
-        description: The Operating Systems to test (simple substring match)
+      oses:
+        description: The Operating Systems to test.
+        default: >-
+          {
+            "alpine_317",
+            "ubuntu_2204"
+          }
 
 env:
   TERRAFORM_VERSION: 1.4.6
@@ -46,14 +51,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - alpine_317
-          - ubuntu_2204
+        os: ${{ fromJSON(github.event.inputs.oses) }}
 
     name: "NetConf :: AWS :: ${{ matrix.os }}"
     runs-on: ubuntu-22.04
-
-    if: github.event.inputs.selected_oses == '' || contains(github.event.inputs.selected_oses, matrix.os)
 
     env:
       TF_VAR_os: ${{ matrix.os }}
