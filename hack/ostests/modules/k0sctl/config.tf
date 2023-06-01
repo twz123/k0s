@@ -23,22 +23,30 @@ locals {
           { for k, v in var.k0s_config_spec : k => v if v != null }
         ), }
       }
-      hosts = [for host in var.hosts : merge(
-        {
-          role = host.role
-          ssh = {
-            address = host.ipv4
-            keyPath = var.ssh_private_key_filename
-            port    = 22
-            user    = var.ssh_username
-          }
-          installFlags = concat(
-            var.k0s_install_flags,
-            contains(["controller", "controller+worker"], host.role) ? var.k0s_controller_install_flags : [],
-            contains(["worker", "controller+worker"], host.role) ? var.k0s_worker_install_flags : [],
-          )
-          uploadBinary = true
+      hosts = [for host in var.hosts : merge({
+        role = host.role
+        ssh = {
+          address = host.ipv4
+          keyPath = var.ssh_private_key_filename
+          port    = 22
+          user    = var.ssh_username
+        }
+        installFlags = concat(
+          var.k0s_install_flags,
+          contains(["controller", "controller+worker"], host.role) ? var.k0s_controller_install_flags : [],
+          contains(["worker", "controller+worker"], host.role) ? var.k0s_worker_install_flags : [],
+        )
+        uploadBinary = true
         },
+
+        # host.hooks == null ? {} : merge({
+        #   hooks = host.hooks.apply == null ? {} : merge({
+        #     apply = host.hooks.apply.before == null ? {} : {
+        #       before = host.hooks.apply.before
+        #     }
+        #   })
+        # })
+
         # var.k0sctl_k0s_binary == null ? {} : {
         #   k0sBinaryPath = var.k0sctl_k0s_binary
         # },

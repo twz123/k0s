@@ -57,6 +57,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     env:
+      TF_VAR_os_resource_name_prefix: gha-${{ github.run_id }}-${{ github.run_attempt }}"
       TF_VAR_os: ${{ matrix.os }}
       TF_VAR_cache_dir: ${{ github.workspace }}/.cache/k0s-ostests
 

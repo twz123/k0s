@@ -11,12 +11,14 @@ variable "resource_name_prefix" {
 variable "os" {
   type = object({
     controller_ami = object({
-      id        = string
-      user_data = optional(string)
+      id           = string
+      user_data    = optional(string)
+      ready_script = optional(string)
     })
     worker_ami = object({
-      id        = string
-      user_data = optional(string)
+      id           = string
+      user_data    = optional(string)
+      ready_script = optional(string)
     })
     ssh_username = string
   })

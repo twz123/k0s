@@ -1,9 +1,8 @@
-resource "null_resource" "k0sctl_apply" {
-  triggers = {
-    k0sctl_config = jsonencode(local.k0sctl_config)
-    # k0s_binary_hash          = var.k0s_binary == null ? null : filesha256(var.k0s_binary)
-    # airgap_image_bundle_hash = var.airgap_image_bundle == null ? null : filesha256(var.k0sctl_airgap_image_bundle)
-  }
+resource "terraform_data" "k0sctl_apply" {
+  triggers_replace = [
+    var.k0sctl_binary,
+    sha256(jsonencode(local.k0sctl_config)),
+  ]
 
   provisioner "local-exec" {
     environment = {
@@ -39,5 +38,5 @@ data "external" "k0s_kubeconfig" {
     EOS
   ]
 
-  depends_on = [null_resource.k0sctl_apply]
+  depends_on = [terraform_data.k0sctl_apply]
 }
