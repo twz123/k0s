@@ -10,7 +10,7 @@ on:
 
 env:
   TERRAFORM_VERSION: 1.4.6
-  K0SCTL_VERSION: 0.15.0
+  K0SCTL_VERSION: 0.15.1
   AWS_REGION: eu-west-1
   # AWS_REGION: ${{ github.event.inputs.aws_region }}
 
@@ -45,8 +45,18 @@ jobs:
       - run: terraform validate -no-color
 
   network-conformance:
-    name: "OS tests :: Network conformance"
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - alpine_317
+          - ubuntu_2204
+
+    name: "OS tests :: Network conformance :: AWS :: ${{ matrix.os }}"
     runs-on: ubuntu-22.04
+
+    env:
+      TF_VAR_os: ${{ matrix.os }}
 
     defaults:
       run:
@@ -59,6 +69,8 @@ jobs:
           persist-credentials: false
 
       - name: "Terraform :: Requisites"
+        env:
+          OSTESTS_OS: ${{ matrix.os }}
         run: |
           jq --version
 
@@ -102,6 +114,7 @@ jobs:
       - name: "Network conformance tests :: Upload"
         uses: actions/upload-artifact@v3
         with:
+          name: network-conformance-results-${{ matrix.os }}
           path: inttest/*_sonobuoy_*.tar.gz
 
       - name: "Terraform :: Destroy"

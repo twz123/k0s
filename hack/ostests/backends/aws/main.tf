@@ -25,10 +25,17 @@ locals {
   )
 }
 
+module "os" {
+  source = "./modules/os"
+
+  os = var.os
+}
+
 module "backend" {
   source = "./modules/backend"
 
   resource_name_prefix = local.resource_name_prefix
+  os                   = module.os.os
 }
 
 resource "local_sensitive_file" "ssh_private_key" {

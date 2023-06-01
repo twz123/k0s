@@ -6,14 +6,13 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
-resource "random_integer" "az_offset" {
-  min   = 1
-  max   = length(data.aws_availability_zones.available.names) - 1
+resource "random_shuffle" "az_names" {
+  input = data.aws_availability_zones.available.names
 }
 
 data "aws_subnet" "az_default" {
   vpc_id            = data.aws_vpc.default.id
-  availability_zone = data.aws_availability_zones.available.names[random_integer.az_offset.id]
+  availability_zone = random_shuffle.az_names.result.0
   default_for_az    = true
 }
 
@@ -23,8 +22,9 @@ resource "aws_route_table_association" "az_default" {
 }
 
 resource "aws_security_group" "all_access" {
-  name   = "${var.resource_name_prefix}-all-access"
-  vpc_id = data.aws_vpc.default.id
+  name        = "${var.resource_name_prefix}-all-access"
+  description = "Allow ALL traffic"
+  vpc_id      = data.aws_vpc.default.id
 
   tags = {
     Name = "${var.resource_name_prefix}-all-access"
