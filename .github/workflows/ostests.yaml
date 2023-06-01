@@ -3,8 +3,9 @@ name: OS tests
 on:
   # push:
   workflow_dispatch:
-    selected_oses:
-      description: The Operating Systems to test (simple substring match)
+    inputs:
+      selected_oses:
+        description: The Operating Systems to test (simple substring match)
 
 env:
   TERRAFORM_VERSION: 1.4.6
