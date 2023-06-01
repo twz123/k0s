@@ -52,7 +52,6 @@ jobs:
     uses: ./.github/workflows/build-k0s-amd64.yml
     with:
       target: linux
-      use-cache: true
 
   network-conformance:
     strategy:
