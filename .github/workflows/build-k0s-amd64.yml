@@ -6,14 +6,13 @@ on:
       target:
         required: true
         type: string
-      use-cache:
-        type: boolean
-        default: false
-        description: Whether to bypass the build if there are cached binaries available.
     outputs:
       cache-key:
-        description: The compiled binary's cache key, if use-cache was requested.
+        description: The compiled binary's cache key.
         value: ${{ jobs.build.outputs.cache-key }}
+      airgap-image-bundle-cache-key:
+        description: The airgap image bundle's cache key.
+        value: ${{ jobs.build.outputs.airgap-image-bundle-cache-key }}
 
 jobs:
   build:
@@ -22,30 +21,30 @@ jobs:
 
     outputs:
       cache-key: build-k0s-amd64-${{ inputs.target }}-compiled-binary-${{ github.sha }}
+      airgap-image-bundle-cache-key: build-k0s-amd64-${{ inputs.target }}-airgap-image-bundle-${{ steps.image-bundle-source.outputs.hash }}
 
     steps:
-      - name: Cache compiled binary
+      - name: "Build :: Checkout"
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # for `git describe`
+          persist-credentials: false
+
+      - name: "Build :: Prepare"
+        run: .github/workflows/prepare-build-env.sh
+
+      - name: "Cache :: k0s"
         uses: actions/cache@v3
         id: cache-compiled-binary
-        if: inputs.use-cache
         with:
           key: build-k0s-amd64-${{ inputs.target }}-compiled-binary-${{ github.sha }}
           path: |
             k0s
             k0s.exe
+            airgap-images.txt
+            airgap-image-bundle-cache-key.txt
 
-      - name: Check out code into the Go module directory
-        uses: actions/checkout@v3
-        if: steps.cache-compiled-binary.outputs.cache-hit != 'true'
-        with:
-          fetch-depth: 0 # for `git describe`
-          persist-credentials: false
-
-      - name: Prepare build environment
-        if: steps.cache-compiled-binary.outputs.cache-hit != 'true'
-        run: .github/workflows/prepare-build-env.sh
-
-      - name: Cache embedded binaries
+      - name: "Cache :: embedded binaries"
         uses: actions/cache@v3
         if: steps.cache-compiled-binary.outputs.cache-hit != 'true'
         with:
@@ -57,7 +56,7 @@ jobs:
             embedded-bins/Makefile.variables
             pkg/assets/zz_generated_offsets_${{ inputs.target }}.go
 
-      - name: Cache GOCACHE
+      - name: "Cache :: GOCACHE"
         uses: actions/cache@v3
         if: steps.cache-compiled-binary.outputs.cache-hit != 'true'
         with:
@@ -67,7 +66,7 @@ jobs:
           path: |
             build/cache/go/build
 
-      - name: Cache GOMODCACHE
+      - name: "Cache :: GOMODCACHE"
         uses: actions/cache@v3
         if: steps.cache-compiled-binary.outputs.cache-hit != 'true'
         with:
@@ -75,7 +74,7 @@ jobs:
           path: |
             build/cache/go/mod
 
-      - name: Build
+      - name: "Build :: k0s"
         if: steps.cache-compiled-binary.outputs.cache-hit != 'true'
         env:
           TARGET_OS: ${{ inputs.target }}
@@ -83,3 +82,32 @@ jobs:
           make bindata
           make --touch codegen
           make build
+
+      - name: "Build :: Airgap image bundle list"
+        if: inputs.target == 'linux'
+        run: make airgap-images.txt && cat airgap-images.txt
+
+        # Capture the calculated image bundle source hash in a build output, so
+        # it can be shared between the cache actions in this job and in the
+        # integration test matrix. Do this in a separate step, as the hashFiles
+        # function is evaluated before the step execution. So all the required
+        # files need to exist before that.
+      - name: "Cache :: Airgap image bundle :: Calculate hash"
+        id: cache-airgap-image-bundle-calc-hash
+        if: inputs.target == 'linux'
+        env:
+          HASH_VALUE: ${{ hashFiles('Makefile', 'airgap-images.txt', 'hack/image-bundler/*') }}
+        run: printf 'hash=%s\n' "$HASH_VALUE" >> "$GITHUB_OUTPUT"
+
+      - name: "Cache :: Airgap image bundle"
+        id: cache-airgap-image-bundle
+        if: inputs.target == 'linux'
+        uses: actions/cache@v3
+        with:
+          key: build-k0s-amd64-${{ inputs.target }}-airgap-image-bundle-${{ steps.image-bundle-source.outputs.hash }}
+          path: airgap-image-bundle-${{ inputs.target }}-amd64.tar
+          lookup-only: true
+
+      - name: "Build :: Airgap image bundle"
+        if: inputs.target == 'linux' && steps.cache-airgap-image-bundle.outputs.cache-hit != 'true'
+        run: make airgap-image-bundle-${{ inputs.target }}-amd64.tar
