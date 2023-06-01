@@ -59,10 +59,14 @@ resource "aws_instance" "workers" {
 resource "terraform_data" "ready_scripts" {
   for_each = merge(
     var.os.controller_ami.ready_script == null ? {} : {
-      for c in aws_instance.controllers : "${c.public_ip}" => var.os.controller_ami.ready_script
+      for idx, c in aws_instance.controllers : "controller-${idx}" => {
+        host = c.public_ip, script = var.os.controller_ami.ready_script
+      }
     },
     var.os.worker_ami.ready_script == null ? {} : {
-      for c in aws_instance.workers : "${c.public_ip}" => var.os.worker_ami.ready_script
+      for idx, w in aws_instance.workers : "worker-${idx}" => {
+        host = w.public_ip, script = var.os.worker_ami.ready_script
+      }
     },
   )
 
@@ -70,12 +74,12 @@ resource "terraform_data" "ready_scripts" {
     type        = "ssh"
     user        = var.os.ssh_username
     private_key = tls_private_key.ssh.private_key_pem
-    host        = each.key
+    host        = each.value.host
     agent       = false
   }
 
   provisioner "remote-exec" {
-    inline = [each.value]
+    inline = [each.value.script]
   }
 }
 
