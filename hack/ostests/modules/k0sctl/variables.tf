@@ -5,6 +5,11 @@ variable "hosts" {
       role = string,
       ipv4 = optional(string),
       ipv6 = optional(string),
+      # hooks = optional(object({
+      #   apply = optional(object({
+      #     before = optional(list(string))
+      #   }))
+      # })),
     })
   )
 

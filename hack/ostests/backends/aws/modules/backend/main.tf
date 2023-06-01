@@ -55,3 +55,36 @@ resource "aws_instance" "workers" {
     volume_size = 20
   }
 }
+
+resource "terraform_data" "ready_scripts" {
+  for_each = merge(
+    var.os.controller_ami.ready_script == null ? {} : {
+      for c in aws_instance.controllers : "${c.public_ip}" => var.os.controller_ami.ready_script
+    },
+    var.os.worker_ami.ready_script == null ? {} : {
+      for c in aws_instance.workers : "${c.public_ip}" => var.os.worker_ami.ready_script
+    },
+  )
+
+  connection {
+    type        = "ssh"
+    user        = var.os.ssh_username
+    private_key = tls_private_key.ssh.private_key_pem
+    host        = each.key
+    agent       = false
+  }
+
+  provisioner "remote-exec" {
+    inline = [each.value]
+  }
+}
+
+resource "terraform_data" "provisioned_machines" {
+  depends_on = [terraform_data.ready_scripts]
+
+  input = [for machine in concat(aws_instance.controllers.*, aws_instance.workers.*) : {
+    name = machine.tags.Name,
+    ipv4 = machine.public_ip,
+    role = machine.tags["k0sctl.k0sproject.io/host-role"]
+  }]
+}

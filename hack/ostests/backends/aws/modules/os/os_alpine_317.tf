@@ -30,12 +30,14 @@ locals {
     },
     var.os != "alpine_317" ? {} : {
       controller_ami = {
-        id        = data.aws_ami.alpine_317.0.id
-        user_data = templatefile("${path.module}/os_alpine_317_userdata.tftpl", { worker = false })
+        id           = data.aws_ami.alpine_317.0.id
+        user_data    = templatefile("${path.module}/os_alpine_317_userdata.tftpl", { worker = false })
+        ready_script = file("${path.module}/os_alpine_317_ready.sh")
       }
       worker_ami = {
-        id        = data.aws_ami.alpine_317.0.id
-        user_data = templatefile("${path.module}/os_alpine_317_userdata.tftpl", { worker = true })
+        id           = data.aws_ami.alpine_317.0.id
+        user_data    = templatefile("${path.module}/os_alpine_317_userdata.tftpl", { worker = true })
+        ready_script = file("${path.module}/os_alpine_317_ready.sh")
       }
     }
   )
