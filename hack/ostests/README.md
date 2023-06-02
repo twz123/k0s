@@ -2,23 +2,29 @@
 
 ## Requirements
 
-* terraform >= 1.4
+* Terraform >= 1.4
 
 For the local k0sctl plumbing:
 
 * A POSIXish environment (env, sh, echo, printf)
-* k0sctl >= 0.15
-* jq >= 1.6
+* k0sctl (tested with ~= 0.15)
+* jq (tested with ~= 1.6)
+
+For the AWS backend:
+
+* Have the CLI credentials setup, in the usual AWS CLI way.
+* Have a configured default region. That region will be targeted by Terraform.
 
 ## GitHub Actions workflow
 
-There's a GitHub Actions workflow available in [ostests.yaml]. In order to be
-used, the repository needs to have valid AWS credentials available in its
-secrets:
+There's a GitHub Actions workflow available in [ostests.yaml]. It will execute a
+test matrix, deploy OS stacks, provision k0s clusters and perform conformance
+tests against those. In order to be used, the repository needs to have valid AWS
+credentials available in its secrets:
 
-* AWS_ACCESS_KEY_ID
-* AWS_SECRET_ACCESS_KEY
-* AWS_SESSION_TOKEN
+* `AWS_ACCESS_KEY_ID`
+* `AWS_SECRET_ACCESS_KEY`
+* `AWS_SESSION_TOKEN`
 
 [ostests.yaml]: ../../.github/workflows/ostests.yaml
 
@@ -34,3 +40,22 @@ To see runs for this workflow, try: gh run list --workflow=ostests.yaml
 ```
 
 [gh]: https://github.com/cli/cli
+
+## Supported operating systems
+
+* `alpine_317`: Alpine Linux 3.17
+* `centos_7`: CentOS Linux 7 (Core)
+* `ubuntu_2204`: Ubuntu 22.04 LTS
+
+### Adding a new operating system
+
+* Navigate to [backends/aws/modules/os/](backends/aws/modules/os/) and add a new
+  file `os_<the-os-id>.tf`. Have a look at the other `os_*.tf` files for how it
+  should look like.
+* Add a new OS entry to [backends/aws/modules/os/main.tf]
+  (backends/aws/modules/os/main.tf).
+* Update this README.
+* Test it: Be sure to have the requisites ready, as described at the top of this
+  README, then do `TF_VAR_os=<the-os-id> terraform apply`. When done, don't
+  forget to clean up: `TF_VAR_os=<the-os-id> terraform destroy`.
+* Update the GitHub workflow `ostests.yaml` with the new OS ID.
