@@ -86,8 +86,7 @@ jobs:
           path: |
             k0s
             k0s.exe
-            airgap-images.txt
-            airgap-image-bundle-cache-key.txt
+            airgap-image-bundle-hash.txt
 
       - name: "Terraform :: Requisites"
         env:
