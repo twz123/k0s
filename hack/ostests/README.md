@@ -45,6 +45,7 @@ To see runs for this workflow, try: gh run list --workflow=ostests.yaml
 
 * `alpine_317`: Alpine Linux 3.17
 * `centos_7`: CentOS Linux 7 (Core)
+* `centos_8`: CentOS Stream 8
 * `ubuntu_2204`: Ubuntu 22.04 LTS
 
 ### Adding a new operating system
