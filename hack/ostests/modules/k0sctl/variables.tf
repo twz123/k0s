@@ -39,8 +39,13 @@ variable "ssh_private_key_filename" {
 # k0s variables
 variable "k0s_version" {
   type        = string
-  description = "The k0s version to deploy on the machines. May be an exact version, \"stable\" or \"latest\"."
-  default     = "v1.27.2+k0s.0"
+  description = "The k0s version to deploy on the machines. May be null to use the latest released version of k0s."
+  default     = null
+
+  validation {
+    condition     = var.k0s_version == null ? true : length(var.k0s_version) != 0
+    error_message = "The k0s version may not be empty."
+  }
 }
 
 variable "k0s_dynamic_config" {
@@ -108,22 +113,27 @@ variable "k0s_config_spec" {
 
 # k0sctl variables
 
-variable "k0sctl_binary" {
+variable "k0sctl_executable_path" {
   type        = string
-  description = "Path to the k0sctl binary to use for local-exec provisioning."
+  description = "Path to the k0sctl executable to use for local-exec provisioning."
   default     = "k0sctl"
   nullable    = false
 
   validation {
-    condition     = length(var.k0sctl_binary) != 0
-    error_message = "Path to the k0sctl binary may not be empty."
+    condition     = length(var.k0sctl_executable_path) != 0
+    error_message = "Path to the k0sctl executable may not be empty."
   }
 }
 
-variable "k0s_binary" {
+variable "k0s_executable_path" {
   type        = string
-  description = "Path to the k0s binary to use, or null if it should be downloaded."
+  description = "Path to the k0s executable to use, or null if it should be downloaded."
   default     = null
+
+  validation {
+    condition     = var.k0s_executable_path == null ? true : length(var.k0s_executable_path) != 0
+    error_message = "Path to the k0sctl executable may not be empty."
+  }
 }
 
 # variable "airgap_image_bundle" {

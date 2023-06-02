@@ -8,7 +8,7 @@ on:
         type: string
     outputs:
       cache-key:
-        description: The compiled binary's cache key.
+        description: The compiled executable's cache key.
         value: ${{ jobs.build.outputs.cache-key }}
       airgap-image-bundle-cache-key:
         description: The airgap image bundle's cache key.
@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     outputs:
-      cache-key: build-k0s-amd64-${{ inputs.target }}-compiled-binary-${{ github.sha }}
+      cache-key: build-k0s-amd64-${{ inputs.target }}-compiled-executable-${{ github.sha }}
       airgap-image-bundle-cache-key: build-k0s-amd64-${{ inputs.target }}-airgap-image-bundle-${{ steps.image-bundle-source.outputs.hash }}
 
     steps:
@@ -35,9 +35,9 @@ jobs:
 
       - name: "Cache :: k0s"
         uses: actions/cache@v3
-        id: cache-compiled-binary
+        id: cache-compiled-executable
         with:
-          key: build-k0s-amd64-${{ inputs.target }}-compiled-binary-${{ github.sha }}
+          key: build-k0s-amd64-${{ inputs.target }}-compiled-executable-${{ github.sha }}
           path: |
             k0s
             k0s.exe
@@ -46,7 +46,7 @@ jobs:
 
       - name: "Cache :: embedded binaries"
         uses: actions/cache@v3
-        if: steps.cache-compiled-binary.outputs.cache-hit != 'true'
+        if: steps.cache-compiled-executable.outputs.cache-hit != 'true'
         with:
           key: build-k0s-amd64-${{ inputs.target }}-embedded-bins-${{ hashFiles('embedded-bins/**/*') }}
           path: |
@@ -58,7 +58,7 @@ jobs:
 
       - name: "Cache :: GOCACHE"
         uses: actions/cache@v3
-        if: steps.cache-compiled-binary.outputs.cache-hit != 'true'
+        if: steps.cache-compiled-executable.outputs.cache-hit != 'true'
         with:
           key: build-k0s-amd64-${{ inputs.target }}-gocache-${{ github.ref_name }}-${{ github.sha }}
           restore-keys: |
@@ -68,14 +68,14 @@ jobs:
 
       - name: "Cache :: GOMODCACHE"
         uses: actions/cache@v3
-        if: steps.cache-compiled-binary.outputs.cache-hit != 'true'
+        if: steps.cache-compiled-executable.outputs.cache-hit != 'true'
         with:
           key: build-k0s-amd64-${{ inputs.target }}-gomodcache-${{ hashFiles('go.sum') }}
           path: |
             build/cache/go/mod
 
       - name: "Build :: k0s"
-        if: steps.cache-compiled-binary.outputs.cache-hit != 'true'
+        if: steps.cache-compiled-executable.outputs.cache-hit != 'true'
         env:
           TARGET_OS: ${{ inputs.target }}
         run: |
