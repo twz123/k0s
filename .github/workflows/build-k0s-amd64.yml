@@ -104,7 +104,7 @@ jobs:
         if: inputs.target == 'linux'
         uses: actions/cache@v3
         with:
-          key: build-k0s-amd64-${{ inputs.target }}-airgap-image-bundle-${{ steps.image-bundle-source.outputs.hash }}
+          key: build-k0s-amd64-${{ inputs.target }}-airgap-image-bundle-${{ steps.cache-airgap-image-bundle-calc-hash.outputs.hash }}
           path: airgap-image-bundle-${{ inputs.target }}-amd64.tar
           lookup-only: true
 
