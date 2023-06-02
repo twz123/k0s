@@ -101,7 +101,7 @@ jobs:
           if [ -f airgap-image-bundle-hash.txt ]; then
             read -r HASH_VALUE <airgap-image-bundle-hash.txt
           else
-            printf %s "$HASH_VALUE" >airgap-image-bundle-hash.txt
+            printf '%s\n' "$HASH_VALUE" >airgap-image-bundle-hash.txt
           fi
           printf 'cache-key=build-k0s-amd64-%s-airgap-image-bundle-%s\n' "$TARGET" "$HASH_VALUE" >> "$GITHUB_OUTPUT"
 
