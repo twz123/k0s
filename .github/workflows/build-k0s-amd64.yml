@@ -82,7 +82,7 @@ jobs:
           make --touch codegen
           make build
 
-      - name: "Build :: Airgap image bundle list"
+      - name: "Build :: Airgap image list"
         if: inputs.target == 'linux' && steps.cache-compiled-executable.outputs.cache-hit != 'true'
         run: make airgap-images.txt && cat airgap-images.txt
 
