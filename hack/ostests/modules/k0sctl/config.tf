@@ -1,28 +1,34 @@
 locals {
-  k8s_api_port             = 6443
-  k0s_api_port             = 9443
-  konnectivity_server_port = 8132
+  # k8s_api_port             = 6443
+  # k0s_api_port             = 9443
+  # konnectivity_server_port = 8132
 
   k0sctl_config = {
     apiVersion = "k0sctl.k0sproject.io/v1beta1"
     kind       = "Cluster"
     metadata   = { name = "k0s-cluster" }
     spec = {
-      k0s = {
-        version       = var.k0s_version
-        dynamicConfig = var.k0s_dynamic_config
-        config = { spec = merge(
-          { telemetry = { enabled = false, }, },
-          # (var.loadbalancer != null ? { api = {
-          #   externalAddress = module.loadbalancer.info.ipv4,
-          #   sans = [
-          #     module.loadbalancer.info.name,
-          #     module.loadbalancer.info.ipv4,
-          #   ],
-          # }, } : {}),
-          { for k, v in var.k0s_config_spec : k => v if v != null }
-        ), }
-      }
+      k0s = merge(
+        var.k0s_version == null ? {} : {
+          version = var.k0s_version
+        },
+        {
+          version       = var.k0s_version
+          dynamicConfig = var.k0s_dynamic_config
+          config = { spec = merge(
+            { telemetry = { enabled = false, }, },
+            # (var.loadbalancer != null ? { api = {
+            #   externalAddress = module.loadbalancer.info.ipv4,
+            #   sans = [
+            #     module.loadbalancer.info.name,
+            #     module.loadbalancer.info.ipv4,
+            #   ],
+            # }, } : {}),
+            { for k, v in var.k0s_config_spec : k => v if v != null }
+          ), }
+        },
+      )
+
       hosts = [for host in var.hosts : merge({
         role = host.role
         ssh = {
