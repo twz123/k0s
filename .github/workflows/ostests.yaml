@@ -83,7 +83,11 @@ jobs:
         id: cache-compiled-executable
         with:
           key: ${{ needs.build.outputs.cache-key }}
-          path: k0s
+          path: |
+            k0s
+            k0s.exe
+            airgap-images.txt
+            airgap-image-bundle-cache-key.txt
 
       - name: "Terraform :: Requisites"
         env:
