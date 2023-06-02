@@ -7,10 +7,10 @@ on:
       oses:
         description: The Operating Systems to test.
         default: >-
-          {
+          [
             "alpine_317",
             "ubuntu_2204"
-          }
+          ]
 
 env:
   TERRAFORM_VERSION: 1.4.6
