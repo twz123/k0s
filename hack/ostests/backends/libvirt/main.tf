@@ -9,7 +9,7 @@ resource "random_pet" "resource_name_prefix" {
 locals {
   resource_name_prefix = (var.resource_name_prefix != null
     ? var.resource_name_prefix
-    : format("%s-", random_pet.resource_name_prefix.0.id)
+    : random_pet.resource_name_prefix.0.id
   )
 
   cache_dir = (var.cache_dir != null
@@ -33,7 +33,9 @@ resource "local_sensitive_file" "ssh_private_key" {
 module "k0sctl" {
   source = "../../modules/k0sctl"
 
-  k0sctl_binary = var.k0sctl_binary
+  k0sctl_executable_path = var.k0sctl_executable_path
+  k0s_executable_path    = var.k0s_executable_path
+  k0s_version            = var.k0s_version
 
   hosts                    = module.backend.machines
   ssh_username             = module.backend.ssh_username

@@ -17,12 +17,10 @@ variable "cache_dir" {
   EOD
   default     = null
 
-  # The validation doesn't work?
-
-  # validation {
-  #   condition     = var.cache_dir == null || length(var.cache_dir) != 0
-  #   error_message = "The cache directory may not be empty."
-  # }
+  validation {
+    condition     = var.cache_dir == null ? true : length(var.cache_dir) != 0
+    error_message = "The cache directory may not be empty."
+  }
 }
 
 variable "os" {
@@ -30,14 +28,36 @@ variable "os" {
   description = "The underlying OS for the to-be-provisioned cluster."
 }
 
-variable "k0sctl_binary" {
+variable "k0sctl_executable_path" {
   type        = string
-  description = "Path to the k0sctl binary to use for local-exec provisioning."
+  description = "Path to the k0sctl executable to use for local-exec provisioning."
   default     = "k0sctl"
   nullable    = false
 
   validation {
-    condition     = length(var.k0sctl_binary) != 0
-    error_message = "Path to the k0sctl binary may not be empty."
+    condition     = length(var.k0sctl_executable_path) != 0
+    error_message = "Path to the k0sctl executable may not be empty."
+  }
+}
+
+variable "k0s_executable_path" {
+  type        = string
+  description = "Path to the k0s executable to use, or null if it should be downloaded."
+  default     = null
+
+  validation {
+    condition     = var.k0s_executable_path == null ? true : length(var.k0s_executable_path) != 0
+    error_message = "Path to the k0sctl executable may not be empty."
+  }
+}
+
+variable "k0s_version" {
+  type        = string
+  description = "The k0s version to deploy. May be null to use the latest released version of k0s."
+  default     = null
+
+  validation {
+    condition     = var.k0s_version == null ? true : length(var.k0s_version) != 0
+    error_message = "The k0s version may not be empty."
   }
 }

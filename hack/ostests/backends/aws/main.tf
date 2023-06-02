@@ -48,7 +48,9 @@ resource "local_sensitive_file" "ssh_private_key" {
 module "k0sctl" {
   source = "../../modules/k0sctl"
 
-  k0sctl_binary = var.k0sctl_binary
+  k0sctl_executable_path = var.k0sctl_executable_path
+  k0s_executable_path    = var.k0s_executable_path
+  k0s_version            = var.k0s_version
 
   hosts                    = module.backend.machines
   ssh_username             = module.backend.ssh_username

@@ -47,9 +47,10 @@ locals {
         #   })
         # })
 
-        # var.k0sctl_k0s_binary == null ? {} : {
-        #   k0sBinaryPath = var.k0sctl_k0s_binary
-        # },
+        var.k0s_executable_path == null ? {} : {
+          k0sBinaryPath = var.k0s_executable_path
+        },
+
         # var.k0sctl_airgap_image_bundle != null && contains(["worker", "controller+worker"], host.role) ? {
         #   files = [
         #     {

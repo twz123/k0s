@@ -80,7 +80,7 @@ jobs:
 
       - name: "Cache :: k0s"
         uses: actions/cache@v3
-        id: cache-compiled-binary
+        id: cache-compiled-executable
         with:
           key: ${{ needs.build.outputs.cache-key }}
           path: k0s
@@ -88,7 +88,7 @@ jobs:
       - name: "Terraform :: Requisites"
         env:
           OSTESTS_OS: ${{ matrix.os }}
-          OSTESTS_CACHE_HIT: ${{ steps.cache-compiled-binary.outputs.cache-hit }}
+          OSTESTS_CACHE_HIT: ${{ steps.cache-compiled-executable.outputs.cache-hit }}
         run: |
           jq --version
 
@@ -96,7 +96,7 @@ jobs:
           k0sctlExecutablePath="$(pwd)/k0sctl"
 
           if [ "$OSTESTS_CACHE_HIT" != true ] || ! [ -f "$k0sExecutablePath" ] ; then
-            echo Failed to restore cached k0s binary! 1>&2
+            echo Failed to restore cached k0s executable! 1>&2
             exit 1
           fi
 
@@ -105,8 +105,8 @@ jobs:
           "$k0sctlExecutablePath" version
 
           {
-            echo "TF_VAR_k0s_binary=$k0sExecutablePath"
-            echo "TF_VAR_k0sctl_binary=$k0sctlExecutablePath"
+            echo "TF_VAR_k0s_executable_path=$k0sExecutablePath"
+            echo "TF_VAR_k0sctl_executable_path=$k0sctlExecutablePath"
           } >> "$GITHUB_ENV"
 
       - name: "Terraform :: Setup"
