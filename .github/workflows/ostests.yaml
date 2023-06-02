@@ -83,6 +83,7 @@ jobs:
         id: cache-compiled-binary
         with:
           key: ${{ needs.build.outputs.cache-key }}
+          path: k0s
 
       - name: "Terraform :: Requisites"
         env:
