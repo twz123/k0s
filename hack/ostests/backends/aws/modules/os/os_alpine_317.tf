@@ -29,21 +29,23 @@ data "aws_ami" "alpine_317" {
 }
 
 locals {
-  os_alpine_317 = merge({
-    id           = var.os
-    ssh_username = "alpine"
-    },
-    var.os != "alpine_317" ? {} : {
-      controller_ami = {
-        id           = data.aws_ami.alpine_317.0.id
-        user_data    = templatefile("${path.module}/os_alpine_317_userdata.tftpl", { worker = false })
-        ready_script = file("${path.module}/os_alpine_317_ready.sh")
-      }
-      worker_ami = {
-        id           = data.aws_ami.alpine_317.0.id
+  os_alpine_317 = var.os != "alpine_317" ? {} : {
+    ami_configs = {
+      default = {
+        id            = one(data.aws_ami.alpine_317.*.id)
+        instance_type = "t2.medium"
+
         user_data    = templatefile("${path.module}/os_alpine_317_userdata.tftpl", { worker = true })
         ready_script = file("${path.module}/os_alpine_317_ready.sh")
+
+        connection = {
+          type     = "ssh"
+          username = "alpine"
+        }
+      }
+      controller = {
+        user_data = templatefile("${path.module}/os_alpine_317_userdata.tftpl", { worker = false })
       }
     }
-  )
+  }
 }

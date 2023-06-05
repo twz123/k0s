@@ -29,17 +29,17 @@ data "aws_ami" "flatcar" {
 }
 
 locals {
-  os_flatcar = merge({
-    id           = var.os
-    ssh_username = "core"
-    },
-    var.os != "flatcar" ? {} : {
-      controller_ami = {
-        id = data.aws_ami.flatcar.0.id
+  os_flatcar = var.os != "flatcar" ? {} : {
+    ami_configs = {
+      default = {
+        id            = one(data.aws_ami.flatcar.*.id)
+        instance_type = "t2.medium"
+
+        connection = {
+          type     = "ssh"
+          username = "core"
+        }
       }
-      worker_ami = {
-        id = data.aws_ami.flatcar.0.id
-      }
-    },
-  )
+    }
+  }
 }

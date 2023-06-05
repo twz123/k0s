@@ -29,17 +29,17 @@ data "aws_ami" "ubuntu_2204" {
 }
 
 locals {
-  os_ubuntu_2204 = merge({
-    id           = var.os
-    ssh_username = "ubuntu"
-    },
-    var.os != "ubuntu_2204" ? {} : {
-      controller_ami = {
-        id = data.aws_ami.ubuntu_2204.0.id
+  os_ubuntu_2204 = var.os != "ubuntu_2204" ? {} : {
+    ami_configs = {
+      default = {
+        id            = one(data.aws_ami.ubuntu_2204.*.id)
+        instance_type = "t2.medium"
+
+        connection = {
+          type     = "ssh"
+          username = "ubuntu"
+        }
       }
-      worker_ami = {
-        id = data.aws_ami.ubuntu_2204.0.id
-      }
-    },
-  )
+    }
+  }
 }

@@ -29,17 +29,17 @@ data "aws_ami" "fedora_38" {
 }
 
 locals {
-  os_fedora_38 = merge({
-    id           = var.os
-    ssh_username = "fedora"
-    },
-    var.os != "fedora_38" ? {} : {
-      controller_ami = {
-        id = data.aws_ami.fedora_38.0.id
+  os_fedora_38 = var.os != "fedora_38" ? {} : {
+    ami_configs = {
+      default = {
+        id            = one(data.aws_ami.fedora_38.*.id)
+        instance_type = "t2.medium"
+
+        connection = {
+          type     = "ssh"
+          username = "fedora"
+        }
       }
-      worker_ami = {
-        id = data.aws_ami.fedora_38.0.id
-      }
-    },
-  )
+    }
+  }
 }

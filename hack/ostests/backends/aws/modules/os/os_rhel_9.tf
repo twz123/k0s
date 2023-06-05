@@ -29,17 +29,17 @@ data "aws_ami" "rhel_9" {
 }
 
 locals {
-  os_rhel_9 = merge({
-    id           = var.os
-    ssh_username = "ec2-user"
-    },
-    var.os != "rhel_9" ? {} : {
-      controller_ami = {
-        id = data.aws_ami.rhel_9.0.id
+  os_rhel_9 = var.os != "rhel_9" ? {} : {
+    ami_configs = {
+      default = {
+        id            = one(data.aws_ami.rhel_9.*.id)
+        instance_type = "t2.medium"
+
+        connection = {
+          type     = "ssh"
+          username = "ec2-user"
+        }
       }
-      worker_ami = {
-        id = data.aws_ami.rhel_9.0.id
-      }
-    },
-  )
+    }
+  }
 }

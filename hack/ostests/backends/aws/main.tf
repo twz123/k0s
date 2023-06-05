@@ -61,7 +61,6 @@ module "k0sctl" {
     }
   }
 
-  hosts                    = module.backend.machines
-  ssh_username             = module.backend.ssh_username
+  hosts                    = try(module.backend.machines, []) # the try allows destruction even if backend provisioning failed
   ssh_private_key_filename = local_sensitive_file.ssh_private_key.filename
 }

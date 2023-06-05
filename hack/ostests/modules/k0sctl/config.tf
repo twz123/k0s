@@ -32,30 +32,26 @@ locals {
       hosts = [for host in var.hosts : merge(
         {
           role = host.role
-          ssh = {
-            address = host.ipv4
-            keyPath = var.ssh_private_key_filename
-            port    = 22
-            user    = var.ssh_username
-          }
           installFlags = concat(
             var.k0s_install_flags,
             contains(["controller", "controller+worker"], host.role) ? var.k0s_controller_install_flags : [],
             contains(["worker", "controller+worker"], host.role) ? var.k0s_worker_install_flags : [],
           )
-          uploadBinary = var.k0s_executable_path != null
+          uploadBinary = false
         },
 
-        # host.hooks == null ? {} : merge({
-        #   hooks = host.hooks.apply == null ? {} : merge({
-        #     apply = host.hooks.apply.before == null ? {} : {
-        #       before = host.hooks.apply.before
-        #     }
-        #   })
-        # })
+        host.connection.type != "ssh" ? {} : merge({
+          ssh = {
+            address = host.ipv4
+            keyPath = var.ssh_private_key_filename
+            port    = 22
+            user    = host.connection.username
+          }
+        }),
 
         var.k0s_executable_path == null ? {} : {
           k0sBinaryPath = var.k0s_executable_path
+          uploadBinary  = true
         },
 
         # var.k0sctl_airgap_image_bundle != null && contains(["worker", "controller+worker"], host.role) ? {

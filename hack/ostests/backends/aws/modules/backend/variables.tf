@@ -10,17 +10,23 @@ variable "resource_name_prefix" {
 
 variable "os" {
   type = object({
-    controller_ami = object({
-      id           = string
-      user_data    = optional(string)
-      ready_script = optional(string)
+    ami_configs = object({
+      default = object({
+        id            = string
+        instance_type = string
+
+        user_data    = optional(string)
+        ready_script = optional(string)
+
+        connection = object({
+          type     = string
+          username = string
+        })
+      })
+      controller        = optional(map(any))
+      controller_worker = optional(map(any))
+      worker            = optional(map(any))
     })
-    worker_ami = object({
-      id           = string
-      user_data    = optional(string)
-      ready_script = optional(string)
-    })
-    ssh_username = string
   })
 
   description = "The OS configuration."
@@ -31,13 +37,13 @@ variable "os" {
 variable "controller_num_nodes" {
   type        = number
   description = "The number controller nodes to spin up."
-  default     = 3
+  default     = 1
 }
 
-variable "controller_aws_instance_type" {
-  type        = string
-  description = "The AWS instance type to use for controller nodes."
-  default     = "t2.medium"
+variable "controller_worker_num_nodes" {
+  type        = number
+  description = "The number controller+worker nodes to spin up."
+  default     = 2
 }
 
 # Worker node parameters
@@ -46,12 +52,6 @@ variable "worker_num_nodes" {
   type        = number
   description = "The number worker nodes to spin up."
   default     = 1
-}
-
-variable "worker_aws_instance_type" {
-  type        = string
-  description = "The AWS instance type to use for worker nodes."
-  default     = "t2.medium"
 }
 
 # # Load balancer variables
