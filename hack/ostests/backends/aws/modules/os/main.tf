@@ -8,6 +8,7 @@ locals {
     centos_9    = local.os_centos_9
     rhel_7      = local.os_rhel_7
     rhel_8      = local.os_rhel_8
+    rhel_9      = local.os_rhel_9
     ubuntu_2204 = local.os_ubuntu_2204
   }
 }
