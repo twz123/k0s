@@ -59,6 +59,7 @@ To see runs for this workflow, try: gh run list --workflow=ostests.yaml
 * `rocky_9`: Rocky Linux 9.2 (Blue Onyx)
 * `ubuntu_2004`: Ubuntu 20.04 LTS
 * `ubuntu_2204`: Ubuntu 22.04 LTS
+* `ubuntu_2304`: Ubuntu 23.04
 
 ### Adding a new operating system
 
