@@ -1,5 +1,16 @@
 # Terraform modules for k0s OS testing
 
+Provisioning of k0s test clusters using different operating systems and network
+providers.
+
+By default, the cluster will consist of
+
+* 1 controller node
+* 2 controller+worker nodes
+* 1 worker node
+
+Node-local load balancing is enabled.
+
 ## Requirements
 
 * Terraform >= 1.4
@@ -14,6 +25,23 @@ For the AWS backend:
 
 * Have the CLI credentials setup, in the usual AWS CLI way.
 * Have a configured default region. That region will be targeted by Terraform.
+
+## Deploying the cluster
+
+Be sure to meet the requisites listed above. Select the desired cluster
+configuration:
+
+```shell
+cd hack/ostests/backends/aws/
+export TF_VAR_os=alpine_317
+export TF_VAR_network_provider=calico
+```
+
+Apply the configuration:
+
+```shell
+terraform apply 
+```
 
 ## GitHub Actions workflow
 
@@ -33,7 +61,9 @@ credentials available in its secrets:
 Custom workflow runs can be launched using [gh]:
 
 ```console
-$ gh workflow run ostests.yaml --ref some/experimental/branch -f oses='["alpine_317"]'
+$ gh workflow run ostests.yaml --ref some/experimental/branch \
+  -f oses='["alpine_317"]' \
+  -f network-providers='["calico"]'
 ✓ Created workflow_dispatch event for ostests.yaml at some/experimental/branch
 
 To see runs for this workflow, try: gh run list --workflow=ostests.yaml

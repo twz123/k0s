@@ -31,19 +31,13 @@ variable "os" {
 variable "controller_num_nodes" {
   type        = number
   description = "The number controller nodes to spin up."
-  default     = 1
+  default     = 3
 }
 
 variable "controller_aws_instance_type" {
   type        = string
   description = "The AWS instance type to use for controller nodes."
   default     = "t2.medium"
-}
-
-variable "controller_k0s_enable_worker" {
-  type        = bool
-  description = "Whether k0s on the controllers should also schedule workloads."
-  default     = false
 }
 
 # Worker node parameters

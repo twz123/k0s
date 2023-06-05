@@ -52,6 +52,15 @@ module "k0sctl" {
   k0s_executable_path    = var.k0s_executable_path
   k0s_version            = var.k0s_version
 
+  k0s_config_spec = {
+    network = {
+      provider = var.k0s_network_provider
+      nodeLocalLoadBalancing = {
+        enabled = true
+      }
+    }
+  }
+
   hosts                    = module.backend.machines
   ssh_username             = module.backend.ssh_username
   ssh_private_key_filename = local_sensitive_file.ssh_private_key.filename

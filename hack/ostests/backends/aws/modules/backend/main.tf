@@ -18,7 +18,7 @@ resource "aws_instance" "controllers" {
 
   tags = {
     Name                             = format("%s-controller-%d", var.resource_name_prefix, count.index)
-    "k0sctl.k0sproject.io/host-role" = var.controller_k0s_enable_worker ? "controller+worker" : "controller"
+    "k0sctl.k0sproject.io/host-role" = count.index > 0 ? "controller+worker" : "controller"
   }
 
   key_name                    = aws_key_pair.ssh.key_name
