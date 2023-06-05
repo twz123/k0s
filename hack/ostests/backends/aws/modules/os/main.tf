@@ -16,6 +16,7 @@ locals {
     rhel_9      = local.os_rhel_9
     rocky_8     = local.os_rocky_8
     rocky_9     = local.os_rocky_9
+    ubuntu_2004 = local.os_ubuntu_2004
     ubuntu_2204 = local.os_ubuntu_2204
   }
 }
