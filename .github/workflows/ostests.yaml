@@ -7,11 +7,27 @@ on:
   workflow_dispatch:
     inputs:
       oses:
-        description: The Operating Systems to test.
+        description: The operating systems to test.
+        required: true
         default: >-
           [
             "alpine_317",
-            "ubuntu_2204"
+            "centos_7", "centos_8", "centos_9",
+            "debian_10", "debian_11",
+            "fcos_38",
+            "fedora_38",
+            "flatcar",
+            "rhel_7", "rhel_8", "rhel_9",
+            "rocky_8", "rocky_9",
+            "ubuntu_2004", "ubuntu_2204", "ubuntu_2304"
+          ]
+      network-providers:
+        description: The k0s network providers to test.
+        required: true
+        default: >-
+          [
+            "kube-router",
+            "calico"
           ]
 
 env:
@@ -31,8 +47,9 @@ jobs:
       fail-fast: false
       matrix:
         os: ${{ fromJSON(github.event.inputs.oses) }}
+        network-provider: ${{ fromJSON(github.event.inputs.network-providers) }}
 
-    name: "NetConf :: AWS :: ${{ matrix.os }}"
+    name: "${{ matrix.os }} :: ${{ matrix.network-provider }} :: NetConf"
     runs-on: ubuntu-22.04
     needs: build
 
@@ -40,8 +57,9 @@ jobs:
       TF_VAR_os_resource_name_prefix: gha-${{ github.run_id }}-${{ github.run_attempt }}"
       TF_VAR_os: ${{ matrix.os }}
       TF_VAR_cache_dir: ${{ github.workspace }}/.cache/k0s-ostests
-      TF_VAR_k0s_executable_path: ${{ github.workspace }}/k0s
       TF_VAR_k0sctl_executable_path: ${{ github.workspace }}/k0sctl
+      TF_VAR_k0s_executable_path: ${{ github.workspace }}/k0s
+      TF_VAR_k0s_network_provider: ${{ matrix.network-provider }}
 
     defaults:
       run:

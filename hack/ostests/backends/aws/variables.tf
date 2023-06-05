@@ -61,3 +61,14 @@ variable "k0s_version" {
     error_message = "The k0s version may not be empty."
   }
 }
+
+variable "k0s_network_provider" {
+  type        = string
+  description = "The k0s network provider to use (either kuberouter or calico)."
+  default     = "kuberouter"
+
+  validation {
+    condition     = var.k0s_network_provider == "kuberouter" || var.k0s_network_provider == "calico"
+    error_message = "Unsupported k0s CNI stack."
+  }
+}
