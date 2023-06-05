@@ -8,6 +8,7 @@ locals {
     centos_9    = local.os_centos_9
     debian_10   = local.os_debian_10
     debian_11   = local.os_debian_11
+    fedora_38   = local.os_fedora_38
     rhel_7      = local.os_rhel_7
     rhel_8      = local.os_rhel_8
     rhel_9      = local.os_rhel_9
