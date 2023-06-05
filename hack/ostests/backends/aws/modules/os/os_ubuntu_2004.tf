@@ -1,15 +1,15 @@
 # https://ubuntu.com/server/docs/cloud-images/amazon-ec2
 
-data "aws_ami" "ubuntu_2204" {
-  count = var.os == "ubuntu_2204" ? 1 : 0
+data "aws_ami" "ubuntu_2004" {
+  count = var.os == "ubuntu_2004" ? 1 : 0
 
   owners      = ["099720109477"]
-  name_regex  = "ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-\\d+"
+  name_regex  = "ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-\\d+"
   most_recent = true
 
   filter {
     name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+    values = ["ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-*"]
   }
 
   filter {
@@ -29,16 +29,16 @@ data "aws_ami" "ubuntu_2204" {
 }
 
 locals {
-  os_ubuntu_2204 = merge({
+  os_ubuntu_2004 = merge({
     id           = var.os
     ssh_username = "ubuntu"
     },
-    var.os != "ubuntu_2204" ? {} : {
+    var.os != "ubuntu_2004" ? {} : {
       controller_ami = {
-        id = data.aws_ami.ubuntu_2204.0.id
+        id = data.aws_ami.ubuntu_2004.0.id
       }
       worker_ami = {
-        id = data.aws_ami.ubuntu_2204.0.id
+        id = data.aws_ami.ubuntu_2004.0.id
       }
     },
   )
