@@ -1,15 +1,15 @@
-# https://docs.fedoraproject.org/en-US/fedora-coreos/provisioning-aws/
+# https://www.flatcar.org/docs/latest/installing/cloud/aws-ec2/
 
-data "aws_ami" "fcos_38" {
-  count = var.os == "fcos_38" ? 1 : 0
+data "aws_ami" "flatcar" {
+  count = var.os == "flatcar" ? 1 : 0
 
-  owners      = ["125523088429"]
-  name_regex  = "^fedora-coreos-38\\.\\d+\\..+-x86_64"
+  owners      = ["075585003325"]
+  name_regex  = "^Flatcar-stable-\\d+\\..+-hvm"
   most_recent = true
 
   filter {
     name   = "name"
-    values = ["fedora-coreos-38.*.*-x86_64"]
+    values = ["Flatcar-stable-*.*-hvm"]
   }
 
   filter {
@@ -29,16 +29,16 @@ data "aws_ami" "fcos_38" {
 }
 
 locals {
-  os_fcos_38 = merge({
+  os_flatcar = merge({
     id           = var.os
     ssh_username = "core"
     },
-    var.os != "fcos_38" ? {} : {
+    var.os != "flatcar" ? {} : {
       controller_ami = {
-        id = data.aws_ami.fcos_38.0.id
+        id = data.aws_ami.flatcar.0.id
       }
       worker_ami = {
-        id = data.aws_ami.fcos_38.0.id
+        id = data.aws_ami.flatcar.0.id
       }
     },
   )
