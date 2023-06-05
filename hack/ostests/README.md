@@ -49,6 +49,7 @@ To see runs for this workflow, try: gh run list --workflow=ostests.yaml
 * `centos_9`: CentOS Stream 9
 * `debian_10`: Debian GNU/Linux 10 (buster)
 * `debian_11`: Debian GNU/Linux 11 (bullseye)
+* `fcos_38`: Fedora CoreOS 38
 * `fedora_38`: Fedora Linux 38 (Cloud Edition)
 * `rhel_7`: Red Hat Enterprise Linux Server 7.9 (Maipo)
 * `rhel_8`: Red Hat Enterprise Linux 8.6 (Ootpa)
