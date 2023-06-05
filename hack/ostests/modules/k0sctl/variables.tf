@@ -5,25 +5,14 @@ variable "hosts" {
       role = string,
       ipv4 = optional(string),
       ipv6 = optional(string),
-      # hooks = optional(object({
-      #   apply = optional(object({
-      #     before = optional(list(string))
-      #   }))
-      # })),
+      connection = object({
+        type     = string
+        username = string
+      })
     })
   )
 
   description = "The hosts to be provisoned by k0sctl."
-}
-
-variable "ssh_username" {
-  type        = string
-  description = "The username used to authenticate via SSH."
-
-  validation {
-    condition     = length(var.ssh_username) != 0
-    error_message = "SSH username may not be empty."
-  }
 }
 
 variable "ssh_private_key_filename" {

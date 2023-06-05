@@ -29,26 +29,24 @@ data "aws_ami" "centos_7" {
 }
 
 locals {
-  os_centos_7_user_data = format("#cloud-config\n%s", jsonencode({
-    bootcmd = [
-      "rm /etc/machine-id",
-      "systemd-machine-id-setup",
-    ]
-  }))
+  os_centos_7 = var.os != "centos_7" ? {} : {
+    ami_configs = {
+      default = {
+        id            = one(data.aws_ami.centos_7.*.id)
+        instance_type = "t2.medium"
 
-  os_centos_7 = merge({
-    id           = var.os
-    ssh_username = "centos"
-    },
-    var.os != "centos_7" ? {} : {
-      controller_ami = {
-        id        = data.aws_ami.centos_7.0.id
-        user_data = local.os_centos_7_user_data
+        user_data = format("#cloud-config\n%s", jsonencode({
+          bootcmd = [
+            "rm /etc/machine-id",
+            "systemd-machine-id-setup",
+          ]
+        })),
+
+        connection = {
+          type     = "ssh"
+          username = "centos"
+        }
       }
-      worker_ami = {
-        id        = data.aws_ami.centos_7.0.id
-        user_data = local.os_centos_7_user_data
-      }
-    },
-  )
+    }
+  }
 }

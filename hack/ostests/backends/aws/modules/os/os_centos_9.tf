@@ -29,17 +29,17 @@ data "aws_ami" "centos_9" {
 }
 
 locals {
-  os_centos_9 = merge({
-    id           = var.os
-    ssh_username = "ec2-user"
-    },
-    var.os != "centos_9" ? {} : {
-      controller_ami = {
-        id = data.aws_ami.centos_9.0.id
+  os_centos_9 = var.os != "centos_9" ? {} : {
+    ami_configs = {
+      default = {
+        id            = one(data.aws_ami.centos_9.*.id)
+        instance_type = "t2.medium"
+
+        connection = {
+          type     = "ssh"
+          username = "ec2-user"
+        }
       }
-      worker_ami = {
-        id = data.aws_ami.centos_9.0.id
-      }
-    },
-  )
+    }
+  }
 }

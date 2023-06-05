@@ -29,17 +29,17 @@ data "aws_ami" "rocky_9" {
 }
 
 locals {
-  os_rocky_9 = merge({
-    id           = var.os
-    ssh_username = "rocky"
-    },
-    var.os != "rocky_9" ? {} : {
-      controller_ami = {
-        id = data.aws_ami.rocky_9.0.id
+  os_rocky_9 = var.os != "rocky_9" ? {} : {
+    ami_configs = {
+      default = {
+        id            = one(data.aws_ami.rocky_9.*.id)
+        instance_type = "t2.medium"
+
+        connection = {
+          type     = "ssh"
+          username = "rocky"
+        }
       }
-      worker_ami = {
-        id = data.aws_ami.rocky_9.0.id
-      }
-    },
-  )
+    }
+  }
 }

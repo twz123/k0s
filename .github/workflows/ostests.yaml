@@ -26,7 +26,7 @@ on:
         required: true
         default: >-
           [
-            "kube-router",
+            "kuberouter",
             "calico"
           ]
 
@@ -110,6 +110,7 @@ jobs:
         run: terraform init
 
       - name: "Terraform :: Apply"
+        id: tf-apply
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -121,20 +122,15 @@ jobs:
           terraform output -raw k0s_kubeconfig > "$kubeconfigPath"
           echo "KUBECONFIG=$kubeconfigPath" >> "$GITHUB_ENV"
 
-      - name: "Network conformance tests :: Run"
+      - name: "Conformance tests :: Run"
         working-directory: inttest
-        run: make check-network
-        continue-on-error: true
+        run: make check-conformance
 
-      - name: "Network conformance tests :: Retrieve"
+      - name: "Conformance tests :: Retrieve results"
+        id: ct-retrieve
+        if: always() && steps.tf-apply.conclusion == 'success'
         working-directory: inttest
         run: make get-conformance-results
-
-      - name: "Network conformance tests :: Upload"
-        uses: actions/upload-artifact@v3
-        with:
-          name: network-conformance-results-${{ matrix.os }}
-          path: inttest/*_sonobuoy_*.tar.gz
 
       - name: "Terraform :: Destroy"
         if: always() && steps.tf-init.conclusion == 'success'
@@ -143,3 +139,17 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
         run: terraform destroy -auto-approve
+
+      - name: "Conformance tests :: Upload results"
+        if: always() && steps.ct-retrieve.conclusion == 'success'
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.os }}-${{ matrix.network-provider }}-conformance-results
+          path: inttest/*_sonobuoy_*.tar.gz
+
+      - name: "k0sctl :: Upload logs"
+        if: always() && steps.tf-init.conclusion == 'success'
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.os }}-${{ matrix.network-provider }}-k0sctl-logs
+          path: ~/.cache/k0sctl/k0sctl.log

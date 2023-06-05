@@ -29,17 +29,17 @@ data "aws_ami" "fcos_38" {
 }
 
 locals {
-  os_fcos_38 = merge({
-    id           = var.os
-    ssh_username = "core"
-    },
-    var.os != "fcos_38" ? {} : {
-      controller_ami = {
-        id = data.aws_ami.fcos_38.0.id
+  os_fcos_38 = var.os != "fcos_38" ? {} : {
+    ami_configs = {
+      default = {
+        id            = one(data.aws_ami.fcos_38.*.id)
+        instance_type = "t2.medium"
+
+        connection = {
+          type     = "ssh"
+          username = "core"
+        }
       }
-      worker_ami = {
-        id = data.aws_ami.fcos_38.0.id
-      }
-    },
-  )
+    }
+  }
 }

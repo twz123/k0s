@@ -29,17 +29,17 @@ data "aws_ami" "debian_11" {
 }
 
 locals {
-  os_debian_11 = merge({
-    id           = var.os
-    ssh_username = "admin"
-    },
-    var.os != "debian_11" ? {} : {
-      controller_ami = {
-        id = data.aws_ami.debian_11.0.id
+  os_debian_11 = var.os != "debian_11" ? {} : {
+    ami_configs = {
+      default = {
+        id            = one(data.aws_ami.debian_11.*.id)
+        instance_type = "t2.medium"
+
+        connection = {
+          type     = "ssh"
+          username = "admin"
+        }
       }
-      worker_ami = {
-        id = data.aws_ami.debian_11.0.id
-      }
-    },
-  )
+    }
+  }
 }
