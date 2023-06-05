@@ -48,6 +48,7 @@ To see runs for this workflow, try: gh run list --workflow=ostests.yaml
 * `centos_8`: CentOS Stream 8
 * `centos_9`: CentOS Stream 9
 * `rhel_7`: Red Hat Enterprise Linux Server 7.9 (Maipo)
+* `rhel_8`: Red Hat Enterprise Linux 8.6 (Ootpa)
 * `ubuntu_2204`: Ubuntu 22.04 LTS
 
 ### Adding a new operating system
