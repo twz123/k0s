@@ -10,6 +10,7 @@ locals {
     debian_11   = local.os_debian_11
     fcos_38     = local.os_fcos_38
     fedora_38   = local.os_fedora_38
+    flatcar     = local.os_flatcar
     rhel_7      = local.os_rhel_7
     rhel_8      = local.os_rhel_8
     rhel_9      = local.os_rhel_9
