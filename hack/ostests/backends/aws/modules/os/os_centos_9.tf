@@ -32,8 +32,7 @@ locals {
   os_centos_9 = var.os != "centos_9" ? {} : {
     node_configs = {
       default = {
-        ami_id        = one(data.aws_ami.centos_9.*.id)
-        instance_type = "t2.medium"
+        ami_id = one(data.aws_ami.centos_9.*.id)
 
         connection = {
           type     = "ssh"

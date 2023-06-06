@@ -32,8 +32,7 @@ locals {
   os_flatcar = var.os != "flatcar" ? {} : {
     node_configs = {
       default = {
-        ami_id        = one(data.aws_ami.flatcar.*.id)
-        instance_type = "t2.medium"
+        ami_id = one(data.aws_ami.flatcar.*.id)
 
         connection = {
           type     = "ssh"

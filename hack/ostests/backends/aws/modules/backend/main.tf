@@ -8,10 +8,14 @@ resource "aws_key_pair" "ssh" {
 }
 
 locals {
+  default_node_config = {
+    instance_type = "t3a.small"
+  }
+
   node_configs = {
-    controller          = merge(var.os.node_configs.default, var.os.node_configs.controller)
-    "controller+worker" = merge(var.os.node_configs.default, var.os.node_configs.worker, var.os.node_configs.controller_worker)
-    worker              = merge(var.os.node_configs.default, var.os.node_configs.worker)
+    controller          = merge(local.default_node_config, var.os.node_configs.default, var.os.node_configs.controller)
+    "controller+worker" = merge(local.default_node_config, var.os.node_configs.default, var.os.node_configs.worker, var.os.node_configs.controller_worker)
+    worker              = merge(local.default_node_config, var.os.node_configs.default, var.os.node_configs.worker)
   }
 }
 

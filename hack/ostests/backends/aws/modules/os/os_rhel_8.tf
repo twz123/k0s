@@ -32,8 +32,7 @@ locals {
   os_rhel_8 = var.os != "rhel_8" ? {} : {
     node_configs = {
       default = {
-        ami_id        = one(data.aws_ami.rhel_8.*.id)
-        instance_type = "t2.medium"
+        ami_id = one(data.aws_ami.rhel_8.*.id)
 
         connection = {
           type     = "ssh"

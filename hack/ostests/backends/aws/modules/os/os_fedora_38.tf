@@ -32,8 +32,7 @@ locals {
   os_fedora_38 = var.os != "fedora_38" ? {} : {
     node_configs = {
       default = {
-        ami_id        = one(data.aws_ami.fedora_38.*.id)
-        instance_type = "t2.medium"
+        ami_id = one(data.aws_ami.fedora_38.*.id)
 
         connection = {
           type     = "ssh"

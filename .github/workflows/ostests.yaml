@@ -100,10 +100,7 @@ jobs:
 
       - name: "Terraform :: Init"
         id: tf-init
-        # run: terraform init
-        run: |
-          echo FIXME temporary failure gate 1>&2
-          exit 1
+        run: terraform init
 
       - name: "Terraform :: Apply"
         id: tf-apply
@@ -142,6 +139,15 @@ jobs:
         with:
           name: ${{ matrix.os }}-${{ matrix.network-provider }}-conformance-results
           path: inttest/*_sonobuoy_*.tar.gz
+
+      - name: "Conformance tests :: Check"
+        working-directory: inttest
+        run: |
+          NUM_NOT_SKIPPED_OR_PASSED=$(bin/sonobuoy results *_sonobuoy_*.tar.gz -p=e2e --mode=detailed | jq --slurp '[.[] | select(.status != "skipped" and .status != "passed")] | length')
+          echo Number of tests that weren't skipped and didn't pass: "$NUM_NOT_SKIPPED_OR_PASSED"
+          if [ "$NUM_NOT_SKIPPED_OR_PASSED" != 0 ]; then
+            exit 1
+          ff
 
       - name: "k0sctl :: Upload logs"
         if: always() && steps.tf-init.conclusion == 'success'

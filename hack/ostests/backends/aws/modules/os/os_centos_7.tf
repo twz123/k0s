@@ -32,8 +32,7 @@ locals {
   os_centos_7 = var.os != "centos_7" ? {} : {
     node_configs = {
       default = {
-        ami_id        = one(data.aws_ami.centos_7.*.id)
-        instance_type = "t2.medium"
+        ami_id = one(data.aws_ami.centos_7.*.id)
 
         user_data = format("#cloud-config\n%s", jsonencode({
           bootcmd = [
