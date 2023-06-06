@@ -32,8 +32,7 @@ locals {
   os_ubuntu_2004 = var.os != "ubuntu_2004" ? {} : {
     node_configs = {
       default = {
-        ami_id        = one(data.aws_ami.ubuntu_2004.*.id)
-        instance_type = "t2.medium"
+        ami_id = one(data.aws_ami.ubuntu_2004.*.id)
 
         connection = {
           type     = "ssh"

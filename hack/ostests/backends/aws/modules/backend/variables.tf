@@ -12,8 +12,7 @@ variable "os" {
   type = object({
     node_configs = object({
       default = object({
-        ami_id        = string
-        instance_type = string
+        ami_id = string
 
         user_data    = optional(string)
         ready_script = optional(string)
@@ -37,13 +36,13 @@ variable "os" {
 variable "controller_num_nodes" {
   type        = number
   description = "The number controller nodes to spin up."
-  default     = 1
+  default     = 3 # Test an HA cluster by default
 }
 
 variable "controller_worker_num_nodes" {
   type        = number
   description = "The number controller+worker nodes to spin up."
-  default     = 2
+  default     = 0
 }
 
 # Worker node parameters
@@ -51,7 +50,7 @@ variable "controller_worker_num_nodes" {
 variable "worker_num_nodes" {
   type        = number
   description = "The number worker nodes to spin up."
-  default     = 1
+  default     = 2 # that's the minimum for conformance tests
 }
 
 # # Load balancer variables

@@ -32,8 +32,7 @@ locals {
   os_fcos_38 = var.os != "fcos_38" ? {} : {
     node_configs = {
       default = {
-        ami_id        = one(data.aws_ami.fcos_38.*.id)
-        instance_type = "t2.medium"
+        ami_id = one(data.aws_ami.fcos_38.*.id)
 
         connection = {
           type     = "ssh"

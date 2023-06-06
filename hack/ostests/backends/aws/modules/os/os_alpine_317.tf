@@ -32,8 +32,7 @@ locals {
   os_alpine_317 = var.os != "alpine_317" ? {} : {
     node_configs = {
       default = {
-        ami_id        = one(data.aws_ami.alpine_317.*.id)
-        instance_type = "t2.medium"
+        ami_id = one(data.aws_ami.alpine_317.*.id)
 
         user_data    = templatefile("${path.module}/os_alpine_317_userdata.tftpl", { worker = true })
         ready_script = file("${path.module}/os_alpine_317_ready.sh")

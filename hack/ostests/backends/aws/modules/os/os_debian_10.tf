@@ -32,8 +32,7 @@ locals {
   os_debian_10 = var.os != "debian_10" ? {} : {
     node_configs = {
       default = {
-        ami_id        = one(data.aws_ami.debian_10.*.id)
-        instance_type = "t2.medium"
+        ami_id = one(data.aws_ami.debian_10.*.id)
 
         connection = {
           type     = "ssh"
