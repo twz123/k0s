@@ -54,13 +54,13 @@ check-footloose-alpine-buildx:
 	touch $@
 
 check-network: bin/sonobuoy
-	$(realpath bin/sonobuoy) run --wait=1200 --plugin=e2e --plugin-env=e2e.E2E_USE_GO_RUNNER=true \
+	$(realpath bin/sonobuoy) run --wait=30 --plugin=e2e --plugin-env=e2e.E2E_USE_GO_RUNNER=true \
 		--e2e-focus='\[sig-network\].*\[Conformance\]' \
 		--e2e-skip='\[Serial\]' --e2e-parallel=y \
 		--kubernetes-version=v$(kubernetes_version)
 
 check-conformance: bin/sonobuoy
-	$(realpath bin/sonobuoy) run --wait=1200 \
+	$(realpath bin/sonobuoy) run --wait=240 \
 		--mode=certified-conformance \
 		--plugin-env=e2e.E2E_EXTRA_ARGS="--ginkgo.v" \
 		--kubernetes-version=v$(kubernetes_version)
