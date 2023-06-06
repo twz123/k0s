@@ -6,7 +6,13 @@ on:
       target:
         required: true
         type: string
+      airgap-image-bundle:
+        type: boolean
+        default: true
     outputs:
+      k0s-executable-name:
+        description: The name of the k0s executable (target-dependent).
+        value: ${{ jobs.build.outputs.k0s-executable-name }}
       cache-key:
         description: The compiled executable's cache key.
         value: ${{ jobs.build.outputs.cache-key }}
@@ -20,6 +26,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     outputs:
+      k0s-executable-name: ${{ steps.build-prepare.outputs.k0s-executable-name }}
       cache-key: build-k0s-amd64-${{ inputs.target }}-compiled-executable-${{ github.sha }}
       airgap-image-bundle-cache-key: build-k0s-amd64-${{ inputs.target }}-airgap-image-bundle-${{ steps.image-bundle-source.outputs.hash }}
 
@@ -31,7 +38,16 @@ jobs:
           persist-credentials: false
 
       - name: "Build :: Prepare"
-        run: .github/workflows/prepare-build-env.sh
+        id: build-prepare
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          .github/workflows/prepare-build-env.sh
+          if [ "TARGET" = windows ]; then
+            echo k0s-executable-name=k0s.exe >>"$GITHUB_OUTPUT"
+          else
+            echo k0s-executable-name=k0s >>"$GITHUB_OUTPUT"
+          fi
 
       - name: "Cache :: k0s"
         uses: actions/cache@v3
@@ -39,8 +55,7 @@ jobs:
         with:
           key: build-k0s-amd64-${{ inputs.target }}-compiled-executable-${{ github.sha }}
           path: |
-            k0s
-            k0s.exe
+            ${{ steps.build-prepare.outputs.k0s-executable-name }}
             airgap-image-bundle-hash.txt
 
       - name: "Cache :: embedded binaries"
@@ -82,6 +97,12 @@ jobs:
           make --touch codegen
           make build
 
+      - name: "Upload :: k0s"
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ steps.build-prepare.outputs.k0s-executable-name }}
+          path: ${{ steps.build-prepare.outputs.k0s-executable-name }}
+
       - name: "Build :: Airgap image list"
         if: inputs.target == 'linux' && steps.cache-compiled-executable.outputs.cache-hit != 'true'
         run: make airgap-images.txt && cat airgap-images.txt
@@ -93,7 +114,7 @@ jobs:
         # files need to exist before that.
       - name: "Cache :: Airgap image bundle :: Calculate cache key"
         id: cache-airgap-image-bundle-calc-key
-        if: inputs.target == 'linux'
+        if: inputs.airgap-image-bundle && inputs.target == 'linux'
         env:
           TARGET: ${{ inputs.target }}
           HASH_VALUE: ${{ hashFiles('Makefile', 'airgap-images.txt', 'hack/image-bundler/*') }}
@@ -107,7 +128,7 @@ jobs:
 
       - name: "Cache :: Airgap image bundle"
         id: cache-airgap-image-bundle
-        if: inputs.target == 'linux'
+        if: inputs.airgap-image-bundle && inputs.target == 'linux'
         uses: actions/cache@v3
         with:
           key: ${{ steps.cache-airgap-image-bundle-calc-key.outputs.cache-key }}
@@ -115,5 +136,5 @@ jobs:
           lookup-only: true
 
       - name: "Build :: Airgap image bundle"
-        if: inputs.target == 'linux' && steps.cache-airgap-image-bundle.outputs.cache-hit != 'true'
+        if: inputs.airgap-image-bundle && inputs.target == 'linux' && steps.cache-airgap-image-bundle.outputs.cache-hit != 'true'
         run: make airgap-image-bundle-${{ inputs.target }}-amd64.tar

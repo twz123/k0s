@@ -41,15 +41,16 @@ jobs:
     uses: ./.github/workflows/build-k0s-amd64.yml
     with:
       target: linux
+      airgap-image-bundle: false
 
-  network-conformance:
+  conformance:
     strategy:
       fail-fast: false
       matrix:
         os: ${{ fromJSON(github.event.inputs.oses) }}
         network-provider: ${{ fromJSON(github.event.inputs.network-providers) }}
 
-    name: "${{ matrix.os }} :: ${{ matrix.network-provider }} :: NetConf"
+    name: "${{ matrix.os }} :: ${{ matrix.network-provider }} :: conformance"
     runs-on: ubuntu-22.04
     needs: build
 
@@ -57,8 +58,8 @@ jobs:
       TF_VAR_os_resource_name_prefix: gha-${{ github.run_id }}-${{ github.run_attempt }}"
       TF_VAR_os: ${{ matrix.os }}
       TF_VAR_cache_dir: ${{ github.workspace }}/.cache/k0s-ostests
-      TF_VAR_k0sctl_executable_path: ${{ github.workspace }}/k0sctl
-      TF_VAR_k0s_executable_path: ${{ github.workspace }}/k0s
+      TF_VAR_k0sctl_executable_path: ${{ github.workspace }}/.cache/k0sctl
+      TF_VAR_k0s_executable_path: ${{ github.workspace }}/.cache/k0s
       TF_VAR_k0s_network_provider: ${{ matrix.network-provider }}
 
     defaults:
@@ -71,33 +72,25 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: "Cache :: k0s"
-        uses: actions/cache@v3
-        id: cache-compiled-executable
+      - name: "Download :: k0s"
+        uses: actions/download-artifact@v3
         with:
-          key: ${{ needs.build.outputs.cache-key }}
-          path: |
-            k0s
-            k0s.exe
-            airgap-image-bundle-hash.txt
+          name: k0s
+          path: ${{ github.workspace }}/.cache
 
       - name: "Terraform :: Requisites"
-        env:
-          OSTESTS_CACHE_HIT: ${{ steps.cache-compiled-executable.outputs.cache-hit }}
+        # env:
+        #   OSTESTS_CACHE_HIT: ${{ steps.cache-compiled-executable.outputs.cache-hit }}
         run: |
           jq --version
-
-          if [ "$OSTESTS_CACHE_HIT" != true ] || ! [ -x "$TF_VAR_k0s_executable_path" ]; then
-            echo Failed to restore cached k0s executable! 1>&2
-            exit 1
-          fi
-
-          k0sVersion="$("$TF_VAR_k0s_executable_path" version)"
-          echo "TF_VAR_k0s_version=$k0sVersion" >>"$GITHUB_ENV"
 
           curl -sSLo "$TF_VAR_k0sctl_executable_path" "https://github.com/k0sproject/k0sctl/releases/download/v${K0SCTL_VERSION}/k0sctl-linux-x64"
           chmod +x -- "$TF_VAR_k0sctl_executable_path"
           "$TF_VAR_k0sctl_executable_path" version
+
+          chmod +x -- "$TF_VAR_k0s_executable_path"
+          k0sVersion="$("$TF_VAR_k0s_executable_path" version)"
+          echo "TF_VAR_k0s_version=$k0sVersion" >>"$GITHUB_ENV"
 
       - name: "Terraform :: Setup"
         uses: hashicorp/setup-terraform@v2
@@ -107,7 +100,10 @@ jobs:
 
       - name: "Terraform :: Init"
         id: tf-init
-        run: terraform init
+        # run: terraform init
+        run: |
+          echo FIXME temporary failure gate 1>&2
+          exit 1
 
       - name: "Terraform :: Apply"
         id: tf-apply
