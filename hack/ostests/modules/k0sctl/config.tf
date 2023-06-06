@@ -37,7 +37,7 @@ locals {
             contains(["controller", "controller+worker"], host.role) ? var.k0s_controller_install_flags : [],
             contains(["worker", "controller+worker"], host.role) ? var.k0s_worker_install_flags : [],
           )
-          uploadBinary = false
+          uploadBinary = var.k0s_executable_path != null
         },
 
         host.connection.type != "ssh" ? {} : merge({
@@ -51,7 +51,6 @@ locals {
 
         var.k0s_executable_path == null ? {} : {
           k0sBinaryPath = var.k0s_executable_path
-          uploadBinary  = true
         },
 
         # var.k0sctl_airgap_image_bundle != null && contains(["worker", "controller+worker"], host.role) ? {

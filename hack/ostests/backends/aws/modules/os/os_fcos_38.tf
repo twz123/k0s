@@ -30,9 +30,9 @@ data "aws_ami" "fcos_38" {
 
 locals {
   os_fcos_38 = var.os != "fcos_38" ? {} : {
-    ami_configs = {
+    node_configs = {
       default = {
-        id            = one(data.aws_ami.fcos_38.*.id)
+        ami_id        = one(data.aws_ami.fcos_38.*.id)
         instance_type = "t2.medium"
 
         connection = {

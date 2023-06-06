@@ -30,9 +30,9 @@ data "aws_ami" "rhel_7" {
 
 locals {
   os_rhel_7 = var.os != "rhel_7" ? {} : {
-    ami_configs = {
+    node_configs = {
       default = {
-        id            = one(data.aws_ami.rhel_7.*.id)
+        ami_id        = one(data.aws_ami.rhel_7.*.id)
         instance_type = "t2.medium"
 
         connection = {

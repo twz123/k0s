@@ -30,9 +30,9 @@ data "aws_ami" "debian_11" {
 
 locals {
   os_debian_11 = var.os != "debian_11" ? {} : {
-    ami_configs = {
+    node_configs = {
       default = {
-        id            = one(data.aws_ami.debian_11.*.id)
+        ami_id        = one(data.aws_ami.debian_11.*.id)
         instance_type = "t2.medium"
 
         connection = {

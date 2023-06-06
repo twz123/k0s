@@ -30,9 +30,9 @@ data "aws_ami" "rocky_9" {
 
 locals {
   os_rocky_9 = var.os != "rocky_9" ? {} : {
-    ami_configs = {
+    node_configs = {
       default = {
-        id            = one(data.aws_ami.rocky_9.*.id)
+        ami_id        = one(data.aws_ami.rocky_9.*.id)
         instance_type = "t2.medium"
 
         connection = {
