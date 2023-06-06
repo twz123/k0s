@@ -30,9 +30,9 @@ data "aws_ami" "alpine_317" {
 
 locals {
   os_alpine_317 = var.os != "alpine_317" ? {} : {
-    ami_configs = {
+    node_configs = {
       default = {
-        id            = one(data.aws_ami.alpine_317.*.id)
+        ami_id        = one(data.aws_ami.alpine_317.*.id)
         instance_type = "t2.medium"
 
         user_data    = templatefile("${path.module}/os_alpine_317_userdata.tftpl", { worker = true })

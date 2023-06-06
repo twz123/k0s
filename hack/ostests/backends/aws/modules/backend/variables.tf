@@ -10,9 +10,9 @@ variable "resource_name_prefix" {
 
 variable "os" {
   type = object({
-    ami_configs = object({
+    node_configs = object({
       default = object({
-        id            = string
+        ami_id        = string
         instance_type = string
 
         user_data    = optional(string)

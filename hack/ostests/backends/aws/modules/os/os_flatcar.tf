@@ -30,9 +30,9 @@ data "aws_ami" "flatcar" {
 
 locals {
   os_flatcar = var.os != "flatcar" ? {} : {
-    ami_configs = {
+    node_configs = {
       default = {
-        id            = one(data.aws_ami.flatcar.*.id)
+        ami_id        = one(data.aws_ami.flatcar.*.id)
         instance_type = "t2.medium"
 
         connection = {

@@ -30,9 +30,9 @@ data "aws_ami" "centos_7" {
 
 locals {
   os_centos_7 = var.os != "centos_7" ? {} : {
-    ami_configs = {
+    node_configs = {
       default = {
-        id            = one(data.aws_ami.centos_7.*.id)
+        ami_id        = one(data.aws_ami.centos_7.*.id)
         instance_type = "t2.medium"
 
         user_data = format("#cloud-config\n%s", jsonencode({
