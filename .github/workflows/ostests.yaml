@@ -67,10 +67,16 @@ jobs:
         working-directory: hack/ostests/backends/aws
 
     steps:
-      - name: Checkout
+      - name: "Build :: Checkout"
         uses: actions/checkout@v3
         with:
           persist-credentials: false
+
+      - name: "Build :: Prepare"
+        working-directory: ./
+        run: |
+          kubernetesVersion="$(./vars.sh kubernetes_version)"
+          echo KUBERNETES_VERSION="$kubernetesVersion" >>"$GITHUB_ENV"
 
       - name: "Download :: k0s"
         uses: actions/download-artifact@v3
@@ -78,10 +84,16 @@ jobs:
           name: k0s
           path: ${{ github.workspace }}/.cache
 
+      - name: "Download :: kubectl"
+        uses: azure/setup-kubectl@v3
+        with:
+          version: v${{ env.KUBERNETES_VERSION }}
+
       - name: "Terraform :: Requisites"
         # env:
         #   OSTESTS_CACHE_HIT: ${{ steps.cache-compiled-executable.outputs.cache-hit }}
         run: |
+          kubectl version --client
           jq --version
 
           curl -sSLo "$TF_VAR_k0sctl_executable_path" "https://github.com/k0sproject/k0sctl/releases/download/v${K0SCTL_VERSION}/k0sctl-linux-x64"
@@ -117,7 +129,30 @@ jobs:
 
       - name: "Conformance tests :: Run"
         working-directory: inttest
-        run: make E2E_PARALLEL=true check-conformance
+        timeout-minutes: 300 # five hours
+        run: |
+          sinceTime=$(date -Iseconds)
+
+          make bin/sonobuoy
+          bin/sonobuoy run \
+            --mode=certified-conformance \
+            --plugin-env=e2e.E2E_EXTRA_GINKGO_ARGS=--timeout=4h \
+            --plugin-env=e2e.E2E_EXTRA_ARGS=--ginkgo.v \
+            --plugin-env=e2e.E2E_PARALLEL=true \
+            --kubernetes-version=v"$KUBERNETES_VERSION"
+
+          while :; do
+            if [ -z "$e2ePod" ]; then
+              e2ePod=$(kubectl -n sonobuoy get po -oname -l component=sonobuoy,sonobuoy-component=plugin,sonobuoy-plugin=e2e)
+            fi
+            if [ -n "$e2ePod" ]; then
+              kubectl -n sonobuoy logs -f --since-time="$sinceTime" "$e2ePod" || true
+              sinceTime=$(date -Iseconds)
+            fi
+            ! bin/sonobuoy wait --wait=1 || exit 0
+            status=$(bin/sonobuoy status --json | jq --raw-output .status)
+            [ "$status" = running ] || exit 0
+          done
 
       - name: "Conformance tests :: Retrieve results"
         id: ct-retrieve
@@ -143,11 +178,13 @@ jobs:
       - name: "Conformance tests :: Check"
         working-directory: inttest
         run: |
-          NUM_NOT_SKIPPED_OR_PASSED=$(bin/sonobuoy results *_sonobuoy_*.tar.gz -p=e2e --mode=detailed | jq --slurp '[.[] | select(.status != "skipped" and .status != "passed")] | length')
-          echo Number of tests that weren't skipped and didn't pass: "$NUM_NOT_SKIPPED_OR_PASSED"
-          if [ "$NUM_NOT_SKIPPED_OR_PASSED" != 0 ]; then
+          bin/sonobuoy results *_sonobuoy_*.tar.gz
+          numNotPassedOrSkipped=$(bin/sonobuoy results *_sonobuoy_*.tar.gz -p=e2e --mode=detailed | jq --slurp '[.[] | select(.status != "passed" and .status != "skipped")] | length')
+          echo
+          echo Number of tests that didn't pass and weren't skipped: "$numNotPassedOrSkipped"
+          if [ "$numNotPassedOrSkipped" != 0 ]; then
             exit 1
-          ff
+          fi
 
       - name: "k0sctl :: Upload logs"
         if: always() && steps.tf-init.conclusion == 'success'
