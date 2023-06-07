@@ -34,6 +34,10 @@ locals {
       default = {
         ami_id = one(data.aws_ami.debian_10.*.id)
 
+        user_data = format("#cloud-config\n%s", jsonencode({
+          runcmd = ["truncate -s0 /etc/motd", ]
+        })),
+
         connection = {
           type     = "ssh"
           username = "admin"

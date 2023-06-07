@@ -75,6 +75,9 @@ resource "aws_instance" "machines" {
   vpc_security_group_ids      = [aws_security_group.all_access.id]
   associate_public_ip_address = true
 
+  # FIXME missing privileges
+  # iam_instance_profile = aws_iam_instance_profile.k0s_node.name
+
   root_block_device {
     volume_type = "gp2"
     volume_size = 20
