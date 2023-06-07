@@ -103,3 +103,7 @@ To see runs for this workflow, try: gh run list --workflow=ostests.yaml
   README, then do `TF_VAR_os=<the-os-id> terraform apply`. When done, don't
   forget to clean up: `TF_VAR_os=<the-os-id> terraform destroy`.
 * Update the GitHub workflow `ostests.yaml` with the new OS ID.
+
+## TODO
+
+* Figure out the best/canonical way to change host names of the AWS instances
