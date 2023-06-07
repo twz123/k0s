@@ -74,6 +74,7 @@ resource "aws_instance" "machines" {
   key_name                    = aws_key_pair.ssh.key_name
   vpc_security_group_ids      = [aws_security_group.all_access.id]
   associate_public_ip_address = true
+  source_dest_check           = !contains(["controller+worker", "worker"], each.value.role)
 
   # FIXME missing privileges
   # iam_instance_profile = aws_iam_instance_profile.k0s_node.name
