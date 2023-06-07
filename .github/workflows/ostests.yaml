@@ -117,7 +117,7 @@ jobs:
 
       - name: "Conformance tests :: Run"
         working-directory: inttest
-        run: make check-conformance
+        run: make E2E_PARALLEL=true check-conformance
 
       - name: "Conformance tests :: Retrieve results"
         id: ct-retrieve
