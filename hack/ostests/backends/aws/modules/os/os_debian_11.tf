@@ -49,6 +49,11 @@ locals {
           username = "admin"
         }
       }
+
+      # FIXME test with larger instances
+      worker = {
+        instance_type = "c6a.large"
+      }
     }
   }
 }

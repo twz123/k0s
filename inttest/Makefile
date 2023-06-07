@@ -59,10 +59,12 @@ check-network: bin/sonobuoy
 		--e2e-skip='\[Serial\]' --e2e-parallel=y \
 		--kubernetes-version=v$(kubernetes_version)
 
+check-conformance: E2E_PARALLEL ?= false
 check-conformance: bin/sonobuoy
 	$(realpath bin/sonobuoy) run --wait=240 \
 		--mode=certified-conformance \
 		--plugin-env=e2e.E2E_EXTRA_ARGS="--ginkgo.v" \
+		--plugin-env=e2e.E2E_PARALLEL=$(E2E_PARALLEL) \
 		--kubernetes-version=v$(kubernetes_version)
 
 get-conformance-results: bin/sonobuoy
