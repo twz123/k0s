@@ -55,7 +55,7 @@ jobs:
     needs: build
 
     env:
-      TF_VAR_os_resource_name_prefix: gha-${{ github.run_id }}-${{ github.run_attempt }}"
+      TF_VAR_resource_name_prefix: gha-${{ github.run_id }}-${{ github.run_attempt }}
       TF_VAR_os: ${{ matrix.os }}
       TF_VAR_cache_dir: ${{ github.workspace }}/.cache/k0s-ostests
       TF_VAR_k0sctl_executable_path: ${{ github.workspace }}/.cache/k0sctl
