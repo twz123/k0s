@@ -67,29 +67,29 @@ jobs:
         working-directory: hack/ostests/backends/aws
 
     steps:
-      - name: "Build :: Checkout"
+      - name: "Workflow run :: Checkout"
         uses: actions/checkout@v3
         with:
           persist-credentials: false
 
-      - name: "Build :: Prepare"
+      - name: "Workflow run :: Prepare"
         working-directory: ./
         run: |
           kubernetesVersion="$(./vars.sh kubernetes_version)"
           echo KUBERNETES_VERSION="$kubernetesVersion" >>"$GITHUB_ENV"
 
-      - name: "Download :: k0s"
+      - name: "Terraform :: Requisites :: Download k0s"
         uses: actions/download-artifact@v3
         with:
           name: k0s
           path: ${{ github.workspace }}/.cache
 
-      - name: "Download :: kubectl"
-        uses: azure/setup-kubectl@v3
-        with:
-          version: v${{ env.KUBERNETES_VERSION }}
+      # - name: "Terraform :: Requisites :: Download kubectl"
+      #   uses: azure/setup-kubectl@v3
+      #   with:
+      #     version: v${{ env.KUBERNETES_VERSION }}
 
-      - name: "Terraform :: Requisites"
+      - name: "Terraform :: Requisites :: Variables"
         # env:
         #   OSTESTS_CACHE_HIT: ${{ steps.cache-compiled-executable.outputs.cache-hit }}
         run: |
@@ -114,6 +114,19 @@ jobs:
         id: tf-init
         run: terraform init
 
+      - name: "Terraform :: Plan :: Generate"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+        run: terraform plan -out terraform-plan.zip
+
+      - name: "Terraform :: Plan :: Upload"
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.os }}-${{ matrix.network-provider }}-terraform-plan.zip
+          path: hack/ostests/backends/aws/terraform-plan.zip
+
       - name: "Terraform :: Apply"
         id: tf-apply
         env:
@@ -121,7 +134,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
         run: |
-          terraform apply -auto-approve
+          terraform apply terraform-plan.zip
 
           kubeconfigPath="$(pwd)/kubeconfig"
           terraform output -raw k0s_kubeconfig > "$kubeconfigPath"
