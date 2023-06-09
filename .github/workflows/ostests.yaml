@@ -114,19 +114,6 @@ jobs:
         id: tf-init
         run: terraform init
 
-      - name: "Terraform :: Plan :: Generate"
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
-        run: terraform plan -out terraform-plan.zip
-
-      - name: "Terraform :: Plan :: Upload"
-        uses: actions/upload-artifact@v3
-        with:
-          name: ${{ matrix.os }}-${{ matrix.network-provider }}-terraform-plan.zip
-          path: hack/ostests/backends/aws/terraform-plan.zip
-
       - name: "Terraform :: Apply"
         id: tf-apply
         env:
@@ -134,7 +121,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
         run: |
-          terraform apply terraform-plan.zip
+          terraform apply -auto-approve
 
           kubeconfigPath="$(pwd)/kubeconfig"
           terraform output -raw k0s_kubeconfig > "$kubeconfigPath"
