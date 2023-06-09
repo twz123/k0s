@@ -132,7 +132,7 @@ jobs:
         timeout-minutes: 300 # five hours
         run: |
           make bin/sonobuoy
-          bin/sonobuoy run --wait 240 \
+          bin/sonobuoy run --wait=240 \
             --mode=certified-conformance \
             --plugin-env=e2e.E2E_EXTRA_GINKGO_ARGS='-v --timeout=4h --procs=2' \
             --plugin-env=e2e.E2E_PARALLEL=true \
