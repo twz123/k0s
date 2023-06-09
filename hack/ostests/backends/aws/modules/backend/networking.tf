@@ -2,22 +2,14 @@ data "aws_vpc" "default" {
   default = true
 }
 
-data "aws_availability_zones" "available" {
-  state = "available"
-}
-
-resource "random_shuffle" "az_names" {
-  input = data.aws_availability_zones.available.names
-}
-
-data "aws_subnet" "az_default" {
+data "aws_subnet" "default_for_selected_az" {
   vpc_id            = data.aws_vpc.default.id
-  availability_zone = random_shuffle.az_names.result.0
+  availability_zone = one(random_shuffle.selected_az.result)
   default_for_az    = true
 }
 
-resource "aws_route_table_association" "az_default" {
-  subnet_id      = data.aws_subnet.az_default.id
+resource "aws_route_table_association" "default_for_selected_az" {
+  subnet_id      = data.aws_subnet.default_for_selected_az.id
   route_table_id = data.aws_vpc.default.main_route_table_id
 }
 
