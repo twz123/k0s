@@ -50,6 +50,7 @@ resource "terraform_data" "workers" {
 }
 
 locals {
+  # FIXME this is not suitable when scaling out controllers or controller+workers
   machines = { for idx, machine in concat(
     terraform_data.controllers.*.output,
     terraform_data.controller_workers.*.output,
@@ -62,7 +63,7 @@ resource "aws_instance" "machines" {
 
   ami           = each.value.node_config.ami_id
   instance_type = each.value.node_config.instance_type
-  subnet_id     = data.aws_subnet.az_default.id
+  subnet_id     = data.aws_subnet.default_for_selected_az.id
 
   user_data = each.value.node_config.user_data
 
