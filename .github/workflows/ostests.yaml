@@ -131,8 +131,6 @@ jobs:
         working-directory: inttest
         timeout-minutes: 300 # five hours
         run: |
-          sinceTime=$(date -Iseconds)
-
           make bin/sonobuoy
           bin/sonobuoy run \
             --mode=certified-conformance \
@@ -141,6 +139,7 @@ jobs:
             --plugin-env=e2e.E2E_PARALLEL=true \
             --kubernetes-version=v"$KUBERNETES_VERSION"
 
+          sinceTime=''
           while :; do
             if [ -z "$e2ePod" ]; then
               e2ePod=$(kubectl -n sonobuoy get po -oname -l component=sonobuoy,sonobuoy-component=plugin,sonobuoy-plugin=e2e)
