@@ -1,7 +1,4 @@
 provider "aws" {
-  # Configure externally, no need to declare everything here:
-  # https://registry.terraform.io/providers/hashicorp/aws/4.67.0/docs#authentication-and-configuration
-
   default_tags {
     tags = {
       "ostests.k0sproject.io/instance" = local.resource_name_prefix
@@ -15,15 +12,8 @@ resource "random_pet" "resource_name_prefix" {
 }
 
 locals {
-  resource_name_prefix = (var.resource_name_prefix != null
-    ? var.resource_name_prefix
-    : random_pet.resource_name_prefix.0.id
-  )
-
-  cache_dir = (var.cache_dir != null
-    ? pathexpand(var.cache_dir)
-    : pathexpand("~/.cache/k0s-ostests")
-  )
+  resource_name_prefix = coalesce(var.resource_name_prefix, random_pet.resource_name_prefix.*.id...)
+  cache_dir            = pathexpand(coalesce(var.cache_dir, "~/.cache/k0s-ostests"))
 }
 
 module "os" {
