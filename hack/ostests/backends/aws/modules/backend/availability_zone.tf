@@ -3,11 +3,7 @@ data "aws_availability_zones" "available" {
 }
 
 data "aws_ec2_instance_type_offerings" "in_available_azs" {
-  for_each = toset(flatten(concat(
-    var.controller_num_nodes < 1 ? [] : [local.node_configs.controller.instance_type],
-    var.controller_worker_num_nodes < 1 ? [] : [local.node_configs["controller+worker"].instance_type],
-    var.worker_num_nodes < 1 ? [] : [local.node_configs.worker.instance_type],
-  )))
+  for_each = toset([for machine in local.machines : machine.node_config.instance_type])
 
   filter {
     name   = "instance-type"
