@@ -58,7 +58,6 @@ resource "aws_instance" "machines" {
   source_dest_check           = !contains(["controller+worker", "worker"], each.value.role)
 
   iam_instance_profile = aws_iam_instance_profile.k0s_node.name
-  monitoring           = var.cloudwatch_enabled
 
   root_block_device {
     volume_type = "gp2"
