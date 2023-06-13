@@ -33,14 +33,14 @@ configuration:
 
 ```shell
 cd hack/ostests/backends/aws/
-export TF_VAR_os=alpine_317
+export TF_VAR_os=alpine_3_17
 export TF_VAR_network_provider=calico
 ```
 
 Apply the configuration:
 
 ```shell
-terraform apply 
+terraform apply
 ```
 
 ## GitHub Actions workflow
@@ -62,7 +62,7 @@ Custom workflow runs can be launched using [gh]:
 
 ```console
 $ gh workflow run ostests.yaml --ref some/experimental/branch \
-  -f oses='["alpine_317"]' \
+  -f oses='["alpine_3_17"]' \
   -f network-providers='["calico"]'
 ✓ Created workflow_dispatch event for ostests.yaml at some/experimental/branch
 
@@ -73,7 +73,7 @@ To see runs for this workflow, try: gh run list --workflow=ostests.yaml
 
 ## Supported operating systems
 
-* `alpine_317`: Alpine Linux 3.17
+* `alpine_3_17`: Alpine Linux 3.17
 * `centos_7`: CentOS Linux 7 (Core)
 * `centos_8`: CentOS Stream 8
 * `centos_9`: CentOS Stream 9

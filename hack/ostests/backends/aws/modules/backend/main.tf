@@ -13,7 +13,7 @@ locals {
   }
 
   machine_roles = {
-    "controller" : {
+    controller = {
       count       = var.controller_num_nodes
       node_config = merge(local.default_node_config, var.os.node_configs.default, var.os.node_configs.controller)
     }
@@ -23,7 +23,7 @@ locals {
       node_config = merge(local.default_node_config, var.os.node_configs.default, var.os.node_configs.worker, var.os.node_configs.controller_worker)
     }
 
-    "worker" = {
+    worker = {
       count       = var.worker_num_nodes
       node_config = merge(local.default_node_config, var.os.node_configs.default, var.os.node_configs.worker)
     }
@@ -57,8 +57,8 @@ resource "aws_instance" "machines" {
   associate_public_ip_address = true
   source_dest_check           = !contains(["controller+worker", "worker"], each.value.role)
 
-  # FIXME missing privileges
-  # iam_instance_profile = aws_iam_instance_profile.k0s_node.name
+  iam_instance_profile = aws_iam_instance_profile.k0s_node.name
+  monitoring           = var.cloudwatch_enabled
 
   root_block_device {
     volume_type = "gp2"

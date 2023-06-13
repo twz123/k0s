@@ -14,15 +14,15 @@ resource "aws_iam_role" "k0s_node" {
   })
 }
 
-# FIXME missing privileges
+resource "aws_iam_instance_profile" "k0s_node" {
+  name = "${var.resource_name_prefix}-k0s-node"
+  role = aws_iam_role.k0s_node.name
+}
 
-# resource "aws_iam_instance_profile" "k0s_node" {
-#   name = "${var.resource_name_prefix}-k0s-node"
-#   role = aws_iam_role.k0s_node.name
-# }
+// https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/create-iam-roles-for-cloudwatch-agent.html
+resource "aws_iam_role_policy_attachment" "k0s_node_cloudwatch_agent" {
+  count = var.cloudwatch_enabled ? 1 : 0
 
-# // https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/create-iam-roles-for-cloudwatch-agent.html
-# resource "aws_iam_role_policy_attachment" "k0s_node_cloudwatch_agent" {
-#   role       = aws_iam_role.k0s_node.name
-#   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
-# }
+  role       = aws_iam_role.k0s_node.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+}

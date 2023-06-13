@@ -31,8 +31,6 @@ variable "os" {
   description = "The OS configuration."
 }
 
-# Controller node parameters
-
 variable "controller_num_nodes" {
   type        = number
   description = "The number controller nodes to spin up."
@@ -45,12 +43,16 @@ variable "controller_worker_num_nodes" {
   default     = 0
 }
 
-# Worker node parameters
-
 variable "worker_num_nodes" {
   type        = number
   description = "The number worker nodes to spin up."
   default     = 2 # that's the minimum for conformance tests
+}
+
+variable "cloudwatch_enabled" {
+  type        = bool
+  description = "Whether to enable CloudWatch."
+  default     = false
 }
 
 # # Load balancer variables
