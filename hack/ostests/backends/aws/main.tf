@@ -1,9 +1,9 @@
 provider "aws" {
   default_tags {
-    tags = {
+    tags = merge(var.additional_tags, {
       "ostests.k0sproject.io/instance" = local.resource_name_prefix
       "ostests.k0sproject.io/os"       = var.os
-    }
+    })
   }
 }
 

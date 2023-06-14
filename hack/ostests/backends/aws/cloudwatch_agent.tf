@@ -1,8 +1,8 @@
 locals {
-  cloudwatch_extra_dimensions = !var.cloudwatch_enabled ? null : {
+  cloudwatch_extra_dimensions = !var.cloudwatch_enabled ? null : merge(var.additional_tags, {
     "ostests.k0sproject.io/instance" = local.resource_name_prefix
     "ostests.k0sproject.io/os"       = var.os
-  }
+  })
 
   # https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-Agent-Configuration-File-Details.html
   cloudwatch_agent_config = !var.cloudwatch_enabled ? null : {
