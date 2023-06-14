@@ -32,7 +32,7 @@ on:
 
 env:
   TERRAFORM_VERSION: 1.4.6
-  K0SCTL_VERSION: 0.15.2
+  K0SCTL_VERSION: 0.15.0 # k0sproject/k0sctl#495
   AWS_REGION: us-east-1
 
 jobs:
