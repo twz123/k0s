@@ -35,20 +35,33 @@ locals {
       default = {
         ami_id = one(data.aws_ami.oracle_9_1.*.id)
 
-        # https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/install-CloudWatch-Agent-commandline-fleet.html
-        user_data = var.cloudwatch_agent_config == null ? null : format("#cloud-config\n%s", jsonencode({
-          write_files = [{
+        user_data = format("#cloud-config\n%s", jsonencode({
+          write_files = var.cloudwatch_agent_config == null ? [] : [{
             path    = "/etc/k0s-ostests/cloudwatch-agent.json"
             content = jsonencode(var.cloudwatch_agent_config)
           }]
 
-          runcmd = [
-            "curl -sSLo amazon-cloudwatch-agent.rpm https://s3.amazonaws.com/amazoncloudwatch-agent/oracle_linux/amd64/latest/amazon-cloudwatch-agent.rpm",
-            "rpm -U ./amazon-cloudwatch-agent.rpm",
-            "rm ./amazon-cloudwatch-agent.rpm",
-            "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/etc/k0s-ostests/cloudwatch-agent.json",
-            "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a start",
-          ]
+          runcmd = concat(
+            # https://docs.k0sproject.io/v1.27.2+k0s.0/networking
+            [
+              "firewall-cmd --zone=public --add-port=179/tcp --permanent",   # kube-router
+              "firewall-cmd --zone=public --add-port=2380/tcp --permanent",  # etcd peers
+              "firewall-cmd --zone=public --add-port=4789/tcp --permanent",  # calico
+              "firewall-cmd --zone=public --add-port=6443/tcp --permanent",  # kube-apiserver
+              "firewall-cmd --zone=public --add-port=8132/tcp --permanent",  # konnectivity
+              "firewall-cmd --zone=public --add-port=9443/tcp --permanent",  # k0s-api
+              "firewall-cmd --zone=public --add-port=10250/tcp --permanent", # kubelet
+              "firewall-cmd --reload",
+            ],
+            # https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/install-CloudWatch-Agent-commandline-fleet.html
+            var.cloudwatch_agent_config == null ? [] : [
+              "curl -sSLo amazon-cloudwatch-agent.rpm https://s3.amazonaws.com/amazoncloudwatch-agent/oracle_linux/amd64/latest/amazon-cloudwatch-agent.rpm",
+              "rpm -U ./amazon-cloudwatch-agent.rpm",
+              "rm ./amazon-cloudwatch-agent.rpm",
+              "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/etc/k0s-ostests/cloudwatch-agent.json",
+              "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a start",
+            ],
+          )
         })),
 
         connection = {
