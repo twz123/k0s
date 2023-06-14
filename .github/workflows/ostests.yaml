@@ -139,20 +139,6 @@ jobs:
             --plugin-env=e2e.E2E_PARALLEL=true \
             --kubernetes-version=v"$KUBERNETES_VERSION"
 
-        # sinceTime=''
-        # while :; do
-        #   if [ -z "$e2ePod" ]; then
-        #     e2ePod=$(kubectl -n sonobuoy get po -oname -l component=sonobuoy,sonobuoy-component=plugin,sonobuoy-plugin=e2e)
-        #   fi
-        #   if [ -n "$e2ePod" ]; then
-        #     kubectl -n sonobuoy logs -f --since-time="$sinceTime" "$e2ePod" || true
-        #     sinceTime=$(date -Iseconds)
-        #   fi
-        #   ! bin/sonobuoy wait --wait=1 || exit 0
-        #   status=$(bin/sonobuoy status --json | jq --raw-output .status)
-        #   [ "$status" = running ] || exit 0
-        # done
-
       - name: "Conformance tests :: Retrieve results"
         id: ct-retrieve
         if: always() && steps.tf-apply.conclusion == 'success'
