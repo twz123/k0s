@@ -34,6 +34,47 @@ locals {
       default = {
         ami_id = one(data.aws_ami.fcos_38.*.id)
 
+        user_data = var.cloudwatch_agent_config == null ? null : jsonencode({
+          ignition = { version = "3.1.0" },
+
+          storage = { files = [
+            {
+              path     = "/etc/k0s-ostests/cloudwatch-agent.json",
+              mode     = 0644,
+              contents = { source = "data:application/json;charset=UTF-8,${urlencode(jsonencode(var.cloudwatch_agent_config))}" }
+            },
+            {
+              # https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html
+              path = "/etc/containers/systemd/amazon-cloudwatch-agent.container",
+              mode = 0644,
+              contents = { source = "data:text/plain;charset=UTF-8,${urlencode(
+                <<-EOF
+                  [Unit]
+                  Description=Amazon CloudWatch Agent enables you to collect and export host-level metrics and logs.
+
+                  Wants=network-online.target
+                  After=network-online.target
+
+                  [Container]
+                  Image=public.ecr.aws/cloudwatch-agent/cloudwatch-agent:latest
+                  Network=host
+                  Volume=/:/rootfs:ro
+                  Volume=/sys:/sys:ro
+                  Volume=/dev/disk:/dev/disk:ro
+                  Volume=/etc/k0s-ostests/cloudwatch-agent.json:/etc/cwagentconfig/cwagentconfig.json:ro
+
+                  [Service]
+                  Restart=always
+                  RestartSec=15s
+
+                  [Install]
+                  WantedBy=multi-user.target default.target
+                  EOF
+              )}" }
+            },
+          ] }
+        })
+
         connection = {
           type     = "ssh"
           username = "core"
