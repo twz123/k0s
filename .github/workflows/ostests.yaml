@@ -170,7 +170,7 @@ jobs:
           bin/sonobuoy results *_sonobuoy_*.tar.gz
           numNotPassedOrSkipped=$(bin/sonobuoy results *_sonobuoy_*.tar.gz -p=e2e --mode=detailed | jq --slurp '[.[] | select(.status != "passed" and .status != "skipped")] | length')
           echo
-          echo Number of tests that didn't pass and weren't skipped: "$numNotPassedOrSkipped"
+          echo "Number of tests that didn't pass and weren't skipped: $numNotPassedOrSkipped"
           if [ "$numNotPassedOrSkipped" != 0 ]; then
             exit 1
           fi
