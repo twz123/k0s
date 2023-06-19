@@ -176,14 +176,13 @@ static/zz_generated_assets.go: .k0sbuild.docker-image.k0s hack/tools/Makefile.va
 ifeq ($(EMBEDDED_BINS_BUILDMODE),none)
 BUILD_GO_TAGS += noembedbins
 else
-codegen_targets += pkg/assets/zz_generated_offsets_$(TARGET_OS).go
-zz_os = $(patsubst pkg/assets/zz_generated_offsets_%.go,%,$@)
-pkg/assets/zz_generated_offsets_linux.go: .bins.linux.stamp
-pkg/assets/zz_generated_offsets_windows.go: .bins.windows.stamp
-pkg/assets/zz_generated_offsets_linux.go pkg/assets/zz_generated_offsets_windows.go: .k0sbuild.docker-image.k0s go.sum
-	GOOS=${GOHOSTOS} $(GO) run -tags=hack hack/gen-bindata/cmd/main.go -o bindata_$(zz_os) -pkg assets \
-	     -gofile pkg/assets/zz_generated_offsets_$(zz_os).go \
-	     -prefix embedded-bins/staging/$(zz_os)/ embedded-bins/staging/$(zz_os)/bin
+.bins.%.stamp: embedded-bins/Makefile.variables
+	$(MAKE) -C embedded-bins TARGET_OS=$(@:.bins.%.stamp=%)
+	touch -- '$@'
+
+codegen_targets += bindata_$(TARGET_OS)
+bindata_$(TARGET_OS): .bins.$(TARGET_OS).stamp
+	CGO_ENABLED=0 $(GO) run -tags=hack hack/zip-files/main.go embedded-bins/staging/$(TARGET_OS)/bin/* >$@
 endif
 
 k0s: TARGET_OS = linux
@@ -201,12 +200,6 @@ ifneq ($(EMBEDDED_BINS_BUILDMODE),none)
 endif
 	@printf '\n%s size: %s\n\n' '$@' "$$(du -sh -- $@ | cut -f1)"
 
-.bins.windows.stamp .bins.linux.stamp: embedded-bins/Makefile.variables
-	$(MAKE) -C embedded-bins \
-	  TARGET_OS=$(patsubst .bins.%.stamp,%,$@) \
-	  SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH)
-	touch $@
-
 .PHONY: codegen
 codegen: $(codegen_targets)
 
@@ -214,7 +207,7 @@ codegen: $(codegen_targets)
 .PHONY: bindata
 bindata: static/zz_generated_assets.go
 ifneq ($(EMBEDDED_BINS_BUILDMODE),none)
-bindata: pkg/assets/zz_generated_offsets_$(TARGET_OS).go
+bindata: bindata_$(TARGET_OS)
 endif
 
 .PHONY: lint-copyright

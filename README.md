@@ -111,6 +111,7 @@ The requirements for building k0s from source are as follows:
 - GNU Make (v3.81 or newer)
 - coreutils
 - findutils
+- tar
 - Docker
 
 All of the compilation steps are performed inside Docker containers, no
