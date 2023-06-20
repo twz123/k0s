@@ -10,10 +10,16 @@ on:
       - embedded-bins/Makefile.variables
       - docs/**
 
+permissions: {}
+
 jobs:
   build:
     name: Build docs
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout k0s
         uses: actions/checkout@v3
