@@ -9,7 +9,6 @@ export TARGET_OS
 bindir = staging/${TARGET_OS}/bin
 posix_bins = runc kubelet containerd containerd-shim containerd-shim-runc-v1 containerd-shim-runc-v2 kube-apiserver kube-scheduler kube-controller-manager etcd kine konnectivity-server xtables-legacy-multi xtables-nft-multi
 windows_bins = kubelet.exe kube-proxy.exe
-buildmode = docker
 
 ifeq ($(TARGET_OS),windows)
 bins = ${windows_bins}
@@ -18,7 +17,7 @@ bins = ${posix_bins}
 endif
 
 .PHONY: all
-all: $(addprefix $(bindir)/, $(bins))
+all: $(addprefix $(bindir)/, $(bins)) staging/$(TARGET_OS)/containerd-revision.txt
 
 .PHONY: clean
 clean:
@@ -55,8 +54,14 @@ $(bindir)/xtables-nft-multi: .container.iptables
 
 $(bindir)/kubelet.exe $(bindir)/kube-proxy.exe: .container.kubernetes.windows
 
-$(addprefix $(bindir)/, $(bins)): | $(bindir)
-	docker export $$(cat $<) | tar -C $(dir $(bindir)) -xv bin/$(notdir $@) && touch $@
+ifeq ($(TARGET_OS),windows)
+staging/$(TARGET_OS)/containerd-revision.txt: .container.containerd.windows
+else
+staging/$(TARGET_OS)/containerd-revision.txt: .container.containerd
+endif
+
+$(addprefix $(bindir)/, $(bins)) staging/$(TARGET_OS)/containerd-revision.txt: | $(bindir)
+	docker export $$(cat $<) | tar -C staging/$(TARGET_OS) -xv $(@:staging/$(TARGET_OS)/%=%) && touch -c $@
 
 build_docker_container = \
 	docker create --entrypoint=/dev/null $(shell cat -- $<) > $@.tmp \

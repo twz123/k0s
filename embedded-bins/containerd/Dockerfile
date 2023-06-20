@@ -13,6 +13,8 @@ RUN mkdir -p $GOPATH/src/github.com/containerd/containerd
 RUN git -c advice.detachedHead=false clone -b v$VERSION --depth=1 https://github.com/containerd/containerd.git $GOPATH/src/github.com/containerd/containerd
 WORKDIR /go/src/github.com/containerd/containerd
 
+RUN git log -1 --format=%H >/containerd-revision.txt
+
 ARG TARGET_OS \
   BUILD_GO_TAGS \
   BUILD_GO_CGO_ENABLED \
@@ -31,4 +33,5 @@ RUN make \
 	EXTRA_LDFLAGS="${BUILD_GO_LDFLAGS_EXTRA}"
 
 FROM scratch
+COPY --from=build /containerd-revision.txt /
 COPY --from=build /go/src/github.com/containerd/containerd/bin/* /bin/

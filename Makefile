@@ -64,8 +64,8 @@ LD_FLAGS += -X k8s.io/component-base/version.gitMinor=$(shell echo '$(kubernetes
 LD_FLAGS += -X k8s.io/component-base/version.buildDate=$(BUILD_DATE)
 LD_FLAGS += -X k8s.io/component-base/version.gitCommit=not_available
 LD_FLAGS += -X github.com/containerd/containerd/version.Version=$(containerd_version)
-ifeq ($(EMBEDDED_BINS_BUILDMODE), docker)
-LD_FLAGS += -X github.com/containerd/containerd/version.Revision=$(shell ./embedded-bins/staging/linux/bin/containerd --version | awk '{print $$4}')
+ifneq ($(wildcard embedded-bins/staging/$(TARGET_OS)/containerd-revision.txt),)
+LD_FLAGS += -X github.com/containerd/containerd/version.Revision=$(shell cat embedded-bins/staging/$(TARGET_OS)/containerd-revision.txt)
 endif
 LD_FLAGS += $(BUILD_GO_LDFLAGS_EXTRA)
 
