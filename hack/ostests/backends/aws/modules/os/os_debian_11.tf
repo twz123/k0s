@@ -35,13 +35,7 @@ locals {
         ami_id = one(data.aws_ami.debian_11.*.id)
 
         user_data = format("#cloud-config\n%s", jsonencode({
-          runcmd = [
-            "truncate -s0 /etc/motd",
-            # FIXME cloudwatch agent
-            # "wget ${local.cloudwatch_agent_debian_deb}",
-            # "dpkg -i -E ./amazon-cloudwatch-agent.deb",
-            # "rm ./amazon-cloudwatch-agent.deb",
-          ]
+          runcmd = ["truncate -s0 /etc/motd", ]
         })),
 
         connection = {

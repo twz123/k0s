@@ -45,8 +45,10 @@ module "k0sctl" {
 
   k0s_config_spec = {
     network = {
-      provider               = var.k0s_network_provider
-      nodeLocalLoadBalancing = { enabled = true }
+      provider = var.k0s_network_provider
+      nodeLocalLoadBalancing = {
+        enabled = true
+      }
     }
   }
 
