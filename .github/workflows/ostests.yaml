@@ -6,7 +6,16 @@ on:
   # push:
   workflow_dispatch:
     inputs:
+      e2e-parallel:
+        type: boolean
+        description: Whether to run tests in parallel.
+        default: true
+      e2e-focus:
+        type: string
+        description: The selector for the e2e tests to be run.
+        default: \[Conformance\]
       oses:
+        type: string
         description: The operating systems to test.
         required: true
         default: >-
@@ -54,6 +63,7 @@ jobs:
     needs: build
 
     env:
+      E2E_FOCUS: ${{ github.event.inputs.e2e-focus }}
       TF_VAR_os: ${{ matrix.os }}
       TF_VAR_additional_tags: '{
         "ostests.k0sproject.io/github-run-id"="${{ github.run_id }}",
@@ -127,25 +137,54 @@ jobs:
           terraform apply -auto-approve
 
           kubeconfigPath="$(pwd)/kubeconfig"
-          terraform output -raw k0s_kubeconfig > "$kubeconfigPath"
-          echo "KUBECONFIG=$kubeconfigPath" >> "$GITHUB_ENV"
+          terraform output -raw k0s_kubeconfig >"$kubeconfigPath"
+          echo "KUBECONFIG=$kubeconfigPath" >>"$GITHUB_ENV"
 
-      - name: "Conformance tests :: Run"
+      - name: "Conformance tests :: Run parallel tests"
         working-directory: inttest
-        timeout-minutes: 300 # five hours
+        if: github.event.inputs.e2e-parallel
+        timeout-minutes: 180 # three hours
         run: |
           make bin/sonobuoy
-          bin/sonobuoy run --wait=240 \
-            --mode=certified-conformance \
-            --plugin-env=e2e.E2E_EXTRA_GINKGO_ARGS='-v --timeout=4h --procs=2' \
+          bin/sonobuoy run -p e2e --wait=120 \
+            --kubernetes-version=v"$KUBERNETES_VERSION" \
             --plugin-env=e2e.E2E_PARALLEL=true \
-            --kubernetes-version=v"$KUBERNETES_VERSION"
+            --plugin-env=e2e.E2E_FOCUS="$E2E_FOCUS" \
+            --plugin-env=e2e.E2E_SKIP='\[Serial\]' \
+            --plugin-env=e2e.E2E_EXTRA_GINKGO_ARGS='-v --timeout=90m --procs=2'
 
-      - name: "Conformance tests :: Retrieve results"
-        id: ct-retrieve
+      - name: "Conformance tests :: Retrieve parallel results"
+        id: ct-retrieve-parallel
+        if: always() && github.event.inputs.e2e-parallel && steps.tf-apply.conclusion == 'success'
+        working-directory: inttest
+        run: |
+          make get-conformance-results
+          mv *_sonobuoy_*.tar.gz sonobuoy-parallel.tar.gz
+
+      - name: "Conformance tests :: Clear parallel run"
+        if: always() && github.event.inputs.e2e-parallel && steps.tf-apply.conclusion == 'success'
+        working-directory: inttest
+        run: |
+          bin/sonobuoy delete --all --wait
+          echo E2E_FOCUS='\[Serial\].*'"$E2E_FOCUS" >>"$GITHUB_ENV"
+
+      - name: "Conformance tests :: Run serial tests"
+        working-directory: inttest
+        timeout-minutes: 180 # three hours
+        run: |
+          make bin/sonobuoy
+          bin/sonobuoy run -p e2e --wait=120 \
+            --kubernetes-version=v"$KUBERNETES_VERSION" \
+            --plugin-env=e2e.E2E_FOCUS="$E2E_FOCUS" \
+            --plugin-env=e2e.E2E_EXTRA_GINKGO_ARGS='-v --timeout=90m'
+
+      - name: "Conformance tests :: Retrieve serial results"
+        id: ct-retrieve-serial
         if: always() && steps.tf-apply.conclusion == 'success'
         working-directory: inttest
-        run: make get-conformance-results
+        run: |
+          make get-conformance-results
+          mv *_sonobuoy_*.tar.gz sonobuoy-serial.tar.gz
 
       - name: "Terraform :: Destroy"
         if: always() && steps.tf-init.conclusion == 'success'
@@ -156,22 +195,25 @@ jobs:
         run: terraform destroy -auto-approve
 
       - name: "Conformance tests :: Upload results"
-        if: always() && steps.ct-retrieve.conclusion == 'success'
+        if: always() && (steps.ct-retrieve-parallel.conclusion == 'success' || steps.ct-retrieve-serial.conclusion == 'success')
         uses: actions/upload-artifact@v3
         with:
-          name: ${{ matrix.os }}-${{ matrix.network-provider }}-conformance-results
-          path: inttest/*_sonobuoy_*.tar.gz
+          name: ${{ matrix.os }}-${{ matrix.network-provider }}-sonobuoy-results
+          path: inttest/sonobuoy-*.tar.gz
 
       - name: "Conformance tests :: Check"
         working-directory: inttest
         run: |
-          bin/sonobuoy results *_sonobuoy_*.tar.gz
-          numNotPassedOrSkipped=$(bin/sonobuoy results *_sonobuoy_*.tar.gz -p=e2e --mode=detailed | jq --slurp '[.[] | select(.status != "passed" and .status != "skipped")] | length')
-          echo
-          echo "Number of tests that didn't pass and weren't skipped: $numNotPassedOrSkipped"
-          if [ "$numNotPassedOrSkipped" != 0 ]; then
-            exit 1
-          fi
+          for f in sonobuoy-*.tar.gz; do
+            echo "::group::$f"
+            bin/sonobuoy results "$f"
+            numNotPassedOrSkipped=$(bin/sonobuoy results "$f" -p=e2e --mode=detailed | jq --slurp '[.[] | select(.status != "passed" and .status != "skipped")] | length')
+            echo "Number of tests that didn't pass and weren't skipped: $numNotPassedOrSkipped"
+            echo ::endgroup::
+            if [ "$numNotPassedOrSkipped" != 0 ]; then
+              exit 1
+            fi
+          done
 
       - name: "k0sctl :: Upload logs"
         if: always() && steps.tf-init.conclusion == 'success'
