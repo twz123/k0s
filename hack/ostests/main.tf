@@ -23,21 +23,21 @@ module "os" {
   os = var.os
 }
 
-module "backend" {
-  source = "./modules/backend"
+module "infra" {
+  source = "./modules/infra"
 
   resource_name_prefix = local.resource_name_prefix
   os                   = module.os.os
 }
 
 resource "local_sensitive_file" "ssh_private_key" {
-  content         = module.backend.ssh_private_key
+  content         = module.infra.ssh_private_key
   filename        = "${local.cache_dir}/aws-${local.resource_name_prefix}-ssh-private-key.pem"
   file_permission = "0400"
 }
 
 module "k0sctl" {
-  source = "../../modules/k0sctl"
+  source = "./modules/k0sctl"
 
   k0sctl_executable_path = var.k0sctl_executable_path
   k0s_executable_path    = var.k0s_executable_path
@@ -52,6 +52,6 @@ module "k0sctl" {
     }
   }
 
-  hosts                    = try(module.backend.machines, []) # the try allows destruction even if backend provisioning failed
+  hosts                    = try(module.infra.machines, []) # the try allows destruction even if infra provisioning failed
   ssh_private_key_filename = local_sensitive_file.ssh_private_key.filename
 }

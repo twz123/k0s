@@ -76,7 +76,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: hack/ostests/backends/aws
+        working-directory: hack/ostests
 
     steps:
       - name: "Workflow run :: Checkout"

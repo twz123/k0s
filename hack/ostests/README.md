@@ -21,7 +21,7 @@ For the local k0sctl plumbing:
 * k0sctl (tested with ~= 0.15)
 * jq (tested with ~= 1.6)
 
-For the AWS backend:
+For the AWS infra:
 
 * Have the CLI credentials setup, in the usual AWS CLI way.
 * Have a configured default region. That region will be targeted by Terraform.
@@ -32,9 +32,8 @@ Be sure to meet the requisites listed above. Select the desired cluster
 configuration:
 
 ```shell
-cd hack/ostests/backends/aws/
 export TF_VAR_os=alpine_3_17
-export TF_VAR_network_provider=calico
+export TF_VAR_k0s_network_provider=calico
 ```
 
 Apply the configuration:
@@ -96,11 +95,9 @@ To see runs for this workflow, try: gh run list --workflow=ostests.yaml
 
 ### Adding a new operating system
 
-* Navigate to [backends/aws/modules/os/](backends/aws/modules/os/) and add a new
-  file `os_<the-os-id>.tf`. Have a look at the other `os_*.tf` files for how it
-  should look like.
-* Add a new OS entry to [backends/aws/modules/os/main.tf]
-  (backends/aws/modules/os/main.tf).
+* Navigate to [modules/os/](modules/os/) and add a new file `os_<the-os-id>.tf`.
+  Have a look at the other `os_*.tf` files for how it should look like.
+* Add a new OS entry to [modules/os/main.tf](modules/os/main.tf).
 * Update this README.
 * Test it: Be sure to have the requisites ready, as described at the top of this
   README, then do `TF_VAR_os=<the-os-id> terraform apply`. When done, don't
