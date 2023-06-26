@@ -35,11 +35,6 @@ locals {
         ami_id = one(data.aws_ami.debian_10.*.id)
 
         user_data = format("#cloud-config\n%s", jsonencode({
-          write_files = var.cloudwatch_agent_config == null ? [] : [{
-            path    = "/etc/k0s-ostests/cloudwatch-agent.json"
-            content = jsonencode(var.cloudwatch_agent_config)
-          }]
-
           runcmd = concat(
             ["truncate -s0 /etc/motd"],
 
@@ -52,6 +47,11 @@ locals {
               "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a start",
             ],
           )
+
+          write_files = var.cloudwatch_agent_config == null ? [] : [{
+            path    = "/etc/k0s-ostests/cloudwatch-agent.json"
+            content = jsonencode(var.cloudwatch_agent_config)
+          }]
         })),
 
         connection = {

@@ -39,20 +39,6 @@ locals {
             "rm /etc/machine-id",
             "systemd-machine-id-setup",
           ]
-
-          write_files = var.cloudwatch_agent_config == null ? [] : [{
-            path    = "/etc/k0s-ostests/cloudwatch-agent.json"
-            content = jsonencode(var.cloudwatch_agent_config)
-          }]
-
-          # https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/install-CloudWatch-Agent-commandline-fleet.html
-          runcmd = var.cloudwatch_agent_config == null ? [] : [
-            "curl -sSLo amazon-cloudwatch-agent.rpm https://s3.amazonaws.com/amazoncloudwatch-agent/centos/amd64/latest/amazon-cloudwatch-agent.rpm",
-            "rpm -U ./amazon-cloudwatch-agent.rpm",
-            "rm ./amazon-cloudwatch-agent.rpm",
-            "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/etc/k0s-ostests/cloudwatch-agent.json",
-            "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a start",
-          ]
         })),
 
         connection = {
