@@ -36,11 +36,6 @@ locals {
         ami_id = one(data.aws_ami.oracle_7_9.*.id)
 
         user_data = format("#cloud-config\n%s", jsonencode({
-          write_files = var.cloudwatch_agent_config == null ? [] : [{
-            path    = "/etc/k0s-ostests/cloudwatch-agent.json"
-            content = jsonencode(var.cloudwatch_agent_config)
-          }]
-
           runcmd = concat(
             # https://docs.k0sproject.io/v1.27.2+k0s.0/networking
             [
@@ -52,14 +47,6 @@ locals {
               "firewall-cmd --zone=public --add-port=9443/tcp --permanent",  # k0s-api
               "firewall-cmd --zone=public --add-port=10250/tcp --permanent", # kubelet
               "firewall-cmd --reload",
-            ],
-            # https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/install-CloudWatch-Agent-commandline-fleet.html
-            var.cloudwatch_agent_config == null ? [] : [
-              "curl -sSLo amazon-cloudwatch-agent.rpm https://s3.amazonaws.com/amazoncloudwatch-agent/oracle_linux/amd64/latest/amazon-cloudwatch-agent.rpm",
-              "rpm -U ./amazon-cloudwatch-agent.rpm",
-              "rm ./amazon-cloudwatch-agent.rpm",
-              "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/etc/k0s-ostests/cloudwatch-agent.json",
-              "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a start",
             ],
           )
         })),
