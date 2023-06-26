@@ -19,6 +19,7 @@ data "aws_ec2_instance_type_offerings" "in_available_azs" {
 }
 
 resource "random_shuffle" "selected_az" {
+  # Select a single availability zone that is available *and* offers all the required instance types.
   input        = setintersection([for k, v in data.aws_ec2_instance_type_offerings.in_available_azs : v.locations]...)
   result_count = 1
 }
