@@ -35,12 +35,6 @@ variable "os" {
   description = "The underlying OS for the to-be-provisioned cluster."
 }
 
-variable "cloudwatch_enabled" {
-  type        = bool
-  description = "Whether to enable CloudWatch."
-  default     = false
-}
-
 variable "k0sctl_executable_path" {
   type        = string
   description = "Path to the k0sctl executable to use for local-exec provisioning."

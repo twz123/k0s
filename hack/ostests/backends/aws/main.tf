@@ -20,8 +20,7 @@ locals {
 module "os" {
   source = "./modules/os"
 
-  os                      = var.os
-  cloudwatch_agent_config = local.cloudwatch_agent_config
+  os = var.os
 }
 
 module "backend" {
@@ -29,7 +28,6 @@ module "backend" {
 
   resource_name_prefix = local.resource_name_prefix
   os                   = module.os.os
-  cloudwatch_enabled   = var.cloudwatch_enabled
 }
 
 resource "local_sensitive_file" "ssh_private_key" {

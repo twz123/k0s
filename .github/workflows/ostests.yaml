@@ -69,7 +69,6 @@ jobs:
         "ostests.k0sproject.io/github-run-id"="${{ github.run_id }}",
         "ostests.k0sproject.io/github-run-attempt"="${{ github.run_attempt }}",
         }'
-      TF_VAR_cloudwatch_enabled: "true"
       TF_VAR_cache_dir: ${{ github.workspace }}/.cache/k0s-ostests
       TF_VAR_k0sctl_executable_path: ${{ github.workspace }}/.cache/k0sctl
       TF_VAR_k0s_executable_path: ${{ github.workspace }}/.cache/k0s

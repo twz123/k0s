@@ -34,10 +34,7 @@ locals {
       default = {
         ami_id = one(data.aws_ami.alpine_3_17.*.id)
 
-        user_data = templatefile("${path.module}/os_alpine_3_17_userdata.tftpl", {
-          worker                  = true
-          cloudwatch_agent_config = var.cloudwatch_agent_config
-        })
+        user_data    = templatefile("${path.module}/os_alpine_3_17_userdata.tftpl", { worker = true })
         ready_script = file("${path.module}/os_alpine_3_17_ready.sh")
 
         connection = {
@@ -46,10 +43,7 @@ locals {
         }
       }
       controller = {
-        user_data = templatefile("${path.module}/os_alpine_3_17_userdata.tftpl", {
-          worker                  = false
-          cloudwatch_agent_config = var.cloudwatch_agent_config
-        })
+        user_data = templatefile("${path.module}/os_alpine_3_17_userdata.tftpl", { worker = false })
       }
     }
   }

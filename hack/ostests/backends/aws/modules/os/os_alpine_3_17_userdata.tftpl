@@ -1,5 +1,4 @@
 #!/usr/bin/env sh
-#shellcheck disable=SC3043
 
 truncate -s0 /etc/motd
 rc-update add machine-id boot
@@ -13,67 +12,3 @@ rc-update add cgroups boot
 # k0sctl currently doesn't support BusyBox/doas properly.
 apk add coreutils sudo && apk del doas
 echo 'alpine ALL=(ALL:ALL) NOPASSWD: ALL' >/etc/sudoers.d/alpine-all-access
-
-%{if cloudwatch_agent_config != null}
-# install CloudWatch agent
-set -e
-tmpDir=$(mktemp -d)
-
-trap 'rm -rf -- "$tmpDir; apk del .cwagent-build-deps"' INT EXIT
-wget -O "$tmpDir/cwagent.deb" https://s3.amazonaws.com/amazoncloudwatch-agent/debian/amd64/latest/amazon-cloudwatch-agent.deb
-apk add --virtual .cwagent-build-deps cmd:ar
-ar x --output "$tmpDir" -- "$tmpDir/cwagent.deb" data.tar.gz
-apk del .cwagent-build-deps
-tar xvf "$tmpDir/data.tar.gz" -C / opt/ etc/amazon/ var/
-rm -rf -- "$tmpDir"
-
-# Inlined and stripped version of this:
-#   /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c "file:$tmpDir/cloudwatch-agent.json"
-/opt/aws/amazon-cloudwatch-agent/bin/config-downloader \
-  --output-dir /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d \
-  --download-source file:/proc/self/fd/0 \
-  --mode ec2 \
-  --config /opt/aws/amazon-cloudwatch-agent/etc/common-config.toml \
-  --multi-config default <<"EOF"
-${ jsonencode(cloudwatch_agent_config) }
-EOF
-/opt/aws/amazon-cloudwatch-agent/bin/config-translator \
-  --input /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json \
-  --input-dir /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d \
-  --output /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.toml \
-  --mode ec2 \
-  --config /opt/aws/amazon-cloudwatch-agent/etc/common-config.toml \
-  --multi-config default
-/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent -schematest \
-  -config /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.toml
-rm -f /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
-for file in /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d/*; do
-  base="/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.d/$(basename "$file" .tmp)"
-  if [ "$file" = "$base" ]; then
-    rm -f -- "$file"
-  else
-    mv -f -- "$file" "$base"
-  fi
-done
-
-cat <<"EOF" >/etc/init.d/amazon-cloudwatch-agent
-#!/sbin/openrc-run
-name=amazon-cloudwatch-agent
-description='Amazon CloudWatch Agent enables you to collect and export host-level metrics and logs.'
-command=/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent
-command_args='-config /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.toml'
-supervisor=supervise-daemon
-supervise_daemon_args="--stdout /var/log/$name.log --stderr /var/log/$name.err"
-
-depend() {
-  need net
-  use dns
-  after firewall
-}
-EOF
-
-chmod +x /etc/init.d/amazon-cloudwatch-agent
-rc-update add amazon-cloudwatch-agent default
-/etc/init.d/amazon-cloudwatch-agent start
-
-%{endif}

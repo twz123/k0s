@@ -57,8 +57,8 @@ resource "aws_instance" "machines" {
   associate_public_ip_address = true
   source_dest_check           = !contains(["controller+worker", "worker"], each.value.role)
 
-  iam_instance_profile = aws_iam_instance_profile.k0s_node.name
-  monitoring           = var.cloudwatch_enabled
+  # FIXME missing privileges
+  # iam_instance_profile = aws_iam_instance_profile.k0s_node.name
 
   root_block_device {
     volume_type = "gp2"
