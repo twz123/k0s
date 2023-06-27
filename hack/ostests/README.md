@@ -44,28 +44,28 @@ terraform apply
 
 ## GitHub Actions workflow
 
-There's a GitHub Actions workflow available in [ostests.yaml]. It will execute a
-test matrix, deploy OS stacks, provision k0s clusters and perform conformance
-tests against those. In order to be used, the repository needs to have valid AWS
-credentials available in its secrets:
+There's a GitHub Actions workflow available in [ostests-e2e.yaml]. It will
+execute a test matrix, deploy OS stacks, provision k0s clusters and perform
+conformance tests against those. In order to be used, the repository needs to
+have valid AWS credentials available in its secrets:
 
 * `AWS_ACCESS_KEY_ID`
 * `AWS_SECRET_ACCESS_KEY`
 * `AWS_SESSION_TOKEN`
 
-[ostests.yaml]: ../../.github/workflows/ostests.yaml
+[ostests-e2e.yaml]: ../../.github/workflows/ostests-e2e.yaml
 
 ### Launch a workflow run
 
 Custom workflow runs can be launched using [gh]:
 
 ```console
-$ gh workflow run ostests.yaml --ref some/experimental/branch \
+$ gh workflow run ostests-dispatch.yaml --ref some/experimental/branch \
   -f oses='["alpine_3_17"]' \
   -f network-providers='["calico"]'
-✓ Created workflow_dispatch event for ostests.yaml at some/experimental/branch
+✓ Created workflow_dispatch event for ostests-dispatch.yaml at some/experimental/branch
 
-To see runs for this workflow, try: gh run list --workflow=ostests.yaml
+To see runs for this workflow, try: gh run list --workflow=ostests-dispatch.yaml
 ```
 
 [gh]: https://github.com/cli/cli
