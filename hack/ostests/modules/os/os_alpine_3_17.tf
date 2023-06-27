@@ -1,15 +1,17 @@
 # https://www.alpinelinux.org/cloud/
 
 data "aws_ami" "alpine_3_17" {
+  # Pin Alpine to 3.17.3 as something changed in 3.17.4 that prevents SSH logins.
+
   count = var.os == "alpine_3_17" ? 1 : 0
 
   owners      = ["538276064493"]
-  name_regex  = "^alpine-3\\.17\\.\\d+-x86_64-bios-tiny($|-.*)"
+  name_regex  = "^alpine-3\\.17\\.3-x86_64-bios-tiny($|-.*)"
   most_recent = true
 
   filter {
     name   = "name"
-    values = ["alpine-3.17.*-x86_64-bios-tiny*"]
+    values = ["alpine-3.17.3-x86_64-bios-tiny*"]
   }
 
   filter {
