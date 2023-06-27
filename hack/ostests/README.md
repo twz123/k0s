@@ -60,12 +60,12 @@ have valid AWS credentials available in its secrets:
 Custom workflow runs can be launched using [gh]:
 
 ```console
-$ gh workflow run ostests-dispatch.yaml --ref some/experimental/branch \
+$ gh workflow run ostests-matrix.yaml --ref some/experimental/branch \
   -f oses='["alpine_3_17"]' \
   -f network-providers='["calico"]'
-✓ Created workflow_dispatch event for ostests-dispatch.yaml at some/experimental/branch
+✓ Created workflow_dispatch event for ostests-matrix.yaml at some/experimental/branch
 
-To see runs for this workflow, try: gh run list --workflow=ostests-dispatch.yaml
+To see runs for this workflow, try: gh run list --workflow=ostests-matrix.yaml
 ```
 
 [gh]: https://github.com/cli/cli
