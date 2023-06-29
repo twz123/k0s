@@ -49,6 +49,7 @@ other ways described [here][tf-config].
 
 ```shell
 export TF_VAR_os=alpine_3_17
+export TF_VAR_k0s_version=stable
 export TF_VAR_k0s_network_provider=calico
 ```
 

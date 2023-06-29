@@ -46,11 +46,9 @@ resource "aws_security_group_rule" "node_additional_ingress" {
 }
 
 resource "aws_security_group_rule" "node_all_egress" {
-  for_each = toset(["ingress", "egress"])
-
   description       = "Allow ALL egress traffic."
   security_group_id = aws_security_group.node.id
-  type              = each.key
+  type              = "egress"
   from_port         = 0
   to_port           = 65535
   protocol          = "all"

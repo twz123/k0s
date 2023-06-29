@@ -4,7 +4,7 @@ variable "resource_name_prefix" {
 
   validation {
     condition     = var.resource_name_prefix != null && can(regex("^([a-z][a-z0-9-_]*)?$", var.resource_name_prefix))
-    error_message = "Invalid resource prefix."
+    error_message = "Invalid resource name prefix."
   }
 }
 
@@ -38,8 +38,6 @@ variable "additional_ingress_cidrs" {
   default     = []
 }
 
-# Controller node parameters
-
 variable "controller_num_nodes" {
   type        = number
   description = "The number controller nodes to spin up."
@@ -52,18 +50,8 @@ variable "controller_worker_num_nodes" {
   default     = 0
 }
 
-# Worker node parameters
-
 variable "worker_num_nodes" {
   type        = number
   description = "The number worker nodes to spin up."
-  default     = 2 # that's the minimum for conformance tests
+  default     = 2 # That's the minimum for conformance tests
 }
-
-# # Load balancer variables
-
-# variable "loadbalancer_enabled" {
-#   type        = bool
-#   description = "Whether to provision a load balancer in front of the control plane."
-#   default     = false
-# }

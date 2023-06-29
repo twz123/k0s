@@ -44,7 +44,7 @@ variable "k0sctl_executable_path" {
 variable "k0s_version" {
   type        = string
   nullable    = false
-  description = "The k0s version to deploy on the machines. May be an exact version, \"stable\" or \"latest\"."
+  description = "The k0s version to deploy on the hosts. May be an exact version, \"stable\" or \"latest\"."
 
   validation {
     condition     = length(var.k0s_version) != 0
@@ -54,7 +54,7 @@ variable "k0s_version" {
 
 variable "k0s_executable_path" {
   type        = string
-  description = "Path to the k0s executable to use, or null if it should be downloaded by k0sctl."
+  description = "Path to the k0s executable to use, or null if it should be managed by k0sctl."
   default     = null
 
   validation {
