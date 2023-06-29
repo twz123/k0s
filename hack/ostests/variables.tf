@@ -61,7 +61,7 @@ variable "k0s_executable_path" {
 variable "k0s_version" {
   type        = string
   nullable    = false
-  description = "The k0s version to deploy on the machines. May be an exact version, \"stable\" or \"latest\"."
+  description = "The k0s version to deploy on the nodes. May be an exact version, \"stable\" or \"latest\"."
 
   validation {
     condition     = length(var.k0s_version) != 0

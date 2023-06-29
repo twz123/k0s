@@ -1,6 +1,6 @@
-output "machines" {
-  value       = terraform_data.provisioned_machines.output
-  description = "The machines that have been provisioned."
+output "nodes" {
+  value       = terraform_data.provisioned_nodes.output
+  description = "The nodes that have been provisioned."
 }
 
 output "ssh_private_key" {

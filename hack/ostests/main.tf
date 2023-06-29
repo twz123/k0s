@@ -52,6 +52,6 @@ module "k0sctl" {
     }
   }
 
-  hosts                    = try(module.infra.machines, []) # the try allows destruction even if infra provisioning failed
+  hosts                    = try(module.infra.nodes, []) # the try allows destruction even if infra provisioning failed
   ssh_private_key_filename = local_sensitive_file.ssh_private_key.filename
 }

@@ -12,7 +12,7 @@ locals {
     instance_type = "t3a.small"
   }
 
-  machine_roles = {
+  node_roles = {
     controller = {
       count         = var.controller_num_nodes
       is_controller = true, is_worker = false,
@@ -32,7 +32,7 @@ locals {
     }
   }
 
-  machines = merge([for role, params in local.machine_roles : {
+  nodes = merge([for role, params in local.node_roles : {
     for idx in range(params.count) : "${role}-${idx + 1}" => {
       role          = role
       is_controller = params.is_controller, is_worker = params.is_worker,
@@ -41,8 +41,8 @@ locals {
   }]...)
 }
 
-resource "aws_instance" "machines" {
-  for_each = local.machines
+resource "aws_instance" "nodes" {
+  for_each = local.nodes
 
   ami           = each.value.node_config.ami_id
   instance_type = each.value.node_config.instance_type
@@ -72,13 +72,13 @@ resource "aws_instance" "machines" {
 }
 
 resource "terraform_data" "ready_scripts" {
-  for_each = { for name, params in local.machines : name => params if params.node_config.ready_script != null }
+  for_each = { for name, params in local.nodes : name => params if params.node_config.ready_script != null }
 
   connection {
     type        = each.value.node_config.connection.type
     user        = each.value.node_config.connection.username
     private_key = tls_private_key.ssh.private_key_pem
-    host        = aws_instance.machines[each.key].public_ip
+    host        = aws_instance.nodes[each.key].public_ip
     agent       = false
   }
 
@@ -87,15 +87,15 @@ resource "terraform_data" "ready_scripts" {
   }
 }
 
-resource "terraform_data" "provisioned_machines" {
+resource "terraform_data" "provisioned_nodes" {
   depends_on = [terraform_data.ready_scripts]
 
-  input = [for machine in aws_instance.machines : {
-    name          = machine.tags.Name,
-    ipv4          = machine.public_ip,
-    role          = machine.tags["k0sctl.k0sproject.io/host-role"]
-    is_controller = local.machines[machine.tags["ostests.k0sproject.io/node-name"]].is_controller
-    is_worker     = local.machines[machine.tags["ostests.k0sproject.io/node-name"]].is_worker
-    connection    = local.machines[machine.tags["ostests.k0sproject.io/node-name"]].node_config.connection
+  input = [for node in aws_instance.nodes : {
+    name          = node.tags.Name,
+    ipv4          = node.public_ip,
+    role          = node.tags["k0sctl.k0sproject.io/host-role"]
+    is_controller = local.nodes[node.tags["ostests.k0sproject.io/node-name"]].is_controller
+    is_worker     = local.nodes[node.tags["ostests.k0sproject.io/node-name"]].is_worker
+    connection    = local.nodes[node.tags["ostests.k0sproject.io/node-name"]].node_config.connection
   }]
 }

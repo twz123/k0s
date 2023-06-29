@@ -3,7 +3,7 @@ data "aws_availability_zones" "available" {
 }
 
 data "aws_ec2_instance_type_offerings" "in_available_azs" {
-  for_each = toset([for machine in local.machines : machine.node_config.instance_type])
+  for_each = toset([for node in local.nodes : node.node_config.instance_type])
 
   filter {
     name   = "instance-type"
