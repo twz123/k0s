@@ -146,7 +146,7 @@ jobs:
             --plugin-env=e2e.E2E_PARALLEL=true \
             --plugin-env=e2e.E2E_FOCUS="$E2E_FOCUS" \
             --plugin-env=e2e.E2E_SKIP='\[Serial\]' \
-            --plugin-env=e2e.E2E_EXTRA_GINKGO_ARGS='-v --timeout=90m --procs=2'
+            --plugin-env=e2e.E2E_EXTRA_GINKGO_ARGS='-v --timeout=90m --procs=4'
 
       - name: "e2e tests :: Retrieve parallel results"
         id: ct-retrieve-parallel
