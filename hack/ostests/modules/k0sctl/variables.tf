@@ -82,12 +82,6 @@ variable "k0s_worker_install_flags" {
   default     = []
 }
 
-variable "k0s_dynamic_config" {
-  type        = bool
-  description = "Whether to enable k0s dynamic configuration."
-  default     = false
-}
-
 variable "k0s_config_spec" {
   type = object({
     api = optional(object({

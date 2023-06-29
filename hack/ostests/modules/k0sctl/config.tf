@@ -16,8 +16,7 @@ locals {
     metadata   = { name = "k0s-cluster" }
     spec = {
       k0s = {
-        version       = local.k0s_version
-        dynamicConfig = var.k0s_dynamic_config
+        version = local.k0s_version
         config = { spec = merge(
           { telemetry = { enabled = false, }, },
           { for k, v in var.k0s_config_spec : k => v if v != null }
