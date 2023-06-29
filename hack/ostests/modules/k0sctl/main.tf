@@ -23,8 +23,8 @@ resource "terraform_data" "k0sctl_apply" {
 }
 
 locals {
-  num_controllers = length([for h in terraform_data.k0sctl_apply.output.hosts : h if contains(["controller", "controller+worker"], h.role)])
-  num_workers     = length([for h in terraform_data.k0sctl_apply.output.hosts : h if contains(["worker", "controller+worker"], h.role)])
+  num_controllers = length([for h in terraform_data.k0sctl_apply.output.hosts : h if h.is_controller])
+  num_workers     = length([for h in terraform_data.k0sctl_apply.output.hosts : h if h.is_worker])
 }
 
 resource "terraform_data" "konnectivity_available" {

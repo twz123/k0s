@@ -13,32 +13,64 @@ resource "aws_route_table_association" "default_for_selected_az" {
   route_table_id = data.aws_vpc.default.main_route_table_id
 }
 
-resource "aws_security_group" "all_access" {
-  name        = "${var.resource_name_prefix}-all-access"
-  description = "Allow ALL traffic"
-  vpc_id      = data.aws_vpc.default.id
+resource "aws_security_group" "node" {
+  name        = "${var.resource_name_prefix}-node"
+  description = "Allow ALL ingress traffic inside the subnet, ALL egress traffic to the outside and SSH from the internet."
+  vpc_id      = data.aws_subnet.default_for_selected_az.vpc_id
 
   tags = {
-    Name = "${var.resource_name_prefix}-all-access"
+    Name = "${var.resource_name_prefix}-node"
   }
 }
 
-resource "aws_security_group_rule" "ingress_all_access" {
-  description       = "Allow ALL traffic from the outside"
-  security_group_id = aws_security_group.all_access.id
+resource "aws_security_group_rule" "node_subnet_ingress" {
+  description       = "Allow ALL ingress traffic inside the subnet."
+  security_group_id = aws_security_group.node.id
   type              = "ingress"
+  from_port         = 0
+  to_port           = 65535
+  protocol          = "all"
+  cidr_blocks       = [data.aws_subnet.default_for_selected_az.cidr_block]
+}
+
+resource "aws_security_group_rule" "node_all_egress" {
+  for_each = toset(["ingress", "egress"])
+
+  description       = "Allow ALL egress traffic."
+  security_group_id = aws_security_group.node.id
+  type              = each.key
   from_port         = 0
   to_port           = 65535
   protocol          = "all"
   cidr_blocks       = ["0.0.0.0/0"]
 }
 
-resource "aws_security_group_rule" "egress_all_access" {
-  description       = "Allow ALL traffic to the outside"
-  security_group_id = aws_security_group.all_access.id
-  type              = "egress"
-  from_port         = 0
-  to_port           = 65335
-  protocol          = "all"
+resource "aws_security_group_rule" "node_public_ssh" {
+  description       = "Allow SSH access from the internet."
+  security_group_id = aws_security_group.node.id
+  type              = "ingress"
+  from_port         = 22
+  to_port           = 22
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+}
+
+resource "aws_security_group" "controller" {
+  name        = "${var.resource_name_prefix}-controller"
+  description = "Allow API server access from the internet."
+  vpc_id      = data.aws_subnet.default_for_selected_az.vpc_id
+
+  tags = {
+    Name = "${var.resource_name_prefix}-controller"
+  }
+}
+
+resource "aws_security_group_rule" "public_api_server" {
+  description       = "Allow API server access from the internet."
+  security_group_id = aws_security_group.controller.id
+  type              = "ingress"
+  from_port         = 6443
+  to_port           = 6443
+  protocol          = "tcp"
   cidr_blocks       = ["0.0.0.0/0"]
 }

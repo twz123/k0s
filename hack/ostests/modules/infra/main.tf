@@ -14,25 +14,29 @@ locals {
 
   machine_roles = {
     controller = {
-      count       = var.controller_num_nodes
-      node_config = merge(local.default_node_config, var.os.node_configs.default, var.os.node_configs.controller)
+      count         = var.controller_num_nodes
+      is_controller = true, is_worker = false,
+      node_config   = merge(local.default_node_config, var.os.node_configs.default, var.os.node_configs.controller)
     }
 
     "controller+worker" = {
-      count       = var.controller_worker_num_nodes
-      node_config = merge(local.default_node_config, var.os.node_configs.default, var.os.node_configs.worker, var.os.node_configs.controller_worker)
+      count         = var.controller_worker_num_nodes
+      is_controller = true, is_worker = true,
+      node_config   = merge(local.default_node_config, var.os.node_configs.default, var.os.node_configs.worker, var.os.node_configs.controller_worker)
     }
 
     worker = {
-      count       = var.worker_num_nodes
-      node_config = merge(local.default_node_config, var.os.node_configs.default, var.os.node_configs.worker)
+      count         = var.worker_num_nodes
+      is_controller = false, is_worker = true,
+      node_config   = merge(local.default_node_config, var.os.node_configs.default, var.os.node_configs.worker)
     }
   }
 
   machines = merge([for role, params in local.machine_roles : {
     for idx in range(params.count) : "${role}-${idx + 1}" => {
-      role        = role
-      node_config = params.node_config
+      role          = role
+      is_controller = params.is_controller, is_worker = params.is_worker,
+      node_config   = params.node_config,
     }
   }]...)
 }
@@ -52,10 +56,14 @@ resource "aws_instance" "machines" {
     "k0sctl.k0sproject.io/host-role"  = each.value.role
   }
 
-  key_name                    = aws_key_pair.ssh.key_name
-  vpc_security_group_ids      = [aws_security_group.all_access.id]
+  key_name = aws_key_pair.ssh.key_name
+
   associate_public_ip_address = true
-  source_dest_check           = !contains(["controller+worker", "worker"], each.value.role)
+  source_dest_check           = !each.value.is_worker
+  vpc_security_group_ids = concat(
+    [aws_security_group.node.id],
+    each.value.is_controller ? [aws_security_group.controller.id] : []
+  )
 
   root_block_device {
     volume_type = "gp2"
@@ -83,9 +91,11 @@ resource "terraform_data" "provisioned_machines" {
   depends_on = [terraform_data.ready_scripts]
 
   input = [for machine in aws_instance.machines : {
-    name       = machine.tags.Name,
-    ipv4       = machine.public_ip,
-    role       = machine.tags["k0sctl.k0sproject.io/host-role"]
-    connection = local.machines[machine.tags["ostests.k0sproject.io/node-name"]].node_config.connection
+    name          = machine.tags.Name,
+    ipv4          = machine.public_ip,
+    role          = machine.tags["k0sctl.k0sproject.io/host-role"]
+    is_controller = local.machines[machine.tags["ostests.k0sproject.io/node-name"]].is_controller
+    is_worker     = local.machines[machine.tags["ostests.k0sproject.io/node-name"]].is_worker
+    connection    = local.machines[machine.tags["ostests.k0sproject.io/node-name"]].node_config.connection
   }]
 }
