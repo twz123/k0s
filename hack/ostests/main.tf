@@ -21,7 +21,8 @@ locals {
 module "os" {
   source = "./modules/os"
 
-  os = var.os
+  os                       = var.os
+  additional_ingress_cidrs = [local.podCIDR]
 }
 
 module "infra" {

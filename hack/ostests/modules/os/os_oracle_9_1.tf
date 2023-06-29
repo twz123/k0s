@@ -37,7 +37,7 @@ locals {
 
         user_data = format("#cloud-config\n%s", jsonencode({
           runcmd = concat(
-            # https://docs.k0sproject.io/v1.27.2+k0s.0/networking
+            # https://docs.k0sproject.io/v1.27.3+k0s.0/networking
             [
               "firewall-cmd --zone=public --add-port=179/tcp --permanent",   # kube-router
               "firewall-cmd --zone=public --add-port=2380/tcp --permanent",  # etcd peers
@@ -46,8 +46,13 @@ locals {
               "firewall-cmd --zone=public --add-port=8132/tcp --permanent",  # konnectivity
               "firewall-cmd --zone=public --add-port=9443/tcp --permanent",  # k0s-api
               "firewall-cmd --zone=public --add-port=10250/tcp --permanent", # kubelet
-              "firewall-cmd --reload",
             ],
+
+            # https://docs.k0sproject.io/v1.27.3+k0s.0/networking/#firewalld-k0s
+            ["firewall-cmd --zone=public --add-masquerade --permanent"],
+            [for cidr in var.additional_ingress_cidrs : "firewall-cmd --zone=public --add-source=${cidr} --permanent"],
+
+            ["firewall-cmd --reload"],
           )
         })),
 
