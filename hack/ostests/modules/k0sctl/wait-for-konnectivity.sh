@@ -44,9 +44,9 @@ main() {
   {
     [ $# -eq 2 ] \
       && expectedControllers="$1" \
-      && [ "$expectedControllers" -gt 0 ] 2>/dev/null \
+      && [ "$expectedControllers" -ge 0 ] 2>/dev/null \
       && expectedWorkers="$2" \
-      && [ "$expectedWorkers" -gt 0 ] 2>/dev/null
+      && [ "$expectedWorkers" -ge 0 ] 2>/dev/null
   } || {
     print_usage >&2
     exit 1
@@ -61,10 +61,10 @@ main() {
   while :; do
     ! testKonnectivityPods || return 0
     failedAttempts=$((failedAttempts + 1))
-    [ $failedAttempts -lt 30 ] || {
+    if [ $failedAttempts -gt 30 ]; then
       echo Giving up after $failedAttempts failed attempts ... >&2
       return 1
-    }
+    fi
     echo Attempt $failedAttempts failed, retrying in ten seconds ... >&2
     sleep 10
   done

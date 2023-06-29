@@ -29,7 +29,7 @@ locals {
 
 resource "terraform_data" "konnectivity_available" {
   triggers_replace = [
-    sha256(jsonencode(terraform_data.k0sctl_apply.output.hosts)),
+    sha256(jsonencode(terraform_data.k0sctl_apply.output.k0sctl_config)),
     sha256(file("${path.module}/wait-for-konnectivity.sh")),
   ]
 
