@@ -60,11 +60,11 @@ variable "k0s_executable_path" {
 
 variable "k0s_version" {
   type        = string
-  description = "The k0s version to deploy. May be null to use the latest released version of k0s."
-  default     = null
+  nullable    = false
+  description = "The k0s version to deploy on the machines. May be an exact version, \"stable\" or \"latest\"."
 
   validation {
-    condition     = var.k0s_version == null ? true : length(var.k0s_version) != 0
+    condition     = length(var.k0s_version) != 0
     error_message = "The k0s version may not be empty."
   }
 }

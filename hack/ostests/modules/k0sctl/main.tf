@@ -64,9 +64,9 @@ data "external" "k0s_kubeconfig" {
   program = [
     "env", "sh", "-ec",
     <<-EOS
-    jq '.k0sctl_config | fromjson' |
-      { "$1" kubeconfig --disable-telemetry -c - || echo ~~~FAIL; } |
-      jq --raw-input --slurp "$2"
+      jq '.k0sctl_config | fromjson' |
+        { env -u SSH_AUTH_SOCK SSH_KNOWN_HOSTS='' "$1" kubeconfig --disable-telemetry -c - || echo ~~~FAIL; } |
+        jq --raw-input --slurp "$2"
     EOS
     , "--",
     var.k0sctl_executable_path, <<-EOS

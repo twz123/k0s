@@ -1,7 +1,7 @@
 # Terraform modules for k0s OS testing
 
 Provisioning of k0s test clusters using different operating systems and network
-providers.
+providers based on Terraform and k0sctl.
 
 By default, the cluster will consist of
 
@@ -42,22 +42,19 @@ Apply the configuration:
 terraform apply
 ```
 
-## GitHub Actions workflow
+## GitHub Actions workflows
 
-There's a GitHub Actions workflow available in [ostests-e2e.yaml]. It will
-execute a test matrix, deploy OS stacks, provision k0s clusters and perform
-conformance tests against those. In order to be used, the repository needs to
-have valid AWS credentials available in its secrets:
-
-* `AWS_ACCESS_KEY_ID`
-* `AWS_SECRET_ACCESS_KEY`
-* `AWS_SESSION_TOKEN`
+There's a reusable GitHub Actions workflow available in [ostests-e2e.yaml]. It
+will deploy the Terraform resources and perform Kubernetes conformance tests
+against the provisioned test cluster.
 
 [ostests-e2e.yaml]: ../../.github/workflows/ostests-e2e.yaml
 
 ### Launch a workflow run
 
-Custom workflow runs can be launched using [gh]:
+There's a [nightly trigger] for the OS testing workflow. It will select and run
+a single testing parameter combination each day. There's also a [matrix
+workflow] that exposes more knobs and can be triggered manually, e.g. via [gh]:
 
 ```console
 $ gh workflow run ostests-matrix.yaml --ref some/experimental/branch \
@@ -102,8 +99,11 @@ To see runs for this workflow, try: gh run list --workflow=ostests-matrix.yaml
 * Test it: Be sure to have the requisites ready, as described at the top of this
   README, then do `TF_VAR_os=<the-os-id> terraform apply`. When done, don't
   forget to clean up: `TF_VAR_os=<the-os-id> terraform destroy`.
-* Update the GitHub workflow `ostests.yaml` with the new OS ID.
+* Update the [nightly trigger] and [matrix workflow] with the new OS ID.
 
 ## TODO
 
 * Figure out the best/canonical way to change host names of the AWS instances
+
+[nightly trigger]: ../../.github/workflows/ostests-nightly.yaml
+[matrix workflow]: ../../.github/workflows/ostests-matrix.yaml

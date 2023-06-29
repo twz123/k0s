@@ -1,33 +1,28 @@
 locals {
-  # k8s_api_port             = 6443
-  # k0s_api_port             = 9443
-  # konnectivity_server_port = 8132
+  use_remote_k0s_version = var.k0s_version == "stable" || var.k0s_version == "latest"
+}
+
+data "http" "k0s_version" {
+  count = local.use_remote_k0s_version ? 1 : 0
+  url   = "https://docs.k0sproject.io/${var.k0s_version}.txt"
+}
+
+locals {
+  k0s_version = local.use_remote_k0s_version ? chomp(one(data.http.k0s_version).response_body) : var.k0s_version
 
   k0sctl_config = {
     apiVersion = "k0sctl.k0sproject.io/v1beta1"
     kind       = "Cluster"
     metadata   = { name = "k0s-cluster" }
     spec = {
-      k0s = merge(
-        var.k0s_version == null ? {} : {
-          version = var.k0s_version
-        },
-        {
-          version       = var.k0s_version
-          dynamicConfig = var.k0s_dynamic_config
-          config = { spec = merge(
-            { telemetry = { enabled = false, }, },
-            # (var.loadbalancer != null ? { api = {
-            #   externalAddress = module.loadbalancer.info.ipv4,
-            #   sans = [
-            #     module.loadbalancer.info.name,
-            #     module.loadbalancer.info.ipv4,
-            #   ],
-            # }, } : {}),
-            { for k, v in var.k0s_config_spec : k => v if v != null }
-          ), }
-        },
-      )
+      k0s = {
+        version       = local.k0s_version
+        dynamicConfig = var.k0s_dynamic_config
+        config = { spec = merge(
+          { telemetry = { enabled = false, }, },
+          { for k, v in var.k0s_config_spec : k => v if v != null }
+        ), }
+      }
 
       hosts = [for host in var.hosts : merge(
         {
@@ -52,17 +47,6 @@ locals {
         var.k0s_executable_path == null ? {} : {
           k0sBinaryPath = var.k0s_executable_path
         },
-
-        # var.k0sctl_airgap_image_bundle != null && contains(["worker", "controller+worker"], host.role) ? {
-        #   files = [
-        #     {
-        #       src    = var.k0sctl_airgap_image_bundle
-        #       dstDir = "/var/lib/k0s/images/"
-        #       name   = "bundle-file"
-        #       perm   = "0755"
-        #     }
-        #   ]
-        # } : {},
       )]
     }
   }

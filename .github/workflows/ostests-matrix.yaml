@@ -5,6 +5,9 @@ name: "OS tests :: Matrix"
 on:
   workflow_dispatch:
     inputs:
+      k0s-version:
+        type: string
+        description: The k0s version to test. Will build k0s from source if empty.
       e2e-parallel:
         type: boolean
         description: Whether to run tests in parallel.
@@ -43,6 +46,7 @@ on:
 jobs:
   build:
     name: Build
+    if: inputs.k0s-version == ''
     uses: ./.github/workflows/build-k0s.yml
     with: { target-os: linux, target-arch: amd64 }
 
@@ -53,11 +57,17 @@ jobs:
         os: ${{ fromJSON(github.event.inputs.oses) }}
         network-provider: ${{ fromJSON(github.event.inputs.network-providers) }}
 
-    name: "e2e tests :: ${{ matrix.os }} :: ${{ matrix.network-provider }}"
+    name: "${{ matrix.os }} :: ${{ matrix.network-provider }}"
     needs: build
+    if: always() && (inputs.k0s-version != '' || needs.build.result == 'success')
     uses: ./.github/workflows/ostests-e2e.yaml
     with:
-      e2e-parallel: '${{ github.event.inputs.e2e-parallel }}'
-      e2e-focus: ${{ github.event.inputs.e2e-focus }}
+      k0s-version: ${{ inputs.k0s-version }}
+      e2e-parallel: ${{ inputs.e2e-parallel }}
+      e2e-focus: ${{ inputs.e2e-focus }}
       os: ${{ matrix.os }}
       network-provider: ${{ matrix.network-provider }}
+    secrets:
+      aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
