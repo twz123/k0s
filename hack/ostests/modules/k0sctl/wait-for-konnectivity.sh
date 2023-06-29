@@ -6,6 +6,16 @@ print_usage() {
   echo Usage: "$0" EXPECTED_CONTROLLERS EXPECTED_WORKERS
 }
 
+findPathToK0s() {
+  for k0s in /usr/local/bin/k0s /opt/bin/k0s; do
+    if [ -f "$k0s" ]; then
+      echo "$k0s" && return 0
+    fi
+  done
+
+  which k0s
+}
+
 kubectl() {
   set -- "$k0s" kubectl "$@"
   for cmd in sudo doas; do
@@ -52,8 +62,7 @@ main() {
     exit 1
   }
 
-  k0s=/usr/local/bin/k0s
-  [ -f "$k0s" ] || k0s="$(which k0s)" || return 1
+  k0s="$(findPathToK0s)"
 
   echo Expecting "$expectedWorkers" pods with "$expectedControllers" controller connections each ... >&2
 
