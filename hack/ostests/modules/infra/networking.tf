@@ -33,6 +33,18 @@ resource "aws_security_group_rule" "node_subnet_ingress" {
   cidr_blocks       = [data.aws_subnet.default_for_selected_az.cidr_block]
 }
 
+resource "aws_security_group_rule" "node_additional_ingress" {
+  count = length(var.additional_ingress_cidrs) > 0 ? 1 : 0
+
+  description       = "Allow ingress from additional CIDRs."
+  security_group_id = aws_security_group.node.id
+  type              = "ingress"
+  from_port         = 0
+  to_port           = 65535
+  protocol          = "all"
+  cidr_blocks       = var.additional_ingress_cidrs
+}
+
 resource "aws_security_group_rule" "node_all_egress" {
   for_each = toset(["ingress", "egress"])
 

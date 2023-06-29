@@ -31,6 +31,13 @@ variable "os" {
   description = "The OS configuration."
 }
 
+variable "additional_ingress_cidrs" {
+  type        = list(string)
+  nullable    = false
+  description = "Additional CIDRs that are allowed for ingress traffic."
+  default     = []
+}
+
 # Controller node parameters
 
 variable "controller_num_nodes" {

@@ -118,6 +118,7 @@ variable "k0s_config_spec" {
     network = optional(object({
       provider = optional(string),
       calico   = optional(map(string)),
+      podCIDR  = optional(string),
       nodeLocalLoadBalancing = optional(object({
         enabled = optional(bool),
         type    = optional(string),

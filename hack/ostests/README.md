@@ -3,10 +3,11 @@
 Provisioning of k0s test clusters using different operating system stacks and
 network providers based on Terraform and k0sctl.
 
-By default, a test cluster will consist of
+By default, a test cluster will have the following properties:
 
 * 3 controller nodes
 * 2 worker nodes
+* podCIDR is set to 10.244.0.0/16
 * Node-local load balancing is enabled.
 * All the rest of the configuration is left at its defaults.
 

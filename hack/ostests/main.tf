@@ -15,6 +15,7 @@ resource "random_pet" "resource_name_prefix" {
 locals {
   resource_name_prefix = coalesce(var.resource_name_prefix, random_pet.resource_name_prefix.*.id...)
   cache_dir            = pathexpand(coalesce(var.cache_dir, "~/.cache/k0s-ostests"))
+  podCIDR              = "10.244.0.0/16"
 }
 
 module "os" {
@@ -26,8 +27,9 @@ module "os" {
 module "infra" {
   source = "./modules/infra"
 
-  resource_name_prefix = local.resource_name_prefix
-  os                   = module.os.os
+  resource_name_prefix     = local.resource_name_prefix
+  os                       = module.os.os
+  additional_ingress_cidrs = [local.podCIDR]
 }
 
 resource "local_sensitive_file" "ssh_private_key" {
@@ -46,6 +48,7 @@ module "k0sctl" {
   k0s_config_spec = {
     network = {
       provider = var.k0s_network_provider
+      podCIDR  = local.podCIDR
       nodeLocalLoadBalancing = {
         enabled = true
       }
