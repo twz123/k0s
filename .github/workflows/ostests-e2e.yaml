@@ -160,7 +160,7 @@ jobs:
         if: steps.e2e-run-parallel.conclusion != 'skipped'
         working-directory: inttest
         run: |
-          sonobuoyTarGz="$(make get-conformance-results)"
+          sonobuoyTarGz="$(make --silent get-conformance-results)"
           mv -- "$sonobuoyTarGz" sonobuoy-e2e-parallel.tar.gz
 
       - name: "e2e tests :: Clear parallel run"
@@ -185,7 +185,7 @@ jobs:
         id: e2e-retrieve-serial
         working-directory: inttest
         run: |
-          sonobuoyTarGz="$(make get-conformance-results)"
+          sonobuoyTarGz="$(make --silent get-conformance-results)"
           mv -- "$sonobuoyTarGz" sonobuoy-e2e-serial.tar.gz
 
       - name: "Terraform :: Destroy"
