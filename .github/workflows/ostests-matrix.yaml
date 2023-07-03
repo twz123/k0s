@@ -63,7 +63,7 @@ jobs:
     uses: ./.github/workflows/ostests-e2e.yaml
     with:
       k0s-version: ${{ inputs.k0s-version }}
-      e2e-concurrency-level: ${{ inputs.e2e-concurrency-level }}
+      e2e-concurrency-level: ${{ fromJSON(inputs.e2e-concurrency-level) }} # infamous GH workflows bug that looses type information (actions/runner#2206)
       e2e-focus: ${{ inputs.e2e-focus }}
       os: ${{ matrix.os }}
       network-provider: ${{ matrix.network-provider }}
