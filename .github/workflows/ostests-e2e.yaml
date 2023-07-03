@@ -8,10 +8,10 @@ on:
       k0s-version:
         type: string
         description: The k0s version to test. Will try to download a build artifact if empty.
-      e2e-parallel:
-        type: boolean
-        description: Whether to run tests in parallel.
-        default: true
+      e2e-concurrency-level:
+        type: number
+        description: The number of tests that may be run concurrently.
+        default: 2
       e2e-focus:
         type: string
         description: The selector for the e2e tests to be run.
@@ -44,9 +44,7 @@ on:
         required: true
 
 env:
-  # This is hopefully somewhat physically close to where the hosted GitHub
-  # runners live.
-  #
+  # This is hopefully somewhat physically close to where the hosted GitHub runners live.
   # https://github.com/orgs/community/discussions/24969#discussioncomment-3246032
   AWS_REGION: us-east-1
 
@@ -135,10 +133,19 @@ jobs:
           terraform output -raw k0s_kubeconfig >"$kubeconfigPath"
           echo "KUBECONFIG=$kubeconfigPath" >>"$GITHUB_ENV"
 
+      # If concurrency is enabled, tests are executed in two phases. First, all
+      # the regular tests that can run in parallel are run with the given
+      # concurrency level. In a second step, all remaining tests that can't be
+      # run in parallel will be executed serially. This is the option B shown here:
+      # https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/conformance-tests.md#running-conformance-tests-with-kubetest
+
       - name: "e2e tests :: Run parallel tests"
-        working-directory: inttest
-        if: inputs.e2e-parallel
+        id: e2e-run-parallel
+        if: inputs.e2e-concurrency-level > 1
         timeout-minutes: 180 # three hours
+        working-directory: inttest
+        env:
+          E2E_CONCURRENCY_LEVEL: ${{ inputs.e2e-concurrency-level }}
         run: |
           make bin/sonobuoy
           bin/sonobuoy run -p e2e --wait=120 \
@@ -146,21 +153,22 @@ jobs:
             --plugin-env=e2e.E2E_PARALLEL=true \
             --plugin-env=e2e.E2E_FOCUS="$E2E_FOCUS" \
             --plugin-env=e2e.E2E_SKIP='\[Serial\]' \
-            --plugin-env=e2e.E2E_EXTRA_GINKGO_ARGS='-v --timeout=90m --procs=4'
+            --plugin-env=e2e.E2E_EXTRA_GINKGO_ARGS="-v --timeout=90m --procs=$E2E_CONCURRENCY_LEVEL"
 
       - name: "e2e tests :: Retrieve parallel results"
-        id: ct-retrieve-parallel
-        if: always() && inputs.e2e-parallel && steps.tf-apply.conclusion == 'success'
+        id: e2e-retrieve-parallel
+        if: steps.e2e-run-parallel.conclusion != 'skipped'
         working-directory: inttest
         run: |
-          make get-conformance-results
-          mv *_sonobuoy_*.tar.gz sonobuoy-parallel.tar.gz
+          sonobuoyTarGz="$(make get-conformance-results)"
+          mv -- "$sonobuoyTarGz" sonobuoy-e2e-parallel.tar.gz
 
       - name: "e2e tests :: Clear parallel run"
-        if: always() && inputs.e2e-parallel && steps.tf-apply.conclusion == 'success'
+        if: steps.e2e-run-parallel.conclusion != 'skipped'
+        timeout-minutes: 15
         working-directory: inttest
         run: |
-          bin/sonobuoy delete --all --wait
+          bin/sonobuoy delete --all --wait=10
           echo E2E_FOCUS='\[Serial\].*'"$E2E_FOCUS" >>"$GITHUB_ENV"
 
       - name: "e2e tests :: Run serial tests"
@@ -174,12 +182,11 @@ jobs:
             --plugin-env=e2e.E2E_EXTRA_GINKGO_ARGS='-v --timeout=90m'
 
       - name: "e2e tests :: Retrieve serial results"
-        id: ct-retrieve-serial
-        if: always() && steps.tf-apply.conclusion == 'success'
+        id: e2e-retrieve-serial
         working-directory: inttest
         run: |
-          make get-conformance-results
-          mv *_sonobuoy_*.tar.gz sonobuoy-serial.tar.gz
+          sonobuoyTarGz="$(make get-conformance-results)"
+          mv -- "$sonobuoyTarGz" sonobuoy-e2e-serial.tar.gz
 
       - name: "Terraform :: Destroy"
         if: always() && steps.tf-init.conclusion == 'success'
@@ -190,7 +197,7 @@ jobs:
         run: terraform destroy -auto-approve
 
       - name: "e2e tests :: Upload results"
-        if: always() && (steps.ct-retrieve-parallel.conclusion == 'success' || steps.ct-retrieve-serial.conclusion == 'success')
+        if: always() && (steps.e2e-retrieve-parallel.conclusion == 'success' || steps.e2e-retrieve-serial.conclusion == 'success')
         uses: actions/upload-artifact@v3
         with:
           name: ostests-e2e-${{ inputs.os }}-${{ inputs.network-provider }}-sonobuoy-results
@@ -201,16 +208,16 @@ jobs:
       - name: "e2e tests :: Check"
         working-directory: inttest
         run: |
-          for f in sonobuoy-parallel.tar.gz sonobuoy-serial.tar.gz; do
+          fail=0
+          for f in sonobuoy-e2e-*.tar.gz; do
             echo "::group::$f"
             bin/sonobuoy results "$f"
             numNotPassedOrSkipped=$(bin/sonobuoy results "$f" -p=e2e --mode=detailed | jq --slurp '[.[] | select(.status != "passed" and .status != "skipped")] | length')
             echo "Number of tests that didn't pass and weren't skipped: $numNotPassedOrSkipped"
             echo ::endgroup::
-            if [ "$numNotPassedOrSkipped" != 0 ]; then
-              exit 1
-            fi
+            [ "$numNotPassedOrSkipped" = 0 ] || fail=1
           done
+          [ "$fail" = 0 ] || exit 1
 
       - name: "e2e tests :: Upload k0sctl logs"
         if: always() && steps.tf-init.conclusion == 'success'
