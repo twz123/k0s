@@ -202,8 +202,8 @@ jobs:
         with:
           name: ostests-e2e-${{ inputs.os }}-${{ inputs.network-provider }}-sonobuoy-results
           path: |
-            inttest/sonobuoy-parallel.tar.gz
-            inttest/sonobuoy-serial.tar.gz
+            inttest/sonobuoy-e2e-parallel.tar.gz
+            inttest/sonobuoy-e2e-serial.tar.gz
 
       - name: "e2e tests :: Check"
         working-directory: inttest
