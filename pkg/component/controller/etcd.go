@@ -294,7 +294,7 @@ func (e *Etcd) setupCerts(ctx context.Context) error {
 	})
 
 	eg.Go(func() error {
-		return e.CertManager.CreateKeyPair("etcd/jwt", e.K0sVars, constant.EtcdUser)
+		return e.CertManager.CreateRSA4096KeyPair("etcd/jwt", e.K0sVars, constant.EtcdUser)
 	})
 
 	return eg.Wait()

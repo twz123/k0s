@@ -18,6 +18,10 @@ package certificate
 
 import (
 	"bufio"
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -230,7 +234,47 @@ func isManagedByK0s(cert *certinfo.Certificate) bool {
 	return false
 }
 
+type keyGenerator = func() (crypto.PublicKey, crypto.PrivateKey, error)
+
+func ecdsaKeyGenerator(name string, c elliptic.Curve) keyGenerator {
+	return func() (crypto.PublicKey, crypto.PrivateKey, error) {
+		privKey, err := ecdsa.GenerateKey(c, rand.Reader)
+		if err != nil {
+			return nil, nil, fmt.Errorf("while generating an ECDSA/%s key pair: %w", name, err)
+		}
+		// note to the next reader: privKey.Public() != privKey.PublicKey
+		return privKey.Public(), privKey, nil
+	}
+}
+
+func ed25519KeyGenerator() (crypto.PublicKey, crypto.PrivateKey, error) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("while generating ed25519 key pair: %w", err)
+	}
+	return pub, priv, nil
+}
+
+func rsaKeyGenerator(bits int) keyGenerator {
+	return func() (crypto.PublicKey, crypto.PrivateKey, error) {
+		privKey, err := rsa.GenerateKey(rand.Reader, bits)
+		if err != nil {
+			return nil, nil, fmt.Errorf("while generating a %d bits RSA key pair: %w", bits, err)
+		}
+		// note to the next reader: privKey.Public() != privKey.PublicKey
+		return privKey.Public(), privKey, nil
+	}
+}
+
+func (m *Manager) CreateRSA4096KeyPair(name string, k0sVars *config.CfgVars, owner string) error {
+	return m.createKeyPair(rsaKeyGenerator(4096), name, k0sVars, owner)
+}
+
 func (m *Manager) CreateKeyPair(name string, k0sVars *config.CfgVars, owner string) error {
+	return m.createKeyPair(ecdsaKeyGenerator("P384", elliptic.P384()), name, k0sVars, owner)
+}
+
+func (m *Manager) createKeyPair(generate keyGenerator, name string, k0sVars *config.CfgVars, owner string) error {
 	keyFile := filepath.Join(k0sVars.CertRootDir, fmt.Sprintf("%s.key", name))
 	pubFile := filepath.Join(k0sVars.CertRootDir, fmt.Sprintf("%s.pub", name))
 
@@ -238,22 +282,24 @@ func (m *Manager) CreateKeyPair(name string, k0sVars *config.CfgVars, owner stri
 		return file.Chown(keyFile, owner, constant.CertSecureMode)
 	}
 
-	reader := rand.Reader
-	bitSize := 2048
-
-	key, err := rsa.GenerateKey(reader, bitSize)
+	pubKey, privKey, err := generate()
 	if err != nil {
 		return err
 	}
 
-	err = file.WriteAtomically(keyFile, constant.CertSecureMode, func(unbuffered io.Writer) error {
-		privateKey := pem.Block{
-			Type:  "RSA PRIVATE KEY",
-			Bytes: x509.MarshalPKCS1PrivateKey(key),
-		}
+	pubBytes, err := x509.MarshalPKIXPublicKey(pubKey)
+	if err != nil {
+		return fmt.Errorf("while converting public key to PKIX format: %w", err)
+	}
 
+	privBytes, err := x509.MarshalPKCS8PrivateKey(privKey)
+	if err != nil {
+		return fmt.Errorf("while converting private key to PKCS#8 format: %w", err)
+	}
+
+	err = file.WriteAtomically(keyFile, constant.CertSecureMode, func(unbuffered io.Writer) error {
 		w := bufio.NewWriter(unbuffered)
-		if err := pem.Encode(w, &privateKey); err != nil {
+		if err := pem.Encode(w, &pem.Block{Type: "PRIVATE KEY", Bytes: privBytes}); err != nil {
 			return err
 		}
 		return w.Flush()
@@ -264,19 +310,8 @@ func (m *Manager) CreateKeyPair(name string, k0sVars *config.CfgVars, owner stri
 	}
 
 	return file.WriteAtomically(pubFile, 0644, func(unbuffered io.Writer) error {
-		// note to the next reader: key.Public() != key.PublicKey
-		pubBytes, err := x509.MarshalPKIXPublicKey(key.Public())
-		if err != nil {
-			return err
-		}
-
-		pemKey := pem.Block{
-			Type:  "PUBLIC KEY",
-			Bytes: pubBytes,
-		}
-
 		w := bufio.NewWriter(unbuffered)
-		if err := pem.Encode(w, &pemKey); err != nil {
+		if err := pem.Encode(w, &pem.Block{Type: "PUBLIC KEY", Bytes: pubBytes}); err != nil {
 			return err
 		}
 		return w.Flush()
