@@ -35,26 +35,55 @@ locals {
       default = {
         ami_id = one(data.aws_ami.oracle_7_9.*.id)
 
-        user_data = format("#cloud-config\n%s", jsonencode({
-          runcmd = concat(
-            # https://docs.k0sproject.io/v1.27.2+k0s.0/networking
-            [
-              "firewall-cmd --zone=public --add-port=179/tcp --permanent",   # kube-router
-              "firewall-cmd --zone=public --add-port=2380/tcp --permanent",  # etcd peers
-              "firewall-cmd --zone=public --add-port=4789/tcp --permanent",  # calico
-              "firewall-cmd --zone=public --add-port=6443/tcp --permanent",  # kube-apiserver
-              "firewall-cmd --zone=public --add-port=8132/tcp --permanent",  # konnectivity
-              "firewall-cmd --zone=public --add-port=9443/tcp --permanent",  # k0s-api
-              "firewall-cmd --zone=public --add-port=10250/tcp --permanent", # kubelet
-              "firewall-cmd --reload",
-            ],
-          )
-        })),
-
         connection = {
           type     = "ssh"
           username = "ec2-user"
         }
+      }
+
+      controller = {
+        user_data = format("#cloud-config\n%s", jsonencode({
+          write_files = [{
+            path    = "/etc/firewalld/services/k0s-controller.xml",
+            content = file("${path.module}/k0s-controller.firewalld-service.xml"),
+          }]
+
+          runcmd = [
+            "firewall-offline-cmd --add-service=k0s-controller",
+            "systemctl reload firewalld.service",
+          ]
+        }))
+      }
+
+      "controller+worker" = {
+        user_data = format("#cloud-config\n%s", jsonencode({
+          write_files = [for role in ["controller", "worker"] : {
+            path    = "/etc/firewalld/services/k0s-${role}.xml"
+            content = file("${path.module}/k0s-${role}.firewalld-service.xml")
+          }]
+
+          runcmd = [
+            "firewall-offline-cmd --add-service=k0s-controller",
+            "firewall-offline-cmd --add-service=k0s-worker",
+            "firewall-offline-cmd --add-masquerade",
+            "systemctl reload firewalld.service",
+          ]
+        }))
+      }
+
+      worker = {
+        user_data = format("#cloud-config\n%s", jsonencode({
+          write_files = [{
+            path    = "/etc/firewalld/services/k0s-worker.xml",
+            content = file("${path.module}/k0s-worker.firewalld-service.xml"),
+          }]
+
+          runcmd = [
+            "firewall-offline-cmd --add-service=k0s-worker",
+            "firewall-offline-cmd --add-masquerade",
+            "systemctl reload firewalld.service",
+          ]
+        }))
       }
     }
   }
