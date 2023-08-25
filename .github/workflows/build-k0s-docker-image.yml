@@ -108,6 +108,7 @@ jobs:
       - name: "Docker :: Push image manually"
         if: env.BUILDX_OUTPUTS != ''
         run: |
-          tar xf image.tar -O index.json | jq -r '.manifests[] | "Image: \(.annotations["io.containerd.image.name"])@\(.digest)"'
+          sudo apt-get -y update
+          sudo apt-get -y install skopeo
           skopeo --version
           tar xf image.tar -O index.json | jq -r '.manifests[] | @sh "skopeo copy --multi-arch all --preserve-digests oci-archive:image.tar \("docker://" + .annotations["io.containerd.image.name"])"' | sh -eux
