@@ -1,4 +1,4 @@
-name: "Docker :: Build k0s image"
+name: "Build :: k0s OCI image"
 
 on:
   workflow_call:
@@ -22,7 +22,7 @@ on:
         required: false
 
 jobs:
-  build-image:
+  oci-image:
     runs-on: ubuntu-22.04
     steps:
       - name: "Build :: Checkout"
@@ -30,22 +30,17 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: "Prepare :: Determine image names"
+      - name: "Build :: Prepare"
         env:
           REPO: ${{ github.repository }}
           TAG: ${{ inputs.image-tag }}
           SHA: ${{ github.sha }}
           RUN_ID: ${{ github.run_id }}
         run: |
-          if [ -n "$TAG" ]; then
-            echo IMAGE_NAMES="ghcr.io/$REPO:$TAG,docker.io/$REPO:$TAG" >>"$GITHUB_ENV"
-          else
-            echo IMAGE_NAMES="ttl.sh/k0s-$SHA-$RUN_ID:1d" >>"$GITHUB_ENV"
+          if [ -z "$TAG" ]; then
             echo BUILDX_OUTPUTS=type=oci,dest=image.tar >>"$GITHUB_ENV"
           fi
 
-      - name: "Prepare :: Fetch Alpine version to use"
-        run: |
           alpinePatchVersion="$(./vars.sh alpine_patch_version)"
           echo "ALPINE_PATCH_VERSION=$alpinePatchVersion" >>"$GITHUB_ENV"
 
@@ -65,7 +60,7 @@ jobs:
           name: k0s-linux-arm
           path: ./k0s-arm
 
-      - name: "Fixup :: Make binaries executable"
+      - name: "Build :: Make binaries executable"
         run: chmod +x ./k0s-{amd64,arm64,arm}/k0s
 
       - name: "Docker :: Set up Buildx"
@@ -91,24 +86,46 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v7
-          tags: ${{ env.IMAGE_NAMES }}
+          tags: |
+            ghcr.io/k0sproject/k0s:${{ needs.release.outputs.image_tag }}
+            docker.io/k0sproject/k0s:${{ needs.release.outputs.image_tag }}
           build-args: |
             ALPINE_VERSION=${{ env.ALPINE_PATCH_VERSION }}
           push: ${{ env.BUILDX_OUTPUTS == '' }}
           outputs: ${{ env.BUILDX_OUTPUTS }}
 
-      # The manual push step is solely required when pushing to ttl.sh, which is
-      # fronted by cloudflare. Cloudflare doesn't accept huge unchunked POST
-      # requests, and, in turn, containerd doesn't support chunked transfer
-      # encoding. Hence, pushing via buildx/containerd will fail. Pushing via
-      # skopeo will work fine, though.
+      # Ideally, an anonymous image could be pushed to ttl.sh. In practice,
+      # though, ttl.sh is fronted by Cloudflare. Cloudflare doesn't accept huge
+      # unchunked POST requests, and, in turn, containerd doesn't support
+      # chunked transfer encoding. Hence, pushing via buildx/containerd will
+      # fail.
       #
       # https://github.com/containerd/containerd/pull/7459
       # https://github.com/replicatedhq/ttl.sh/issues/104
-      - name: "Docker :: Push image manually"
-        if: env.BUILDX_OUTPUTS != ''
-        run: |
-          sudo apt-get -y update
-          sudo apt-get -y install skopeo
-          skopeo --version
-          tar xf image.tar -O index.json | jq -r '.manifests[] | @sh "skopeo copy --multi-arch all --preserve-digests oci-archive:image.tar \("docker://" + .annotations["io.containerd.image.name"])"' | sh -eux
+
+      - name: "Upload :: OCI image archive :: Compress"
+        # Pre-compress image so that upload-action doesn't try to do it.
+        # https://github.com/actions/upload-artifact/issues/199
+        run: zstdmt image.tar
+
+      - name: "Upload :: OCI image archive"
+        uses: actions/upload-artifact@v3
+        with:
+          name: k0s-oci-image.tar.zst
+          path: image.tar.zst
+
+      # # The manual push step is solely required when pushing to ttl.sh, which is
+      # # fronted by cloudflare. Cloudflare doesn't accept huge unchunked POST
+      # # requests, and, in turn, containerd doesn't support chunked transfer
+      # # encoding. Hence, pushing via buildx/containerd will fail. Pushing via
+      # # skopeo will work fine, though.
+      # #
+      # # https://github.com/containerd/containerd/pull/7459
+      # # https://github.com/replicatedhq/ttl.sh/issues/104
+      # - name: "Docker :: Push image manually"
+      #   if: env.BUILDX_OUTPUTS != ''
+      #   run: |
+      #     sudo apt-get -y update
+      #     sudo apt-get -y install skopeo
+      #     skopeo --version
+      #     tar xf image.tar -O index.json | jq -r '.manifests[] | @sh "skopeo copy --multi-arch all --preserve-digests oci-archive:image.tar \("docker://" + .annotations["io.containerd.image.name"])"' | sh -eux

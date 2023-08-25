@@ -413,7 +413,7 @@ jobs:
       - x64
       - arm64
       - armv7
-    uses: ./.github/workflows/build-k0s-docker-image.yml
+    uses: ./.github/workflows/build-k0s-oci-image.yml
     with:
       image-tag: ${{ needs.release.outputs.image_tag }}
     secrets:

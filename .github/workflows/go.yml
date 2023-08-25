@@ -455,8 +455,8 @@ jobs:
         if: always() && matrix.arch == 'arm'
         run: docker system prune --force --filter "until=$((24*7))h"
 
-  build-k0s-docker-image:
-    name: "Build :: k0s :: Docker image"
+  build-k0s-oci-image:
+    name: "Build :: k0s :: OCI image"
     needs: [build-k0s, smoketest-arm]
     if: github.repository == 'k0sproject/k0s'
-    uses: ./.github/workflows/build-k0s-docker-image.yml
+    uses: ./.github/workflows/build-k0s-oci-image.yml
