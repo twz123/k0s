@@ -41,7 +41,7 @@ jobs:
             echo IMAGE_NAMES="ghcr.io/$REPO:$TAG,docker.io/$REPO:$TAG" >>"$GITHUB_ENV"
           else
             echo IMAGE_NAMES="ttl.sh/k0s-$SHA-$RUN_ID:1d" >>"$GITHUB_ENV"
-            echo PUSH_MANUALLY=true >>"$GITHUB_ENV"
+            echo BUILDX_OUTPUTS=type=oci,dest=image.tar >>"$GITHUB_ENV"
           fi
 
       - name: "Prepare :: Fetch Alpine version to use"
@@ -94,23 +94,20 @@ jobs:
           tags: ${{ env.IMAGE_NAMES }}
           build-args: |
             ALPINE_VERSION=${{ env.ALPINE_PATCH_VERSION }}
-          push: ${{ env.PUSH_MANUALLY == '' }}
-          load: ${{ env.PUSH_MANUALLY != '' }}
+          push: ${{ env.BUILDX_OUTPUTS == '' }}
+          outputs: ${{ env.BUILDX_OUTPUTS }}
 
       # The manual push step is solely required when pushing to ttl.sh, which is
       # fronted by cloudflare. Cloudflare doesn't accept huge unchunked POST
       # requests, and, in turn, containerd doesn't support chunked transfer
       # encoding. Hence, pushing via buildx/containerd will fail. Pushing via
-      # Docker will work fine, though.
+      # skopeo will work fine, though.
       #
       # https://github.com/containerd/containerd/pull/7459
       # https://github.com/replicatedhq/ttl.sh/issues/104
       - name: "Docker :: Push image manually"
-        if: env.PUSH_MANUALLY != ''
+        if: env.BUILDX_OUTPUTS != ''
         run: |
-          while :; do
-            imageName="${IMAGE_NAMES%%,*}"
-            IMAGE_NAMES="${IMAGE_NAMES#$imageName,}"
-            docker push "$imageName"
-            [ "$imageName" != "$IMAGE_NAMES" ] || break
-          done
+          tar xf image.tar -O index.json | jq -r '.manifests[] | "Image: \(.annotations["io.containerd.image.name"])@\(.digest)"'
+          skopeo --version
+          tar xf image.tar -O index.json | jq -r '.manifests[] | @sh "skopeo copy --multi-arch all --preserve-digests oci-archive:image.tar \("docker://" + .annotations["io.containerd.image.name"])"' | sh -eux
