@@ -37,7 +37,9 @@ jobs:
           SHA: ${{ github.sha }}
           RUN_ID: ${{ github.run_id }}
         run: |
-          if [ -z "$TAG" ]; then
+          if [ -n "$TAG" ]; then
+            echo IMAGE_NAMES="ghcr.io/$REPO:$TAG,docker.io/$REPO:$TAG" >>"$GITHUB_ENV"
+          else
             echo BUILDX_OUTPUTS=type=oci,dest=image.tar >>"$GITHUB_ENV"
           fi
 
@@ -92,9 +94,7 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v7
-          tags: |
-            ghcr.io/k0sproject/k0s:${{ needs.release.outputs.image_tag }}
-            docker.io/k0sproject/k0s:${{ needs.release.outputs.image_tag }}
+          tags: ${{ env.IMAGE_NAMES }}
           build-args: |
             ALPINE_VERSION=${{ env.ALPINE_PATCH_VERSION }}
           push: ${{ env.BUILDX_OUTPUTS == '' }}
