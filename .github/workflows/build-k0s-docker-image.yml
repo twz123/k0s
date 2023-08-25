@@ -41,6 +41,7 @@ jobs:
             echo IMAGE_NAMES="ghcr.io/$REPO:$TAG,docker.io/$REPO:$TAG" >>"$GITHUB_ENV"
           else
             echo IMAGE_NAMES="ttl.sh/k0s-$SHA-$RUN_ID:1d" >>"$GITHUB_ENV"
+            echo PUSH_MANUALLY=true >>"$GITHUB_ENV"
           fi
 
       - name: "Prepare :: Fetch Alpine version to use"
@@ -85,7 +86,7 @@ jobs:
           username: ${{ secrets.docker-username }}
           password: ${{ secrets.docker-password }}
 
-      - name: "Docker :: Build and push image"
+      - name: "Docker :: Build image"
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -93,4 +94,23 @@ jobs:
           tags: ${{ env.IMAGE_NAMES }}
           build-args: |
             ALPINE_VERSION=${{ env.ALPINE_PATCH_VERSION }}
-          push: true
+          push: ${{ env.PUSH_MANUALLY == '' }}
+          load: ${{ env.PUSH_MANUALLY != '' }}
+
+      # The manual push step is solely required when pushing to ttl.sh, which is
+      # fronted by cloudflare. Cloudflare doesn't accept huge unchunked POST
+      # requests, and, in turn, containerd doesn't support chunked transfer
+      # encoding. Hence, pushing via buildx/containerd will fail. Pushing via
+      # Docker will work fine, though.
+      #
+      # https://github.com/containerd/containerd/pull/7459
+      # https://github.com/replicatedhq/ttl.sh/issues/104
+      - name: "Docker :: Push image manually"
+        if: env.PUSH_MANUALLY != ''
+        run: |
+          while :; do
+            imageName="${IMAGE_NAMES%%,*}"
+            IMAGE_NAMES="${IMAGE_NAMES#$imageName,}"
+            docker push "$imageName"
+            [ "$imageName" != "$IMAGE_NAMES" ] || break
+          done
