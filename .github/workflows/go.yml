@@ -398,7 +398,7 @@ jobs:
       - name: Upload compiled executable
         uses: actions/upload-artifact@v4
         with:
-          name: k0s-${{ matrix.arch }}
+          name: k0s-linux-${{ matrix.arch }}
           path: k0s
 
       - name: Unit tests
@@ -454,3 +454,9 @@ jobs:
       - name: "Docker prune"
         if: always() && matrix.arch == 'arm'
         run: docker system prune --force --filter "until=$((24*7))h"
+
+  build-k0s-docker-image:
+    name: "Build :: k0s :: Docker image"
+    needs: [build-k0s, smoketest-arm]
+    if: github.repository == 'k0sproject/k0s'
+    uses: ./.github/workflows/build-k0s-docker-image.yml

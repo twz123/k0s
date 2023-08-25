@@ -1,0 +1,96 @@
+name: "Docker :: Build k0s image"
+
+on:
+  workflow_call:
+    inputs:
+      image-tag:
+        type: string
+        description: The image tag to use. Uses a temporary tag and pushes to ttl.sh if empty.
+        default: ""
+    secrets:
+      ghcr-username:
+        description: FIXME
+        required: false
+      ghcr-password:
+        description: FIXME
+        required: false
+      docker-username:
+        description: FIXME
+        required: false
+      docker-password:
+        description: FIXME
+        required: false
+
+jobs:
+  build-image:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: "Build :: Checkout"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: "Prepare :: Determine image names"
+        env:
+          REPO: ${{ github.repository }}
+          TAG: ${{ inputs.image-tag }}
+          SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          if [ -n "$TAG" ]; then
+            echo IMAGE_NAMES="ghcr.io/$REPO:$TAG,docker.io/$REPO:$TAG" >>"$GITHUB_ENV"
+          else
+            echo IMAGE_NAMES="ttl.sh/k0s-$SHA-$RUN_ID:1d" >>"$GITHUB_ENV"
+          fi
+
+      - name: "Prepare :: Fetch Alpine version to use"
+        run: |
+          alpinePatchVersion="$(./vars.sh alpine_patch_version)"
+          echo "ALPINE_PATCH_VERSION=$alpinePatchVersion" >>"$GITHUB_ENV"
+
+      - name: "Download :: k0s-linux-amd64"
+        uses: actions/download-artifact@v4
+        with:
+          name: k0s-linux-amd64
+          path: ./k0s-amd64
+      - name: "Download :: k0s-linux-arm64"
+        uses: actions/download-artifact@v4
+        with:
+          name: k0s-linux-arm64
+          path: ./k0s-arm64
+      - name: "Download :: k0s-linux-arm"
+        uses: actions/download-artifact@v4
+        with:
+          name: k0s-linux-arm
+          path: ./k0s-arm
+
+      - name: "Fixup :: Make binaries executable"
+        run: chmod +x ./k0s-{amd64,arm64,arm}/k0s
+
+      - name: "Docker :: Set up Buildx"
+        uses: docker/setup-buildx-action@v3
+
+      - name: "Docker :: Login to GitHub Container Registry"
+        uses: docker/login-action@v3
+        if: inputs.image-tag != ''
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.ghcr-username }}
+          password: ${{ secrets.ghcr-password }}
+
+      - name: "Docker :: Login to Docker Hub"
+        uses: docker/login-action@v3
+        if: inputs.image-tag != ''
+        with:
+          username: ${{ secrets.docker-username }}
+          password: ${{ secrets.docker-password }}
+
+      - name: "Docker :: Build and push image"
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          tags: ${{ env.IMAGE_NAMES }}
+          build-args: |
+            ALPINE_VERSION=${{ env.ALPINE_PATCH_VERSION }}
+          push: true
