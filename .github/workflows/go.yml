@@ -457,6 +457,7 @@ jobs:
 
   build-k0s-oci-image:
     name: "Build :: k0s :: OCI image"
-    needs: [build-k0s, smoketest-arm]
-    if: github.repository == 'k0sproject/k0s'
+    #needs: [build-k0s, smoketest-arm]
+    needs: [build-k0s]
+    #if: github.repository == 'k0sproject/k0s'
     uses: ./.github/workflows/build-k0s-oci-image.yml
