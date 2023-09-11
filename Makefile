@@ -104,7 +104,7 @@ $(K0S_GO_BUILD_CACHE):
 	mkdir -p -- '$@'
 
 .k0sbuild.docker-image.k0s: build/Dockerfile embedded-bins/Makefile.variables | $(K0S_GO_BUILD_CACHE)
-	docker build --iidfile '$@' \
+	docker build --progress=plain --iidfile '$@' \
 	  --build-arg BUILDIMAGE=$(GOLANG_IMAGE) \
 	  -t k0sbuild.docker-image.k0s - <build/Dockerfile
 
@@ -232,7 +232,7 @@ airgap-image-bundle-linux-arm.tar: .k0sbuild.image-bundler.stamp airgap-images.t
 	  '$(shell cat .k0sbuild.image-bundler.stamp)' < airgap-images.txt > '$@'
 
 .k0sbuild.image-bundler.stamp: hack/image-bundler/* embedded-bins/Makefile.variables
-	docker build --iidfile '$@' \
+	docker build --progress=plain --iidfile '$@' \
 	  --build-arg ALPINE_VERSION=$(alpine_patch_version) \
 	  -t k0sbuild.image-bundler -- hack/image-bundler
 

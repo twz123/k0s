@@ -32,17 +32,17 @@ footloose_alpine_build_cmdline := \
 	footloose-alpine
 
 .footloose-alpine.stamp: $(shell find footloose-alpine -type f)
-	docker build --build-arg TARGETARCH=$(ARCH) $(footloose_alpine_build_cmdline)
+	docker build --progress=plain --build-arg TARGETARCH=$(ARCH) $(footloose_alpine_build_cmdline)
 	touch $@
 
 # This is a special target to test the footloose alpine image locally for all supported platforms.
 .PHONY: check-footloose-alpine-buildx
 check-footloose-alpine-buildx:
-	docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 $(footloose_alpine_build_cmdline)
+	docker buildx build --progress=plain --platform linux/amd64,linux/arm64,linux/arm/v7 $(footloose_alpine_build_cmdline)
 
 .footloose-k0s.stamp: K0S_PATH ?= $(realpath ../k0s)
 .footloose-k0s.stamp: .footloose-alpine.stamp
-	docker build \
+	docker build --progress=plain \
 	  --build-arg K0S_PATH=$(notdir $(K0S_PATH)) \
 	  -t footloose-k0s \
 	  -f footloose-k0s/Dockerfile \
@@ -50,7 +50,7 @@ check-footloose-alpine-buildx:
 	touch $@
 
 .update-server.stamp: .footloose-alpine.stamp update-server/Dockerfile update-server/html/stable/index.yaml
-	docker build -t update-server --build-arg BASE=footloose-alpine -f update-server/Dockerfile update-server
+	docker build --progress=plain -t update-server --build-arg BASE=footloose-alpine -f update-server/Dockerfile update-server
 	touch $@
 
 check-network: bin/sonobuoy

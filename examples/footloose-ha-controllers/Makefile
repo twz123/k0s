@@ -5,7 +5,7 @@ build:
 
 .PHONY: create-cluster
 create-cluster: build
-	docker build -t k0s-footloose .
+	docker build --progress=plain -t k0s-footloose .
 	envsubst < footloose.yaml.tpl > footloose.yaml
 	footloose create
 

@@ -68,7 +68,7 @@ build_docker_container = \
 	$(build_docker_container)
 
 build_docker_image = \
-	docker build --iidfile '$@' -t k0sbuild$(basename $@):latest \
+	docker build --progress=plain --iidfile '$@' -t k0sbuild$(basename $@):latest \
 	  --build-arg TARGET_OS=$(if $(findstring .windows.stamp,$@),windows,linux) \
 	  --build-arg VERSION=$($(patsubst %/Dockerfile,%,$<)_version) \
 	  --build-arg BUILDIMAGE=$($(patsubst %/Dockerfile,%,$<)_buildimage) \
