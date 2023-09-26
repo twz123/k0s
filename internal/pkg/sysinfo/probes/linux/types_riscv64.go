@@ -1,7 +1,7 @@
-//go:build linux && !(arm || riscv64)
+//go:build linux
 
 /*
-Copyright 2022 k0s authors
+Copyright 2023 k0s authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,6 +18,6 @@ limitations under the License.
 
 package linux
 
-func utsChar(ch rune) int8 { return int8(ch) } //nolint:deadcode,unused // just for tests 🙄
+func utsChar(ch rune) uint8 { return uint8(ch) } //nolint:deadcode,unused // just for tests 🙄
 
-type utsStringPtr *[65]int8
+type utsStringPtr *[65]uint8

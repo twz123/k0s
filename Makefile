@@ -8,6 +8,8 @@ ifneq (, $(filter $(HOST_HARDWARE), aarch64 arm64 armv8l))
   HOST_ARCH := arm64
 else ifneq (, $(filter $(HOST_HARDWARE), armv7l arm))
   HOST_ARCH := arm
+else ifneq (, $(filter $(HOST_HARDWARE), riscv64))
+  HOST_ARCH := riscv64
 else
   ifeq (, $(filter $(HOST_HARDWARE), x86_64 amd64 x64))
     $(warning unknown machine hardware name $(HOST_HARDWARE), assuming amd64)
@@ -31,6 +33,7 @@ TARGET_OS ?= linux
 BUILD_UID ?= $(shell id -u)
 BUILD_GID ?= $(shell id -g)
 BUILD_GO_FLAGS := -tags osusergo -buildvcs=false -trimpath
+BUILD_CGO_CFLAGS_EXTRA :=
 BUILD_GO_LDFLAGS_EXTRA :=
 DEBUG ?= false
 
@@ -44,6 +47,9 @@ endif
 SOURCE_DATE_EPOCH ?= $(shell git log -1 --pretty=%ct || date -u +%s)
 BUILD_DATE_FMT = %Y-%m-%dT%H:%M:%SZ
 BUILD_DATE ?= $(shell date -u -d "@$(SOURCE_DATE_EPOCH)" "+$(BUILD_DATE_FMT)" 2>/dev/null || date -u -r "$(SOURCE_DATE_EPOCH)" "+$(BUILD_DATE_FMT)" 2>/dev/null || date -u "+$(BUILD_DATE_FMT)")
+
+CGO_CFLAGS += -D_LARGEFILE64_SOURCE
+CGO_CFLAGS += $(BUILD_CGO_CFLAGS_EXTRA)
 
 LD_FLAGS += -X github.com/k0sproject/k0s/pkg/build.Version=$(VERSION)
 LD_FLAGS += -X github.com/k0sproject/k0s/pkg/build.RuncVersion=$(runc_version)
@@ -75,6 +81,7 @@ GO_ENV ?= docker run --rm \
 	-w /go/src/github.com/k0sproject/k0s \
 	-e GOOS \
 	-e CGO_ENABLED \
+	-e CGO_CFLAGS \
 	-e GOARCH \
 	--user $(BUILD_UID):$(BUILD_GID) \
 	-- '$(shell cat .k0sbuild.docker-image.k0s)'
@@ -186,7 +193,7 @@ k0s.exe: TARGET_OS = windows
 k0s.exe: BUILD_GO_CGO_ENABLED = 0
 
 k0s.exe k0s: $(GO_SRCS) $(codegen_targets) go.sum
-	CGO_ENABLED=$(BUILD_GO_CGO_ENABLED) GOOS=$(TARGET_OS) $(GO) build $(BUILD_GO_FLAGS) -ldflags='$(LD_FLAGS)' -o $@.code main.go
+	CGO_ENABLED=$(BUILD_GO_CGO_ENABLED) GOOS=$(TARGET_OS) CGO_CFLAGS=$(CGO_CFLAGS) $(GO) build $(BUILD_GO_FLAGS) -ldflags='$(LD_FLAGS)' -o $@.code main.go
 	cat $@.code bindata_$(TARGET_OS) > $@.tmp \
 		&& rm -f $@.code \
 		&& chmod +x $@.tmp \
@@ -245,13 +252,13 @@ $(smoketests): k0s
 smoketests: $(smoketests)
 
 .PHONY: check-unit
-ifneq (, $(filter $(HOST_ARCH), arm))
+ifneq (, $(filter $(HOST_ARCH), arm riscv64))
 check-unit: GO_TEST_RACE ?=
 else
 check-unit: GO_TEST_RACE ?= -race
 endif
 check-unit: go.sum codegen
-	$(GO) test -tags=hack $(GO_TEST_RACE) -ldflags='$(LD_FLAGS)' `$(GO) list -tags=hack $(GO_CHECK_UNIT_DIRS)`
+	CGO_CFLAGS=$(CGO_CFLAGS) $(GO) test -tags=hack $(GO_TEST_RACE) -ldflags='$(LD_FLAGS)' `$(GO) list -tags=hack $(GO_CHECK_UNIT_DIRS)`
 
 .PHONY: check-image-validity
 check-image-validity: go.sum
