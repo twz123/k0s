@@ -17,8 +17,11 @@ ARG TARGET_OS \
   BUILD_GO_LDFLAGS_EXTRA \
   KUBERNETES_BINS
 
+COPY riscv64.patch .
+
 RUN \
   set -ex; \
+  git apply < riscv64.patch; \
   export GOPATH=/go; \
   if [ "${TARGET_OS}" = windows ]; then \
     commands="${KUBERNETES_BINS}"; \

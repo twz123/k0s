@@ -1,4 +1,4 @@
-//go:build linux && !arm
+//go:build linux && !(arm || riscv64)
 
 /*
 Copyright 2022 k0s authors

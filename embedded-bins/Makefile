@@ -78,7 +78,8 @@ build_docker_container = \
 	$(build_docker_container)
 
 build_docker_image = \
-	docker build --iidfile '$@' -t k0sbuild$(basename $@):latest \
+	docker build --progress=plain --iidfile '$@' -t k0sbuild$(basename $@):latest \
+	  --build-arg SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) \
 	  --build-arg TARGET_OS=$(if $(findstring .windows.stamp,$@),windows,linux) \
 	  --build-arg CONTAINERD_BINS="$(containerd_bins)" \
 	  --build-arg KUBERNETES_BINS="$(kubernetes_bins)" \
