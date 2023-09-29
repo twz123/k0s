@@ -43,25 +43,29 @@ RUN curl -Lo /usr/local/bin/kubectl https://storage.googleapis.com/kubernetes-re
 ENV KUBECONFIG=/var/lib/k0s/pki/admin.conf
 
 # Install troublbeshoot support bundle
-RUN curl -Lo - https://github.com/replicatedhq/troubleshoot/releases/download/$TROUBLESHOOT_VERSION/support-bundle_linux_$TARGETARCH.tar.gz \
-  | tar xzO support-bundle >/usr/local/bin/kubectl-supportbundle \
-  && chmod +x /usr/local/bin/kubectl-supportbundle
+RUN if [ "$TARGETARCH" != riscv64 ]; then \ 
+    curl -Lo - https://github.com/replicatedhq/troubleshoot/releases/download/$TROUBLESHOOT_VERSION/support-bundle_linux_$TARGETARCH.tar.gz \
+    | tar xzO support-bundle >/usr/local/bin/kubectl-supportbundle \
+    && chmod +x /usr/local/bin/kubectl-supportbundle; \
+  fi
 
 # Put helm into place to ease up debugging and for helm integration tests
-RUN curl -L https://get.helm.sh/helm-v$HELM_VERSION-linux-$TARGETARCH.tar.gz \
-  | tar xz linux-$TARGETARCH/helm -C /usr/local/bin --strip-components=1 \
-  && chmod +x /usr/local/bin/helm
+RUN if [ "$TARGETARCH" != riscv64 ]; then \
+    curl -L https://get.helm.sh/helm-v$HELM_VERSION-linux-$TARGETARCH.tar.gz \
+    | tar xz linux-$TARGETARCH/helm -C /usr/local/bin --strip-components=1 \
+    && chmod +x /usr/local/bin/helm; \
+  fi
 
 # Install etcd for smoke tests with external etcd
-# No arm binaries available (check-externaletcd won't work on ARMv7)
-RUN if [ "$TARGETARCH" != arm ]; then \
+# No arm or riscv64 binaries available (check-externaletcd won't work on ARMv7 or RISC-V)
+RUN if [ "$TARGETARCH" != arm ] && [ "$TARGETARCH" != riscv64 ]; then \
     curl -L https://github.com/etcd-io/etcd/releases/download/v$ETCD_VERSION/etcd-v$ETCD_VERSION-linux-$TARGETARCH.tar.gz \
       | tar xz -C /opt --strip-components=1; \
   fi
 
 # Install cri-dockerd shim for custom CRI testing
-# No arm binaries available (check-byocri won't work on ARMv7)
-RUN if [ "$TARGETARCH" != arm ]; then \
+# No arm or riscv64 binaries available (check-byocri won't work on ARMv7 or RISC-V)
+RUN if [ "$TARGETARCH" != arm ] && [ "$TARGETARCH" != riscv64 ]; then \
     curl -sSfLo /tmp/cri-dockerd.tgz https://github.com/Mirantis/cri-dockerd/releases/download/v$CRI_DOCKERD_VERSION/cri-dockerd-$CRI_DOCKERD_VERSION.$TARGETARCH.tgz \
       && tar xf /tmp/cri-dockerd.tgz --directory /tmp/ \
       && mv /tmp/cri-dockerd/cri-dockerd /usr/local/bin/cri-dockerd \
