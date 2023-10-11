@@ -15,12 +15,12 @@ jobs:
     steps:
       - name: Cleaner
         run: |
-          set +eu # don't care about errors, yolo!
-          set -x
-
           df -h /
-          docker system prune --all --force >/dev/null &
-          sudo rm -rf /imagegeneration/installers >/dev/null &
+          docker system prune --all --force || true >/dev/null &
+          sudo rm -rf /imagegeneration/installers || true >/dev/null &
+          if [ -n "${ANDROID_SDK_ROOT-}" ]; then
+            sudo rm -rf -- "$ANDROID_SDK_ROOT"|| true >/dev/null &
+          fi
           wait
           df -h /
 
