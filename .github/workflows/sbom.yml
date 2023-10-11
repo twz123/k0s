@@ -1,0 +1,56 @@
+name: SBOM
+
+on:
+  workflow_call:
+    inputs:
+      upload:
+        type: boolean
+
+jobs:
+  generate:
+    runs-on: ubuntu-22.04
+    permissions:
+      id-token: write
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+
+      - name: Cache embedded binaries
+        uses: actions/cache@v3
+        with:
+          key: build-k0s-linux-amd64-embedded-bins-${{ hashFiles('embedded-bins/**/*') }}
+          fail-on-cache-miss: true
+          path: |
+            .bins.linux.stamp
+            bindata_linux
+            embedded-bins/staging/linux/bin/
+            embedded-bins/Makefile.variables
+            pkg/assets/zz_generated_offsets_linux.go
+
+      - name: Generate SBOM
+        run: |
+          make sbom/spdx.json
+
+      - name: Sign SBOM
+        if: github.repository == 'k0sproject/k0s'
+        env:
+          COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          mkdir -p sbom && chmod 777 sbom
+          echo $COSIGN_KEY | base64 -d > cosign.key
+          make sign-sbom
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: sbom
+          path: sbom/
+
+      - name: SBOM upload
+        if: inputs.upload
+        uses: advanced-security/spdx-dependency-submission-action@v0.0.1
+        with:
+          filePath: sbom/spdx.json

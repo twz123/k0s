@@ -85,27 +85,12 @@ jobs:
       target-os: linux
       target-arch: amd64
 
-  generate-sbom:
+  build-sbom:
     name: "Build :: SBOM"
     needs: [build-k0s]
-
-    runs-on: ubuntu-22.04
-
-    steps:
-      - name: Check out code into the Go module directory
-        uses: actions/checkout@v3
-
-      - name: Generate SBOM
-        run: |
-          make bindata
-          mkdir -p sbom && chmod 777 sbom
-          make sbom/spdx.json
-
-      - uses: actions/upload-artifact@v3
-        with:
-          name: spdx.json
-          path: sbom/spdx.json
-
+    uses: ./.github/workflows/sbom.yml
+    with:
+      upload: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
 
   unittests-k0s-linux-amd64:
     name: "Unit tests :: linux-amd64"
