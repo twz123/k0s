@@ -44,7 +44,7 @@ jobs:
 
           df -h /
 
-          sudo du -h /imagegeneration/installers
+          sudo du -csh /imagegeneration/*
           sudo rm -rf /imagegeneration/installers
 
           df -h /
@@ -65,14 +65,14 @@ jobs:
           for envPathToRm in $ENV_PATHS_TO_RM; do
             envPathToRm="${!envPathToRm}" || continue
             [ -z "$envPathToRm" ] || {
-              sudo du -h -- "$envPathToRm"
+              sudo du -csh -- "$envPathToRm"
               sudo rm -rf -- "$envPathToRm"
             }
           done
 
           df -h /
 
-          sudo du -h /home/linuxbrew
+          sudo du -csh /home/linuxbrew
           sudo rm -rf /home/linuxbrew
 
           df -h /
