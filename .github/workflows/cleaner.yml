@@ -44,6 +44,10 @@ jobs:
 
           df -h
 
+          sudo rm -rf /imagegeneration/installers
+
+          df -h
+
           sudo -E apt-get purge -y -- $APT_PACKAGES_TO_REMOVE
 
           for pkg in $APT_PACKAGES_TO_REMOVE; do
@@ -68,10 +72,10 @@ jobs:
 
           df -h
 
-      - name: Files
-        run: sudo find / -type f -mount > files || true
+      # - name: Files
+      #   run: sudo find / -type f -mount > files || true
 
-      - uses: actions/upload-artifact@v3
-        with:
-          name: files
-          path: files
+      # - uses: actions/upload-artifact@v3
+      #   with:
+      #     name: files
+      #     path: files
