@@ -45,28 +45,28 @@ jobs:
           df -h
 
           for pkg in $APT_PACKAGES_TO_REMOVE; do
-            apt-get purge -y -- "$pkg"
+            sudo -E apt-get purge -y -- "$pkg"
           done
 
           df -h
 
-          apt-get autoremove -y
-          apt-get autoclean -y
+          sudo -E apt-get autoremove -y
+          sudo -E apt-get autoclean -y
 
           df -h
 
           for path in ENV_PATHS_TO_RM; do
             path="${!path}" || continue
-            [ -z "$path" ] || rm -rf -- "$path"
+            [ -z "$path" ] || sudo rm -rf -- "$path"
           done
 
           df -h
 
-          rm -rf /home/linuxbrew
+          sudo rm -rf /home/linuxbrew
 
           df -h
 
-          find / -type f -mount > files
+          find / -type f -mount | tee files
 
       - uses: actions/upload-artifact@v3
         with:
