@@ -9,7 +9,7 @@ on:
 
 env:
   APT_PACKAGES_TO_REMOVE: >-
-    acl aria2 autoconf automake bison dbus dnsutils fakeroot flex
+    111-i-wont-break-apt acl aria2 autoconf automake bison dbus dnsutils fakeroot flex
     fonts-noto-color-emoji ftp g++ gcc gnupg2 haveged imagemagick lib32z1
     libc++-dev libc++abi-dev libc6-dev libcurl4 libgbm-dev libgconf-2-4
     libgsl-dev libgtk-3-0 libmagic-dev libmagickcore-dev libmagickwand-dev
@@ -44,6 +44,8 @@ jobs:
 
           df -h
 
+          sudo -E apt-get purge -y -- $APT_PACKAGES_TO_REMOVE
+
           for pkg in $APT_PACKAGES_TO_REMOVE; do
             sudo -E apt-get purge -y -- "$pkg"
           done
@@ -66,7 +68,8 @@ jobs:
 
           df -h
 
-          find / -type f -mount | tee files
+          sudo find / -type f -mount | tee files
+          return 0
 
       - uses: actions/upload-artifact@v3
         with:
