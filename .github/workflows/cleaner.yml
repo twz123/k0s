@@ -7,24 +7,6 @@ on:
 
 # Reference: https://github.com/actions/runner-images/blob/ubuntu22/20231001.1/images/linux/Ubuntu2204-Readme.md
 
-env:
-  APT_PACKAGES_TO_REMOVE: >-
-    111-i-wont-break-apt acl aria2 autoconf automake bison dbus dnsutils fakeroot flex
-    fonts-noto-color-emoji ftp g++ gcc gnupg2 haveged imagemagick lib32z1
-    libc++-dev libc++abi-dev libc6-dev libcurl4 libgbm-dev libgconf-2-4
-    libgsl-dev libgtk-3-0 libmagic-dev libmagickcore-dev libmagickwand-dev
-    libsecret-1-dev libsqlite3-dev libssl-dev libtool libunwind8 libxkbfile-dev
-    libyaml-dev m4 mediainfo mercurial p7zip-full p7zip-rar parallel pass
-    patchelf pigz pkg-config pollinate python-is-python3 rpm rsync shellcheck
-    sphinxsearch sqlite3 subversion swig telnet texinfo tk upx xorriso xvfb
-    zsync
-
-  ENV_PATHS_TO_RM: >-
-    ANDROID_SDK_ROOT ANT_HOME AZURE_EXTENSION_DIR CHROMEWEBDRIVER CONDA
-    EDGEWEBDRIVER GECKOWEBDRIVER GRADLE_HOME JAVA_HOME JAVA_HOME_11_X64
-    JAVA_HOME_17_X64 JAVA_HOME_8_X64 LEIN_HOME NVM_DIR PIPX_BIN_DIR PIPX_HOME
-    SELENIUM_JAR_PATH SWIFT_PATH VCPKG_INSTALLATION_ROOT
-
 jobs:
   cleaner:
     name: Cleaner
@@ -33,48 +15,13 @@ jobs:
     steps:
       - name: Cleaner
         run: |
-          env | sort
-
           set +eu # don't care about errors, yolo!
           set -x
 
           df -h /
-
-          docker system prune --all --force
-
-          df -h /
-
-          sudo du -csh /imagegeneration/*
-          sudo rm -rf /imagegeneration/installers
-
-          df -h /
-
-          # sudo -E apt-get purge -y -- $APT_PACKAGES_TO_REMOVE
-
-          # for pkg in $APT_PACKAGES_TO_REMOVE; do
-          #   sudo -E apt-get purge -y -- "$pkg"
-          # done
-
-          # df -h /
-
-          # sudo -E apt-get autoremove -y
-          # sudo -E apt-get autoclean -y
-
-          # df -h /
-
-          for envPathToRm in $ENV_PATHS_TO_RM; do
-            envPathToRm="${!envPathToRm}" || continue
-            [ -z "$envPathToRm" ] || {
-              sudo du -csh -- "$envPathToRm"
-              sudo rm -rf -- "$envPathToRm"
-            }
-          done
-
-          df -h /
-
-          sudo du -csh /home/linuxbrew
-          sudo rm -rf /home/linuxbrew
-
+          docker system prune --all --force >/dev/null &
+          sudo rm -rf /imagegeneration/installers >/dev/null &
+          wait
           df -h /
 
       # - name: Files
