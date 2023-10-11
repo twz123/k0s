@@ -1,0 +1,74 @@
+name: Cleaner
+
+on:
+  push:
+    branches:
+      - cleaner-test
+
+# Reference: https://github.com/actions/runner-images/blob/ubuntu22/20231001.1/images/linux/Ubuntu2204-Readme.md
+
+env:
+  APT_PACKAGES_TO_REMOVE: >-
+    acl aria2 autoconf automake bison dbus dnsutils fakeroot flex
+    fonts-noto-color-emoji ftp g++ gcc gnupg2 haveged imagemagick lib32z1
+    libc++-dev libc++abi-dev libc6-dev libcurl4 libgbm-dev libgconf-2-4
+    libgsl-dev libgtk-3-0 libmagic-dev libmagickcore-dev libmagickwand-dev
+    libsecret-1-dev libsqlite3-dev libssl-dev libtool libunwind8 libxkbfile-dev
+    libyaml-dev m4 mediainfo mercurial p7zip-full p7zip-rar parallel pass
+    patchelf pigz pkg-config pollinate python-is-python3 rpm rsync shellcheck
+    sphinxsearch sqlite3 subversion swig telnet texinfo tk upx xorriso xvfb
+    zsync
+
+  ENV_PATHS_TO_RM: >-
+    CHROMEWEBDRIVER CONDA EDGEWEBDRIVER GECKOWEBDRIVER JAVA_HOME_11_X64
+    JAVA_HOME_17_X64 JAVA_HOME_8_X64 SELENIUM_JAR_PATH VCPKG_INSTALLATION_ROOT
+
+jobs:
+  cleaner:
+    name: Cleaner
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Cleaner
+        env:
+          DEBIAN_NONINTERACTIVE: yes
+        run: |
+          env | sort
+
+          set +eu # don't care about errors, yolo!
+          set -x
+
+          df -h
+
+          docker system prune --all --force
+
+          df -h
+
+          for pkg in $APT_PACKAGES_TO_REMOVE; do
+            apt-get purge -y -- "$pkg"
+          done
+
+          df -h
+
+          apt-get autoremove -y
+          apt-get autoclean -y
+
+          df -h
+
+          for path in ENV_PATHS_TO_RM; do
+            path="${!path}" || continue
+            [ -z "$path" ] || rm -rf -- "$path"
+          done
+
+          df -h
+
+          rm -rf /home/linuxbrew
+
+          df -h
+
+          find / -type f -mount > files
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: files
+          path: files
