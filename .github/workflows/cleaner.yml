@@ -68,7 +68,7 @@ jobs:
 
           df -h
 
-          sudo find / -type f -mount | tee files
+          sudo find / -type f -mount > files
           return 0
 
       - uses: actions/upload-artifact@v3
