@@ -57,9 +57,9 @@ jobs:
 
           df -h
 
-          for path in ENV_PATHS_TO_RM; do
-            path="${!path}" || continue
-            [ -z "$path" ] || sudo rm -rf -- "$path"
+          for envPathToRm in $ENV_PATHS_TO_RM; do
+            envPathToRm="${!envPathToRm}" || continue
+            [ -z "$envPathToRm" ] || sudo rm -rf -- "$envPathToRm"
           done
 
           df -h
