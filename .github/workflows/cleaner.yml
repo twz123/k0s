@@ -20,8 +20,10 @@ env:
     zsync
 
   ENV_PATHS_TO_RM: >-
-    CHROMEWEBDRIVER CONDA EDGEWEBDRIVER GECKOWEBDRIVER JAVA_HOME_11_X64
-    JAVA_HOME_17_X64 JAVA_HOME_8_X64 SELENIUM_JAR_PATH VCPKG_INSTALLATION_ROOT
+    ANDROID_SDK_ROOT ANT_HOME AZURE_EXTENSION_DIR CHROMEWEBDRIVER CONDA
+    EDGEWEBDRIVER GECKOWEBDRIVER GRADLE_HOME JAVA_HOME JAVA_HOME_11_X64
+    JAVA_HOME_17_X64 JAVA_HOME_8_X64 LEIN_HOME NVM_DIR PIPX_BIN_DIR PIPX_HOME
+    SELENIUM_JAR_PATH SWIFT_PATH VCPKG_INSTALLATION_ROOT
 
 jobs:
   cleaner:
@@ -30,8 +32,6 @@ jobs:
 
     steps:
       - name: Cleaner
-        env:
-          DEBIAN_NONINTERACTIVE: yes
         run: |
           env | sort
 
@@ -68,8 +68,8 @@ jobs:
 
           df -h
 
-          sudo find / -type f -mount > files
-          return 0
+      - name: Files
+        run: sudo find / -type f -mount > files || true
 
       - uses: actions/upload-artifact@v3
         with:
