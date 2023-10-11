@@ -38,39 +38,44 @@ jobs:
           set +eu # don't care about errors, yolo!
           set -x
 
-          df -h
+          df -h /
 
           docker system prune --all --force
 
-          df -h
+          df -h /
 
+          sudo du -h /imagegeneration/installers
           sudo rm -rf /imagegeneration/installers
 
-          df -h
+          df -h /
 
-          sudo -E apt-get purge -y -- $APT_PACKAGES_TO_REMOVE
+          # sudo -E apt-get purge -y -- $APT_PACKAGES_TO_REMOVE
 
-          for pkg in $APT_PACKAGES_TO_REMOVE; do
-            sudo -E apt-get purge -y -- "$pkg"
-          done
+          # for pkg in $APT_PACKAGES_TO_REMOVE; do
+          #   sudo -E apt-get purge -y -- "$pkg"
+          # done
 
-          df -h
+          # df -h /
 
-          sudo -E apt-get autoremove -y
-          sudo -E apt-get autoclean -y
+          # sudo -E apt-get autoremove -y
+          # sudo -E apt-get autoclean -y
 
-          df -h
+          # df -h /
 
           for envPathToRm in $ENV_PATHS_TO_RM; do
             envPathToRm="${!envPathToRm}" || continue
-            [ -z "$envPathToRm" ] || sudo rm -rf -- "$envPathToRm"
+            [ -z "$envPathToRm" ] || {
+              sudo du -h -- "$envPathToRm"
+              sudo rm -rf -- "$envPathToRm"
+            }
           done
 
-          df -h
+          df -h /
 
+          sudo du -h /home/linuxbrew
           sudo rm -rf /home/linuxbrew
 
-          df -h
+          df -h /
 
       # - name: Files
       #   run: sudo find / -type f -mount > files || true
