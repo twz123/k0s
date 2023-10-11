@@ -217,6 +217,20 @@ spec:
             - key: Corefile
               path: Corefile
 ---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: coredns
+  namespace: kube-system
+  labels:
+    k8s-app: kube-dns
+    kubernetes.io/name: "CoreDNS"
+spec:
+  minAvailable: 50%
+  selector:
+    matchLabels:
+      k8s-app: kube-dns
+---
 apiVersion: v1
 kind: Service
 metadata:
