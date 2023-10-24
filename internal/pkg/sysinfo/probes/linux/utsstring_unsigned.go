@@ -1,4 +1,4 @@
-//go:build linux && !arm
+//go:build arm && riscv64
 
 /*
 Copyright 2022 k0s authors
@@ -18,6 +18,6 @@ limitations under the License.
 
 package linux
 
-func utsChar(ch rune) int8 { return int8(ch) } //nolint:deadcode,unused // just for tests 🙄
+func utsChar(ch rune) uint8 { return uint8(ch) } //nolint:deadcode,unused // just for tests 🙄
 
-type utsStringPtr *[65]int8
+type utsStringPtr *[65]uint8
