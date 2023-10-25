@@ -189,14 +189,11 @@ jobs:
 
       - name: Run unit tests
         env:
-          EMBEDDED_BINS_BUILDMODE: none
           TARGET_OS: windows
-          GO: go
-          GO_ENV: ''
+          K0S_BUILDMODE: host
+          EMBEDDED_BINS_BUILDMODE: none
         run: |
-          make --touch .k0sbuild.docker-image.k0s go.sum
-          make bindata
-          make --touch codegen
+          make --touch codegen # kubernetes codegen doesn't work on Windows
           make check-unit
 
   smoketests:

@@ -21,11 +21,16 @@ K0S_GO_BUILD_CACHE ?= build/cache
 GO_SRCS := $(shell find . -type f -name '*.go' -not -path './$(K0S_GO_BUILD_CACHE)/*' -not -path './inttest/*' -not -name '*_test.go' -not -name 'zz_generated*')
 GO_CHECK_UNIT_DIRS := . ./cmd/... ./pkg/... ./internal/... ./static/... ./hack/...
 
-# EMBEDDED_BINS_BUILDMODE can be either:
-#   docker	builds the binaries in docker
-#   none	does not embed any binaries
+# K0S_BUILDMODE can be either:
+#   docker   builds k0s in Docker
+#   host     builds k0s using the host's toolchains
+K0S_BUILDMODE ?= docker
 
+# EMBEDDED_BINS_BUILDMODE can be either:
+#   docker   builds the embedded binaries in Docker
+#   none     does not embed any binaries
 EMBEDDED_BINS_BUILDMODE ?= docker
+
 # k0s runs on linux even if it's built on mac or windows
 TARGET_OS ?= linux
 BUILD_UID ?= $(shell id -u)
@@ -49,6 +54,33 @@ else
 	BUILD_DATE ?= $(shell TZ=UTC git log -1 --pretty=%cd --date='format-local:$(BUILD_DATE_FMT)' || date -u +$(BUILD_DATE_FMT))
 endif
 
+GOLANG_IMAGE ?= $(golang_buildimage)
+
+ifeq ($(K0S_BUILDMODE), docker)
+k0s_buildmode_requisites = .k0sbuild.docker-image.k0s
+K0S_GO_BUILD_CACHE_VOLUME_PATH ?= $(realpath $(K0S_GO_BUILD_CACHE))
+GO_ENV ?= docker run --rm \
+	-v '$(K0S_GO_BUILD_CACHE_VOLUME_PATH)':/run/k0s-build \
+	-v '$(CURDIR)':/go/src/github.com/k0sproject/k0s \
+	-w /go/src/github.com/k0sproject/k0s \
+	-e GOOS \
+	-e CGO_ENABLED \
+	-e GOARCH \
+	--user $(BUILD_UID):$(BUILD_GID) \
+	-- '$(shell cat .k0sbuild.docker-image.k0s)'
+else ifeq ($(K0S_BUILDMODE), host)
+k0s_buildmode_requisites =
+GO_ENV ?=
+else
+$(error Unknown value for K0S_BUILDMODE: $(K0S_BUILDMODE))
+endif
+
+ifeq (, $(filter $(EMBEDDED_BINS_BUILDMODE), docker none))
+$(error Unknown value for EMBEDDED_BINS_BUILDMODE: $(EMBEDDED_BINS_BUILDMODE))
+endif
+
+GO ?= $(GO_ENV) go
+
 LD_FLAGS += -X github.com/k0sproject/k0s/pkg/build.Version=$(VERSION)
 LD_FLAGS += -X github.com/k0sproject/k0s/pkg/build.RuncVersion=$(runc_version)
 LD_FLAGS += -X github.com/k0sproject/k0s/pkg/build.ContainerdVersion=$(containerd_version)
@@ -70,19 +102,6 @@ LD_FLAGS += -X github.com/containerd/containerd/version.Revision=$(shell ./embed
 endif
 endif
 LD_FLAGS += $(BUILD_GO_LDFLAGS_EXTRA)
-
-GOLANG_IMAGE ?= $(golang_buildimage)
-K0S_GO_BUILD_CACHE_VOLUME_PATH=$(realpath $(K0S_GO_BUILD_CACHE))
-GO_ENV ?= docker run --rm \
-	-v '$(K0S_GO_BUILD_CACHE_VOLUME_PATH)':/run/k0s-build \
-	-v '$(CURDIR)':/go/src/github.com/k0sproject/k0s \
-	-w /go/src/github.com/k0sproject/k0s \
-	-e GOOS \
-	-e CGO_ENABLED \
-	-e GOARCH \
-	--user $(BUILD_UID):$(BUILD_GID) \
-	-- '$(shell cat .k0sbuild.docker-image.k0s)'
-GO ?= $(GO_ENV) go
 
 # https://www.gnu.org/software/make/manual/make.html#index-spaces_002c-in-variable-values
 nullstring :=
@@ -110,7 +129,7 @@ $(K0S_GO_BUILD_CACHE):
 	  --build-arg BUILDIMAGE=$(GOLANG_IMAGE) \
 	  -t k0sbuild.docker-image.k0s - <build/Dockerfile
 
-go.sum: go.mod .k0sbuild.docker-image.k0s
+go.sum: go.mod $(k0s_buildmode_requisites)
 	$(GO) mod tidy && touch -c -- '$@'
 
 codegen_targets += pkg/apis/helm/v1beta1/.controller-gen.stamp
@@ -125,7 +144,7 @@ codegen_targets += pkg/apis/autopilot/v1beta2/.controller-gen.stamp
 pkg/apis/autopilot/v1beta2/.controller-gen.stamp: $(shell find pkg/apis/autopilot/v1beta2/ -maxdepth 1 -type f -name \*.go)
 pkg/apis/autopilot/v1beta2/.controller-gen.stamp: gen_output_dir = autopilot
 
-pkg/apis/%/.controller-gen.stamp: .k0sbuild.docker-image.k0s hack/tools/boilerplate.go.txt hack/tools/Makefile.variables
+pkg/apis/%/.controller-gen.stamp: $(k0s_buildmode_requisites) hack/tools/boilerplate.go.txt hack/tools/Makefile.variables
 	rm -rf 'static/manifests/$(gen_output_dir)/CustomResourceDefinition'
 	rm -f -- '$(dir $@)'zz_*.go
 	CGO_ENABLED=0 $(GO) install sigs.k8s.io/controller-tools/cmd/controller-gen@v$(controller-gen_version)
@@ -139,7 +158,7 @@ pkg/apis/%/.controller-gen.stamp: .k0sbuild.docker-image.k0s hack/tools/boilerpl
 clientset_input_dirs := pkg/apis/autopilot/v1beta2 pkg/apis/k0s/v1beta1
 codegen_targets += pkg/client/clientset/.client-gen.stamp
 pkg/client/clientset/.client-gen.stamp: $(shell find $(clientset_input_dirs) -type f -name \*.go -not -name \*_test.go -not -name zz_\*)
-pkg/client/clientset/.client-gen.stamp: .k0sbuild.docker-image.k0s hack/tools/boilerplate.go.txt embedded-bins/Makefile.variables
+pkg/client/clientset/.client-gen.stamp: $(k0s_buildmode_requisites) hack/tools/boilerplate.go.txt embedded-bins/Makefile.variables
 	rm -rf -- '$(dir $@)'
 	CGO_ENABLED=0 $(GO) run k8s.io/code-generator/cmd/client-gen@v$(kubernetes_version:1.%=0.%) \
 	  --go-header-file=hack/tools/boilerplate.go.txt \
@@ -153,7 +172,7 @@ pkg/client/clientset/.client-gen.stamp: .k0sbuild.docker-image.k0s hack/tools/bo
 
 codegen_targets += static/zz_generated_assets.go
 static_asset_dirs := static/manifests static/misc
-static/zz_generated_assets.go: .k0sbuild.docker-image.k0s hack/tools/Makefile.variables
+static/zz_generated_assets.go: $(k0s_buildmode_requisites) hack/tools/Makefile.variables
 static/zz_generated_assets.go: $(shell find $(static_asset_dirs) -type f)
 	-rm -f -- '$@'
 	CGO_ENABLED=0 $(GO) install github.com/kevinburke/go-bindata/go-bindata@v$(go-bindata_version)
@@ -172,7 +191,7 @@ pkg/assets/zz_generated_offsets_linux.go pkg/assets/zz_generated_offsets_windows
 else
 pkg/assets/zz_generated_offsets_linux.go: .bins.linux.stamp
 pkg/assets/zz_generated_offsets_windows.go: .bins.windows.stamp
-pkg/assets/zz_generated_offsets_linux.go pkg/assets/zz_generated_offsets_windows.go: .k0sbuild.docker-image.k0s go.sum
+pkg/assets/zz_generated_offsets_linux.go pkg/assets/zz_generated_offsets_windows.go: $(k0s_buildmode_requisites) go.sum
 	GOOS=${GOHOSTOS} $(GO) run -tags=hack hack/gen-bindata/cmd/main.go -o bindata_$(zz_os) -pkg assets \
 	     -gofile pkg/assets/zz_generated_offsets_$(zz_os).go \
 	     -prefix embedded-bins/staging/$(zz_os)/ embedded-bins/staging/$(zz_os)/bin
@@ -184,7 +203,7 @@ pkg/assets/zz_generated_offsets_darwin.go:
 
 k0s: TARGET_OS = linux
 k0s: BUILD_GO_CGO_ENABLED = 1
-k0s: .k0sbuild.docker-image.k0s
+k0s: $(k0s_buildmode_requisites)
 
 k0s.exe: TARGET_OS = windows
 k0s.exe: BUILD_GO_CGO_ENABLED = 0
@@ -213,14 +232,14 @@ lint-copyright:
 
 .PHONY: lint-go
 lint-go: GOLANGCI_LINT_FLAGS ?=
-lint-go: .k0sbuild.docker-image.k0s go.sum codegen
+lint-go: $(k0s_buildmode_requisites) go.sum codegen
 	CGO_ENABLED=0 $(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@v$(golangci-lint_version)
 	$(GO_ENV) golangci-lint run --verbose $(GOLANGCI_LINT_FLAGS) $(GO_LINT_DIRS)
 
 .PHONY: lint
 lint: lint-copyright lint-go
 
-airgap-images.txt: k0s .k0sbuild.docker-image.k0s
+airgap-images.txt: k0s $(k0s_buildmode_requisites)
 	$(GO_ENV) ./k0s airgap list-images --all > '$@'
 
 airgap-image-bundle-linux-amd64.tar: TARGET_PLATFORM := linux/amd64
