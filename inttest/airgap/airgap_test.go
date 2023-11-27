@@ -21,12 +21,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/suite"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/k0sproject/k0s/inttest/common"
 	"github.com/k0sproject/k0s/pkg/airgap"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/stretchr/testify/suite"
 )
 
 const k0sConfig = `
@@ -40,10 +41,12 @@ type AirgapSuite struct {
 }
 
 func (s *AirgapSuite) TestK0sGetsUp() {
+	ctx := s.Context()
+
 	err := (&common.Airgap{
 		SSH:  s.SSH,
 		Logf: s.T().Logf,
-	}).LockdownMachines(s.Context(),
+	}).LockdownMachines(ctx,
 		s.ControllerNode(0), s.WorkerNode(0),
 	)
 	s.Require().NoError(err)
@@ -55,20 +58,20 @@ func (s *AirgapSuite) TestK0sGetsUp() {
 	kc, err := s.KubeClient(s.ControllerNode(0))
 	s.Require().NoError(err)
 
-	err = s.WaitForNodeReady(s.WorkerNode(0), kc)
+	err = common.WaitForNodeReady(ctx, kc, s.WorkerNode(0))
 	s.NoError(err)
 
-	if labels, err := s.GetNodeLabels(s.WorkerNode(0), kc); s.NoError(err) {
-		s.Equal("bar", labels["k0sproject.io/foo"])
+	if node, err := kc.CoreV1().Nodes().Get(ctx, s.WorkerNode(0), metav1.GetOptions{}); s.NoError(err) {
+		s.Equal("bar", node.Labels["k0sproject.io/foo"])
 	}
 
-	s.AssertSomeKubeSystemPods(kc)
+	s.NoError(common.VerifySomeKubeSystemPods(ctx, kc))
 
 	s.T().Log("waiting to see kube-router pods ready")
-	s.NoError(common.WaitForKubeRouterReady(s.Context(), kc), "kube-router did not start")
+	s.NoError(common.WaitForKubeRouterReady(ctx, kc), "kube-router did not start")
 
 	// at that moment we can assume that all pods has at least started
-	events, err := kc.CoreV1().Events("kube-system").List(s.Context(), v1.ListOptions{
+	events, err := kc.CoreV1().Events("kube-system").List(ctx, metav1.ListOptions{
 		Limit: 100,
 	})
 	s.Require().NoError(err)
@@ -95,14 +98,13 @@ func (s *AirgapSuite) TestK0sGetsUp() {
 		s.Fail("Require all images be installed from bundle")
 	}
 	// Check that all the images have io.cri-containerd.pinned=pinned label
-	ssh, err := s.SSH(s.Context(), s.WorkerNode(0))
+	ssh, err := s.SSH(ctx, s.WorkerNode(0))
 	s.Require().NoError(err)
 	for _, i := range airgap.GetImageURIs(v1beta1.DefaultClusterSpec(), true) {
-		output, err := ssh.ExecWithOutput(s.Context(), fmt.Sprintf(`k0s ctr i ls "name==%s"`, i))
+		output, err := ssh.ExecWithOutput(ctx, fmt.Sprintf(`k0s ctr i ls "name==%s"`, i))
 		s.Require().NoError(err)
 		s.Require().Contains(output, "io.cri-containerd.pinned=pinned", "expected %s image to have io.cri-containerd.pinned=pinned label", i)
 	}
-
 }
 
 func TestAirgapSuite(t *testing.T) {

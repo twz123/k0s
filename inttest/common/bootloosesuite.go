@@ -45,11 +45,8 @@ import (
 	apclient "github.com/k0sproject/k0s/pkg/client/clientset"
 	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/k0scontext"
-	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
 	extclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -914,43 +911,17 @@ func (s *BootlooseSuite) ExtensionsClient(node string, k0sKubeconfigArgs ...stri
 }
 
 // WaitForNodeReady wait that we see the given node in "Ready" state in kubernetes API
+//
+// Deprecated: Use WaitForNodeReady(ctx, client, name) instead.
 func (s *BootlooseSuite) WaitForNodeReady(name string, kc kubernetes.Interface) error {
-	s.T().Logf("waiting to see %s ready in kube API", name)
-	if err := WaitForNodeReadyStatus(s.Context(), kc, name, corev1.ConditionTrue); err != nil {
-		return err
-	}
-	s.T().Logf("%s is ready in API", name)
-	return nil
-}
-
-// GetNodeLabels return the labels of given node
-func (s *BootlooseSuite) GetNodeLabels(node string, kc *kubernetes.Clientset) (map[string]string, error) {
-	n, err := kc.CoreV1().Nodes().Get(s.Context(), node, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	return n.Labels, nil
+	return WaitForNodeReady(s.Context(), kc, name)
 }
 
 // WaitForNodeLabel waits for label be assigned to the node
+//
+// Deprecated: Use WaitForNodeLabel(ctx, client, name, key, value) instead.
 func (s *BootlooseSuite) WaitForNodeLabel(kc *kubernetes.Clientset, node, labelKey, labelValue string) error {
-	return watch.Nodes(kc.CoreV1().Nodes()).
-		WithObjectName(node).
-		WithErrorCallback(RetryWatchErrors(s.T().Logf)).
-		Until(s.Context(), func(node *corev1.Node) (bool, error) {
-			for k, v := range node.Labels {
-				if labelKey == k {
-					if labelValue == v {
-						return true, nil
-					}
-
-					break
-				}
-			}
-
-			return false, nil
-		})
+	return WaitForNodeLabel(s.Context(), kc, node, labelKey, labelValue)
 }
 
 // WaitForKubeAPI waits until we see kube API online on given node.
@@ -1409,15 +1380,9 @@ func (s *BootlooseSuite) GetUpdateServerIPAddress() string {
 	return ipAddress
 }
 
+// Deprecated: Use VerifySomeKubeSystemPods(ctx, client) instead.
 func (s *BootlooseSuite) AssertSomeKubeSystemPods(client *kubernetes.Clientset) bool {
-	if pods, err := client.CoreV1().Pods("kube-system").List(s.Context(), metav1.ListOptions{
-		Limit: 100,
-	}); s.NoError(err) {
-		s.T().Logf("Found %d pods in kube-system", len(pods.Items))
-		return s.NotEmpty(pods.Items, "Expected to see some pods in kube-system namespace")
-	}
-
-	return false
+	return s.NoError(VerifySomeKubeSystemPods(s.Context(), client))
 }
 
 func (s *BootlooseSuite) IsDockerIPv6Enabled() (bool, error) {

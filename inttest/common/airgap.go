@@ -29,7 +29,7 @@ import (
 
 type Airgap struct {
 	SSH  func(ctx context.Context, node string) (*SSHConnection, error)
-	Logf func(format string, args ...any)
+	Logf LogfFn
 }
 
 func (a *Airgap) LockdownMachines(ctx context.Context, nodes ...string) error {

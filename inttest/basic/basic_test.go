@@ -30,6 +30,7 @@ import (
 
 	certificatesv1 "k8s.io/api/certificates/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
@@ -74,17 +75,17 @@ func (s *BasicSuite) TestK0sGetsUp() {
 		s.FailNow("failed to obtain Kubernetes client", err)
 	}
 
-	err = s.WaitForNodeReady(s.WorkerNode(0), kc)
+	err = common.WaitForNodeReady(ctx, kc, s.WorkerNode(0))
 	s.NoError(err)
 
-	if labels, err := s.GetNodeLabels(s.WorkerNode(0), kc); s.NoError(err) {
-		s.Equal("bar", labels["k0sproject.io/foo"])
+	if node, err := kc.CoreV1().Nodes().Get(ctx, s.WorkerNode(0), metav1.GetOptions{}); s.NoError(err) {
+		s.Equal("bar", node.Labels["k0sproject.io/foo"])
 	}
 
-	err = s.WaitForNodeReady(s.WorkerNode(1), kc)
+	err = common.WaitForNodeReady(ctx, kc, s.WorkerNode(1))
 	s.NoError(err)
 
-	s.AssertSomeKubeSystemPods(kc)
+	s.NoError(common.VerifySomeKubeSystemPods(ctx, kc))
 
 	s.T().Log("waiting to see kube-router pods ready")
 	s.NoError(common.WaitForKubeRouterReady(ctx, kc), "kube-router did not start")

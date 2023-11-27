@@ -57,6 +57,56 @@ func Poll(ctx context.Context, condition wait.ConditionWithContextFunc) error {
 	return wait.PollUntilContextCancel(ctx, 100*time.Millisecond, true, condition)
 }
 
+func WaitForNodeReady(ctx context.Context, client kubernetes.Interface, nodeName string) error {
+	logf := logfFrom(ctx)
+	logf("Waiting for node %s to become ready", nodeName)
+	if err := WaitForNodeReadyStatus(ctx, client, nodeName, corev1.ConditionTrue); err != nil {
+		return err
+	}
+	logf("Node %s is ready", nodeName)
+	return nil
+}
+
+func WaitForNodeReadyStatus(ctx context.Context, client kubernetes.Interface, name string, status corev1.ConditionStatus) error {
+	return watchNodeUntil(ctx, client, name, func(node *corev1.Node) (done bool, err error) {
+		for _, cond := range node.Status.Conditions {
+			if cond.Type == corev1.NodeReady {
+				if cond.Status == status {
+					return true, nil
+				}
+
+				break
+			}
+		}
+
+		return false, nil
+	})
+}
+
+// WaitForNodeLabel waits for label be assigned to the node
+func WaitForNodeLabel(ctx context.Context, client kubernetes.Interface, name, key, value string) error {
+	return watchNodeUntil(ctx, client, name, func(node *corev1.Node) (done bool, err error) {
+		for k, v := range node.Labels {
+			if key == k {
+				if value == v {
+					return true, nil
+				}
+
+				break
+			}
+		}
+
+		return false, nil
+	})
+}
+
+func watchNodeUntil(ctx context.Context, client kubernetes.Interface, name string, condition func(*corev1.Node) (done bool, err error)) error {
+	return watch.Nodes(client.CoreV1().Nodes()).
+		WithObjectName(name).
+		WithErrorCallback(RetryWatchErrors(logfFrom(ctx))).
+		Until(ctx, condition)
+}
+
 // WaitForKubeRouterReady waits to see all kube-router pods healthy as long as
 // the context isn't canceled.
 func WaitForKubeRouterReady(ctx context.Context, kc *kubernetes.Clientset) error {
@@ -72,7 +122,7 @@ func WaitForCoreDNSReady(ctx context.Context, kc *kubernetes.Clientset) error {
 		return fmt.Errorf("wait for deployment: %w", err)
 	}
 	// Wait till we see the svc endpoints ready
-	return wait.PollImmediateUntilWithContext(ctx, 100*time.Millisecond, func(ctx context.Context) (bool, error) {
+	return Poll(ctx, func(ctx context.Context) (bool, error) {
 		epSlices, err := kc.DiscoveryV1().EndpointSlices("kube-system").List(ctx, metav1.ListOptions{
 			LabelSelector: "k8s-app=kube-dns",
 		})
@@ -127,25 +177,6 @@ func WaitForMetricsReady(ctx context.Context, c *rest.Config) error {
 		})
 }
 
-func WaitForNodeReadyStatus(ctx context.Context, clients kubernetes.Interface, nodeName string, status corev1.ConditionStatus) error {
-	return watch.Nodes(clients.CoreV1().Nodes()).
-		WithObjectName(nodeName).
-		WithErrorCallback(RetryWatchErrors(logfFrom(ctx))).
-		Until(ctx, func(node *corev1.Node) (done bool, err error) {
-			for _, cond := range node.Status.Conditions {
-				if cond.Type == corev1.NodeReady {
-					if cond.Status == status {
-						return true, nil
-					}
-
-					break
-				}
-			}
-
-			return false, nil
-		})
-}
-
 // WaitForDaemonset waits for the DaemonlSet with the given name to have
 // as many ready replicas as defined in the spec.
 func WaitForDaemonSet(ctx context.Context, kc *kubernetes.Clientset, name string) error {
@@ -159,8 +190,8 @@ func WaitForDaemonSet(ctx context.Context, kc *kubernetes.Clientset, name string
 
 // WaitForDeployment waits for the Deployment with the given name to become
 // available as long as the given context isn't canceled.
-func WaitForDeployment(ctx context.Context, kc *kubernetes.Clientset, name, namespace string) error {
-	return watch.Deployments(kc.AppsV1().Deployments(namespace)).
+func WaitForDeployment(ctx context.Context, client kubernetes.Interface, name, namespace string) error {
+	return watch.Deployments(client.AppsV1().Deployments(namespace)).
 		WithObjectName(name).
 		WithErrorCallback(RetryWatchErrors(logfFrom(ctx))).
 		Until(ctx, func(deployment *appsv1.Deployment) (bool, error) {
@@ -296,6 +327,20 @@ func RetryWatchErrors(logf LogfFn) watch.ErrorCallback {
 
 		return 0, err
 	}
+}
+
+func VerifySomeKubeSystemPods(ctx context.Context, client kubernetes.Interface) error {
+	pods, err := client.CoreV1().Pods("kube-system").List(ctx, metav1.ListOptions{
+		Limit: 100,
+	})
+	if err != nil {
+		return fmt.Errorf("while listing pods in kube-system namespace: %w", err)
+	}
+	if len(pods.Items) <= 1 {
+		return errors.New("no pods found in kube-system namespace")
+	}
+
+	return nil
 }
 
 // VerifyKubeletMetrics checks whether we see container and image labels in kubelet metrics.
