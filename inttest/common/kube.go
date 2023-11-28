@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	k0sclientset "github.com/k0sproject/k0s/pkg/client/clientset"
 	"github.com/k0sproject/k0s/pkg/k0scontext"
 	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
 
@@ -32,6 +33,7 @@ import (
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	extclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
@@ -54,13 +56,41 @@ func Poll(ctx context.Context, condition wait.ConditionWithContextFunc) error {
 	return wait.PollUntilContextCancel(ctx, 100*time.Millisecond, true, condition)
 }
 
+type KubeAPI struct {
+	client    kubernetes.Interface
+	k0sclient k0sclientset.Interface
+	extclient extclient.Interface
+	aggclient aggregatorclient.Interface
+}
+
+func newKubeAPI(config *rest.Config) (*KubeAPI, error) {
+	client, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	k0sclient, err := k0sclientset.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	extclient, err := extclient.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	aggclient, err := aggregatorclient.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return &KubeAPI{client, k0sclient, extclient, aggclient}, nil
+}
+
 // WaitForNodeReady waits until the Kubernetes node with the given name reaches
 // the Ready condition, it encounters an error, or the provided context is
 // canceled or expires.
-func WaitForNodeReady(ctx context.Context, client kubernetes.Interface, name string) error {
+func (k *KubeAPI) WaitForNodeReady(ctx context.Context, name string) error {
 	logf := logfFrom(ctx)
 	logf("Waiting for node %s to become ready", name)
-	if err := WaitForNodeReadyStatus(ctx, client, name, corev1.ConditionTrue); err != nil {
+	if err := WaitForNodeReadyStatus(ctx, k.client, name, corev1.ConditionTrue); err != nil {
 		return err
 	}
 	logf("Node %s is ready", name)
@@ -70,8 +100,8 @@ func WaitForNodeReady(ctx context.Context, client kubernetes.Interface, name str
 // WaitForNodeReadyStatus waits until the Ready condition of the Kubernetes node
 // with the given name reaches the given status, it encounters an error, or the
 // provided context is canceled or expires.
-func WaitForNodeReadyStatus(ctx context.Context, client kubernetes.Interface, name string, status corev1.ConditionStatus) error {
-	return watchNodeUntil(ctx, client, name, func(node *corev1.Node) (done bool, err error) {
+func (k *KubeAPI) WaitForNodeReadyStatus(ctx context.Context, name string, status corev1.ConditionStatus) error {
+	return k.watchNodeUntil(ctx, name, func(node *corev1.Node) (done bool, err error) {
 		for _, cond := range node.Status.Conditions {
 			if cond.Type == corev1.NodeReady {
 				if cond.Status == status {
@@ -89,8 +119,8 @@ func WaitForNodeReadyStatus(ctx context.Context, client kubernetes.Interface, na
 // WaitForNodeLabel waits until the specified label is assigned the given value
 // to the Kubernetes node with the given name, it encounters an error, or the
 // provided context is canceled or expires.
-func WaitForNodeLabel(ctx context.Context, client kubernetes.Interface, name, key, value string) error {
-	return watchNodeUntil(ctx, client, name, func(node *corev1.Node) (done bool, err error) {
+func (k *KubeAPI) WaitForNodeLabel(ctx context.Context, name, key, value string) error {
+	return k.watchNodeUntil(ctx, name, func(node *corev1.Node) (done bool, err error) {
 		for k, v := range node.Labels {
 			if key == k {
 				if value == v {
@@ -105,8 +135,8 @@ func WaitForNodeLabel(ctx context.Context, client kubernetes.Interface, name, ke
 	})
 }
 
-func watchNodeUntil(ctx context.Context, client kubernetes.Interface, name string, condition func(*corev1.Node) (done bool, err error)) error {
-	return watch.Nodes(client.CoreV1().Nodes()).
+func (k *KubeAPI) watchNodeUntil(ctx context.Context, name string, condition func(*corev1.Node) (done bool, err error)) error {
+	return watch.Nodes(k.client.CoreV1().Nodes()).
 		WithObjectName(name).
 		WithErrorCallback(RetryWatchErrors(logfFrom(ctx))).
 		Until(ctx, condition)
@@ -115,22 +145,22 @@ func watchNodeUntil(ctx context.Context, client kubernetes.Interface, name strin
 // WaitForKubeRouterReady waits until k0s's Kube-Router component is
 // operational, it encounters an error, or the provided context is canceled or
 // expires.
-func WaitForKubeRouterReady(ctx context.Context, kc *kubernetes.Clientset) error {
-	return WaitForDaemonSet(ctx, kc, "kube-router")
+func (k *KubeAPI) WaitForKubeRouterReady(ctx context.Context) error {
+	return k.WaitForDaemonSet(ctx, "kube-router")
 }
 
 // WaitForCoreDNSReady waits until k0s's CoreDNS component is operational, it
 // encounters an error, or the provided context is canceled or expires. It
 // checks for the Deployment to be ready as well as all the related endpoints to
 // be ready.
-func WaitForCoreDNSReady(ctx context.Context, client kubernetes.Interface) error {
-	err := WaitForDeployment(ctx, client, "coredns", "kube-system")
+func (k *KubeAPI) WaitForCoreDNSReady(ctx context.Context) error {
+	err := k.WaitForDeployment(ctx, "coredns", "kube-system")
 	if err != nil {
 		return fmt.Errorf("while waiting for CoreDNS Deployment: %w", err)
 	}
 
 	watchEndpointSlices := watch.FromClient[*discoveryv1.EndpointSliceList, discoveryv1.EndpointSlice]
-	err = watchEndpointSlices(client.DiscoveryV1().EndpointSlices("kube-system")).
+	err = watchEndpointSlices(k.client.DiscoveryV1().EndpointSlices("kube-system")).
 		WithLabels(labels.Set{"k8s-app": "kube-dns"}).
 		WithErrorCallback(RetryWatchErrors(logrus.Infof)).
 		Until(ctx, func(slice *discoveryv1.EndpointSlice) (bool, error) {
@@ -157,14 +187,9 @@ func WaitForCoreDNSReady(ctx context.Context, client kubernetes.Interface) error
 // WaitForMetricsReady waits until k0s's metrics-server component is
 // operational, it encounters an error, or the provided context is canceled or
 // expires.
-func WaitForMetricsReady(ctx context.Context, c *rest.Config) error {
-	clientset, err := aggregatorclient.NewForConfig(c)
-	if err != nil {
-		return err
-	}
-
+func (k *KubeAPI) WaitForMetricsReady(ctx context.Context) error {
 	watchAPIServices := watch.FromClient[*apiregistrationv1.APIServiceList, apiregistrationv1.APIService]
-	return watchAPIServices(clientset.ApiregistrationV1().APIServices()).
+	return watchAPIServices(k.aggclient.ApiregistrationV1().APIServices()).
 		WithObjectName("v1beta1.metrics.k8s.io").
 		WithErrorCallback(RetryWatchErrors(logfFrom(ctx))).
 		Until(ctx, func(service *apiregistrationv1.APIService) (bool, error) {
@@ -185,8 +210,8 @@ func WaitForMetricsReady(ctx context.Context, c *rest.Config) error {
 // WaitForDaemonSet waits until the specified DaemonSet has the expected number
 // of ready replicas as defined in its specification, it encounters an error, or
 // the provided context is canceled or expires.
-func WaitForDaemonSet(ctx context.Context, kc *kubernetes.Clientset, name string) error {
-	return watch.DaemonSets(kc.AppsV1().DaemonSets("kube-system")).
+func (k *KubeAPI) WaitForDaemonSet(ctx context.Context, name string) error {
+	return watch.DaemonSets(k.client.AppsV1().DaemonSets("kube-system")).
 		WithObjectName(name).
 		WithErrorCallback(RetryWatchErrors(logfFrom(ctx))).
 		Until(ctx, func(ds *appsv1.DaemonSet) (bool, error) {
@@ -196,8 +221,8 @@ func WaitForDaemonSet(ctx context.Context, kc *kubernetes.Clientset, name string
 
 // WaitForDeployment waits until the specified Deployment to become available,
 // it encounters an error, or the provided context is canceled or expires.
-func WaitForDeployment(ctx context.Context, client kubernetes.Interface, name, namespace string) error {
-	return watch.Deployments(client.AppsV1().Deployments(namespace)).
+func (k *KubeAPI) WaitForDeployment(ctx context.Context, name, namespace string) error {
+	return watch.Deployments(k.client.AppsV1().Deployments(namespace)).
 		WithObjectName(name).
 		WithErrorCallback(RetryWatchErrors(logfFrom(ctx))).
 		Until(ctx, func(deployment *appsv1.Deployment) (bool, error) {
@@ -218,8 +243,8 @@ func WaitForDeployment(ctx context.Context, client kubernetes.Interface, name, n
 // WaitForStatefulSet waits until the specified StatefulSet has the expected
 // number of ready replicas as defined in its specification, it encounters an
 // error, or the provided context is canceled or expires.
-func WaitForStatefulSet(ctx context.Context, kc *kubernetes.Clientset, name, namespace string) error {
-	return watch.StatefulSets(kc.AppsV1().StatefulSets(namespace)).
+func (k *KubeAPI) WaitForStatefulSet(ctx context.Context, name, namespace string) error {
+	return watch.StatefulSets(k.client.AppsV1().StatefulSets(namespace)).
 		WithObjectName(name).
 		WithErrorCallback(RetryWatchErrors(logfFrom(ctx))).
 		Until(ctx, func(s *appsv1.StatefulSet) (bool, error) {
@@ -229,8 +254,8 @@ func WaitForStatefulSet(ctx context.Context, kc *kubernetes.Clientset, name, nam
 
 // WaitForPod waits for the specified pod to reach its Ready condition, it
 // encounters an error, or the provided context is canceled or expires.
-func WaitForPod(ctx context.Context, kc *kubernetes.Clientset, name, namespace string) error {
-	return watch.Pods(kc.CoreV1().Pods(namespace)).
+func (k *KubeAPI) WaitForPod(ctx context.Context, name, namespace string) error {
+	return watch.Pods(k.client.CoreV1().Pods(namespace)).
 		WithObjectName(name).
 		WithErrorCallback(RetryWatchErrors(logfFrom(ctx))).
 		Until(ctx, func(pod *corev1.Pod) (bool, error) {
@@ -252,9 +277,9 @@ func WaitForPod(ctx context.Context, kc *kubernetes.Clientset, name, namespace s
 // pod in a given namespace, it encounters an error, or the provided context is
 // canceled or expires. This is useful to test if k0s's konnectivity component
 // is operational.
-func WaitForPodLogs(ctx context.Context, kc *kubernetes.Clientset, namespace string) error {
+func (k *KubeAPI) WaitForPodLogs(ctx context.Context, namespace string) error {
 	return Poll(ctx, func(ctx context.Context) (done bool, err error) {
-		pods, err := kc.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		pods, err := k.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
 			Limit:         1,
 			FieldSelector: fields.OneTermEqualSelector("status.phase", string(corev1.PodRunning)).String(),
 		})
@@ -266,7 +291,7 @@ func WaitForPodLogs(ctx context.Context, kc *kubernetes.Clientset, namespace str
 		}
 
 		pod := &pods.Items[0]
-		logs, err := kc.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{Container: pod.Spec.Containers[0].Name}).Stream(ctx)
+		logs, err := k.client.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{Container: pod.Spec.Containers[0].Name}).Stream(ctx)
 		if err != nil {
 			return false, nil // do not return the error so we keep on polling
 		}
@@ -279,23 +304,150 @@ func WaitForPodLogs(ctx context.Context, kc *kubernetes.Clientset, namespace str
 // WaitForLease waits for a specific Kubernetes lease to be acquired, it
 // encounters an error, or the provided context is canceled or expires. It
 // returns the holder identity of the lease on success.
-func WaitForLease(ctx context.Context, kc *kubernetes.Clientset, name string, namespace string) (string, error) {
+func (k *KubeAPI) WaitForLease(ctx context.Context, name string, namespace string) (string, error) {
 	var holderIdentity string
 	watchLeases := watch.FromClient[*coordinationv1.LeaseList, coordinationv1.Lease]
-	if err := watchLeases(kc.CoordinationV1().Leases(namespace)).
+	err := watchLeases(k.client.CoordinationV1().Leases(namespace)).
 		WithObjectName(name).
 		WithErrorCallback(RetryWatchErrors(logfFrom(ctx))).
-		Until(
-			ctx, func(lease *coordinationv1.Lease) (bool, error) {
-				holderIdentity = *lease.Spec.HolderIdentity
-				// Verify that there's a valid holder on the lease
-				return holderIdentity != "", nil
-			},
-		); err != nil {
+		Until(ctx, func(lease *coordinationv1.Lease) (bool, error) {
+			holderIdentity = *lease.Spec.HolderIdentity
+			// Verify that there's a valid holder on the lease
+			return holderIdentity != "", nil
+		})
+	if err != nil {
 		return "", err
 	}
 
 	return holderIdentity, nil
+}
+
+// VerifySomeKubeSystemPods checks for the presence of some pods in the
+// kube-system namespace.
+func (k *KubeAPI) VerifySomeKubeSystemPods(ctx context.Context) error {
+	pods, err := k.client.CoreV1().Pods("kube-system").List(ctx, metav1.ListOptions{
+		Limit: 100,
+	})
+	if err != nil {
+		return fmt.Errorf("while listing pods in kube-system namespace: %w", err)
+	}
+	if len(pods.Items) <= 1 {
+		return errors.New("no pods found in kube-system namespace")
+	}
+
+	return nil
+}
+
+// WaitForNodeReady waits until the Kubernetes node with the given name reaches
+// the Ready condition, it encounters an error, or the provided context is
+// canceled or expires.
+//
+// Deprecated: Use [KubeAPI] instead.
+func WaitForNodeReady(ctx context.Context, client kubernetes.Interface, name string) error {
+	return (&KubeAPI{client: client}).WaitForNodeReady(ctx, name)
+}
+
+// WaitForNodeReadyStatus waits until the Ready condition of the Kubernetes node
+// with the given name reaches the given status, it encounters an error, or the
+// provided context is canceled or expires.
+//
+// Deprecated: Use [KubeAPI] instead.
+func WaitForNodeReadyStatus(ctx context.Context, client kubernetes.Interface, name string, status corev1.ConditionStatus) error {
+	return (&KubeAPI{client: client}).WaitForNodeReadyStatus(ctx, name, status)
+}
+
+// WaitForNodeLabel waits until the specified label is assigned the given value
+// to the Kubernetes node with the given name, it encounters an error, or the
+// provided context is canceled or expires.
+//
+// Deprecated: Use [KubeAPI] instead.
+func WaitForNodeLabel(ctx context.Context, client kubernetes.Interface, name, key, value string) error {
+	return (&KubeAPI{client: client}).WaitForNodeLabel(ctx, name, key, value)
+}
+
+// WaitForKubeRouterReady waits until k0s's Kube-Router component is
+// operational, it encounters an error, or the provided context is canceled or
+// expires.
+//
+// Deprecated: Use [KubeAPI] instead.
+func WaitForKubeRouterReady(ctx context.Context, kc *kubernetes.Clientset) error {
+	return (&KubeAPI{client: kc}).WaitForKubeRouterReady(ctx)
+}
+
+// WaitForCoreDNSReady waits until k0s's CoreDNS component is operational, it
+// encounters an error, or the provided context is canceled or expires. It
+// checks for the Deployment to be ready as well as all the related endpoints to
+// be ready.
+//
+// Deprecated: Use [KubeAPI] instead.
+func WaitForCoreDNSReady(ctx context.Context, client kubernetes.Interface) error {
+	return (&KubeAPI{client: client}).WaitForCoreDNSReady(ctx)
+}
+
+// WaitForMetricsReady waits until k0s's metrics-server component is
+// operational, it encounters an error, or the provided context is canceled or
+// expires.
+//
+// Deprecated: Use [KubeAPI] instead.
+func WaitForMetricsReady(ctx context.Context, c *rest.Config) error {
+	k, err := newKubeAPI(c)
+	if err != nil {
+		return err
+	}
+	return k.WaitForMetricsReady(ctx)
+}
+
+// WaitForDaemonSet waits until the specified DaemonSet has the expected number
+// of ready replicas as defined in its specification, it encounters an error, or
+// the provided context is canceled or expires.
+//
+// Deprecated: Use [KubeAPI] instead.
+func WaitForDaemonSet(ctx context.Context, kc *kubernetes.Clientset, name string) error {
+	return (&KubeAPI{client: kc}).WaitForDaemonSet(ctx, name)
+}
+
+// WaitForDeployment waits until the specified Deployment to become available,
+// it encounters an error, or the provided context is canceled or expires.
+//
+// Deprecated: Use [KubeAPI] instead.
+func WaitForDeployment(ctx context.Context, client kubernetes.Interface, name, namespace string) error {
+	return (&KubeAPI{client: client}).WaitForDeployment(ctx, name, namespace)
+}
+
+// WaitForStatefulSet waits until the specified StatefulSet has the expected
+// number of ready replicas as defined in its specification, it encounters an
+// error, or the provided context is canceled or expires.
+//
+// Deprecated: Use [KubeAPI] instead.
+func WaitForStatefulSet(ctx context.Context, kc *kubernetes.Clientset, name, namespace string) error {
+	return (&KubeAPI{client: kc}).WaitForStatefulSet(ctx, name, namespace)
+}
+
+// WaitForPod waits for the specified pod to reach its Ready condition, it
+// encounters an error, or the provided context is canceled or expires.
+//
+// Deprecated: Use [KubeAPI] instead.
+func WaitForPod(ctx context.Context, kc *kubernetes.Clientset, name, namespace string) error {
+	return (&KubeAPI{client: kc}).WaitForPod(ctx, name, namespace)
+}
+
+// WaitForPodLogs waits until it can stream the logs of an arbitrary running
+// pod in a given namespace, it encounters an error, or the provided context is
+// canceled or expires. This is useful to test if k0s's konnectivity component
+// is operational.
+//
+// Deprecated: Use [KubeAPI] instead.
+func WaitForPodLogs(ctx context.Context, kc *kubernetes.Clientset, namespace string) error {
+	return (&KubeAPI{client: kc}).WaitForPodLogs(ctx, namespace)
+}
+
+// WaitForLease waits for a specific Kubernetes lease to be acquired, it
+// encounters an error, or the provided context is canceled or expires. It
+// returns the holder identity of the lease on success.
+//
+// Deprecated: Use [KubeAPI] instead.
+func WaitForLease(ctx context.Context, kc *kubernetes.Clientset, name string, namespace string) (string, error) {
+	return (&KubeAPI{client: kc}).WaitForLease(ctx, name, namespace)
 }
 
 // RetryWatchErrors returns a callback function for handling errors during watch
@@ -330,18 +482,10 @@ func RetryWatchErrors(logf LogfFn) watch.ErrorCallback {
 
 // VerifySomeKubeSystemPods checks for the presence of some pods in the
 // kube-system namespace.
+//
+// Deprecated: Use [KubeAPI] instead.
 func VerifySomeKubeSystemPods(ctx context.Context, client kubernetes.Interface) error {
-	pods, err := client.CoreV1().Pods("kube-system").List(ctx, metav1.ListOptions{
-		Limit: 100,
-	})
-	if err != nil {
-		return fmt.Errorf("while listing pods in kube-system namespace: %w", err)
-	}
-	if len(pods.Items) <= 1 {
-		return errors.New("no pods found in kube-system namespace")
-	}
-
-	return nil
+	return (&KubeAPI{client: client}).VerifySomeKubeSystemPods(ctx)
 }
 
 // Retrieves the LogfFn stored in context, falling back to use testing.T's Logf
