@@ -31,9 +31,10 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -122,40 +123,35 @@ func WaitForKubeRouterReady(ctx context.Context, kc *kubernetes.Clientset) error
 // encounters an error, or the provided context is canceled or expires. It
 // checks for the Deployment to be ready as well as all the related endpoints to
 // be ready.
-func WaitForCoreDNSReady(ctx context.Context, kc *kubernetes.Clientset) error {
-	err := WaitForDeployment(ctx, kc, "coredns", "kube-system")
+func WaitForCoreDNSReady(ctx context.Context, client kubernetes.Interface) error {
+	err := WaitForDeployment(ctx, client, "coredns", "kube-system")
 	if err != nil {
-		return fmt.Errorf("wait for deployment: %w", err)
+		return fmt.Errorf("while waiting for CoreDNS Deployment: %w", err)
 	}
-	// Wait till we see the svc endpoints ready
-	return Poll(ctx, func(ctx context.Context) (bool, error) {
-		epSlices, err := kc.DiscoveryV1().EndpointSlices("kube-system").List(ctx, metav1.ListOptions{
-			LabelSelector: "k8s-app=kube-dns",
-		})
 
-		// NotFound is ok, it might not be created yet
-		if err != nil && !apierrors.IsNotFound(err) {
-			return true, fmt.Errorf("wait for coredns: list: %w", err)
-		} else if err != nil {
-			return false, nil
-		}
-
-		if len(epSlices.Items) < 1 {
-			return false, nil
-		}
-
-		// Check that all addresses show ready conditions
-		for _, epSlice := range epSlices.Items {
-			for _, endpoint := range epSlice.Endpoints {
-				if !(*endpoint.Conditions.Ready && *endpoint.Conditions.Serving) {
-					// endpoint not ready&serving yet
-					return false, nil
+	watchEndpointSlices := watch.FromClient[*discoveryv1.EndpointSliceList, discoveryv1.EndpointSlice]
+	err = watchEndpointSlices(client.DiscoveryV1().EndpointSlices("kube-system")).
+		WithLabels(labels.Set{"k8s-app": "kube-dns"}).
+		WithErrorCallback(RetryWatchErrors(logrus.Infof)).
+		Until(ctx, func(slice *discoveryv1.EndpointSlice) (bool, error) {
+			// Check that all endpoints show ready conditions
+			var numReadyEndpoints, numUneadyEndpoints uint
+			for _, endpoint := range slice.Endpoints {
+				ready := endpoint.Conditions.Ready
+				if ready != nil && *ready {
+					numReadyEndpoints++
+				} else {
+					numUneadyEndpoints++
 				}
 			}
-		}
 
-		return true, nil
-	})
+			return numReadyEndpoints > 0 && numUneadyEndpoints == 0, nil
+		})
+	if err != nil {
+		return fmt.Errorf("while waiting for CoreDNS EndpointSlices: %w", err)
+	}
+
+	return nil
 }
 
 // WaitForMetricsReady waits until k0s's metrics-server component is
