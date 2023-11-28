@@ -17,9 +17,11 @@ limitations under the License.
 package basic
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -109,7 +111,7 @@ func (s *BasicSuite) TestK0sGetsUp() {
 	for i := 0; i < s.WorkerCount; i++ {
 		node := s.WorkerNode(i)
 		s.T().Logf("checking that we can connect to kubelet metrics on %s", node)
-		s.Require().NoError(common.VerifyKubeletMetrics(ctx, kc, node))
+		s.Require().NoError(verifyKubeletMetrics(ctx, kc, node))
 	}
 
 	s.verifyContainerdDefaultConfig(ctx)
@@ -228,6 +230,43 @@ func (s *BasicSuite) verifyContainerdDefaultConfig(ctx context.Context) {
 		Image:   constant.KubePauseContainerImage,
 		Version: constant.KubePauseContainerImageVersion,
 	}).URI(), parsedConfig.Plugins.CRI.SandboxImage)
+}
+
+// verifyKubeletMetrics ensures that kubelet's cAdvisor metrics provide the
+// expected labels. This is to check if k0s's workarounds are effective until
+// KEP-2371 settles.
+func verifyKubeletMetrics(ctx context.Context, kc *kubernetes.Clientset, node string) error {
+	image := constant.KubeRouterCNIImage
+	if ver, hash, found := strings.Cut(constant.KubeRouterCNIImageVersion, "@"); found {
+		image = fmt.Sprintf("%s@%s", image, hash)
+	} else {
+		image = fmt.Sprintf("%s:%s", image, ver)
+	}
+
+	re := fmt.Sprintf(`^container_cpu_usage_seconds_total\{container="kube-router".*image="%s"`, regexp.QuoteMeta(image))
+	containerRegex := regexp.MustCompile(re)
+
+	path := fmt.Sprintf("/api/v1/nodes/%s/proxy/metrics/cadvisor", node)
+
+	return common.Poll(ctx, func(ctx context.Context) (done bool, err error) {
+		metrics, err := kc.CoreV1().RESTClient().Get().AbsPath(path).Param("format", "text").DoRaw(ctx)
+		if err != nil {
+			return false, nil // do not return the error so we keep on polling
+		}
+
+		scanner := bufio.NewScanner(bytes.NewReader(metrics))
+		for scanner.Scan() {
+			line := scanner.Text()
+			if containerRegex.MatchString(line) {
+				return true, nil
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			return false, err
+		}
+
+		return false, nil
+	})
 }
 
 func (s *BasicSuite) probeCoreDNSAntiAffinity(ctx context.Context, kc *kubernetes.Clientset) error {

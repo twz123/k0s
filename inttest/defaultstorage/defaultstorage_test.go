@@ -17,12 +17,13 @@ limitations under the License.
 package defaultstorage
 
 import (
+	"context"
 	"testing"
 
-	"github.com/stretchr/testify/suite"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/k0sproject/k0s/inttest/common"
+	"github.com/stretchr/testify/suite"
 )
 
 type DefaultStorageSuite struct {
@@ -30,6 +31,7 @@ type DefaultStorageSuite struct {
 }
 
 func (s *DefaultStorageSuite) TestK0sGetsUp() {
+	ctx := s.Context()
 	s.PutFile(s.ControllerNode(0), "/tmp/k0s.yaml", k0sConfig)
 	s.Require().NoError(s.InitController(0, "--config=/tmp/k0s.yaml"))
 	s.Require().NoError(s.RunWorkers())
@@ -41,7 +43,13 @@ func (s *DefaultStorageSuite) TestK0sGetsUp() {
 	s.NoError(err)
 
 	s.T().Log("waiting to see default storage class")
-	err = common.WaitForDefaultStorageClass(s.Context(), kc)
+	err = common.Poll(ctx, func(ctx context.Context) (bool, error) {
+		sc, err := kc.StorageV1().StorageClasses().Get(ctx, "openebs-hostpath", metav1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+		return sc.Annotations["storageclass.kubernetes.io/is-default-class"] == "true", nil
+	})
 	s.NoError(err)
 
 	// We need to create the pvc only after default storage class is set, otherwise k8s will not be able to set it on the PVC
@@ -49,12 +57,12 @@ func (s *DefaultStorageSuite) TestK0sGetsUp() {
 	s.MakeDir(s.ControllerNode(0), "/var/lib/k0s/manifests/test")
 	s.PutFile(s.ControllerNode(0), "/var/lib/k0s/manifests/test/pvc.yaml", pvcManifest)
 	s.PutFile(s.ControllerNode(0), "/var/lib/k0s/manifests/test/deployment.yaml", deploymentManifest)
-	err = common.WaitForDeployment(s.Context(), kc, "nginx", "kube-system")
+	err = common.WaitForDeployment(ctx, kc, "nginx", "kube-system")
 	s.NoError(err)
 
 	s.AssertSomeKubeSystemPods(kc)
 
-	pv, err := kc.CoreV1().PersistentVolumes().List(s.Context(), v1.ListOptions{})
+	pv, err := kc.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
 	s.Require().NoError(err)
 	s.NotEmpty(pv.Items, "At least one persistent volume must be created for the deployment with claims")
 }

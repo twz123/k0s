@@ -17,19 +17,14 @@ limitations under the License.
 package common
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"regexp"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
 
-	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/k0scontext"
 	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
 
@@ -51,22 +46,29 @@ import (
 // LogfFn will be used whenever something needs to be logged.
 type LogfFn func(format string, args ...any)
 
-// Poll tries a condition func until it returns true, an error or the specified
-// context is canceled or expired.
+// Poll is a utility function to check for a condition at regular intervals. It
+// repeatedly executes a condition function until it returns true, encounters an
+// error, or the provided context is canceled or expires.
 func Poll(ctx context.Context, condition wait.ConditionWithContextFunc) error {
 	return wait.PollUntilContextCancel(ctx, 100*time.Millisecond, true, condition)
 }
 
-func WaitForNodeReady(ctx context.Context, client kubernetes.Interface, nodeName string) error {
+// WaitForNodeReady waits until the Kubernetes node with the given name reaches
+// the Ready condition, it encounters an error, or the provided context is
+// canceled or expires.
+func WaitForNodeReady(ctx context.Context, client kubernetes.Interface, name string) error {
 	logf := logfFrom(ctx)
-	logf("Waiting for node %s to become ready", nodeName)
-	if err := WaitForNodeReadyStatus(ctx, client, nodeName, corev1.ConditionTrue); err != nil {
+	logf("Waiting for node %s to become ready", name)
+	if err := WaitForNodeReadyStatus(ctx, client, name, corev1.ConditionTrue); err != nil {
 		return err
 	}
-	logf("Node %s is ready", nodeName)
+	logf("Node %s is ready", name)
 	return nil
 }
 
+// WaitForNodeReadyStatus waits until the Ready condition of the Kubernetes node
+// with the given name reaches the given status, it encounters an error, or the
+// provided context is canceled or expires.
 func WaitForNodeReadyStatus(ctx context.Context, client kubernetes.Interface, name string, status corev1.ConditionStatus) error {
 	return watchNodeUntil(ctx, client, name, func(node *corev1.Node) (done bool, err error) {
 		for _, cond := range node.Status.Conditions {
@@ -83,7 +85,9 @@ func WaitForNodeReadyStatus(ctx context.Context, client kubernetes.Interface, na
 	})
 }
 
-// WaitForNodeLabel waits for label be assigned to the node
+// WaitForNodeLabel waits until the specified label is assigned the given value
+// to the Kubernetes node with the given name, it encounters an error, or the
+// provided context is canceled or expires.
 func WaitForNodeLabel(ctx context.Context, client kubernetes.Interface, name, key, value string) error {
 	return watchNodeUntil(ctx, client, name, func(node *corev1.Node) (done bool, err error) {
 		for k, v := range node.Labels {
@@ -107,15 +111,17 @@ func watchNodeUntil(ctx context.Context, client kubernetes.Interface, name strin
 		Until(ctx, condition)
 }
 
-// WaitForKubeRouterReady waits to see all kube-router pods healthy as long as
-// the context isn't canceled.
+// WaitForKubeRouterReady waits until k0s's Kube-Router component is
+// operational, it encounters an error, or the provided context is canceled or
+// expires.
 func WaitForKubeRouterReady(ctx context.Context, kc *kubernetes.Clientset) error {
 	return WaitForDaemonSet(ctx, kc, "kube-router")
 }
 
-// WaitForCoreDNSReady waits to see all coredns pods healthy as long as the context isn't canceled.
-// It also waits to see all the related svc endpoints to be ready to make sure coreDNS is actually
-// ready to serve requests.
+// WaitForCoreDNSReady waits until k0s's CoreDNS component is operational, it
+// encounters an error, or the provided context is canceled or expires. It
+// checks for the Deployment to be ready as well as all the related endpoints to
+// be ready.
 func WaitForCoreDNSReady(ctx context.Context, kc *kubernetes.Clientset) error {
 	err := WaitForDeployment(ctx, kc, "coredns", "kube-system")
 	if err != nil {
@@ -152,6 +158,9 @@ func WaitForCoreDNSReady(ctx context.Context, kc *kubernetes.Clientset) error {
 	})
 }
 
+// WaitForMetricsReady waits until k0s's metrics-server component is
+// operational, it encounters an error, or the provided context is canceled or
+// expires.
 func WaitForMetricsReady(ctx context.Context, c *rest.Config) error {
 	clientset, err := aggregatorclient.NewForConfig(c)
 	if err != nil {
@@ -177,8 +186,9 @@ func WaitForMetricsReady(ctx context.Context, c *rest.Config) error {
 		})
 }
 
-// WaitForDaemonset waits for the DaemonlSet with the given name to have
-// as many ready replicas as defined in the spec.
+// WaitForDaemonSet waits until the specified DaemonSet has the expected number
+// of ready replicas as defined in its specification, it encounters an error, or
+// the provided context is canceled or expires.
 func WaitForDaemonSet(ctx context.Context, kc *kubernetes.Clientset, name string) error {
 	return watch.DaemonSets(kc.AppsV1().DaemonSets("kube-system")).
 		WithObjectName(name).
@@ -188,8 +198,8 @@ func WaitForDaemonSet(ctx context.Context, kc *kubernetes.Clientset, name string
 		})
 }
 
-// WaitForDeployment waits for the Deployment with the given name to become
-// available as long as the given context isn't canceled.
+// WaitForDeployment waits until the specified Deployment to become available,
+// it encounters an error, or the provided context is canceled or expires.
 func WaitForDeployment(ctx context.Context, client kubernetes.Interface, name, namespace string) error {
 	return watch.Deployments(client.AppsV1().Deployments(namespace)).
 		WithObjectName(name).
@@ -209,8 +219,9 @@ func WaitForDeployment(ctx context.Context, client kubernetes.Interface, name, n
 		})
 }
 
-// WaitForStatefulSet waits for the StatefulSet with the given name to have
-// as many ready replicas as defined in the spec.
+// WaitForStatefulSet waits until the specified StatefulSet has the expected
+// number of ready replicas as defined in its specification, it encounters an
+// error, or the provided context is canceled or expires.
 func WaitForStatefulSet(ctx context.Context, kc *kubernetes.Clientset, name, namespace string) error {
 	return watch.StatefulSets(kc.AppsV1().StatefulSets(namespace)).
 		WithObjectName(name).
@@ -220,23 +231,8 @@ func WaitForStatefulSet(ctx context.Context, kc *kubernetes.Clientset, name, nam
 		})
 }
 
-func WaitForDefaultStorageClass(ctx context.Context, kc *kubernetes.Clientset) error {
-	return Poll(ctx, waitForDefaultStorageClass(kc))
-}
-
-func waitForDefaultStorageClass(kc *kubernetes.Clientset) wait.ConditionWithContextFunc {
-	return func(ctx context.Context) (done bool, err error) {
-		sc, err := kc.StorageV1().StorageClasses().Get(ctx, "openebs-hostpath", metav1.GetOptions{})
-		if err != nil {
-			return false, nil
-		}
-
-		return sc.Annotations["storageclass.kubernetes.io/is-default-class"] == "true", nil
-	}
-}
-
-// WaitForPod waits for the given pod to become ready as long as the given
-// context isn't canceled.
+// WaitForPod waits for the specified pod to reach its Ready condition, it
+// encounters an error, or the provided context is canceled or expires.
 func WaitForPod(ctx context.Context, kc *kubernetes.Clientset, name, namespace string) error {
 	return watch.Pods(kc.CoreV1().Pods(namespace)).
 		WithObjectName(name).
@@ -256,13 +252,14 @@ func WaitForPod(ctx context.Context, kc *kubernetes.Clientset, name, namespace s
 		})
 }
 
-// WaitForPodLogs waits until it can stream the logs of the first running pod
-// that comes along in the given namespace as long as the given context isn't
-// canceled.
+// WaitForPodLogs waits until it can stream the logs of an arbitrary running
+// pod in a given namespace, it encounters an error, or the provided context is
+// canceled or expires. This is useful to test if k0s's konnectivity component
+// is operational.
 func WaitForPodLogs(ctx context.Context, kc *kubernetes.Clientset, namespace string) error {
 	return Poll(ctx, func(ctx context.Context) (done bool, err error) {
 		pods, err := kc.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
-			Limit:         100,
+			Limit:         1,
 			FieldSelector: fields.OneTermEqualSelector("status.phase", string(corev1.PodRunning)).String(),
 		})
 		if err != nil {
@@ -283,6 +280,9 @@ func WaitForPodLogs(ctx context.Context, kc *kubernetes.Clientset, namespace str
 	})
 }
 
+// WaitForLease waits for a specific Kubernetes lease to be acquired, it
+// encounters an error, or the provided context is canceled or expires. It
+// returns the holder identity of the lease on success.
 func WaitForLease(ctx context.Context, kc *kubernetes.Clientset, name string, namespace string) (string, error) {
 	var holderIdentity string
 	watchLeases := watch.FromClient[*coordinationv1.LeaseList, coordinationv1.Lease]
@@ -302,6 +302,9 @@ func WaitForLease(ctx context.Context, kc *kubernetes.Clientset, name string, na
 	return holderIdentity, nil
 }
 
+// RetryWatchErrors returns a callback function for handling errors during watch
+// operations. It attempts to retry the watch after certain errors, providing
+// resilience against intermittent errors.
 func RetryWatchErrors(logf LogfFn) watch.ErrorCallback {
 	return func(err error) (time.Duration, error) {
 		if retryDelay, e := watch.IsRetryable(err); e == nil {
@@ -329,6 +332,8 @@ func RetryWatchErrors(logf LogfFn) watch.ErrorCallback {
 	}
 }
 
+// VerifySomeKubeSystemPods checks for the presence of some pods in the
+// kube-system namespace.
 func VerifySomeKubeSystemPods(ctx context.Context, client kubernetes.Interface) error {
 	pods, err := client.CoreV1().Pods("kube-system").List(ctx, metav1.ListOptions{
 		Limit: 100,
@@ -341,42 +346,6 @@ func VerifySomeKubeSystemPods(ctx context.Context, client kubernetes.Interface) 
 	}
 
 	return nil
-}
-
-// VerifyKubeletMetrics checks whether we see container and image labels in kubelet metrics.
-// It does it via polling as it takes some time for kubelet to start reporting metrics.
-func VerifyKubeletMetrics(ctx context.Context, kc *kubernetes.Clientset, node string) error {
-	image := constant.KubeRouterCNIImage
-	if ver, hash, found := strings.Cut(constant.KubeRouterCNIImageVersion, "@"); found {
-		image = fmt.Sprintf("%s@%s", image, hash)
-	} else {
-		image = fmt.Sprintf("%s:%s", image, ver)
-	}
-
-	re := fmt.Sprintf(`^container_cpu_usage_seconds_total\{container="kube-router".*image="%s"`, regexp.QuoteMeta(image))
-	containerRegex := regexp.MustCompile(re)
-
-	path := fmt.Sprintf("/api/v1/nodes/%s/proxy/metrics/cadvisor", node)
-
-	return Poll(ctx, func(ctx context.Context) (done bool, err error) {
-		metrics, err := kc.CoreV1().RESTClient().Get().AbsPath(path).Param("format", "text").DoRaw(ctx)
-		if err != nil {
-			return false, nil // do not return the error so we keep on polling
-		}
-
-		scanner := bufio.NewScanner(bytes.NewReader(metrics))
-		for scanner.Scan() {
-			line := scanner.Text()
-			if containerRegex.MatchString(line) {
-				return true, nil
-			}
-		}
-		if err := scanner.Err(); err != nil {
-			return false, err
-		}
-
-		return false, nil
-	})
 }
 
 // Retrieves the LogfFn stored in context, falling back to use testing.T's Logf
