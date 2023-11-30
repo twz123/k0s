@@ -19,13 +19,30 @@ package dir_test
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 )
+
+func TestExists_Unix(t *testing.T) {
+	t.Run("no_permissions", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		require.NoError(t, os.Chmod(tmpDir, 0644))
+
+		exists, err := dir.Exists(tmpDir)
+		if assert.NoError(t, err) {
+			assert.True(t, exists, "Freshly created temp dir should exist")
+		}
+
+		_, err = dir.Exists(filepath.Join(tmpDir, "no-perms"))
+		assert.ErrorIs(t, err, syscall.EACCES, "Shouldn't have permission to check that path")
+	})
+}
 
 func TestInit(t *testing.T) {
 	tmpDir := t.TempDir()

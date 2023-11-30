@@ -21,7 +21,39 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"syscall"
 )
+
+// Exists checks if the given path is an existing directory. It returns true if
+// the directory exists. It's different from [IsDirectory] because the latter
+// will return false even if there's a real error, such as permission or general
+// file system access problems. Note: This function primarily checks for the
+// existence of a path and whether it's a directory. It does not guarantee that
+// a directory with the given path can actually be created if it doesn't exist.
+func Exists(path string) (bool, error) {
+	stat, err := os.Stat(path)
+	switch {
+	case err == nil:
+		return stat.IsDir(), nil
+
+	case errors.Is(err, os.ErrNotExist):
+		if path == "" {
+			// Golang's os.Stat doesn't specify AT_EMPTY_PATH in the stat syscall.
+			return false, fmt.Errorf("%w (try a dot instead of an empty path)", err)
+		}
+
+		// The path doesn't exist.
+		return false, nil
+
+	case errors.Is(err, syscall.ENOTDIR):
+		// Some prefix of the path exists, but is not a directory.
+		// Anyhow, the path itself doesn't exist.
+		return false, nil
+
+	default:
+		return false, err
+	}
+}
 
 // IsDirectory check the given path exists and is a directory
 func IsDirectory(name string) bool {
