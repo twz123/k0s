@@ -111,16 +111,14 @@ func (as *AddonsSuite) deleteRelease(chart *v1beta1.Chart) {
 			LabelSelector: fmt.Sprintf("name=%s", chart.Status.ReleaseName),
 		})
 		if err != nil {
-			if ctxErr := context.Cause(ctx); ctxErr != nil {
-				return false, errors.Join(err, ctxErr)
-			}
 			as.T().Log("Error while listing secrets:", err)
 			return false, nil
 		}
 		if len(items.Items) > 0 {
 			return false, nil
 		}
-		as.T().Log("Release uninstalled successfully")
+
+		as.T().Log("Secrets deleted")
 		return true, nil
 	}))
 

@@ -195,49 +195,80 @@ func (cr *ChartReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 	if !cr.leaderElector.IsLeader() {
 		return reconcile.Result{}, nil
 	}
-	cr.L.Tracef("Got helm chart reconciliation request: %s", req)
-	defer cr.L.Tracef("Finished processing helm chart reconciliation request: %s", req)
 
-	var chartInstance v1beta1.Chart
-
-	if err := cr.Client.Get(ctx, req.NamespacedName, &chartInstance); err != nil {
+	var chart v1beta1.Chart
+	if err := cr.Client.Get(ctx, req.NamespacedName, &chart); err != nil {
 		if apierrors.IsNotFound(err) {
+			cr.L.WithField("chart", req.NamespacedName).WithError(err).Debug("Chart not found")
 			return reconcile.Result{}, nil
 		}
-		return reconcile.Result{}, err
+		return reconcile.Result{}, fmt.Errorf("while getting chart: %w", err)
 	}
 
-	if !chartInstance.ObjectMeta.DeletionTimestamp.IsZero() {
-		cr.L.Debugf("Uninstall reconciliation request: %s", req)
-		// uninstall chart
-		if err := cr.uninstall(ctx, chartInstance); err != nil {
-			if !errors.Is(err, driver.ErrReleaseNotFound) {
-				return reconcile.Result{}, fmt.Errorf("can't uninstall chart: %w", err)
-			}
+	switch {
+	case !chart.DeletionTimestamp.IsZero():
+		return reconcile.Result{}, cr.uninstallAndDeleteChart(ctx, &chart)
 
-			cr.L.Debugf("No Helm release found for chart %s, assuming it has already been uninstalled", req)
-		}
+	case chart.Status.ReleaseName == "":
+		return reconcile.Result{}, cr.installChart(ctx, &chart)
 
-		if err := removeFinalizer(ctx, cr.Client, &chartInstance); err != nil {
-			return reconcile.Result{}, fmt.Errorf("while trying to remove finalizer: %w", err)
-		}
+	case cr.chartNeedsUpgrade(&chart):
+		return reconcile.Result{}, cr.upgradeChart(ctx, &chart)
 
+	default:
+		cr.L.WithField("chart", req.NamespacedName).Debug("Chart is up to date")
 		return reconcile.Result{}, nil
 	}
-	cr.L.Debugf("Install or update reconciliation request: %s", req)
-	if err := cr.updateOrInstallChart(ctx, chartInstance); err != nil {
-		return reconcile.Result{Requeue: true}, fmt.Errorf("can't update or install chart: %w", err)
-	}
-
-	cr.L.Debugf("Installed or updated reconciliation request: %s", req)
-	return reconcile.Result{}, nil
 }
 
-func (cr *ChartReconciler) uninstall(ctx context.Context, chart v1beta1.Chart) error {
-	if err := cr.helm.UninstallRelease(ctx, chart.Status.ReleaseName, chart.Status.Namespace); err != nil {
-		return fmt.Errorf("can't uninstall release `%s/%s`: %w", chart.Status.Namespace, chart.Status.ReleaseName, err)
+func (cr *ChartReconciler) uninstallAndDeleteChart(ctx context.Context, chart *v1beta1.Chart) error {
+	log := cr.L.
+		WithField("chart", types.NamespacedName{Namespace: chart.Namespace, Name: chart.Name}).
+		WithField("release", fmt.Sprintf("%s/%s", chart.Status.Namespace, chart.Status.ReleaseName))
+
+	timeout := cr.getTimeout(ctx, chart)
+	log.Info("Uninstalling release, timeout is ", timeout)
+	if err := cr.helm.UninstallRelease(chart.Status.ReleaseName, chart.Status.Namespace, timeout); err != nil {
+		if !errors.Is(err, driver.ErrReleaseNotFound) {
+			cr.updateStatus(ctx, chart, nil, err)
+			return fmt.Errorf("while uninstalling release `%s/%s`: %w", chart.Status.Namespace, chart.Status.ReleaseName, err)
+		}
+
+		log.Info("Release not found, assuming it has already been uninstalled")
+	} else {
+		log.Info("Release has been uninstalled")
+		var zeroRelease release.Release
+		cr.updateStatus(ctx, chart, &zeroRelease, nil)
 	}
+
+	if err := removeFinalizer(ctx, cr.Client, chart); err != nil {
+		return fmt.Errorf("while trying to remove finalizer: %w", err)
+	}
+
+	log.Info("Chart has been uninstalled")
 	return nil
+}
+
+func (cr *ChartReconciler) getTimeout(ctx context.Context, chart *v1beta1.Chart) time.Duration {
+	const defaultTimeout = 10 * time.Minute
+
+	timeout := defaultTimeout
+	if chartTimeout, err := time.ParseDuration(chart.Spec.Timeout); err != nil {
+		cr.L.
+			WithField("chart", types.NamespacedName{Namespace: chart.Namespace, Name: chart.Name}).
+			WithError(err).
+			Warnf("Failed to parse timeout: %q", chart.Spec.Timeout)
+	} else {
+		timeout = chartTimeout
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		ctxTimeout := time.Until(deadline)
+		if ctxTimeout < timeout {
+			timeout = ctxTimeout
+		}
+	}
+
+	return timeout
 }
 
 func removeFinalizer(ctx context.Context, c client.Client, chart *v1beta1.Chart) error {
@@ -262,67 +293,64 @@ func removeFinalizer(ctx context.Context, c client.Client, chart *v1beta1.Chart)
 	return c.Patch(ctx, chart, client.RawPatch(types.JSONPatchType, patch))
 }
 
-const defaultTimeout = time.Duration(10 * time.Minute)
+func (cr *ChartReconciler) installChart(ctx context.Context, chart *v1beta1.Chart) error {
+	log := cr.L.
+		WithField("chart", types.NamespacedName{Namespace: chart.Namespace, Name: chart.Name}).
+		WithField("release", fmt.Sprintf("%s/%s", chart.Spec.Namespace, chart.Spec.ReleaseName))
 
-func (cr *ChartReconciler) updateOrInstallChart(ctx context.Context, chart v1beta1.Chart) error {
-	var err error
-	var chartRelease *release.Release
-	timeout, err := time.ParseDuration(chart.Spec.Timeout)
+	timeout := cr.getTimeout(ctx, chart)
+	log.Info("Installing chart, timeout is ", timeout)
+	chartRelease, err := cr.helm.InstallChart(ctx,
+		chart.Spec.ChartName,
+		chart.Spec.Version,
+		chart.Spec.ReleaseName,
+		chart.Spec.Namespace,
+		chart.Spec.YamlValues(),
+		timeout,
+	)
 	if err != nil {
-		cr.L.Tracef("Can't parse `%s` as time.Duration, using default timeout `%s`", chart.Spec.Timeout, defaultTimeout)
-		timeout = defaultTimeout
+		cr.updateStatus(ctx, chart, nil, err)
+		return fmt.Errorf("can't reconcile installation for %q: %w", chart.GetName(), err)
 	}
-	if timeout == 0 {
-		cr.L.Tracef("Using default timeout `%s`, failed to parse `%s`", defaultTimeout, chart.Spec.Timeout)
-		timeout = defaultTimeout
-	}
-	defer func() {
-		if err != nil {
-			cr.updateStatus(ctx, chart, chartRelease, err)
-		}
-	}()
-	if chart.Status.ReleaseName == "" {
-		// new chartRelease
-		cr.L.Tracef("Start update or install %s", chart.Spec.ChartName)
-		chartRelease, err = cr.helm.InstallChart(ctx,
-			chart.Spec.ChartName,
-			chart.Spec.Version,
-			chart.Spec.ReleaseName,
-			chart.Spec.Namespace,
-			chart.Spec.YamlValues(),
-			timeout,
-		)
-		if err != nil {
-			return fmt.Errorf("can't reconcile installation for %q: %w", chart.GetName(), err)
-		}
-	} else {
-		if cr.chartNeedsUpgrade(chart) {
-			// update
-			chartRelease, err = cr.helm.UpgradeChart(ctx,
-				chart.Spec.ChartName,
-				chart.Spec.Version,
-				chart.Status.ReleaseName,
-				chart.Status.Namespace,
-				chart.Spec.YamlValues(),
-				timeout,
-			)
-			if err != nil {
-				return fmt.Errorf("can't reconcile upgrade for %q: %w", chart.GetName(), err)
-			}
-		}
-	}
+
+	log.Info("Chart has been installed: ", chartRelease)
 	cr.updateStatus(ctx, chart, chartRelease, nil)
 	return nil
 }
 
-func (cr *ChartReconciler) chartNeedsUpgrade(chart v1beta1.Chart) bool {
+func (cr *ChartReconciler) upgradeChart(ctx context.Context, chart *v1beta1.Chart) error {
+	log := cr.L.
+		WithField("chart", types.NamespacedName{Namespace: chart.Namespace, Name: chart.Name}).
+		WithField("release", fmt.Sprintf("%s/%s", chart.Status.Namespace, chart.Status.ReleaseName))
+
+	timeout := cr.getTimeout(ctx, chart)
+	log.Info("Upgrading chart, timeout is ", timeout)
+	chartRelease, err := cr.helm.UpgradeChart(ctx,
+		chart.Spec.ChartName,
+		chart.Spec.Version,
+		chart.Status.ReleaseName,
+		chart.Status.Namespace,
+		chart.Spec.YamlValues(),
+		timeout,
+	)
+	if err != nil {
+		cr.updateStatus(ctx, chart, nil, err)
+		return fmt.Errorf("can't reconcile upgrade for %q: %w", chart.GetName(), err)
+	}
+
+	log.Info("Chart has been upgraded: ", chartRelease)
+	cr.updateStatus(ctx, chart, chartRelease, nil)
+	return nil
+}
+
+func (cr *ChartReconciler) chartNeedsUpgrade(chart *v1beta1.Chart) bool {
 	return !(chart.Status.Namespace == chart.Spec.Namespace &&
 		chart.Status.ReleaseName == chart.Spec.ReleaseName &&
 		chart.Status.Version == chart.Spec.Version &&
 		chart.Status.ValuesHash == chart.Spec.HashValues())
 }
 
-func (cr *ChartReconciler) updateStatus(ctx context.Context, chart v1beta1.Chart, chartRelease *release.Release, err error) {
+func (cr *ChartReconciler) updateStatus(ctx context.Context, chart *v1beta1.Chart, chartRelease *release.Release, err error) {
 
 	chart.Spec.YamlValues()
 	if chartRelease != nil {
@@ -339,8 +367,11 @@ func (cr *ChartReconciler) updateStatus(ctx context.Context, chart v1beta1.Chart
 		chart.Status.Error = ""
 	}
 	chart.Status.ValuesHash = chart.Spec.HashValues()
-	if updErr := cr.Client.Status().Update(ctx, &chart); updErr != nil {
-		cr.L.WithError(updErr).Error("Failed to update status for chart release", chart.Name)
+	if updErr := cr.Client.Status().Update(ctx, chart); updErr != nil {
+		cr.L.
+			WithField("chart", types.NamespacedName{Namespace: chart.Namespace, Name: chart.Name}).
+			WithError(updErr).
+			Error("Failed to update chart status")
 	}
 }
 

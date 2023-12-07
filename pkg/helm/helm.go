@@ -316,19 +316,18 @@ func (hc *Commands) ListReleases(namespace string) ([]*release.Release, error) {
 
 // UninstallRelease uninstalls a release.
 // InstallChart, UpgradeChart and UninstallRelease(releaseName are *NOT* thread-safe
-func (hc *Commands) UninstallRelease(ctx context.Context, releaseName string, namespace string) error {
+func (hc *Commands) UninstallRelease(releaseName string, namespace string, timeout time.Duration) error {
 	cfg, err := hc.getActionCfg(namespace)
 	if err != nil {
-		return fmt.Errorf("can't create helmAction configuration: %w", err)
-	}
-	helmAction := action.NewUninstall(cfg)
-	deadline, ok := ctx.Deadline()
-	if ok {
-		helmAction.Timeout = time.Until(deadline)
+		return fmt.Errorf("can't create action configuration: %w", err)
 	}
 
-	if _, err := helmAction.Run(releaseName); err != nil {
-		return fmt.Errorf("can't uninstall release `%s`: %w", releaseName, err)
+	uninstall := action.NewUninstall(cfg)
+	uninstall.Timeout = timeout
+	uninstall.Wait = true
+
+	if _, err := uninstall.Run(releaseName); err != nil {
+		return fmt.Errorf("while running uninstall action: %w", err)
 	}
 	return nil
 }
