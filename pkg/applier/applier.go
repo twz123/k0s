@@ -93,17 +93,17 @@ func (a *Applier) lazyInit() error {
 func (a *Applier) Apply(ctx context.Context) error {
 	err := a.lazyInit()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to initialize: %w", err)
 	}
 
 	files, err := filepath.Glob(path.Join(a.Dir, manifestFilePattern))
 	if err != nil {
-		return err
+		return fmt.Errorf("while searching for files: %w", err)
 	}
 
 	resources, err := a.parseFiles(files)
 	if err != nil {
-		return err
+		return fmt.Errorf("while parsing files: %w", err)
 	}
 	stack := Stack{
 		Name:      a.Name,
@@ -112,15 +112,13 @@ func (a *Applier) Apply(ctx context.Context) error {
 		Discovery: a.discoveryClient,
 	}
 	a.log.Debug("applying stack")
-	err = stack.Apply(ctx, true)
-	if err != nil {
-		a.log.WithError(err).Warn("stack apply failed")
+	if err = stack.Apply(ctx, true); err != nil {
 		a.discoveryClient.Invalidate()
-	} else {
-		a.log.Debug("successfully applied stack")
+		return fmt.Errorf("failed to apply stack: %w", err)
 	}
+	a.log.Debug("successfully applied stack")
 
-	return err
+	return nil
 }
 
 // Delete deletes the entire stack by applying it with empty set of resources
@@ -140,9 +138,8 @@ func (a *Applier) Delete(ctx context.Context) error {
 }
 
 func (a *Applier) parseFiles(files []string) ([]*unstructured.Unstructured, error) {
-	var resources []*unstructured.Unstructured
 	if len(files) == 0 {
-		return resources, nil
+		return nil, nil
 	}
 
 	objects, err := resource.NewBuilder(a.restClientGetter).
@@ -152,8 +149,10 @@ func (a *Applier) parseFiles(files []string) ([]*unstructured.Unstructured, erro
 		Do().
 		Infos()
 	if err != nil {
-		return nil, fmt.Errorf("unable to build resources: %w", err)
+		return nil, err
 	}
+
+	var resources []*unstructured.Unstructured
 	for _, o := range objects {
 		item := o.Object.(*unstructured.Unstructured)
 		if item.GetAPIVersion() != "" && item.GetKind() != "" {
