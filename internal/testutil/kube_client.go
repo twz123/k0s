@@ -17,11 +17,11 @@ limitations under the License.
 package testutil
 
 import (
-	"fmt"
+	"errors"
+
 	"k8s.io/client-go/rest"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
 	discoveryfake "k8s.io/client-go/discovery/fake"
@@ -29,6 +29,7 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
+	kubernetesscheme "k8s.io/client-go/kubernetes/scheme"
 	restfake "k8s.io/client-go/rest/fake"
 	kubetesting "k8s.io/client-go/testing"
 
@@ -37,22 +38,13 @@ import (
 
 // NewFakeClientFactory creates new client factory which uses internally only the kube fake client interface
 func NewFakeClientFactory(objects ...runtime.Object) FakeClientFactory {
-	rawDiscovery := &discoveryfake.FakeDiscovery{Fake: &kubetesting.Fake{}}
+	scheme := kubernetesscheme.Scheme
 
-	// Remember to list all "xyzList" types for resource types we use with the fake client
-	// and use "list" verb on
-	gvkLists := map[schema.GroupVersionResource]string{
-		{Group: "", Version: "v1", Resource: "pods"}:                                          "PodList",
-		{Group: "", Version: "v1", Resource: "namespaces"}:                                    "NamespaceList",
-		{Group: "", Version: "v1", Resource: "nodes"}:                                         "NodeList",
-		{Group: "", Version: "v1", Resource: "configmaps"}:                                    "ConfigMapList",
-		{Group: "certificates.k8s.io", Version: "v1", Resource: "certificatesigningrequests"}: "CertificateSigningRequestList",
-		{Group: "apps", Version: "v1", Resource: "deployments"}:                               "DeploymentList",
-	}
+	rawDiscovery := &discoveryfake.FakeDiscovery{Fake: &kubetesting.Fake{}}
 
 	return FakeClientFactory{
 		Client:          fake.NewSimpleClientset(objects...),
-		DynamicClient:   dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), gvkLists),
+		DynamicClient:   dynamicfake.NewSimpleDynamicClient(scheme),
 		DiscoveryClient: memory.NewMemCacheClient(rawDiscovery),
 		RawDiscovery:    rawDiscovery,
 		RESTClient:      &restfake.RESTClient{},
@@ -80,7 +72,7 @@ func (f FakeClientFactory) GetDiscoveryClient() (discovery.CachedDiscoveryInterf
 }
 
 func (f FakeClientFactory) GetConfigClient() (cfgClient.ClusterConfigInterface, error) {
-	return nil, fmt.Errorf("NOT IMPLEMENTED")
+	return nil, errors.New("NOT IMPLEMENTED")
 }
 
 func (f FakeClientFactory) GetRESTClient() (rest.Interface, error) {
