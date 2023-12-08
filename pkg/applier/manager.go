@@ -38,8 +38,6 @@ type Manager struct {
 	K0sVars           *config.CfgVars
 	KubeClientFactory kubeutil.ClientFactoryInterface
 
-	// client               kubernetes.Interface
-	applier       Applier
 	bundlePath    string
 	cancelWatcher context.CancelFunc
 	log           *logrus.Entry
@@ -64,8 +62,6 @@ func (m *Manager) Init(ctx context.Context) error {
 	m.log = logrus.WithField("component", "applier-manager")
 	m.stacks = make(map[string]stack)
 	m.bundlePath = m.K0sVars.ManifestsDir
-
-	m.applier = NewApplier(m.K0sVars.ManifestsDir, m.KubeClientFactory)
 
 	m.LeaderElector.AddAcquiredLeaseCallback(func() {
 		watcherCtx, cancel := context.WithCancel(ctx)
