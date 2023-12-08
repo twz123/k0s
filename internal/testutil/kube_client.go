@@ -18,9 +18,12 @@ package testutil
 
 import (
 	"errors"
+	"strings"
 
-	"k8s.io/client-go/rest"
+	k0sv1beta1 "github.com/k0sproject/k0s/pkg/client/clientset/typed/k0s/v1beta1"
 
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
@@ -30,25 +33,67 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	kubernetesscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	restfake "k8s.io/client-go/rest/fake"
 	kubetesting "k8s.io/client-go/testing"
 
-	cfgClient "github.com/k0sproject/k0s/pkg/client/clientset/typed/k0s/v1beta1"
+	"golang.org/x/exp/slices"
 )
 
 // NewFakeClientFactory creates new client factory which uses internally only the kube fake client interface
 func NewFakeClientFactory(objects ...runtime.Object) FakeClientFactory {
 	scheme := kubernetesscheme.Scheme
 
-	rawDiscovery := &discoveryfake.FakeDiscovery{Fake: &kubetesting.Fake{}}
+	fakeDiscovery := newFakeDiscovery(scheme)
 
 	return FakeClientFactory{
 		Client:          fake.NewSimpleClientset(objects...),
 		DynamicClient:   dynamicfake.NewSimpleDynamicClient(scheme),
-		DiscoveryClient: memory.NewMemCacheClient(rawDiscovery),
-		RawDiscovery:    rawDiscovery,
+		DiscoveryClient: memory.NewMemCacheClient(fakeDiscovery),
+		RawDiscovery:    fakeDiscovery,
 		RESTClient:      &restfake.RESTClient{},
 	}
+}
+
+func newFakeDiscovery(scheme *runtime.Scheme) *discoveryfake.FakeDiscovery {
+	f := &discoveryfake.FakeDiscovery{Fake: &kubetesting.Fake{}}
+
+	for gvk := range scheme.AllKnownTypes() {
+		if !strings.HasPrefix(gvk.Version, "v") {
+			continue // there are some "__internal" versions
+		}
+
+		var resources *metav1.APIResourceList
+		if idx := slices.IndexFunc(f.Resources, func(l *metav1.APIResourceList) bool {
+			return l.GroupVersion == gvk.GroupVersion().String()
+		}); idx < 0 {
+			resources = &metav1.APIResourceList{}
+			f.Resources = append(f.Resources, resources)
+		} else {
+			resources = f.Resources[idx]
+		}
+
+		plural, singular := meta.UnsafeGuessKindToResource(gvk)
+		resource := metav1.APIResource{
+			Name:         plural.Resource,
+			SingularName: singular.Resource,
+			Namespaced:   true, // FIXME is there any way to figure this out reliably?
+			Group:        gvk.Group,
+			Version:      gvk.Version,
+			Kind:         gvk.Kind,
+		}
+
+		// Some duct tape for guessing cluster resources
+		switch {
+		case strings.Contains(gvk.Kind, "Node"),
+			strings.Contains(gvk.Kind, "Cluster"):
+			resource.Namespaced = false
+		}
+
+		resources.APIResources = append(resources.APIResources, resource)
+	}
+
+	return f
 }
 
 type FakeClientFactory struct {
@@ -71,7 +116,7 @@ func (f FakeClientFactory) GetDiscoveryClient() (discovery.CachedDiscoveryInterf
 	return f.DiscoveryClient, nil
 }
 
-func (f FakeClientFactory) GetConfigClient() (cfgClient.ClusterConfigInterface, error) {
+func (f FakeClientFactory) GetConfigClient() (k0sv1beta1.ClusterConfigInterface, error) {
 	return nil, errors.New("NOT IMPLEMENTED")
 }
 
