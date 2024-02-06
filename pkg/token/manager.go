@@ -18,6 +18,8 @@ package token
 
 import (
 	"context"
+	"crypto/subtle"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -30,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/client-go/kubernetes"
 	tokenutil "k8s.io/cluster-bootstrap/token/util"
+	utiltokens "k8s.io/cluster-bootstrap/util/tokens"
 	bootstraptokenv1 "k8s.io/kubernetes/cmd/kubeadm/app/apis/bootstraptoken/v1"
 
 	"github.com/sirupsen/logrus"
@@ -126,10 +129,10 @@ func (m *Manager) List(ctx context.Context) (tokens []Token, _ error) {
 
 		token := Token{ID: parsed.Token.ID}
 
-		if _, ok := slices.BinarySearch(parsed.Usages, "controller-join"); ok {
-			token.Role = "controller"
-		} else {
-			token.Role = "worker"
+		if slices.Contains(parsed.Usages, "controller-join") {
+			token.Role = RoleController
+		} else if slices.Contains(parsed.Usages, "authentication") {
+			token.Role = RoleWorker
 		}
 
 		if parsed.Expires != nil {
@@ -140,6 +143,47 @@ func (m *Manager) List(ctx context.Context) (tokens []Token, _ error) {
 	}
 
 	return tokens, nil
+}
+
+var ErrTokenInvalid = errors.New("token invalid")
+
+func (m *Manager) Authorize(ctx context.Context, token string) error {
+	tokenID, tokenSecret, err := utiltokens.ParseToken(token)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrTokenInvalid, err)
+	}
+
+	secretName := tokenutil.BootstrapTokenSecretName(tokenID)
+	secret, err := m.client.CoreV1().Secrets(metav1.NamespaceSystem).Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return fmt.Errorf("%w: %w", ErrTokenInvalid, err)
+		}
+		return fmt.Errorf("failed to get bootstrap token secret: %w", err)
+	}
+
+	if secret.DeletionTimestamp != nil {
+		return fmt.Errorf("%w: deleted", ErrTokenInvalid)
+	}
+
+	parsed, err := bootstraptokenv1.BootstrapTokenFromSecret(secret)
+	if err != nil {
+		return fmt.Errorf("%s/%s is not a bootstrap token secret: %w", secret.Namespace, secret.Name, err)
+	}
+
+	if parsed.Expires != nil && !parsed.Expires.After(time.Now()) {
+		return fmt.Errorf("%w: expired", ErrTokenInvalid)
+	}
+
+	if subtle.ConstantTimeCompare([]byte(tokenSecret), []byte(parsed.Token.Secret)) != 1 {
+		return fmt.Errorf("%w: secret mismatch", ErrTokenInvalid)
+	}
+
+	if !slices.Contains(parsed.Usages, "controller-join") {
+		return fmt.Errorf("%w: not authorized for usage controller-join", ErrTokenInvalid)
+	}
+
+	return nil
 }
 
 func (m *Manager) Remove(ctx context.Context, tokenID string) error {
