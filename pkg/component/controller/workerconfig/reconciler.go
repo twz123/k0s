@@ -510,11 +510,12 @@ func (r *Reconciler) buildConfigMaps(snapshot *snapshot) ([]*corev1.ConfigMap, e
 	workerProfiles := make(map[string]*workerconfig.Profile)
 
 	workerProfile := r.buildProfile(snapshot)
-	workerProfile.KubeletConfiguration.CgroupsPerQOS = ptr.To(true)
 	workerProfiles["default"] = workerProfile
 
 	workerProfile = r.buildProfile(snapshot)
 	workerProfile.KubeletConfiguration.CgroupsPerQOS = ptr.To(false)
+	workerProfile.KubeletConfiguration.ResolverConfig = ptr.To("")
+
 	workerProfiles["default-windows"] = workerProfile
 
 	for _, profile := range snapshot.profiles {
@@ -601,10 +602,14 @@ func (r *Reconciler) buildProfile(snapshot *snapshot) *workerconfig.Profile {
 				APIVersion: kubeletv1beta1.SchemeGroupVersion.String(),
 				Kind:       "KubeletConfiguration",
 			},
-			ClusterDNS:         []string{r.clusterDNSIP.String()},
-			ClusterDomain:      r.clusterDomain,
-			TLSMinVersion:      "VersionTLS12",
-			TLSCipherSuites:    cipherSuites,
+			ClusterDNS:      []string{r.clusterDNSIP.String()},
+			ClusterDomain:   r.clusterDomain,
+			TLSMinVersion:   "VersionTLS12",
+			TLSCipherSuites: cipherSuites,
+
+			KubeReservedCgroup: "system.slice",
+			KubeletCgroups:     "/system.slice/containerd.service",
+
 			FailSwapOn:         ptr.To(false),
 			RotateCertificates: true,
 			ServerTLSBootstrap: true,

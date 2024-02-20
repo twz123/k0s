@@ -374,7 +374,6 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 
 	configMaps := map[string]func(t *testing.T, expected *kubeletConfig){
 		"worker-config-default-1.29": func(t *testing.T, expected *kubeletConfig) {
-			expected.CgroupsPerQOS = ptr.To(true)
 			expected.FeatureGates = map[string]bool{"kubelet-feature": true}
 		},
 

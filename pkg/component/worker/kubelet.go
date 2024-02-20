@@ -64,19 +64,15 @@ type Kubelet struct {
 	Taints              []string
 	ExtraArgs           string
 	IPTablesMode        string
+
+	kubeletConfigOverrides struct {
+		clientCAFile    string
+		volumePluginDir string
+		staticPodURL    string
+	}
 }
 
 var _ manager.Component = (*Kubelet)(nil)
-
-type kubeletConfig struct {
-	ClientCAFile       string
-	VolumePluginDir    string
-	KubeReservedCgroup string
-	KubeletCgroups     string
-	CgroupsPerQOS      bool
-	ResolvConf         string
-	StaticPodURL       string
-}
 
 // Init extracts the needed binaries
 func (k *Kubelet) Init(_ context.Context) error {
@@ -133,26 +129,14 @@ func (k *Kubelet) Init(_ context.Context) error {
 
 // Run runs kubelet
 func (k *Kubelet) Start(ctx context.Context) error {
-	cmd := "kubelet"
-
-	var staticPodURL string
 	if k.StaticPods != nil {
 		var err error
-		if staticPodURL, err = k.StaticPods.ManifestURL(); err != nil {
+		if k.kubeletConfigOverrides.staticPodURL, err = k.StaticPods.ManifestURL(); err != nil {
 			return err
 		}
 	}
-
-	kubeletConfigData := kubeletConfig{
-		ClientCAFile:       filepath.Join(k.K0sVars.CertRootDir, "ca.crt"),
-		VolumePluginDir:    k.K0sVars.KubeletVolumePluginDir,
-		KubeReservedCgroup: "system.slice",
-		KubeletCgroups:     "/system.slice/containerd.service",
-		StaticPodURL:       staticPodURL,
-	}
-	if runtime.GOOS == "windows" {
-		cmd = "kubelet.exe"
-	}
+	k.kubeletConfigOverrides.clientCAFile = filepath.Join(k.K0sVars.CertRootDir, "ca.crt")
+	k.kubeletConfigOverrides.volumePluginDir = k.K0sVars.KubeletVolumePluginDir
 
 	logrus.Info("Starting kubelet")
 	kubeletConfigPath := filepath.Join(k.K0sVars.DataDir, "kubelet-config.yaml")
@@ -175,15 +159,10 @@ func (k *Kubelet) Start(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("can't get hostname: %v", err)
 		}
-		kubeletConfigData.CgroupsPerQOS = false
-		kubeletConfigData.ResolvConf = ""
 		args["--enforce-node-allocatable"] = ""
 		args["--hostname-override"] = node
 		args["--hairpin-mode"] = "promiscuous-bridge"
 		args["--cert-dir"] = "C:\\var\\lib\\k0s\\kubelet_certs"
-	} else {
-		kubeletConfigData.CgroupsPerQOS = true
-		kubeletConfigData.ResolvConf = determineKubeletResolvConfPath()
 	}
 
 	if k.CRISocket == "" && runtime.GOOS != "windows" {
@@ -203,7 +182,12 @@ func (k *Kubelet) Start(ctx context.Context) error {
 		extras := flags.Split(k.ExtraArgs)
 		args.Merge(extras)
 	}
-	logrus.Debugf("starting kubelet with args: %v", args)
+
+	cmd := "kubelet"
+	if runtime.GOOS == "windows" {
+		cmd = "kubelet.exe"
+	}
+	logrus.Debugf("starting %s with args: %v", cmd, args)
 	k.supervisor = supervisor.Supervisor{
 		Name:    cmd,
 		BinPath: assets.BinPath(cmd, k.K0sVars.BinDir),
@@ -212,7 +196,7 @@ func (k *Kubelet) Start(ctx context.Context) error {
 		Args:    args.ToArgs(),
 	}
 
-	kubeletconfig, err := k.prepareLocalKubeletConfig(kubeletConfigData)
+	kubeletconfig, err := k.prepareLocalKubeletConfig()
 	if err != nil {
 		logrus.Warnf("failed to prepare local kubelet config: %s", err.Error())
 		return err
@@ -230,22 +214,21 @@ func (k *Kubelet) Stop() error {
 	return k.supervisor.Stop()
 }
 
-func (k *Kubelet) prepareLocalKubeletConfig(kubeletConfigData kubeletConfig) (string, error) {
+func (k *Kubelet) prepareLocalKubeletConfig() (string, error) {
 	preparedConfig := k.Configuration.DeepCopy()
-	preparedConfig.Authentication.X509.ClientCAFile = kubeletConfigData.ClientCAFile // filepath.Join(k.K0sVars.CertRootDir, "ca.crt")
-	preparedConfig.VolumePluginDir = kubeletConfigData.VolumePluginDir               // k.K0sVars.KubeletVolumePluginDir
-	preparedConfig.KubeReservedCgroup = kubeletConfigData.KubeReservedCgroup
-	preparedConfig.KubeletCgroups = kubeletConfigData.KubeletCgroups
-	preparedConfig.ResolverConfig = ptr.To(kubeletConfigData.ResolvConf)
-	preparedConfig.CgroupsPerQOS = ptr.To(kubeletConfigData.CgroupsPerQOS)
-	preparedConfig.StaticPodURL = kubeletConfigData.StaticPodURL
+	preparedConfig.Authentication.X509.ClientCAFile = k.kubeletConfigOverrides.clientCAFile
+	preparedConfig.StaticPodURL = k.kubeletConfigOverrides.staticPodURL
+	preparedConfig.VolumePluginDir = k.kubeletConfigOverrides.volumePluginDir
 
-	if k.CRISocket == "" && runtime.GOOS != "windows" {
-		socketPath := filepath.Join(k.K0sVars.RunDir, "containerd.sock")
-		preparedConfig.ContainerRuntimeEndpoint = "unix://" + filepath.ToSlash(socketPath)
-	} else if k.CRISocket == "" && runtime.GOOS == "windows" {
+	if runtime.GOOS == "windows" {
 		preparedConfig.ContainerRuntimeEndpoint = "npipe:////./pipe/containerd-containerd"
+		preparedConfig.ResolverConfig = ptr.To("")
 	} else {
+		preparedConfig.ContainerRuntimeEndpoint = "unix://" + filepath.Join(k.K0sVars.RunDir, "containerd.sock")
+		preparedConfig.ResolverConfig = ptr.To(determineKubeletResolvConfPath())
+	}
+
+	if k.CRISocket != "" {
 		_, runtimeEndpoint, err := SplitRuntimeConfig(k.CRISocket)
 		if err != nil {
 			return "", err
