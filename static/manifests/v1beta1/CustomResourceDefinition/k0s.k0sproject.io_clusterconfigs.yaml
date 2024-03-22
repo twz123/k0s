@@ -363,7 +363,7 @@ spec:
                     description: Cluster Domain
                     type: string
                   dualStack:
-                    description: DualStack defines network configuration for ipv4\ipv6
+                    description: DualStack defines network configuration for ipv4/ipv6
                       mixed cluster setup
                     properties:
                       IPv6podCIDR:

@@ -44,7 +44,7 @@ const (
 // +genclient:nonNamespaced
 type UpdateConfig struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	metav1.TypeMeta   `json:",omitempty,inline"`
+	metav1.TypeMeta   `json:",inline"`
 
 	Spec UpdateSpec `json:"spec"`
 }

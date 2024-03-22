@@ -24,6 +24,7 @@ import (
 	"reflect"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/k0sproject/k0s/internal/pkg/strictyaml"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -69,7 +70,7 @@ type ClusterConfigStatus struct {
 // ClusterConfig is the Schema for the clusterconfigs API
 type ClusterConfig struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	metav1.TypeMeta   `json:",omitempty,inline"`
+	metav1.TypeMeta   `json:",inline"`
 
 	Spec   *ClusterSpec         `json:"spec,omitempty"`
 	Status *ClusterConfigStatus `json:"status,omitempty"`
@@ -155,7 +156,10 @@ type ClusterConfigList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&ClusterConfig{}, &ClusterConfigList{})
+	localSchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(SchemeGroupVersion, &ClusterConfig{}, &ClusterConfigList{})
+		return nil
+	})
 }
 
 var _ Validateable = (*ControllerManagerSpec)(nil)

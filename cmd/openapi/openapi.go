@@ -1,5 +1,5 @@
 /*
-Copyright 2021 k0s authors
+Copyright 2024 k0s authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,16 +14,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1beta1
+package openapi
 
-// DualStack defines network configuration for ipv4/ipv6 mixed cluster setup
-type DualStack struct {
-	Enabled         bool   `json:"enabled,omitempty"`
-	IPv6PodCIDR     string `json:"IPv6podCIDR,omitempty"`
-	IPv6ServiceCIDR string `json:"IPv6serviceCIDR,omitempty"`
-}
+import (
+	"github.com/spf13/cobra"
+)
 
-// DefaultDualStack builds default values
-func DefaultDualStack() DualStack {
-	return DualStack{}
+func NewCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "openapi",
+		Short: "OpenAPI",
+		Args:  cobra.NoArgs,
+	}
+
+	cmd.AddCommand(dumpCmd())
+	return cmd
 }

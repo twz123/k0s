@@ -76,7 +76,9 @@ require (
 	k8s.io/component-base v0.29.2
 	k8s.io/component-helpers v0.29.2
 	k8s.io/cri-api v0.29.2
+	k8s.io/klog/v2 v2.110.1
 	k8s.io/kube-aggregator v0.29.2
+	k8s.io/kube-openapi v0.0.0-20231010175941-2dd684a91f00
 	k8s.io/kubectl v0.29.2
 	k8s.io/kubelet v0.29.2
 	k8s.io/kubernetes v1.29.2
@@ -85,6 +87,8 @@ require (
 	sigs.k8s.io/controller-runtime v0.17.2
 	sigs.k8s.io/yaml v1.4.0
 )
+
+require github.com/gobuffalo/flect v1.0.2
 
 require (
 	dario.cat/mergo v1.0.0 // indirect
@@ -276,9 +280,8 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/apiserver v0.29.2 // indirect
 	k8s.io/controller-manager v0.29.2 // indirect
-	k8s.io/klog/v2 v2.110.1 // indirect
+	k8s.io/gengo v0.0.0-20230829151522-9cce18d56c01 // indirect
 	k8s.io/kms v0.29.2 // indirect
-	k8s.io/kube-openapi v0.0.0-20231010175941-2dd684a91f00 // indirect
 	k8s.io/metrics v0.29.2 // indirect
 	oras.land/oras-go v1.2.4 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.28.0 // indirect

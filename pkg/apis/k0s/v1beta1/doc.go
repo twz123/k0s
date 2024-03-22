@@ -14,10 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// +k8s:openapi-gen=true
+
 // +kubebuilder:object:generate=true
 // +groupName=k0s.k0sproject.io
 
 // Package v1beta1 is the v1beta1 version of the API.
 package v1beta1
-
-const Version = "v1beta1"

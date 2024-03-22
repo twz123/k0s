@@ -51,7 +51,7 @@ var (
 // `--data-dir` will be reused by the commands without the user having to specify them again.
 type RuntimeConfig struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	metav1.TypeMeta   `json:",omitempty,inline"`
+	metav1.TypeMeta   `json:",inline"`
 
 	Spec *RuntimeConfigSpec `json:"spec"`
 }

@@ -1,5 +1,5 @@
 /*
-Copyright 2021 k0s authors
+Copyright 2024 k0s authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,16 +14,24 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1beta1
+package openapi
 
-// DualStack defines network configuration for ipv4/ipv6 mixed cluster setup
-type DualStack struct {
-	Enabled         bool   `json:"enabled,omitempty"`
-	IPv6PodCIDR     string `json:"IPv6podCIDR,omitempty"`
-	IPv6ServiceCIDR string `json:"IPv6serviceCIDR,omitempty"`
-}
+import (
+	"os"
+	"testing"
 
-// DefaultDualStack builds default values
-func DefaultDualStack() DualStack {
-	return DualStack{}
+	"github.com/stretchr/testify/require"
+)
+
+func TestXoxo(t *testing.T) {
+	out, err := xoxo()
+	require.NoError(t, err)
+
+	data, err := ToYAML(out)
+	require.NoError(t, err)
+
+	t.Log(string(data))
+
+	require.NoError(t, os.WriteFile("/tmp/yolo.yaml", data, 0644))
+
 }

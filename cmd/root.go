@@ -31,6 +31,7 @@ import (
 	"github.com/k0sproject/k0s/cmd/install"
 	"github.com/k0sproject/k0s/cmd/kubeconfig"
 	"github.com/k0sproject/k0s/cmd/kubectl"
+	"github.com/k0sproject/k0s/cmd/openapi"
 	"github.com/k0sproject/k0s/cmd/reset"
 	"github.com/k0sproject/k0s/cmd/restore"
 	"github.com/k0sproject/k0s/cmd/start"
@@ -104,6 +105,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(newCompletionCmd())
 	cmd.AddCommand(newDefaultConfigCmd()) // hidden+deprecated
 	cmd.AddCommand(newDocsCmd())
+	cmd.AddCommand(openapi.NewCmd())
 
 	cmd.DisableAutoGenTag = true
 	longDesc = "k0s - The zero friction Kubernetes - https://k0sproject.io"

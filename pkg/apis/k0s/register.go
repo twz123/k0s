@@ -1,4 +1,4 @@
-// Copyright 2023 k0s authors
+// Copyright 2024 k0s authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,5 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package k0s contains API Schema definitions for the k0s.k0sproject.io API group.
 package k0s
+
+import (
+	"k8s.io/apimachinery/pkg/runtime"
+)
+
+// GroupName is the group name used by this package
+const GroupName = "k0s.k0sproject.io"
+
+var (
+	SchemeBuilder = runtime.NewSchemeBuilder()
+	AddToScheme   = SchemeBuilder.AddToScheme
+)

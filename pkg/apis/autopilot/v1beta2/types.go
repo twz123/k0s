@@ -39,7 +39,7 @@ func init() {
 // +genclient:nonNamespaced
 type ControlNode struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	metav1.TypeMeta   `json:",omitempty,inline"`
+	metav1.TypeMeta   `json:",inline"`
 	Status            ControlNodeStatus `json:"status,omitempty"`
 }
 

@@ -18,7 +18,7 @@ endif
 
 K0S_GO_BUILD_CACHE ?= build/cache
 
-GO_SRCS := $(shell find . -type f -name '*.go' -not -path './$(K0S_GO_BUILD_CACHE)/*' -not -path './inttest/*' -not -name '*_test.go' -not -name 'zz_generated*')
+GO_SRCS := $(shell find . -type f -name '*.go' -not -path './$(K0S_GO_BUILD_CACHE)/*' -not -path './inttest/*' -not -name '*_test.go' -not -name 'zz_generated.*')
 GO_CHECK_UNIT_DIRS := . ./cmd/... ./pkg/... ./internal/... ./static/... ./hack/...
 
 # EMBEDDED_BINS_BUILDMODE can be either:
@@ -116,8 +116,8 @@ codegen_targets += pkg/apis/helm/v1beta1/.controller-gen.stamp
 pkg/apis/helm/v1beta1/.controller-gen.stamp: $(shell find pkg/apis/helm/v1beta1/ -maxdepth 1 -type f -name \*.go)
 pkg/apis/helm/v1beta1/.controller-gen.stamp: gen_output_dir = helm
 
-codegen_targets += pkg/apis/k0s/v1beta1/.controller-gen.stamp
-pkg/apis/k0s/v1beta1/.controller-gen.stamp: $(shell find pkg/apis/k0s/v1beta1/ -maxdepth 1 -type f -name \*.go)
+codegen_targets += pkg/apis/k0s/v1beta1/.controller-gen.stamp pkg/apis/k0s/v1beta1/zz_generated.openapi.go
+pkg/apis/k0s/v1beta1/.controller-gen.stamp pkg/apis/k0s/v1beta1/zz_generated.openapi.go: $(shell find pkg/apis/k0s/v1beta1/ -maxdepth 1 -type f -name \*.go -not -name '*_test.go' -not -name 'zz_generated.*.go')
 pkg/apis/k0s/v1beta1/.controller-gen.stamp: gen_output_dir = v1beta1
 
 codegen_targets += pkg/apis/autopilot/v1beta2/.controller-gen.stamp
@@ -126,13 +126,22 @@ pkg/apis/autopilot/v1beta2/.controller-gen.stamp: gen_output_dir = autopilot
 
 pkg/apis/%/.controller-gen.stamp: .k0sbuild.docker-image.k0s hack/tools/boilerplate.go.txt hack/tools/Makefile.variables
 	rm -rf 'static/manifests/$(gen_output_dir)/CustomResourceDefinition'
-	rm -f -- '$(dir $@)'zz_*.go
+# rm -f -- '$(dir $@)'zz_*.go
 	CGO_ENABLED=0 $(GO) run sigs.k8s.io/controller-tools/cmd/controller-gen@v$(controller-gen_version) \
 	  crd \
 	  paths="./$(dir $@)..." \
 	  output:crd:artifacts:config=./static/manifests/$(gen_output_dir)/CustomResourceDefinition \
 	  object:headerFile=hack/tools/boilerplate.go.txt
 	touch -- '$@'
+
+pkg/apis/%/zz_generated.openapi.go: .k0sbuild.docker-image.k0s hack/tools/boilerplate.go.txt go.mod
+	-CGO_ENABLED=0 $(GO) run k8s.io/kube-openapi/cmd/openapi-gen \
+	  --go-header-file=hack/tools/boilerplate.go.txt \
+	  --input-dirs='./$(dir $@)' \
+	  --output-package=github.com/k0sproject/k0s/$(patsubst %/,%,$(dir $@)) \
+	  --output-base=. \
+	  --output-file-base=zz_generated.openapi \
+	  --trim-path-prefix=github.com/k0sproject/k0s
 
 clientset_input_dirs := pkg/apis/autopilot/v1beta2 pkg/apis/k0s/v1beta1 pkg/apis/helm/v1beta1
 codegen_targets += pkg/client/clientset/.client-gen.stamp
