@@ -1,0 +1,18 @@
+[package]
+name = "k0s-demo-plugin"
+version = "0.0.1-dev"
+edition = "2021"
+
+[dependencies]
+wasi = { version = "0.13", optional = true }
+anyhow = { version = "1", optional = true }
+bytes = { version = "1", optional = true }
+serde_json = { version = "1", optional = true }
+
+[features]
+hello-stdout = ["wasi"]
+runtime-env = []
+github-api-get = ["anyhow", "bytes", "serde_json"]
+
+[profile.release]
+lto = true
