@@ -22,7 +22,7 @@
       
       
       <link rel="icon" href="../img/k0s_social.png">
-      <meta name="generator" content="mkdocs-1.5.3, mkdocs-material-9.5.10">
+      <meta name="generator" content="mkdocs-1.5.3, mkdocs-material-9.5.15">
     
     
       
@@ -638,15 +638,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#a-unique-machine-id-for-multi-node-setups" class="md-nav__link">
-    <span class="md-ellipsis">
-      A unique machine ID for multi-node setups
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#linux-specific" class="md-nav__link">
     <span class="md-ellipsis">
       Linux specific
@@ -696,15 +687,6 @@
   <a href="#external-soft-dependencies" class="md-nav__link">
     <span class="md-ellipsis">
       External soft dependencies
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#other-dependencies-in-previous-versions-of-k0s" class="md-nav__link">
-    <span class="md-ellipsis">
-      Other dependencies in previous versions of k0s
     </span>
   </a>
   
@@ -1207,6 +1189,27 @@
   
   <span class="md-ellipsis">
     Node-local load balancing
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cplb/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Control plane load balancing
   </span>
   
 
@@ -2004,15 +2007,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#a-unique-machine-id-for-multi-node-setups" class="md-nav__link">
-    <span class="md-ellipsis">
-      A unique machine ID for multi-node setups
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#linux-specific" class="md-nav__link">
     <span class="md-ellipsis">
       Linux specific
@@ -2067,15 +2061,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#other-dependencies-in-previous-versions-of-k0s" class="md-nav__link">
-    <span class="md-ellipsis">
-      Other dependencies in previous versions of k0s
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -2116,17 +2101,6 @@ packages and libraries. This page aims to provide a comprehensive overview.</p>
 available on Linux):</p>
 <div class="highlight"><pre><span></span><code>k0s<span class="w"> </span>sysinfo
 </code></pre></div>
-<h2 id="a-unique-machine-id-for-multi-node-setups">A unique machine ID for multi-node setups<a class="headerlink" href="#a-unique-machine-id-for-multi-node-setups" title="Permanent link">#</a></h2>
-<p>Whenever k0s is run in a multi-node setup (i.e. the <code>--single</code> command line flag
-isn't used), k0s requires a <a href="https://github.com/denisbrodbeck/machineid/blob/v1.0.1/README.md#what-you-get">machine ID</a>: a unique host identifier that is
-somewhat stable across reboots. For Linux, this ID is read from the files
-<code>/var/lib/dbus/machine-id</code> or <code>/etc/machine-id</code>. For Windows, it's taken from
-the registry key <code>HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography\MachineGuid</code>.
-If neither of the OS specific sources yield a result, k0s will fallback to use a
-machine ID based on the hostname.</p>
-<p>When running k0s on top of virtualized or containerized environments, you need
-to <a href="https://github.com/denisbrodbeck/machineid/blob/v1.0.1/README.md#unique-key-reliability">ensure</a> that hosts get their own unique IDs, even if they
-have been created from the same image.</p>
 <h2 id="linux-specific">Linux specific<a class="headerlink" href="#linux-specific" title="Permanent link">#</a></h2>
 <!--
 This piece of documentation is best-effort and considered to be augmented and
@@ -2275,7 +2249,7 @@ circumstances:</p>
 <h4 id="containerd-and-apparmor">containerd and AppArmor<a class="headerlink" href="#containerd-and-apparmor" title="Permanent link">#</a></h4>
 <p>In order to use containerd in conjunction with <a href="https://wiki.ubuntu.com/AppArmor">AppArmor</a>, it must be enabled in
 the kernel and the <code>/sbin/apparmor_parser</code> executable must be installed on the
-host, otherwise containerd will <a href="https://github.com/containerd/containerd/blob/v1.7.13/pkg/apparmor/apparmor_linux.go#L34-L45">disable</a> AppArmor support.</p>
+host, otherwise containerd will <a href="https://github.com/containerd/containerd/blob/v1.7.14/pkg/apparmor/apparmor_linux.go#L34-L45">disable</a> AppArmor support.</p>
 <h4 id="iptables">iptables<a class="headerlink" href="#iptables" title="Permanent link">#</a></h4>
 <p>iptables may be executed to detect if there are any existing iptables rules and
 if those are in legacy of nft mode. If iptables is not found, k0s will assume
@@ -2293,18 +2267,6 @@ are not detected.</p>
 <h4 id="id">id<a class="headerlink" href="#id" title="Permanent link">#</a></h4>
 <p>External <code>/usr/bin/id</code> will be executed as a fallback if local user lookup
 fails, in case NSS is used.</p>
-<h3 id="other-dependencies-in-previous-versions-of-k0s">Other dependencies in previous versions of k0s<a class="headerlink" href="#other-dependencies-in-previous-versions-of-k0s" title="Permanent link">#</a></h3>
-<ul>
-<li>up until k0s v1.21.9+k0s.0: <code>iptables</code><br />
-  Required for worker nodes. Resolved by @ncopa in <a href="https://github.com/k0sproject/k0s/pull/1046">#1046</a> by adding <code>iptables</code>
-  and friends to k0s's embedded binaries.</li>
-</ul>
-<ul>
-<li>up until k0s v1.21.7+k0s.0: <code>find</code>, <code>du</code> and <code>nice</code><br />
-  Required for worker nodes. Resolved upstream by @ncopa in
-  <a href="https://github.com/kubernetes/kubernetes/pull/96115">kubernetes/kubernetes#96115</a>, contained in Kubernetes 1.21.8 (<a href="https://github.com/kubernetes/kubernetes/commit/5b13c8f68d48740261fa4c96ecb0a504982088a8">5b13c8f68d4</a>)
-  and 1.22.0 (<a href="https://github.com/kubernetes/kubernetes/commit/d45ba645a8f7b288284890a051c73bbae717da4b">d45ba645a8f</a>).</li>
-</ul>
 <h2 id="windows-specific">Windows specific<a class="headerlink" href="#windows-specific" title="Permanent link">#</a></h2>
 <!--
 The kubernetes/system-validators require certain Windows versions starting with
@@ -2404,7 +2366,7 @@ Windows Server 2016. k0s states that it requires Windows Server 2019, though.
     <script id="__config" type="application/json">{"base": "..", "features": ["toc.autohide", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "stable", "provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.8fd75fb4.min.js"></script>
+      <script src="../assets/javascripts/bundle.bd41221c.min.js"></script>
       
     
   </body>

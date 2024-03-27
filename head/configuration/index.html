@@ -22,7 +22,7 @@
       
       
       <link rel="icon" href="../img/k0s_social.png">
-      <meta name="generator" content="mkdocs-1.5.3, mkdocs-material-9.5.10">
+      <meta name="generator" content="mkdocs-1.5.3, mkdocs-material-9.5.15">
     
     
       
@@ -1279,6 +1279,27 @@
   
   <span class="md-ellipsis">
     Node-local load balancing
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cplb/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Control plane load balancing
   </span>
   
 
@@ -2712,6 +2733,58 @@ node-local load balancing.</p>
 </tr>
 </tbody>
 </table>
+<h5 id="specnetworkcontrolplaneloadbalancing"><code>spec.network.controlPlaneLoadBalancing</code><a class="headerlink" href="#specnetworkcontrolplaneloadbalancing" title="Permanent link">#</a></h5>
+<p>Configuration options related to k0s's <a href="../cplb/">control plane load balancing</a> feature</p>
+<table>
+<thead>
+<tr>
+<th>Element</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>vrrpInstances</code></td>
+<td>Configuration options related to the VRRP. This is an array which allows to configure multiple virtual IPs</td>
+</tr>
+</tbody>
+</table>
+<h5 id="specnetworkcontrolplaneloadbalancingvrrpinstances"><code>spec.network.controlPlaneLoadBalancing.VRRPInstances</code><a class="headerlink" href="#specnetworkcontrolplaneloadbalancingvrrpinstances" title="Permanent link">#</a></h5>
+<p>Configuration options required for using VRRP to configure VIPs in control plane load balancing.</p>
+<table>
+<thead>
+<tr>
+<th>Element</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>The name of the VRRP instance. If omitted it generates a predictive name shared across all nodes.</td>
+</tr>
+<tr>
+<td><code>virtualIPs</code></td>
+<td>A list of the CIDRs handled by the VRRP instance.</td>
+</tr>
+<tr>
+<td><code>interface</code></td>
+<td>The interface used by each VRRPInstance. If undefined k0s will try to auto detect it based on the default gateway</td>
+</tr>
+<tr>
+<td><code>virtualRouterId</code></td>
+<td>Virtual router ID for the instance. Default: <code>51</code></td>
+</tr>
+<tr>
+<td><code>advertInterval</code></td>
+<td>Advertisement interval in seconds. Default: <code>1</code>.</td>
+</tr>
+<tr>
+<td><code>authPass</code></td>
+<td>The password used for accessing vrrpd. This field is mandatory and must be under 8 characters long</td>
+</tr>
+</tbody>
+</table>
 <h3 id="speccontrollermanager"><code>spec.controllerManager</code><a class="headerlink" href="#speccontrollermanager" title="Permanent link">#</a></h3>
 <table>
 <thead>
@@ -2878,9 +2951,9 @@ by k0s.</p>
 <span class="w">    </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v3.16.2</span>
 <span class="w">  </span><span class="nt">metricsserver</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">registry.k8s.io/metrics-server/metrics-server</span>
-<span class="w">    </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v0.6.4</span>
+<span class="w">    </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v0.7.1</span>
 </code></pre></div>
-<p>In the runtime the image names are calculated as <code>my.own.repo/calico/kube-controllers:v3.16.2</code> and <code>my.own.repo/metrics-server/metrics-server:v0.6.4</code>. This only affects the the imgages pull location, and thus omitting an image specification here will not disable component deployment.</p>
+<p>In the runtime the image names are calculated as <code>my.own.repo/calico/kube-controllers:v3.16.2</code> and <code>my.own.repo/metrics-server/metrics-server:v0.7.1</code>. This only affects the the imgages pull location, and thus omitting an image specification here will not disable component deployment.</p>
 <h3 id="specextensionshelm"><code>spec.extensions.helm</code><a class="headerlink" href="#specextensionshelm" title="Permanent link">#</a></h3>
 <p><code>spec.extensions.helm</code> is the config file key in which you configure the list of <a href="https://helm.sh">Helm</a> repositories and charts to deploy during cluster bootstrap (for more information, refer to <a href="../helm-charts/">Helm Charts</a>).</p>
 <h3 id="specextensionsstorage"><code>spec.extensions.storage</code><a class="headerlink" href="#specextensionsstorage" title="Permanent link">#</a></h3>
@@ -3018,7 +3091,7 @@ api-server, without that k0s serves no purpose.</p>
     <script id="__config" type="application/json">{"base": "..", "features": ["toc.autohide", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "stable", "provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.8fd75fb4.min.js"></script>
+      <script src="../assets/javascripts/bundle.bd41221c.min.js"></script>
       
     
   </body>

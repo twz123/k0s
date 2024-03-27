@@ -22,7 +22,7 @@
       
       
       <link rel="icon" href="../img/k0s_social.png">
-      <meta name="generator" content="mkdocs-1.5.3, mkdocs-material-9.5.10">
+      <meta name="generator" content="mkdocs-1.5.3, mkdocs-material-9.5.15">
     
     
       
@@ -1223,6 +1223,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../cplb/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Control plane load balancing
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../shell-completion/" class="md-nav__link">
         
   
@@ -2194,6 +2215,13 @@
 <td>worker &lt;-&gt; controller</td>
 <td>Konnectivity is used as "reverse" tunnel between kube-apiserver and worker kubelets</td>
 </tr>
+<tr>
+<td>TCP</td>
+<td>112</td>
+<td>keepalived</td>
+<td>controller &lt;-&gt; controller</td>
+<td>Only required for control plane load balancing vrrpInstances for ip address 224.0.0.18. 224.0.0.18 is a multicast IP address defined in <a href="https://datatracker.ietf.org/doc/html/rfc3768#section-5.2.2">RFC 3768</a>.</td>
+</tr>
 </tbody>
 </table>
 <p>You also need enable all traffic to and from the <a href="../configuration/#specnetwork">podCIDR and serviceCIDR</a> subnets on nodes with a worker role.</p>
@@ -2314,7 +2342,7 @@ public<span class="w"> </span><span class="o">(</span>active<span class="o">)</s
     <script id="__config" type="application/json">{"base": "..", "features": ["toc.autohide", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "stable", "provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.8fd75fb4.min.js"></script>
+      <script src="../assets/javascripts/bundle.bd41221c.min.js"></script>
       
     
   </body>
