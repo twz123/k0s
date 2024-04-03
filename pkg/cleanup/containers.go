@@ -98,7 +98,7 @@ func (c *containers) startContainerd() error {
 	logrus.Debugf("starting containerd")
 	args := []string{
 		fmt.Sprintf("--root=%s", filepath.Join(c.Config.dataDir, "containerd")),
-		fmt.Sprintf("--state=%s", filepath.Join(c.Config.runDir, "containerd")),
+		fmt.Sprintf("--state=%s", filepath.Join(c.Config.k0sVars.RunDir, "containerd")),
 		fmt.Sprintf("--address=%s", c.Config.containerd.socketPath),
 	}
 	if file.Exists("/etc/k0s/containerd.toml") {
