@@ -74,9 +74,9 @@ func (d *directories) Run() error {
 		}
 	}
 
-	logrus.Debugf("deleting k0s generated run-dir (%s)", d.Config.runDir)
-	if err := os.RemoveAll(d.Config.runDir); err != nil {
-		return fmt.Errorf("failed to delete %s: %w", d.Config.runDir, err)
+	logrus.Debugf("deleting k0s generated run-dir (%s)", d.Config.k0sVars.RunDir)
+	if err := os.RemoveAll(d.Config.k0sVars.RunDir); err != nil {
+		return fmt.Errorf("failed to delete %s: %w", d.Config.k0sVars.RunDir, err)
 	}
 
 	return nil
