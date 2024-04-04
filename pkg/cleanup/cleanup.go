@@ -19,7 +19,6 @@ package cleanup
 import (
 	"errors"
 	"fmt"
-	"os/exec"
 
 	"github.com/k0sproject/k0s/pkg/component/worker"
 	"github.com/k0sproject/k0s/pkg/config"
@@ -29,35 +28,23 @@ import (
 )
 
 type Config struct {
-	containerd       *containerdConfig
-	containerRuntime runtime.ContainerRuntime
-	k0sVars          *config.CfgVars
+	debug                    bool
+	externalContainerRuntime bool
+	containerRuntime         runtime.ContainerRuntime
+	k0sVars                  *config.CfgVars
 }
 
-type containerdConfig struct {
-	binPath    string
-	cmd        *exec.Cmd
-	socketPath string
-}
-
-func NewConfig(k0sVars *config.CfgVars, criSocketFlag string) (*Config, error) {
-	var containerdCfg *containerdConfig
-
+func NewConfig(debug bool, k0sVars *config.CfgVars, criSocketFlag string) (*Config, error) {
 	runtimeEndpoint, err := worker.GetContainerRuntimeEndpoint(criSocketFlag, k0sVars.RunDir)
 	if err != nil {
 		return nil, err
 	}
-	if criSocketFlag == "" {
-		containerdCfg = &containerdConfig{
-			binPath:    fmt.Sprintf("%s/%s", k0sVars.DataDir, "bin/containerd"),
-			socketPath: runtimeEndpoint.Path,
-		}
-	}
 
 	return &Config{
-		containerd:       containerdCfg,
-		containerRuntime: runtime.NewContainerRuntime(runtimeEndpoint),
-		k0sVars:          k0sVars,
+		debug:                    debug,
+		externalContainerRuntime: criSocketFlag == "",
+		containerRuntime:         runtime.NewContainerRuntime(runtimeEndpoint),
+		k0sVars:                  k0sVars,
 	}, nil
 }
 
@@ -65,7 +52,8 @@ func (c *Config) Cleanup() error {
 	var errs []error
 	cleanupSteps := []Step{
 		&containers{
-			&containerdConfig{},
+			c.debug,
+			c.externalContainerRuntime,
 			c.containerRuntime,
 			c.k0sVars,
 		},

@@ -20,15 +20,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
-	"time"
 
-	"github.com/k0sproject/k0s/internal/pkg/file"
+	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
+	workerconfig "github.com/k0sproject/k0s/pkg/component/worker/config"
+	"github.com/k0sproject/k0s/pkg/component/worker/containerd"
 	"github.com/k0sproject/k0s/pkg/config"
+	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/container/runtime"
 
 	"github.com/avast/retry-go"
@@ -37,9 +36,10 @@ import (
 )
 
 type containers struct {
-	containerd       *containerdConfig
-	containerRuntime runtime.ContainerRuntime
-	k0sVars          *config.CfgVars
+	debug                    bool
+	externalContainerRuntime bool
+	containerRuntime         runtime.ContainerRuntime
+	k0sVars                  *config.CfgVars
 }
 
 // Name returns the name of the step
@@ -50,23 +50,39 @@ func (c *containers) Name() string {
 // Run removes all the pods and mounts and stops containers afterwards
 // Run starts containerd if custom CRI is not configured
 func (c *containers) Run() error {
-	if !c.isCustomCriUsed() {
-		if err := c.startContainerd(); err != nil {
-			if errors.Is(err, fs.ErrNotExist) || errors.Is(err, exec.ErrNotFound) {
-				logrus.Debugf("containerd binary not found. Skipping container cleanup")
-				return nil
-			}
-			return fmt.Errorf("failed to start containerd: %w", err)
+	if !c.externalContainerRuntime {
+		logLevel := "error"
+		if c.debug {
+			logLevel = "debug"
 		}
+
+		containerd := containerd.NewComponent(logLevel, c.k0sVars, &workerconfig.Profile{
+			PauseImage: &v1beta1.ImageSpec{
+				Image:   constant.KubePauseContainerImage,
+				Version: constant.KubePauseContainerImageVersion,
+			},
+		})
+
+		ctx := context.TODO()
+		if err := containerd.Init(ctx); err != nil {
+			logrus.WithError(err).Warn("Failed to initialize containerd, skipping container cleanup")
+			return nil
+		}
+		if err := containerd.Start(ctx); err != nil {
+			logrus.WithError(err).Warn("Failed to start containerd, skipping container cleanup")
+			return nil
+		}
+		defer func() {
+			if err := containerd.Stop(); err != nil {
+				logrus.WithError(err).Warn("Failed to stop containerd")
+			}
+		}()
 	}
 
 	if err := c.stopAllContainers(); err != nil {
 		logrus.Debugf("error stopping containers: %v", err)
 	}
 
-	if !c.isCustomCriUsed() {
-		c.stopContainerd()
-	}
 	return nil
 }
 
@@ -93,48 +109,6 @@ func removeMount(path string) error {
 	}
 
 	return errors.Join(errs...)
-}
-
-func (c *containers) isCustomCriUsed() bool {
-	return c.containerd == nil
-}
-
-func (c *containers) startContainerd() error {
-	logrus.Debugf("starting containerd")
-	args := []string{
-		fmt.Sprintf("--root=%s", filepath.Join(c.k0sVars.DataDir, "containerd")),
-		fmt.Sprintf("--state=%s", filepath.Join(c.k0sVars.RunDir, "containerd")),
-		fmt.Sprintf("--address=%s", c.containerd.socketPath),
-	}
-	if file.Exists("/etc/k0s/containerd.toml") {
-		args = append(args, "--config=/etc/k0s/containerd.toml")
-	}
-	cmd := exec.Command(c.containerd.binPath, args...)
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-
-	c.containerd.cmd = cmd
-	logrus.Debugf("started containerd successfully")
-
-	return nil
-}
-
-func (c *containers) stopContainerd() {
-	logrus.Debug("attempting to stop containerd")
-	logrus.Debugf("found containerd pid: %v", c.containerd.cmd.Process.Pid)
-	if err := c.containerd.cmd.Process.Signal(os.Interrupt); err != nil {
-		logrus.Errorf("failed to kill containerd: %v", err)
-	}
-	// if process, didn't exit, wait a few seconds and send SIGKILL
-	if c.containerd.cmd.ProcessState.ExitCode() != -1 {
-		time.Sleep(5 * time.Second)
-
-		if err := c.containerd.cmd.Process.Kill(); err != nil {
-			logrus.Errorf("failed to send SIGKILL to containerd: %v", err)
-		}
-	}
-	logrus.Debug("successfully stopped containerd")
 }
 
 func (c *containers) stopAllContainers() error {
