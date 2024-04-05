@@ -19,9 +19,12 @@ package dir_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
+
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,4 +44,47 @@ func TestGetAll(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, []string{"dir1"}, dirs)
 	})
+}
+
+func TestIsParent(t *testing.T) {
+	type test = struct {
+		name      string
+		basePath  string
+		childPath string
+		want      bool
+	}
+
+	var tests []test
+	if runtime.GOOS == "windows" {
+		tests = []test{
+			{"Direct Parent", `C:\a\b`, `C:\a\b\c`, true},
+			{"Indirect Parent", `C:\`, `C:\a\b\c\d`, true},
+			{"No Parent Same Drive", `C:\a\b`, `C:\x\y\z`, false},
+			{"No Parent Different Drive", `C:\a\b`, `D:\a\b\c`, false},
+			{"Same Path", `C:\a\b`, `C:\a\b`, false},
+			{"Root Directory", `C:\`, `C:\a\b\c`, true},
+			{"Case Insensitivity", `c:\A\B`, `C:\a\b\C`, true},
+			{"Mixed Separators", `C:/a/b`, `C:\a\b\c`, true},
+			{"Trailing Backslash", `C:\a\b\`, `C:\a\b\c`, true},
+		}
+	} else {
+		tests = []test{
+			{"Direct Parent", "/a/b", "/a/b/c", true},
+			{"Indirect Parent", "/a", "/a/b/c/d", true},
+			{"No Parent", "/a/b", "/x/y/z", false},
+			{"Same Path", "/a/b", "/a/b", false},
+			{"Root Directory", "/", "/a/b/c", true},
+			{"Trailing Slash in Base", "/a/b/", "/a/b/c", true},
+			{"Trailing Slash in Child", "/a/b", "/a/b/c/", true},
+		}
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t,
+				test.want, dir.IsParent(test.basePath, test.childPath),
+				"for basePath=%q and childPath=%q", test.basePath, test.childPath,
+			)
+		})
+	}
 }
