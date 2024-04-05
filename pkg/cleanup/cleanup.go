@@ -31,7 +31,6 @@ type Config struct {
 	debug                    bool
 	externalContainerRuntime bool
 	containerRuntime         runtime.ContainerRuntime
-	dataDir                  string
 	k0sVars                  *config.CfgVars
 }
 
@@ -44,7 +43,6 @@ func NewConfig(debug bool, k0sVars *config.CfgVars, criSocketFlag string) (*Conf
 	return &Config{
 		externalContainerRuntime: criSocketFlag == "",
 		containerRuntime:         runtime.NewContainerRuntime(runtimeEndpoint),
-		dataDir:                  k0sVars.DataDir,
 		k0sVars:                  k0sVars,
 	}, nil
 }

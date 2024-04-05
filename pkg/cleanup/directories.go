@@ -35,19 +35,20 @@ func (d *directories) Name() string {
 
 // Run removes all kubelet mounts and deletes generated dataDir and runDir
 func (d *directories) Run() error {
-	dataDirMounted := unmountRecursively(d.Config.dataDir)
+	dataDir := d.Config.k0sVars.DataDir
+	dataDirMounted := unmountRecursively(dataDir)
 
 	if dataDirMounted {
-		logrus.Debugf("removing the contents of mounted data-dir (%s)", d.Config.dataDir)
+		logrus.Debugf("removing the contents of mounted data-dir (%s)", dataDir)
 	} else {
-		logrus.Debugf("removing k0s generated data-dir (%s)", d.Config.dataDir)
+		logrus.Debugf("removing k0s generated data-dir (%s)", dataDir)
 	}
 
-	if err := os.RemoveAll(d.Config.dataDir); err != nil {
+	if err := os.RemoveAll(dataDir); err != nil {
 		if !dataDirMounted {
 			return fmt.Errorf("failed to delete k0s generated data-dir: %w", err)
 		}
-		if !errorIsUnlinkat(err, d.Config.dataDir) {
+		if !errorIsUnlinkat(err, dataDir) {
 			return fmt.Errorf("failed to delete contents of mounted data-dir: %w", err)
 		}
 	}
