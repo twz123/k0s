@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -63,4 +64,25 @@ func Init(path string, perm os.FileMode) error {
 // PathListJoin uses the OS path list separator to join a list of strings for things like PATH=x:y:z
 func PathListJoin(elem ...string) string {
 	return strings.Join(elem, string(os.PathListSeparator))
+}
+
+// Checks if basePath is a parent of childPath. Note that this function does
+// only lexical processing on the paths. As a consequence, it will only work if
+// the paths are given in their canonical form. This is especially important for
+// case-insensitive file systems.
+func IsParent(basePath, childPath string) bool {
+	basePath = filepath.Clean(basePath)
+	childPath = filepath.Clean(childPath)
+
+	for                                                    // Iterate through the parent directories of childPath
+	current, parent := childPath, filepath.Dir(childPath); // Start with childPath and its parent
+	parent != current;                                     // Stop when there's no further parent directory
+	current, parent = parent, filepath.Dir(parent) {       // Proceed to the parent of the parent
+		// Check if the parent directory matches basePath.
+		if parent == basePath {
+			return true // The parent is the basePath!
+		}
+	}
+
+	return false // Reached the top-most parent of childPath without seeing basePath.
 }
