@@ -20,10 +20,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/sirupsen/logrus"
-	"k8s.io/mount-utils"
 )
 
 type directories struct {
@@ -37,27 +35,8 @@ func (d *directories) Name() string {
 
 // Run removes all kubelet mounts and deletes generated dataDir and runDir
 func (d *directories) Run() error {
-	// unmount any leftover overlays (such as in alpine)
-	mounter := mount.New("")
-	procMounts, err := mounter.List()
-	if err != nil {
-		return err
-	}
-
 	dataDir := d.Config.k0sVars.DataDir
-	var dataDirMounted bool
-
-	// search and unmount kubelet volume mounts
-	for _, v := range procMounts {
-		if v.Path == filepath.Join(dataDir, "kubelet") {
-			logrus.Debugf("%v is mounted! attempting to unmount...", v.Path)
-			if err = mounter.Unmount(v.Path); err != nil {
-				logrus.Warningf("failed to unmount %v", v.Path)
-			}
-		} else if v.Path == dataDir {
-			dataDirMounted = true
-		}
-	}
+	dataDirMounted := unmountRecursively(dataDir)
 
 	if dataDirMounted {
 		logrus.Debugf("removing the contents of mounted data-dir (%s)", dataDir)
@@ -82,7 +61,7 @@ func (d *directories) Run() error {
 	return nil
 }
 
-// this is for checking if the error retrned by os.RemoveAll is due to
+// This is for checking if the error returned by os.RemoveAll is due to
 // it being a mount point. if it is, we can ignore the error. this way
 // we can't rely on os.RemoveAll instead of recursively deleting the
 // contents of the directory
