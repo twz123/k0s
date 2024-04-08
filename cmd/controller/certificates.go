@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
+	"github.com/k0sproject/k0s/internal/pkg/users"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/certificate"
 	"github.com/k0sproject/k0s/pkg/config"
@@ -64,6 +65,13 @@ func (c *Certificates) Init(ctx context.Context) error {
 	}
 	c.CACert = string(cert)
 	kubeConfigAPIUrl := fmt.Sprintf("https://localhost:%d", c.ClusterSpec.API.Port)
+
+	apiServerUID, err := users.GetUID(constant.ApiserverUser)
+	if err != nil {
+		apiServerUID = users.RootUID
+		logrus.WithError(err).Warn("Files with key material for kube-apiserver user will be owned by root")
+	}
+
 	eg.Go(func() error {
 		// Front proxy CA
 		if err := c.CertManager.EnsureCA("front-proxy-ca", "kubernetes-front-proxy-ca"); err != nil {
@@ -79,7 +87,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			CACert: proxyCertPath,
 			CAKey:  proxyCertKey,
 		}
-		_, err := c.CertManager.EnsureCertificate(proxyClientReq, constant.ApiserverUser)
+		_, err := c.CertManager.EnsureCertificate(proxyClientReq, apiServerUID)
 
 		return err
 	})
@@ -93,16 +101,16 @@ func (c *Certificates) Init(ctx context.Context) error {
 			CACert: caCertPath,
 			CAKey:  caCertKey,
 		}
-		adminCert, err := c.CertManager.EnsureCertificate(adminReq, "root")
+		adminCert, err := c.CertManager.EnsureCertificate(adminReq, users.RootUID)
 		if err != nil {
 			return err
 		}
 
-		if err := kubeConfig(c.K0sVars.AdminKubeConfigPath, kubeConfigAPIUrl, c.CACert, adminCert.Cert, adminCert.Key, "root"); err != nil {
+		if err := kubeConfig(c.K0sVars.AdminKubeConfigPath, kubeConfigAPIUrl, c.CACert, adminCert.Cert, adminCert.Key, users.RootUID); err != nil {
 			return err
 		}
 
-		return c.CertManager.CreateKeyPair("sa", c.K0sVars, constant.ApiserverUser)
+		return c.CertManager.CreateKeyPair("sa", c.K0sVars, apiServerUID)
 	})
 
 	eg.Go(func() error {
@@ -114,11 +122,19 @@ func (c *Certificates) Init(ctx context.Context) error {
 			CACert: caCertPath,
 			CAKey:  caCertKey,
 		}
-		konnectivityCert, err := c.CertManager.EnsureCertificate(konnectivityReq, constant.KonnectivityServerUser)
+
+		uid, err := users.GetUID(constant.KonnectivityServerUser)
+		if err != nil {
+			uid = users.RootUID
+			logrus.WithError(err).Warn("Files with key material for konnectivity-server user will be owned by root")
+		}
+
+		konnectivityCert, err := c.CertManager.EnsureCertificate(konnectivityReq, uid)
 		if err != nil {
 			return err
 		}
-		return kubeConfig(c.K0sVars.KonnectivityKubeConfigPath, kubeConfigAPIUrl, c.CACert, konnectivityCert.Cert, konnectivityCert.Key, constant.KonnectivityServerUser)
+
+		return kubeConfig(c.K0sVars.KonnectivityKubeConfigPath, kubeConfigAPIUrl, c.CACert, konnectivityCert.Cert, konnectivityCert.Key, uid)
 	})
 
 	eg.Go(func() error {
@@ -129,12 +145,12 @@ func (c *Certificates) Init(ctx context.Context) error {
 			CACert: caCertPath,
 			CAKey:  caCertKey,
 		}
-		ccmCert, err := c.CertManager.EnsureCertificate(ccmReq, constant.ApiserverUser)
+		ccmCert, err := c.CertManager.EnsureCertificate(ccmReq, apiServerUID)
 		if err != nil {
 			return err
 		}
 
-		return kubeConfig(filepath.Join(c.K0sVars.CertRootDir, "ccm.conf"), kubeConfigAPIUrl, c.CACert, ccmCert.Cert, ccmCert.Key, constant.ApiserverUser)
+		return kubeConfig(filepath.Join(c.K0sVars.CertRootDir, "ccm.conf"), kubeConfigAPIUrl, c.CACert, ccmCert.Cert, ccmCert.Key, apiServerUID)
 	})
 
 	eg.Go(func() error {
@@ -145,12 +161,19 @@ func (c *Certificates) Init(ctx context.Context) error {
 			CACert: caCertPath,
 			CAKey:  caCertKey,
 		}
-		schedulerCert, err := c.CertManager.EnsureCertificate(schedulerReq, constant.SchedulerUser)
+
+		uid, err := users.GetUID(constant.SchedulerUser)
+		if err != nil {
+			uid = users.RootUID
+			logrus.WithError(err).Warn("Files with key material for kube-scheduler user will be owned by root")
+		}
+
+		schedulerCert, err := c.CertManager.EnsureCertificate(schedulerReq, uid)
 		if err != nil {
 			return err
 		}
 
-		return kubeConfig(filepath.Join(c.K0sVars.CertRootDir, "scheduler.conf"), kubeConfigAPIUrl, c.CACert, schedulerCert.Cert, schedulerCert.Key, constant.SchedulerUser)
+		return kubeConfig(filepath.Join(c.K0sVars.CertRootDir, "scheduler.conf"), kubeConfigAPIUrl, c.CACert, schedulerCert.Cert, schedulerCert.Key, uid)
 	})
 
 	eg.Go(func() error {
@@ -161,7 +184,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			CACert: caCertPath,
 			CAKey:  caCertKey,
 		}
-		_, err := c.CertManager.EnsureCertificate(kubeletClientReq, constant.ApiserverUser)
+		_, err := c.CertManager.EnsureCertificate(kubeletClientReq, apiServerUID)
 		return err
 	})
 
@@ -197,8 +220,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			CAKey:     caCertKey,
 			Hostnames: hostnames,
 		}
-		_, err = c.CertManager.EnsureCertificate(serverReq, constant.ApiserverUser)
-
+		_, err = c.CertManager.EnsureCertificate(serverReq, apiServerUID)
 		return err
 	})
 
@@ -212,7 +234,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			Hostnames: hostnames,
 		}
 		// TODO Not sure about the user...
-		_, err := c.CertManager.EnsureCertificate(apiReq, constant.ApiserverUser)
+		_, err := c.CertManager.EnsureCertificate(apiReq, apiServerUID)
 		return err
 	})
 
@@ -247,7 +269,7 @@ func detectLocalIPs(ctx context.Context) ([]string, error) {
 	return localIPs, nil
 }
 
-func kubeConfig(dest, url, caCert, clientCert, clientKey, owner string) error {
+func kubeConfig(dest, url, caCert, clientCert, clientKey string, ownerID int) error {
 	// We always overwrite the kubeconfigs as the certs might be regenerated at startup
 	const (
 		clusterName = "local"
@@ -279,5 +301,5 @@ func kubeConfig(dest, url, caCert, clientCert, clientKey, owner string) error {
 		return err
 	}
 
-	return file.Chown(dest, owner, constant.CertSecureMode)
+	return file.Chown(dest, ownerID, constant.CertSecureMode)
 }
