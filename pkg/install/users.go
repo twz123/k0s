@@ -56,7 +56,7 @@ func DeleteControllerUsers(clusterConfig *v1beta1.ClusterConfig) error {
 	cfgUsers := getUserList(*clusterConfig.Spec.Install.SystemUsers)
 	var messages []string
 	for _, v := range cfgUsers {
-		if _, err := users.GetUID(v); err == nil {
+		if _, err := users.LookupUID(v); err == nil {
 			logrus.Debugf("deleting user: %s", v)
 
 			if err := deleteUser(v); err != nil {
@@ -74,7 +74,7 @@ func DeleteControllerUsers(clusterConfig *v1beta1.ClusterConfig) error {
 // EnsureUser checks if a user exists, and creates it, if it doesn't
 // TODO: we should also consider modifying the user, if the user exists, but with wrong settings
 func EnsureUser(name string, homeDir string) error {
-	_, err := users.GetUID(name)
+	_, err := users.LookupUID(name)
 	if errors.Is(err, user.UnknownUserError(name)) {
 		logrus.Infof("creating user: %s", name)
 		return createUser(name, homeDir)
