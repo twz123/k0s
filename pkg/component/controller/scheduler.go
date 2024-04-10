@@ -51,9 +51,10 @@ const kubeSchedulerComponentName = "kube-scheduler"
 // Init extracts the needed binaries
 func (a *Scheduler) Init(_ context.Context) error {
 	var err error
-	a.uid, err = users.GetUID(constant.SchedulerUser)
+	a.uid, err = users.LookupUID(constant.SchedulerUser)
 	if err != nil {
-		logrus.Warn("running kube-scheduler as root: ", err)
+		a.uid = users.RootUID
+		logrus.WithError(err).Warn("Running kube-scheduler as root")
 	}
 	return assets.Stage(a.K0sVars.BinDir, kubeSchedulerComponentName, constant.BinDirMode)
 }

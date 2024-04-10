@@ -57,9 +57,10 @@ var _ manager.Ready = (*Kine)(nil)
 func (k *Kine) Init(_ context.Context) error {
 	logrus.Infof("initializing kine with config: %+v", k.Config)
 	var err error
-	k.uid, err = users.GetUID(constant.KineUser)
+	k.uid, err = users.LookupUID(constant.KineUser)
 	if err != nil {
-		logrus.Warn("running kine as root: ", err)
+		k.uid = users.RootUID
+		logrus.WithError(err).Warn("Running kine as root")
 	}
 
 	kineSocketDir := filepath.Dir(k.K0sVars.KineSocketPath)
