@@ -24,8 +24,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/k0sproject/k0s/internal/pkg/users"
-
 	"go.uber.org/multierr"
 )
 
@@ -40,9 +38,8 @@ func Exists(fileName string) bool {
 }
 
 // Chown changes file/dir mode
-func Chown(file, owner string, permissions os.FileMode) error {
+func Chown(file string, uid int, permissions os.FileMode) error {
 	// Chown the file properly for the owner
-	uid, _ := users.GetUID(owner)
 	err := os.Chown(file, uid, -1)
 	if err != nil && os.Geteuid() == 0 {
 		return err
