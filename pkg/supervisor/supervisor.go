@@ -165,30 +165,25 @@ func (s *Supervisor) Supervise() error {
 		for {
 			s.mutex.Lock()
 
-			var err error
-			if err != nil {
-				s.log.Warnf("Failed to clean before running the process %s: %s", s.BinPath, err)
-			} else {
-				s.cmd = exec.Command(s.BinPath, s.Args...)
-				s.cmd.Dir = s.DataDir
-				s.cmd.Env = getEnv(s.DataDir, s.Name, s.KeepEnvPrefix)
+			s.cmd = exec.Command(s.BinPath, s.Args...)
+			s.cmd.Dir = s.DataDir
+			s.cmd.Env = getEnv(s.DataDir, s.Name, s.KeepEnvPrefix)
 
-				// detach from the process group so children don't
-				// get signals sent directly to parent.
-				s.cmd.SysProcAttr = DetachAttr(s.UID, s.GID)
+			// detach from the process group so children don't
+			// get signals sent directly to parent.
+			s.cmd.SysProcAttr = DetachAttr(s.UID, s.GID)
 
-				const maxLogChunkLen = 16 * 1024
-				s.cmd.Stdout = &logWriter{
-					log: s.log.WithField("stream", "stdout"),
-					buf: make([]byte, maxLogChunkLen),
-				}
-				s.cmd.Stderr = &logWriter{
-					log: s.log.WithField("stream", "stderr"),
-					buf: make([]byte, maxLogChunkLen),
-				}
-
-				err = s.cmd.Start()
+			const maxLogChunkLen = 16 * 1024
+			s.cmd.Stdout = &logWriter{
+				log: s.log.WithField("stream", "stdout"),
+				buf: make([]byte, maxLogChunkLen),
 			}
+			s.cmd.Stderr = &logWriter{
+				log: s.log.WithField("stream", "stderr"),
+				buf: make([]byte, maxLogChunkLen),
+			}
+
+			err := s.cmd.Start()
 			s.mutex.Unlock()
 			if err != nil {
 				s.log.Warnf("Failed to start: %s", err)
