@@ -28,6 +28,8 @@ import (
 	"time"
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
+	"github.com/k0sproject/k0s/pkg/config"
+	"github.com/k0sproject/k0s/pkg/container/runtime"
 
 	"github.com/avast/retry-go"
 	"github.com/sirupsen/logrus"
@@ -35,7 +37,9 @@ import (
 )
 
 type containers struct {
-	Config *Config
+	containerd       *containerdConfig
+	containerRuntime runtime.ContainerRuntime
+	k0sVars          *config.CfgVars
 }
 
 // Name returns the name of the step
@@ -92,25 +96,25 @@ func removeMount(path string) error {
 }
 
 func (c *containers) isCustomCriUsed() bool {
-	return c.Config.containerd == nil
+	return c.containerd == nil
 }
 
 func (c *containers) startContainerd() error {
 	logrus.Debugf("starting containerd")
 	args := []string{
-		fmt.Sprintf("--root=%s", filepath.Join(c.Config.dataDir, "containerd")),
-		fmt.Sprintf("--state=%s", filepath.Join(c.Config.runDir, "containerd")),
-		fmt.Sprintf("--address=%s", c.Config.containerd.socketPath),
+		fmt.Sprintf("--root=%s", filepath.Join(c.k0sVars.DataDir, "containerd")),
+		fmt.Sprintf("--state=%s", filepath.Join(c.k0sVars.RunDir, "containerd")),
+		fmt.Sprintf("--address=%s", c.containerd.socketPath),
 	}
 	if file.Exists("/etc/k0s/containerd.toml") {
 		args = append(args, "--config=/etc/k0s/containerd.toml")
 	}
-	cmd := exec.Command(c.Config.containerd.binPath, args...)
+	cmd := exec.Command(c.containerd.binPath, args...)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 
-	c.Config.containerd.cmd = cmd
+	c.containerd.cmd = cmd
 	logrus.Debugf("started containerd successfully")
 
 	return nil
@@ -118,15 +122,15 @@ func (c *containers) startContainerd() error {
 
 func (c *containers) stopContainerd() {
 	logrus.Debug("attempting to stop containerd")
-	logrus.Debugf("found containerd pid: %v", c.Config.containerd.cmd.Process.Pid)
-	if err := c.Config.containerd.cmd.Process.Signal(os.Interrupt); err != nil {
+	logrus.Debugf("found containerd pid: %v", c.containerd.cmd.Process.Pid)
+	if err := c.containerd.cmd.Process.Signal(os.Interrupt); err != nil {
 		logrus.Errorf("failed to kill containerd: %v", err)
 	}
 	// if process, didn't exit, wait a few seconds and send SIGKILL
-	if c.Config.containerd.cmd.ProcessState.ExitCode() != -1 {
+	if c.containerd.cmd.ProcessState.ExitCode() != -1 {
 		time.Sleep(5 * time.Second)
 
-		if err := c.Config.containerd.cmd.Process.Kill(); err != nil {
+		if err := c.containerd.cmd.Process.Kill(); err != nil {
 			logrus.Errorf("failed to send SIGKILL to containerd: %v", err)
 		}
 	}
@@ -141,7 +145,7 @@ func (c *containers) stopAllContainers() error {
 	err := retry.Do(func() error {
 		logrus.Debugf("trying to list all pods")
 		var err error
-		pods, err = c.Config.containerRuntime.ListContainers(ctx)
+		pods, err = c.containerRuntime.ListContainers(ctx)
 		if err != nil {
 			return err
 		}
@@ -161,7 +165,7 @@ func (c *containers) stopAllContainers() error {
 
 	for _, pod := range pods {
 		logrus.Debugf("stopping container: %v", pod)
-		err := c.Config.containerRuntime.StopContainer(ctx, pod)
+		err := c.containerRuntime.StopContainer(ctx, pod)
 		if err != nil {
 			if strings.Contains(err.Error(), "443: connect: connection refused") {
 				// on a single node instance, we will see "connection refused" error. this is to be expected
@@ -171,13 +175,13 @@ func (c *containers) stopAllContainers() error {
 				errs = append(errs, fmt.Errorf("failed to stop running pod %s: %w", pod, err))
 			}
 		}
-		err = c.Config.containerRuntime.RemoveContainer(ctx, pod)
+		err = c.containerRuntime.RemoveContainer(ctx, pod)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to remove pod %s: %w", pod, err))
 		}
 	}
 
-	pods, err = c.Config.containerRuntime.ListContainers(ctx)
+	pods, err = c.containerRuntime.ListContainers(ctx)
 	if err == nil && len(pods) == 0 {
 		logrus.Info("successfully removed k0s containers!")
 	}

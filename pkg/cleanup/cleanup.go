@@ -72,7 +72,11 @@ func NewConfig(k0sVars *config.CfgVars, cfgFile string, criSocketFlag string) (*
 func (c *Config) Cleanup() error {
 	var errs []error
 	cleanupSteps := []Step{
-		&containers{Config: c},
+		&containers{
+			&containerdConfig{},
+			c.containerRuntime,
+			c.k0sVars,
+		},
 		&users{Config: c},
 		&services{Config: c},
 		&directories{Config: c},
