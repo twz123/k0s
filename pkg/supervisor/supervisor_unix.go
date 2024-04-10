@@ -33,14 +33,14 @@ const (
 )
 
 // killPid signals SIGTERM to a PID and if it's still running after
-// s.TimeoutStop sends SIGKILL.
+// s.stopTimeout sends SIGKILL.
 func (s *Supervisor) killPid(pid int, check <-chan time.Time, deadline <-chan time.Time) error {
-	if s.KillFunction == nil {
-		s.KillFunction = syscall.Kill
+	if s.killFunc == nil {
+		s.killFunc = syscall.Kill
 	}
 	// Kill the process pid
 	if deadline == nil {
-		deadlineTicker := time.NewTicker(s.TimeoutStop)
+		deadlineTicker := time.NewTicker(s.stopTimeout)
 		deadline = deadlineTicker.C
 		defer deadlineTicker.Stop()
 	}
@@ -64,7 +64,7 @@ Loop:
 				return nil
 			}
 
-			err = s.KillFunction(pid, syscall.SIGTERM)
+			err = s.killFunc(pid, syscall.SIGTERM)
 			if err == syscall.ESRCH {
 				return nil
 			} else if err != nil {
@@ -83,7 +83,7 @@ Loop:
 		return nil
 	}
 
-	err = s.KillFunction(pid, syscall.SIGKILL)
+	err = s.killFunc(pid, syscall.SIGKILL)
 	if err == syscall.ESRCH {
 		return nil
 	} else if err != nil {
@@ -98,8 +98,8 @@ Loop:
 // this is done by the caller.
 // The tickers are used for testing purposes, otherwise set them to nil.
 func (s *Supervisor) maybeKillPidFile(check <-chan time.Time, deadline <-chan time.Time) error {
-	if s.ProcFSPath == "" {
-		s.ProcFSPath = "/proc"
+	if s.procFSPath == "" {
+		s.procFSPath = "/proc"
 	}
 
 	pid, err := os.ReadFile(s.PidFile)
@@ -118,7 +118,7 @@ func (s *Supervisor) maybeKillPidFile(check <-chan time.Time, deadline <-chan ti
 }
 
 func (s *Supervisor) shouldKillProcess(pid int) (bool, error) {
-	cmdline, err := os.ReadFile(filepath.Join(s.ProcFSPath, strconv.Itoa(pid), "cmdline"))
+	cmdline, err := os.ReadFile(filepath.Join(s.procFSPath, strconv.Itoa(pid), "cmdline"))
 	if os.IsNotExist(err) {
 		return false, nil
 	} else if err != nil {
@@ -132,7 +132,7 @@ func (s *Supervisor) shouldKillProcess(pid int) (bool, error) {
 	}
 
 	//only kill process if it has the _KOS_MANAGED env set
-	env, err := os.ReadFile(filepath.Join(s.ProcFSPath, strconv.Itoa(pid), "environ"))
+	env, err := os.ReadFile(filepath.Join(s.procFSPath, strconv.Itoa(pid), "environ"))
 	if os.IsNotExist(err) {
 		return false, nil
 	} else if err != nil {

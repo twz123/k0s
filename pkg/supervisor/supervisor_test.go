@@ -141,7 +141,7 @@ func TestRespawn(t *testing.T) {
 		BinPath:        pingPong.binPath(),
 		RunDir:         t.TempDir(),
 		Args:           pingPong.binArgs(),
-		TimeoutRespawn: 1 * time.Millisecond,
+		respawnTimeout: 1 * time.Millisecond,
 	}
 	require.NoError(t, s.Supervise())
 	t.Cleanup(func() { assert.NoError(t, s.Stop(), "Failed to stop") })
@@ -174,7 +174,7 @@ func TestStopWhileRespawn(t *testing.T) {
 		BinPath:        fail.binPath,
 		Args:           fail.binArgs,
 		RunDir:         t.TempDir(),
-		TimeoutRespawn: 1 * time.Hour,
+		respawnTimeout: 1 * time.Hour,
 	}
 
 	if assert.NoError(t, s.Supervise(), "Failed to start") {

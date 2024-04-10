@@ -38,22 +38,22 @@ import (
 
 // Supervisor is dead simple and stupid process supervisor, just tries to keep the process running in a while-true loop
 type Supervisor struct {
-	Name           string
-	BinPath        string
-	RunDir         string
-	DataDir        string
-	Args           []string
-	PidFile        string
-	UID            int
-	GID            int
-	TimeoutStop    time.Duration
-	TimeoutRespawn time.Duration
+	Name    string
+	BinPath string
+	RunDir  string
+	DataDir string
+	Args    []string
+	PidFile string
+	UID     int
+	GID     int
+
 	// For those components having env prefix convention such as ETCD_xxx, we should keep the prefix.
 	KeepEnvPrefix bool
-	// ProcFSPath is only used for testing
-	ProcFSPath string
-	// KillFunction is only used for testing
-	KillFunction func(int, syscall.Signal) error
+
+	stopTimeout    time.Duration                   // tunable for tests
+	respawnTimeout time.Duration                   // tunable for tests
+	procFSPath     string                          // tunable for tests
+	killFunc       func(int, syscall.Signal) error // tunable for tests
 
 	cmd            *exec.Cmd
 	done           chan bool
@@ -107,7 +107,7 @@ func (s *Supervisor) processWaitQuit(ctx context.Context) bool {
 				}
 			}
 			select {
-			case <-time.After(s.TimeoutStop):
+			case <-time.After(s.stopTimeout):
 				continue
 			case <-waitresult:
 				return true
@@ -139,11 +139,11 @@ func (s *Supervisor) Supervise() error {
 		return err
 	}
 
-	if s.TimeoutStop == 0 {
-		s.TimeoutStop = 5 * time.Second
+	if s.stopTimeout == 0 {
+		s.stopTimeout = 5 * time.Second
 	}
-	if s.TimeoutRespawn == 0 {
-		s.TimeoutRespawn = 5 * time.Second
+	if s.respawnTimeout == 0 {
+		s.respawnTimeout = 5 * time.Second
 	}
 
 	if err := s.maybeKillPidFile(nil, nil); err != nil {
@@ -205,13 +205,13 @@ func (s *Supervisor) Supervise() error {
 			}
 
 			// TODO Maybe some backoff thingy would be nice
-			s.log.Infof("respawning in %s", s.TimeoutRespawn.String())
+			s.log.Infof("respawning in %s", s.respawnTimeout.String())
 
 			select {
 			case <-ctx.Done():
 				s.log.Debug("respawn cancelled")
 				return
-			case <-time.After(s.TimeoutRespawn):
+			case <-time.After(s.respawnTimeout):
 				s.log.Debug("respawning")
 			}
 		}
