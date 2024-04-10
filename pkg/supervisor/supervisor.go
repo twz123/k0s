@@ -54,8 +54,6 @@ type Supervisor struct {
 	ProcFSPath string
 	// KillFunction is only used for testing
 	KillFunction func(int, syscall.Signal) error
-	// A function to clean some leftovers before starting or restarting the supervised process
-	CleanBeforeFn func() error
 
 	cmd            *exec.Cmd
 	done           chan bool
@@ -168,9 +166,6 @@ func (s *Supervisor) Supervise() error {
 			s.mutex.Lock()
 
 			var err error
-			if s.CleanBeforeFn != nil {
-				err = s.CleanBeforeFn()
-			}
 			if err != nil {
 				s.log.Warnf("Failed to clean before running the process %s: %s", s.BinPath, err)
 			} else {
