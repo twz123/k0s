@@ -68,6 +68,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 
 	apiServerUID, err := users.LookupUID(constant.ApiserverUser)
 	if err != nil {
+		err = fmt.Errorf("failed to lookup UID for %q: %w", constant.ApiserverUser, err)
 		apiServerUID = users.RootUID
 		logrus.WithError(err).Warn("Files with key material for kube-apiserver user will be owned by root")
 	}
@@ -125,6 +126,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 
 		uid, err := users.LookupUID(constant.KonnectivityServerUser)
 		if err != nil {
+			err = fmt.Errorf("failed to lookup UID for %q: %w", constant.KonnectivityServerUser, err)
 			uid = users.RootUID
 			logrus.WithError(err).Warn("Files with key material for konnectivity-server user will be owned by root")
 		}
@@ -164,6 +166,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 
 		uid, err := users.LookupUID(constant.SchedulerUser)
 		if err != nil {
+			err = fmt.Errorf("failed to lookup UID for %q: %w", constant.SchedulerUser, err)
 			uid = users.RootUID
 			logrus.WithError(err).Warn("Files with key material for kube-scheduler user will be owned by root")
 		}

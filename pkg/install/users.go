@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
-	"os/user"
 	"reflect"
 	"strings"
 
@@ -75,7 +74,7 @@ func DeleteControllerUsers(clusterConfig *v1beta1.ClusterConfig) error {
 // TODO: we should also consider modifying the user, if the user exists, but with wrong settings
 func EnsureUser(name string, homeDir string) error {
 	_, err := users.LookupUID(name)
-	if errors.Is(err, user.UnknownUserError(name)) {
+	if errors.Is(err, users.ErrNotExist) {
 		logrus.Infof("creating user: %s", name)
 		return createUser(name, homeDir)
 	}
