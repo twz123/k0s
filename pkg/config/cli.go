@@ -17,11 +17,13 @@ limitations under the License.
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/k0sproject/k0s/pkg/component/manager"
@@ -84,10 +86,20 @@ type WorkerOptions struct {
 	KubeletExtraArgs string
 	Labels           []string
 	Taints           []string
-	TokenFile        string
-	TokenArg         string
+	JoinToken        JoinTokenFunc
 	WorkerProfile    string
 	IPTablesMode     string
+}
+
+type JoinTokenFunc = func() (string, error)
+
+func initJoinToken(dst *JoinTokenFunc, f JoinTokenFunc) error {
+	if *dst != nil {
+		return errors.New("you can only pass one token argument either as a CLI argument 'k0s controller [join-token]' or as a flag 'k0s controller --token-file [path]'")
+	}
+
+	*dst = f
+	return nil
 }
 
 func (o *ControllerOptions) Normalize() error {
@@ -105,6 +117,10 @@ func (o *ControllerOptions) Normalize() error {
 	o.DisableComponents = disabledComponents
 
 	return nil
+}
+
+func (o *WorkerOptions) InitFixedJoinToken(joinToken string) error {
+	return initJoinToken(&o.JoinToken, func() (string, error) { return joinToken, nil })
 }
 
 func DefaultLogLevels() map[string]string {
@@ -156,7 +172,7 @@ func GetWorkerFlags() *pflag.FlagSet {
 	flagset.StringVar(&workerOpts.WorkerProfile, "profile", "default", "worker profile to use on the node")
 	flagset.StringVar(&workerOpts.CIDRRange, "cidr-range", "10.96.0.0/12", "HACK: cidr range for the windows worker node")
 	flagset.BoolVar(&workerOpts.CloudProvider, "enable-cloud-provider", false, "Whether or not to enable cloud provider support in kubelet")
-	flagset.StringVar(&workerOpts.TokenFile, "token-file", "", "Path to the file containing join-token.")
+	flagset.Var(&tokenFileFlag{f: &workerOpts.JoinToken}, "token-file", "Path to the file containing join-token.")
 	flagset.StringToStringVarP(&workerOpts.CmdLogLevels, "logging", "l", DefaultLogLevels(), "Logging Levels for the different components")
 	flagset.StringSliceVarP(&workerOpts.Labels, "labels", "", []string{}, "Node labels, list of key=value pairs")
 	flagset.StringSliceVarP(&workerOpts.Taints, "taints", "", []string{}, "Node taints, list of key=value:effect strings")
@@ -271,5 +287,45 @@ func CallParentPersistentPreRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	return nil
+}
+
+type tokenFileFlag struct {
+	path string
+	f    *JoinTokenFunc
+}
+
+// Type implements pflag.Value.
+func (t *tokenFileFlag) Type() string {
+	return "string"
+}
+
+// String implements pflag.Value.
+func (t *tokenFileFlag) String() string {
+	return t.path // This is important for cmd/install/cmdFlagsToArgs
+}
+
+// Set implements pflag.Value.
+func (t *tokenFileFlag) Set(path string) error {
+	// Lazy-load the token file and cache the result.
+	var once sync.Once
+	var token string
+	var err error
+
+	if err := initJoinToken(t.f, func() (string, error) {
+		once.Do(func() {
+			var data []byte
+			data, err := os.ReadFile(path)
+			if err == nil {
+				token = string(data)
+			}
+		})
+
+		return token, err
+	}); err != nil {
+		return err
+	}
+
+	t.path = path
 	return nil
 }

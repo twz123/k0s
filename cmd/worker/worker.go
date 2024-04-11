@@ -72,21 +72,14 @@ func NewWorkerCmd() *cobra.Command {
 
 			c := (*Command)(opts)
 			if len(args) > 0 {
-				c.TokenArg = args[0]
+				if len(args) > 0 {
+					if err := c.InitFixedJoinToken(args[0]); err != nil {
+						return err
+					}
+				}
 			}
 
 			c.Logging = stringmap.Merge(c.CmdLogLevels, c.DefaultLogLevels)
-			if len(c.TokenArg) > 0 && len(c.TokenFile) > 0 {
-				return fmt.Errorf("you can only pass one token argument either as a CLI argument 'k0s worker [token]' or as a flag 'k0s worker --token-file [path]'")
-			}
-
-			if len(c.TokenFile) > 0 {
-				bytes, err := os.ReadFile(c.TokenFile)
-				if err != nil {
-					return err
-				}
-				c.TokenArg = string(bytes)
-			}
 
 			if err := (&sysinfo.K0sSysinfoSpec{
 				ControllerRoleEnabled: false,

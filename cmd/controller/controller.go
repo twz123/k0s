@@ -91,22 +91,14 @@ func NewControllerCmd() *cobra.Command {
 			c := (*command)(opts)
 
 			if len(args) > 0 {
-				c.TokenArg = args[0]
-			}
-			if len(c.TokenArg) > 0 && len(c.TokenFile) > 0 {
-				return fmt.Errorf("you can only pass one token argument either as a CLI argument 'k0s controller [join-token]' or as a flag 'k0s controller --token-file [path]'")
+				if err := c.InitFixedJoinToken(args[0]); err != nil {
+					return err
+				}
 			}
 			if err := c.ControllerOptions.Normalize(); err != nil {
 				return err
 			}
 
-			if len(c.TokenFile) > 0 {
-				bytes, err := os.ReadFile(c.TokenFile)
-				if err != nil {
-					return err
-				}
-				c.TokenArg = string(bytes)
-			}
 			c.Logging = stringmap.Merge(c.CmdLogLevels, c.DefaultLogLevels)
 
 			if err := (&sysinfo.K0sSysinfoSpec{
@@ -178,8 +170,12 @@ func (c *command) start(ctx context.Context) error {
 
 	var joinClient *token.JoinClient
 
-	if c.TokenArg != "" && c.needToJoin() {
-		joinClient, err = joinController(ctx, c.TokenArg, c.K0sVars.CertRootDir)
+	if c.JoinToken != nil && c.needToJoin() {
+		joinToken, err := c.JoinToken()
+		if err != nil {
+			return fmt.Errorf("failed to obtain join token: %w", err)
+		}
+		joinClient, err = joinController(ctx, joinToken, c.K0sVars.CertRootDir)
 		if err != nil {
 			return fmt.Errorf("failed to join controller: %w", err)
 		}
@@ -619,7 +615,7 @@ func (c *command) startWorker(ctx context.Context, profile string, nodeConfig *v
 	// opts to start the worker. Needs to be a copy so the original token and
 	// possibly other args won't get messed up.
 	wc := workercmd.Command(*(*config.CLIOptions)(c))
-	wc.TokenArg = bootstrapConfig
+	wc.JoinToken = func() (string, error) { return bootstrapConfig, nil }
 	wc.WorkerProfile = profile
 	wc.Labels = append(wc.Labels, fmt.Sprintf("%s=control-plane", constant.K0SNodeRoleLabel))
 	if !c.SingleNode && !c.NoTaints {
@@ -657,8 +653,8 @@ func writeCerts(caData v1beta1.CaResponse, certRootDir string) error {
 	return nil
 }
 
-func joinController(ctx context.Context, tokenArg string, certRootDir string) (*token.JoinClient, error) {
-	joinClient, err := token.JoinClientFromToken(tokenArg)
+func joinController(ctx context.Context, joinToken string, certRootDir string) (*token.JoinClient, error) {
+	joinClient, err := token.JoinClientFromToken(joinToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create join client: %w", err)
 	}

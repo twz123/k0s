@@ -70,9 +70,14 @@ func BootstrapKubeletKubeconfig(ctx context.Context, k0sVars *config.CfgVars, wo
 
 	// 3: A join token has been given.
 	// Bootstrap the kubelet kubeconfig via the embedded bootstrap config.
-	case workerOpts.TokenArg != "":
+	case workerOpts.JoinToken != nil:
 		// Join token given, so use that.
-		kubeconfig, err := token.DecodeJoinToken(workerOpts.TokenArg)
+		joinToken, err := workerOpts.JoinToken()
+		if err != nil {
+			return fmt.Errorf("failed to obtain join token: %w", err)
+		}
+
+		kubeconfig, err := token.DecodeJoinToken(joinToken)
 		if err != nil {
 			return fmt.Errorf("failed to decode join token: %w", err)
 		}
