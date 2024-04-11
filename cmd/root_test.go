@@ -78,7 +78,7 @@ func TestRootCmd_Controller_Help(t *testing.T) {
 	assert.Regexp(t, `^Run controller
 
 Usage:
-  k0s controller \[join-token\] \[flags\]
+  k0s controller \[flags\] \[\[\--\] <join-token>\]
 
 Aliases:
   controller, server
@@ -86,10 +86,10 @@ Aliases:
 Examples:
 \tCommand to associate master nodes:
 \tCLI argument:
-\t\$ k0s controller \[join-token\]
+\t\$ k0s controller <join-token>
 
 \tor CLI flag:
-\t\$ k0s controller --token-file \[path_to_file\]
+\t\$ k0s controller --token-file <path>
 \tNote: Token can be passed either as a CLI argument or as a flag
 
 Flags:
@@ -134,7 +134,7 @@ func TestRootCmd_Install_Controller_Help(t *testing.T) {
 	assert.Regexp(t, `^Install k0s controller on a brand-new system\. Must be run as root \(or with sudo\)
 
 Usage:
-  k0s install controller \[flags\]
+  k0s install controller \[flags\] \[\[\--\] <join-token>\]
 
 Aliases:
   controller, server

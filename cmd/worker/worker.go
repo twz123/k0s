@@ -51,6 +51,7 @@ func NewWorkerCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "worker [join-token]",
 		Short: "Run worker",
+		Args:  cobra.RangeArgs(0, 1),
 		Example: `	Command to add worker node to the master node:
 	CLI argument:
 	$ k0s worker [token]
