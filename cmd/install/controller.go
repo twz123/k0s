@@ -27,7 +27,7 @@ import (
 
 func installControllerCmd(installFlags *installFlags) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "controller",
+		Use:     "controller [flags] [[--] <join-token>]",
 		Short:   "Install k0s controller on a brand-new system. Must be run as root (or with sudo)",
 		Aliases: []string{"server"},
 		Example: `All default values of controller command will be passed to the service stub unless overridden.
@@ -53,9 +53,6 @@ With the controller subcommand you can setup a single node cluster by running:
 				return fmt.Errorf("invalid node config: %w", errors.Join(errs...))
 			}
 
-			if err := c.convertFileParamsToAbsolute(); err != nil {
-				return err
-			}
 			flagsAndVals := []string{"controller"}
 			flagsAndVals = append(flagsAndVals, cmdFlagsToArgs(cmd)...)
 			if err := c.setup("controller", flagsAndVals, installFlags); err != nil {

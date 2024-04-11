@@ -66,15 +66,16 @@ func NewControllerCmd() *cobra.Command {
 	var ignorePreFlightChecks bool
 
 	cmd := &cobra.Command{
-		Use:     "controller [join-token]",
+		Use:     "controller [flags] [[--] <join-token>]",
 		Short:   "Run controller",
 		Aliases: []string{"server"},
+		Args:    cobra.RangeArgs(0, 1),
 		Example: `	Command to associate master nodes:
 	CLI argument:
-	$ k0s controller [join-token]
+	$ k0s controller <join-token>
 
 	or CLI flag:
-	$ k0s controller --token-file [path_to_file]
+	$ k0s controller --token-file <path>
 	Note: Token can be passed either as a CLI argument or as a flag`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			logrus.SetOutput(cmd.OutOrStdout())
