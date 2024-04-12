@@ -122,15 +122,30 @@ func TestGetEnv(t *testing.T) {
 
 	env := getEnv("/var/lib/k0s", "foo", false)
 	sort.Strings(env)
-	expected := fmt.Sprintf("[HTTPS_PROXY=a.b.c:1080 PATH=/var/lib/k0s/bin%c/usr/local/bin _K0S_MANAGED=yes k1=v1 k2=foo_v2 k3=foo_v3 k4=v4]", os.PathListSeparator)
-	actual := fmt.Sprintf("%s", env)
-	assert.Equal(t, expected, actual)
+	assert.Equal(t, []string{
+		"HTTPS_PROXY=a.b.c:1080",
+		fmt.Sprintf("PATH=/var/lib/k0s/bin%c/usr/local/bin", os.PathListSeparator),
+		"_K0S_MANAGED=yes",
+		"k1=v1",
+		"k2=foo_v2",
+		"k3=foo_v3",
+		"k4=v4",
+	}, env)
 
 	env = getEnv("/var/lib/k0s", "foo", true)
 	sort.Strings(env)
-	expected = fmt.Sprintf("[FOO_PATH=/usr/local/bin FOO_k2=foo_v2 FOO_k3=foo_v3 HTTPS_PROXY=a.b.c:1080 PATH=/var/lib/k0s/bin%c/bin _K0S_MANAGED=yes k1=v1 k2=v2 k3=v3 k4=v4]", os.PathListSeparator)
-	actual = fmt.Sprintf("%s", env)
-	assert.Equal(t, expected, actual)
+	assert.Equal(t, []string{
+		"FOO_PATH=/usr/local/bin",
+		"FOO_k2=foo_v2",
+		"FOO_k3=foo_v3",
+		"HTTPS_PROXY=a.b.c:1080",
+		fmt.Sprintf("PATH=/var/lib/k0s/bin%c/bin", os.PathListSeparator),
+		"_K0S_MANAGED=yes",
+		"k1=v1",
+		"k2=v2",
+		"k3=v3",
+		"k4=v4",
+	}, env)
 }
 
 func TestRespawn(t *testing.T) {
