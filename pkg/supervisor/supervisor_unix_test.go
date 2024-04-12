@@ -88,9 +88,9 @@ func TestKillPid(t *testing.T) {
 		}
 		s := Supervisor{
 			Name:       "supervisor-test-is-running",
+			Command:    "/bin/true",
 			procFSPath: m.ProcFSPath,
 			killFunc:   m.killNow,
-			BinPath:    "/bin/true",
 		}
 		require.NoError(t, createMockProcess(s.procFSPath, "123", []byte("/bin/true\x00"), true))
 
@@ -117,10 +117,10 @@ func TestKillPid(t *testing.T) {
 		}
 		s := Supervisor{
 			Name:        "supervisor-test-is-running",
+			Command:     "/bin/true",
 			stopTimeout: exitCheckInterval,
 			procFSPath:  m.ProcFSPath,
 			killFunc:    m.killOnSigKill,
-			BinPath:     "/bin/true",
 		}
 		require.NoError(t, createMockProcess(s.procFSPath, "123", []byte("/bin/true\x00"), true))
 
@@ -145,16 +145,16 @@ func TestKillPid(t *testing.T) {
 func TestMaybeKillPidFile(t *testing.T) {
 	t.Run("Kill non existing pidFile", func(t *testing.T) {
 		s := Supervisor{
-			PidFile: filepath.Join(t.TempDir(), "invalid"),
+			pidFile: filepath.Join(t.TempDir(), "invalid"),
 		}
 		require.NoError(t, s.maybeKillPidFile(nil, nil), "If the file doesn't exist should exit without error")
 	})
 
 	t.Run("Kill invalid pidFile", func(t *testing.T) {
 		s := Supervisor{
-			PidFile: filepath.Join(t.TempDir(), "invalid"),
+			pidFile: filepath.Join(t.TempDir(), "invalid"),
 		}
-		require.NoError(t, ioutil.WriteFile(s.PidFile, []byte("invalid"), 0600), "Failed to create invalid pidFile")
+		require.NoError(t, ioutil.WriteFile(s.pidFile, []byte("invalid"), 0600), "Failed to create invalid pidFile")
 
 		require.Error(t, s.maybeKillPidFile(nil, nil), "Should have failed to kill invalid pidFile")
 	})
@@ -163,14 +163,15 @@ func TestMaybeKillPidFile(t *testing.T) {
 			ProcFSPath: t.TempDir(),
 		}
 		s := Supervisor{
-			PidFile:    filepath.Join(t.TempDir(), "valid"),
+			Command:    "/bin/true",
+			Args:       []string{},
 			procFSPath: m.ProcFSPath,
 			killFunc:   m.killNow,
-			BinPath:    "/bin/true",
+			pidFile:    filepath.Join(t.TempDir(), "valid"),
 		}
 
 		require.NoError(t, createMockProcess(s.procFSPath, "12345", []byte("/bin/false\x00"), true))
-		require.NoError(t, ioutil.WriteFile(s.PidFile, []byte("12345\n"), 0700), "Failed to create valid pidFile")
+		require.NoError(t, os.WriteFile(s.pidFile, []byte("12345\n"), 0700), "Failed to create valid pidFile")
 
 		check := make(chan time.Time)
 		deadline := make(chan time.Time)
@@ -191,14 +192,14 @@ func TestMaybeKillPidFile(t *testing.T) {
 			ProcFSPath: t.TempDir(),
 		}
 		s := Supervisor{
-			PidFile:    filepath.Join(t.TempDir(), "valid"),
+			Command:    "/bin/true",
 			procFSPath: m.ProcFSPath,
 			killFunc:   m.killNow,
-			BinPath:    "/bin/true",
+			pidFile:    filepath.Join(t.TempDir(), "valid"),
 		}
 
 		require.NoError(t, createMockProcess(s.procFSPath, "12345", []byte("/bin/true\x00arg1\x00arg2\x00"), false))
-		require.NoError(t, ioutil.WriteFile(s.PidFile, []byte("12345\n"), 0700), "Failed to create valid pidFile")
+		require.NoError(t, os.WriteFile(s.pidFile, []byte("12345\n"), 0700), "Failed to create valid pidFile")
 
 		check := make(chan time.Time)
 		deadline := make(chan time.Time)
@@ -218,14 +219,14 @@ func TestMaybeKillPidFile(t *testing.T) {
 			ProcFSPath: t.TempDir(),
 		}
 		s := Supervisor{
-			PidFile:    filepath.Join(t.TempDir(), "valid"),
+			Command:    "/bin/true",
 			procFSPath: m.ProcFSPath,
 			killFunc:   m.killNow,
-			BinPath:    "/bin/true",
+			pidFile:    filepath.Join(t.TempDir(), "valid"),
 		}
 
 		require.NoError(t, createMockProcess(s.procFSPath, "12345", []byte("/bin/true\x00arg1\x00arg2\x00"), true))
-		require.NoError(t, ioutil.WriteFile(s.PidFile, []byte("12345\n"), 0700), "Failed to create valid pidFile")
+		require.NoError(t, os.WriteFile(s.pidFile, []byte("12345\n"), 0700), "Failed to create valid pidFile")
 
 		check := make(chan time.Time)
 		deadline := make(chan time.Time)

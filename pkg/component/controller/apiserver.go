@@ -164,13 +164,14 @@ func (a *APIServer) Start(_ context.Context) error {
 	}
 
 	a.supervisor = supervisor.Supervisor{
-		Name:    kubeAPIComponentName,
-		BinPath: assets.BinPath(kubeAPIComponentName, a.K0sVars.BinDir),
-		RunDir:  a.K0sVars.RunDir,
-		DataDir: a.K0sVars.DataDir,
-		Args:    apiServerArgs,
-		UID:     a.uid,
-		GID:     a.gid,
+		Name:       kubeAPIComponentName,
+		Command:    assets.BinPath(kubeAPIComponentName, a.K0sVars.BinDir),
+		Args:       apiServerArgs,
+		PIDFileDir: a.K0sVars.RunDir,
+		WorkDir:    a.K0sVars.DataDir,
+		BinDir:     a.K0sVars.BinDir,
+		UID:        a.uid,
+		GID:        a.gid,
 	}
 
 	etcdArgs, err := getEtcdArgs(a.ClusterConfig.Spec.Storage, a.K0sVars)

@@ -113,13 +113,14 @@ func (a *Scheduler) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterC
 	}
 
 	a.supervisor = &supervisor.Supervisor{
-		Name:    kubeSchedulerComponentName,
-		BinPath: assets.BinPath(kubeSchedulerComponentName, a.K0sVars.BinDir),
-		RunDir:  a.K0sVars.RunDir,
-		DataDir: a.K0sVars.DataDir,
-		Args:    args.ToDashedArgs(),
-		UID:     a.uid,
-		GID:     a.gid,
+		Name:       kubeSchedulerComponentName,
+		Command:    assets.BinPath(kubeSchedulerComponentName, a.K0sVars.BinDir),
+		Args:       args.ToDashedArgs(),
+		PIDFileDir: a.K0sVars.RunDir,
+		WorkDir:    a.K0sVars.DataDir,
+		BinDir:     a.K0sVars.BinDir,
+		UID:        a.uid,
+		GID:        a.gid,
 	}
 	a.previousConfig = args
 	return a.supervisor.Supervise()

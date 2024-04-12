@@ -205,11 +205,14 @@ func (k *Kubelet) Start(ctx context.Context) error {
 	}
 	logrus.Debugf("starting kubelet with args: %v", args)
 	k.supervisor = supervisor.Supervisor{
-		Name:    cmd,
-		BinPath: assets.BinPath(cmd, k.K0sVars.BinDir),
-		RunDir:  k.K0sVars.RunDir,
-		DataDir: k.K0sVars.DataDir,
-		Args:    args.ToArgs(),
+		Name:       cmd,
+		Command:    assets.BinPath(cmd, k.K0sVars.BinDir),
+		Args:       args.ToArgs(),
+		PIDFileDir: k.K0sVars.RunDir,
+		WorkDir:    k.K0sVars.DataDir,
+		BinDir:     k.K0sVars.BinDir,
+		UID:        0,
+		GID:        0,
 	}
 
 	kubeletconfig, err := k.prepareLocalKubeletConfig(kubeletConfigData)

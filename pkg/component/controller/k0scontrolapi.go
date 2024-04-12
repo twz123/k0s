@@ -50,14 +50,14 @@ func (m *K0SControlAPI) Start(_ context.Context) error {
 		return err
 	}
 	m.supervisor = supervisor.Supervisor{
-		Name:    "k0s-control-api",
-		BinPath: selfExe,
-		RunDir:  m.K0sVars.RunDir,
-		DataDir: m.K0sVars.DataDir,
-		Args: []string{
-			"api",
-			fmt.Sprintf("--data-dir=%s", m.K0sVars.DataDir),
-		},
+		Name:       "k0s-control-api",
+		Command:    selfExe,
+		Args:       []string{"api", fmt.Sprintf("--data-dir=%s", m.K0sVars.DataDir)},
+		PIDFileDir: m.K0sVars.RunDir,
+		WorkDir:    m.K0sVars.DataDir,
+		BinDir:     m.K0sVars.BinDir,
+		UID:        0,
+		GID:        0,
 	}
 
 	return m.supervisor.Supervise()

@@ -109,9 +109,7 @@ func (k *Kine) Start(ctx context.Context) error {
 
 	k.supervisor = supervisor.Supervisor{
 		Name:    "kine",
-		BinPath: assets.BinPath("kine", k.K0sVars.BinDir),
-		DataDir: k.K0sVars.DataDir,
-		RunDir:  k.K0sVars.RunDir,
+		Command: assets.BinPath("kine", k.K0sVars.BinDir),
 		Args: []string{
 			fmt.Sprintf("--endpoint=%s", k.Config.DataSource),
 			// NB: kine doesn't parse URLs properly, so construct potentially
@@ -119,8 +117,11 @@ func (k *Kine) Start(ctx context.Context) error {
 			// https://github.com/k3s-io/kine/blob/v0.10.1/pkg/endpoint/endpoint.go#L277-L285
 			fmt.Sprintf("--listen-address=unix://%s", k.K0sVars.KineSocketPath),
 		},
-		UID: k.uid,
-		GID: k.gid,
+		PIDFileDir: k.K0sVars.RunDir,
+		WorkDir:    k.K0sVars.DataDir,
+		BinDir:     k.K0sVars.BinDir,
+		UID:        k.uid,
+		GID:        k.gid,
 	}
 
 	return k.supervisor.Supervise()

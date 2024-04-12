@@ -102,16 +102,16 @@ func (s *Supervisor) maybeKillPidFile(check <-chan time.Time, deadline <-chan ti
 		s.procFSPath = "/proc"
 	}
 
-	pid, err := os.ReadFile(s.PidFile)
+	pid, err := os.ReadFile(s.pidFile)
 	if os.IsNotExist(err) {
 		return nil
 	} else if err != nil {
-		return fmt.Errorf("failed to read pid file %s: %w", s.PidFile, err)
+		return fmt.Errorf("failed to read pid file %s: %w", s.pidFile, err)
 	}
 
 	p, err := strconv.Atoi(strings.TrimSuffix(string(pid), "\n"))
 	if err != nil {
-		return fmt.Errorf("failed to parse pid file %s: %w", s.PidFile, err)
+		return fmt.Errorf("failed to parse pid file %s: %w", s.pidFile, err)
 	}
 
 	return s.killPid(p, check, deadline)
@@ -127,7 +127,7 @@ func (s *Supervisor) shouldKillProcess(pid int) (bool, error) {
 
 	// only kill process if it has the expected cmd
 	cmd := strings.Split(string(cmdline), "\x00")
-	if cmd[0] != s.BinPath {
+	if cmd[0] != s.Command {
 		return false, nil
 	}
 

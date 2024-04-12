@@ -139,9 +139,7 @@ func (c *Component) Start(ctx context.Context) error {
 	} else {
 		c.supervisor = supervisor.Supervisor{
 			Name:    "containerd",
-			BinPath: assets.BinPath("containerd", c.K0sVars.BinDir),
-			RunDir:  c.K0sVars.RunDir,
-			DataDir: c.K0sVars.DataDir,
+			Command: assets.BinPath("containerd", c.K0sVars.BinDir),
 			Args: []string{
 				fmt.Sprintf("--root=%s", filepath.Join(c.K0sVars.DataDir, "containerd")),
 				fmt.Sprintf("--state=%s", filepath.Join(c.K0sVars.RunDir, "containerd")),
@@ -149,6 +147,11 @@ func (c *Component) Start(ctx context.Context) error {
 				fmt.Sprintf("--log-level=%s", c.LogLevel),
 				fmt.Sprintf("--config=%s", c.confPath),
 			},
+			PIDFileDir: c.K0sVars.RunDir,
+			WorkDir:    c.K0sVars.DataDir,
+			BinDir:     c.K0sVars.BinDir,
+			UID:        0,
+			GID:        0,
 		}
 
 		if err := c.supervisor.Supervise(); err != nil {

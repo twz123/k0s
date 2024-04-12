@@ -175,12 +175,14 @@ func (k *Konnectivity) runServer(count int) error {
 	}
 
 	k.supervisor = &supervisor.Supervisor{
-		Name:    "konnectivity",
-		BinPath: assets.BinPath("konnectivity-server", k.K0sVars.BinDir),
-		DataDir: k.K0sVars.DataDir,
-		RunDir:  k.K0sVars.RunDir,
-		Args:    k.serverArgs(count),
-		UID:     k.uid,
+		Name:       "konnectivity",
+		Command:    assets.BinPath("konnectivity-server", k.K0sVars.BinDir),
+		Args:       k.serverArgs(count),
+		PIDFileDir: k.K0sVars.RunDir,
+		WorkDir:    k.K0sVars.DataDir,
+		BinDir:     k.K0sVars.BinDir,
+		UID:        k.uid,
+		GID:        0,
 	}
 	err := k.supervisor.Supervise()
 	if err != nil {

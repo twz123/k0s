@@ -52,35 +52,35 @@ func TestSupervisorStart(t *testing.T) {
 	var testSupervisors = []*SupervisorTest{
 		{
 			proc: Supervisor{
-				Name:    "supervisor-test-sleep",
-				BinPath: sleep.binPath,
-				Args:    sleep.binArgs,
-				RunDir:  t.TempDir(),
+				Name:       "supervisor-test-sleep",
+				Command:    sleep.binPath,
+				Args:       sleep.binArgs,
+				PIDFileDir: t.TempDir(),
 			},
 		},
 		{
 			proc: Supervisor{
-				Name:    "supervisor-test-fail",
-				BinPath: fail.binPath,
-				Args:    fail.binArgs,
-				RunDir:  t.TempDir(),
+				Name:       "supervisor-test-fail",
+				Command:    fail.binPath,
+				Args:       fail.binArgs,
+				PIDFileDir: t.TempDir(),
 			},
 		},
 		{
 			expectedErrMsg: "exec",
 			proc: Supervisor{
-				Name:    "supervisor-test-non-executable",
-				BinPath: t.TempDir(),
-				RunDir:  t.TempDir(),
+				Name:       "supervisor-test-non-executable",
+				Command:    t.TempDir(),
+				PIDFileDir: t.TempDir(),
 			},
 		},
 		{
 			expectedErrMsg: "mkdir " + sleep.binPath,
 			proc: Supervisor{
-				Name:    "supervisor-test-rundir-init-fail",
-				BinPath: sleep.binPath,
-				Args:    sleep.binArgs,
-				RunDir:  filepath.Join(sleep.binPath, "obstructed"),
+				Name:       "supervisor-test-pidfiledir-init-fail",
+				Command:    sleep.binPath,
+				Args:       sleep.binArgs,
+				PIDFileDir: filepath.Join(sleep.binPath, "obstructed"),
 			},
 		},
 	}
@@ -120,7 +120,7 @@ func TestGetEnv(t *testing.T) {
 	t.Setenv("k1", "v1")
 	t.Setenv("FOO_PATH", "/usr/local/bin")
 
-	env := getEnv("/var/lib/k0s", "foo", false)
+	env := getEnv("/var/lib/k0s/bin", "foo", false)
 	sort.Strings(env)
 	assert.Equal(t, []string{
 		"HTTPS_PROXY=a.b.c:1080",
@@ -132,7 +132,7 @@ func TestGetEnv(t *testing.T) {
 		"k4=v4",
 	}, env)
 
-	env = getEnv("/var/lib/k0s", "foo", true)
+	env = getEnv("/var/lib/k0s/bin", "foo", true)
 	sort.Strings(env)
 	assert.Equal(t, []string{
 		"FOO_PATH=/usr/local/bin",
@@ -153,9 +153,9 @@ func TestRespawn(t *testing.T) {
 
 	s := Supervisor{
 		Name:           t.Name(),
-		BinPath:        pingPong.binPath(),
-		RunDir:         t.TempDir(),
+		Command:        pingPong.binPath(),
 		Args:           pingPong.binArgs(),
+		PIDFileDir:     t.TempDir(),
 		respawnTimeout: 1 * time.Millisecond,
 	}
 	require.NoError(t, s.Supervise())
@@ -186,9 +186,9 @@ func TestStopWhileRespawn(t *testing.T) {
 
 	s := Supervisor{
 		Name:           "supervisor-test-stop-while-respawn",
-		BinPath:        fail.binPath,
+		Command:        fail.binPath,
 		Args:           fail.binArgs,
-		RunDir:         t.TempDir(),
+		PIDFileDir:     t.TempDir(),
 		respawnTimeout: 1 * time.Hour,
 	}
 
@@ -230,10 +230,10 @@ func TestMultiThread(t *testing.T) {
 	)
 
 	s := Supervisor{
-		Name:    "supervisor-test-multithread",
-		BinPath: sleep.binPath,
-		Args:    sleep.binArgs,
-		RunDir:  t.TempDir(),
+		Name:       "supervisor-test-multithread",
+		Command:    sleep.binPath,
+		Args:       sleep.binArgs,
+		PIDFileDir: t.TempDir(),
 	}
 
 	var wg sync.WaitGroup

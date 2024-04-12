@@ -38,14 +38,14 @@ import (
 
 // Supervisor is dead simple and stupid process supervisor, just tries to keep the process running in a while-true loop
 type Supervisor struct {
-	Name    string
-	BinPath string
-	RunDir  string
-	DataDir string
-	Args    []string
-	PidFile string
-	UID     int
-	GID     int
+	Name       string   // Name of the supervised component
+	Command    string   // The path to the component's program to launch (arg0)
+	Args       []string // Arguments passed to the component's program (arg1..n)
+	PIDFileDir string   // Directory to store the PID file in
+	WorkDir    string   // The program's working directory
+	BinDir     string   // The bin dir to be prepended to the PATH environment variable
+	UID        int
+	GID        int
 
 	// For those components having env prefix convention such as ETCD_xxx, we should keep the prefix.
 	KeepEnvPrefix bool
@@ -56,6 +56,7 @@ type Supervisor struct {
 	killFunc       func(int, syscall.Signal) error // tunable for tests
 
 	cmd            *exec.Cmd
+	pidFile        string
 	done           chan bool
 	log            logrus.FieldLogger
 	mutex          sync.Mutex
@@ -74,11 +75,11 @@ func (s *Supervisor) processWaitQuit(ctx context.Context) bool {
 	}()
 
 	pidbuf := []byte(strconv.Itoa(s.cmd.Process.Pid) + "\n")
-	err := os.WriteFile(s.PidFile, pidbuf, constant.PidFileMode)
+	err := os.WriteFile(s.pidFile, pidbuf, constant.PidFileMode)
 	if err != nil {
-		s.log.Warnf("Failed to write file %s: %v", s.PidFile, err)
+		s.log.Warnf("Failed to write file %s: %v", s.pidFile, err)
 	}
-	defer os.Remove(s.PidFile)
+	defer os.Remove(s.pidFile)
 
 	select {
 	case <-ctx.Done():
@@ -133,8 +134,8 @@ func (s *Supervisor) Supervise() error {
 		return nil
 	}
 	s.log = logrus.WithField("component", s.Name)
-	s.PidFile = path.Join(s.RunDir, s.Name) + ".pid"
-	if err := dir.Init(s.RunDir, constant.RunDirMode); err != nil {
+	s.pidFile = path.Join(s.PIDFileDir, s.Name) + ".pid"
+	if err := dir.Init(s.PIDFileDir, 0755); err != nil {
 		s.log.Warnf("failed to initialize dir: %v", err)
 		return err
 	}
@@ -165,9 +166,9 @@ func (s *Supervisor) Supervise() error {
 		for {
 			s.mutex.Lock()
 
-			s.cmd = exec.Command(s.BinPath, s.Args...)
-			s.cmd.Dir = s.DataDir
-			s.cmd.Env = getEnv(s.DataDir, s.Name, s.KeepEnvPrefix)
+			s.cmd = exec.Command(s.Command, s.Args...)
+			s.cmd.Dir = s.WorkDir
+			s.cmd.Env = getEnv(s.BinDir, s.Name, s.KeepEnvPrefix)
 
 			// detach from the process group so children don't
 			// get signals sent directly to parent.
@@ -241,7 +242,7 @@ func (s *Supervisor) Stop() error {
 // Prepare the env for exec:
 // - handle component specific env
 // - inject k0s embedded bins into path
-func getEnv(dataDir, component string, keepEnvPrefix bool) []string {
+func getEnv(binDir, component string, keepEnvPrefix bool) []string {
 	env := os.Environ()
 	componentPrefix := fmt.Sprintf("%s_", strings.ToUpper(component))
 
@@ -276,7 +277,7 @@ func getEnv(dataDir, component string, keepEnvPrefix bool) []string {
 		}
 		switch k {
 		case "PATH":
-			env[i] = fmt.Sprintf("PATH=%s", dir.PathListJoin(path.Join(dataDir, "bin"), v))
+			env[i] = fmt.Sprintf("PATH=%s", dir.PathListJoin(binDir, v))
 		default:
 			env[i] = fmt.Sprintf("%s=%s", k, v)
 		}

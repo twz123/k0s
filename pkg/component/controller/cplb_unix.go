@@ -107,12 +107,14 @@ func (k *Keepalived) Start(_ context.Context) error {
 
 	k.log.Infoln("Starting keepalived")
 	k.supervisor = &supervisor.Supervisor{
-		Name:    "keepalived",
-		BinPath: assets.BinPath("keepalived", k.K0sVars.BinDir),
-		Args:    args,
-		RunDir:  filepath.Dir(k.K0sVars.KeepalivedConfigFile),
-		DataDir: filepath.Dir(k.K0sVars.KeepalivedConfigFile),
-		UID:     k.uid,
+		Name:       "keepalived",
+		Command:    assets.BinPath("keepalived", k.K0sVars.BinDir),
+		Args:       args,
+		PIDFileDir: k.K0sVars.RunDir,
+		WorkDir:    k.K0sVars.DataDir,
+		BinDir:     k.K0sVars.BinDir,
+		UID:        k.uid,
+		GID:        0,
 	}
 	return k.supervisor.Supervise()
 }
