@@ -176,7 +176,7 @@ func (s *Supervisor) Supervise() error {
 			} else {
 				s.cmd = exec.Command(s.BinPath, s.Args...)
 				s.cmd.Dir = s.DataDir
-				s.cmd.Env = getEnv(s.DataDir, s.Name, s.KeepEnvPrefix)
+				s.cmd.Env = getEnv(os.Environ(), s.DataDir, s.Name, s.KeepEnvPrefix)
 
 				// detach from the process group so children don't
 				// get signals sent directly to parent.
@@ -251,8 +251,7 @@ func (s *Supervisor) Stop() error {
 // Prepare the env for exec:
 // - handle component specific env
 // - inject k0s embedded bins into path
-func getEnv(dataDir, component string, keepEnvPrefix bool) []string {
-	env := os.Environ()
+func getEnv(env []string, dataDir, component string, keepEnvPrefix bool) []string {
 	componentPrefix := fmt.Sprintf("%s_", strings.ToUpper(component))
 
 	// put the component specific env vars in the front.

@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -98,24 +99,16 @@ func TestSupervisorStart(t *testing.T) {
 }
 
 func TestGetEnv(t *testing.T) {
-	// backup environment vars, and restore them when test finishes
-	oldEnv := os.Environ()
-	t.Cleanup(func() {
-		for _, e := range oldEnv {
-			key, val, _ := strings.Cut(e, "=")
-			assert.NoError(t, os.Setenv(key, val))
-		}
-	})
-
-	os.Clearenv()
-	t.Setenv("PATH", "/path/to/generic")
-	t.Setenv("both", "from_generic")
-	t.Setenv("FOO_only_foo", "foo_value")
-	t.Setenv("FOO_both", "from_foo")
-	t.Setenv("FOO_HTTPS_PROXY", "foo.example.com:1080")
-	t.Setenv("HTTPS_PROXY", "generic.example.com:8888")
-	t.Setenv("only_generic", "generic_value")
-	t.Setenv("FOO_PATH", "/path/to/foo")
+	env := []string{
+		"PATH=/path/to/generic",
+		"both=from_generic",
+		"FOO_only_foo=foo_value",
+		"FOO_both=from_foo",
+		"FOO_HTTPS_PROXY=foo.example.com:1080",
+		"HTTPS_PROXY=generic.example.com:8888",
+		"only_generic=generic_value",
+		"FOO_PATH=/path/to/foo",
+	}
 
 	expected := []string{
 		"HTTPS_PROXY=foo.example.com:1080",
@@ -125,7 +118,7 @@ func TestGetEnv(t *testing.T) {
 		"only_foo=foo_value",
 		"only_generic=generic_value",
 	}
-	actual := getEnv("/var/lib/k0s", "foo", false)
+	actual := getEnv(slices.Clone(env), "/var/lib/k0s", "foo", false)
 	assert.ElementsMatch(t, expected, actual)
 
 	expected = []string{
@@ -138,7 +131,7 @@ func TestGetEnv(t *testing.T) {
 		"both=from_generic",
 		"only_generic=generic_value",
 	}
-	actual = getEnv("/var/lib/k0s", "foo", true)
+	actual = getEnv(slices.Clone(env), "/var/lib/k0s", "foo", true)
 	assert.ElementsMatch(t, expected, actual)
 }
 
