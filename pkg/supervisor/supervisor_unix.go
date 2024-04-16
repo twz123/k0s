@@ -94,7 +94,7 @@ Loop:
 
 // maybeKillPidFile checks kills the process in the pidFile if it's has
 // the same binary as the supervisor's and also checks that the env
-// `_KOS_MANAGED=yes`. This function does not delete the old pidFile as
+// `_K0S_MANAGED=yes`. This function does not delete the old pidFile as
 // this is done by the caller.
 // The tickers are used for testing purposes, otherwise set them to nil.
 func (s *Supervisor) maybeKillPidFile(check <-chan time.Time, deadline <-chan time.Time) error {
@@ -131,7 +131,7 @@ func (s *Supervisor) shouldKillProcess(pid int) (bool, error) {
 		return false, nil
 	}
 
-	//only kill process if it has the _KOS_MANAGED env set
+	// only kill process if it has the _K0S_MANAGED env set
 	env, err := os.ReadFile(filepath.Join(s.ProcFSPath, strconv.Itoa(pid), "environ"))
 	if os.IsNotExist(err) {
 		return false, nil
@@ -140,8 +140,8 @@ func (s *Supervisor) shouldKillProcess(pid int) (bool, error) {
 	}
 
 	for _, e := range strings.Split(string(env), "\x00") {
-		if e == k0sManaged {
-			return true, nil
+		if name, value, ok := strings.Cut(e, "="); ok && name == "_K0S_MANAGED" {
+			return value == "yes", nil
 		}
 	}
 	return false, nil

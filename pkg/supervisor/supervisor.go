@@ -22,8 +22,8 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -64,8 +64,6 @@ type Supervisor struct {
 	startStopMutex sync.Mutex
 	cancel         context.CancelFunc
 }
-
-const k0sManaged = "_K0S_MANAGED=yes"
 
 // processWaitQuit waits for a process to exit or a shut down signal
 // returns true if shutdown is requested
@@ -254,47 +252,71 @@ func (s *Supervisor) Stop() error {
 func getEnv(env []string, dataDir, component string, keepEnvPrefix bool) []string {
 	componentPrefix := fmt.Sprintf("%s_", strings.ToUpper(component))
 
-	// put the component specific env vars in the front.
-	sort.Slice(env, func(i, j int) bool { return strings.HasPrefix(env[i], componentPrefix) })
+	type envVarValue = struct {
+		fromPrefixed bool   // indicates if the value originates from a prefixed variable
+		value        string // the actual value of the variable
+	}
 
-	overrides := map[string]struct{}{}
-	i := 0
-	for _, e := range env {
-		kv := strings.SplitN(e, "=", 2)
-		k, v := kv[0], kv[1]
-		// if there is already a correspondent component specific env, skip it.
-		if _, ok := overrides[k]; ok {
+	// Rewrite the input environment, i.e. strip
+	// the component prefix from variable names.
+	vars := make(map[string]envVarValue, len(env))
+	for _, v := range env {
+		name, value, valid := strings.Cut(v, "=")
+		// Environment variables without an equals sign are malformed. Go strips
+		// those in os.Environ() for UNIX-like operating systems anyways. Not
+		// sure about Windows's GetEnvironmentStrings Win32 API call.
+		// Nevertheless, makes sense to keep the behavior in sync between OSes.
+		// The reverse operation when constructing the resulting environment
+		// variable strings form an envVar will add an equals sign in any case.
+		if !valid {
 			continue
 		}
-		if strings.HasPrefix(k, componentPrefix) {
-			var shouldOverride bool
-			k1 := strings.TrimPrefix(k, componentPrefix)
-			switch k1 {
-			// always override proxy env
-			case "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY":
-				shouldOverride = true
-			default:
-				if !keepEnvPrefix {
-					shouldOverride = true
-				}
-			}
-			if shouldOverride {
-				k = k1
-				overrides[k] = struct{}{}
-			}
-		}
-		switch k {
-		case "PATH":
-			env[i] = fmt.Sprintf("PATH=%s", dir.PathListJoin(path.Join(dataDir, "bin"), v))
-		default:
-			env[i] = fmt.Sprintf("%s=%s", k, v)
-		}
-		i++
-	}
-	env = append([]string{k0sManaged}, env...)
-	i++
 
-	return env[:i]
+		// Does this variable have the component prefix?
+		isPrefixed := strings.HasPrefix(name, componentPrefix)
+		if isPrefixed {
+			// This is the non-prefixed target name.
+			targetName := name[len(componentPrefix):]
+
+			// Are the prefixes to be kept?
+			if keepEnvPrefix {
+				// Rename these variables even if the prefix is to be kept.
+				// All other variables are not renamed and used as is.
+				switch targetName {
+				case "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY":
+					name = targetName
+				}
+			} else {
+				// Rename the variable to its shortened form.
+				name = targetName
+			}
+		}
+
+		// Only replace generic values with prefixed ones, nothing else.
+		if prevValue, exists := vars[name]; !exists || (isPrefixed && !prevValue.fromPrefixed) {
+			vars[name] = envVarValue{isPrefixed, value}
+		}
+	}
+
+	// Prepend the bin dir to PATH.
+	if dataDir != "" {
+		newPath := filepath.Join(dataDir, "bin")
+		if path, exists := vars["PATH"]; exists && path.value != "" {
+			newPath = newPath + string(os.PathListSeparator) + path.value
+		}
+		vars["PATH"] = envVarValue{value: newPath}
+	}
+
+	// Mark this as k0s-managed.
+	vars["_K0S_MANAGED"] = envVarValue{value: "yes"}
+
+	// Construct the resulting environment variables.
+	env = make([]string, 0, len(vars))
+	for name, v := range vars {
+		env = append(env, name+"="+v.value)
+	}
+
+	return env
 }
 
 // GetProcess returns the last started process

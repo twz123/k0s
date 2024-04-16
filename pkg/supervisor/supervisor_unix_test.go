@@ -41,7 +41,7 @@ func createMockProcess(procFSPath string, pid string, cmdline []byte, k0smanaged
 
 	var env []byte
 	if k0smanaged {
-		env = []byte(fmt.Sprintf("ENV1=A\x00%s\x00ENV3=B\x00", k0sManaged))
+		env = []byte("ENV1=A\x00_K0S_MANAGED=yes\x00ENV3=B\x00")
 	} else {
 		env = []byte("ENV1=A\x00ENV3=B\x00")
 	}

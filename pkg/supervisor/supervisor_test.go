@@ -144,6 +144,35 @@ func TestGetEnv(t *testing.T) {
 			return assert.ElementsMatch(t, expected, actual, "for input: %v", env)
 		})
 	})
+
+	t.Run("first variable wins", func(t *testing.T) {
+		envs := [][]string{
+			{"X=1" /**/, "X=2" /**/, "COMP_X=A", "COMP_X=B"},
+			{"X=1" /**/, "COMP_X=A", "X=2" /**/, "COMP_X=B"},
+			{"X=1" /**/, "COMP_X=A", "COMP_X=B", "X=2" /**/},
+			{"COMP_X=A", "X=1" /**/, "COMP_X=B", "X=2" /**/},
+			{"COMP_X=A", "COMP_X=B", "X=1" /**/, "X=2" /**/},
+			{"COMP_X=A", "X=1" /**/, "X=2" /**/, "COMP_X=B"},
+		}
+
+		for _, env := range envs {
+			expected := []string{"_K0S_MANAGED=yes", "X=A"}
+			actual := getEnv(slices.Clone(env), "", "comp", false)
+			require.ElementsMatch(t, expected, actual, "for input: %v", env)
+
+			expected = []string{"_K0S_MANAGED=yes", "X=1", "COMP_X=A"}
+			actual = getEnv(slices.Clone(env), "", "comp", true)
+			require.ElementsMatch(t, expected, actual, "for input: %v", env)
+		}
+	})
+
+	t.Run("add PATH if missing", func(t *testing.T) {
+		dataDir := filepath.Join("path", "to", "data")
+		binDir := filepath.Join(dataDir, "bin")
+		expected := []string{"_K0S_MANAGED=yes", "PATH=" + binDir}
+		actual := getEnv(nil, dataDir, "", false)
+		assert.ElementsMatch(t, expected, actual, "for input: %v", env)
+	})
 }
 
 func TestRespawn(t *testing.T) {
