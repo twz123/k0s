@@ -108,40 +108,35 @@ func TestGetEnv(t *testing.T) {
 	})
 
 	os.Clearenv()
-	t.Setenv("k3", "v3")
-	t.Setenv("PATH", "/bin")
-	t.Setenv("k2", "v2")
-	t.Setenv("FOO_k3", "foo_v3")
-	t.Setenv("k4", "v4")
-	t.Setenv("FOO_k2", "foo_v2")
-	t.Setenv("FOO_HTTPS_PROXY", "a.b.c:1080")
-	t.Setenv("HTTPS_PROXY", "1.2.3.4:8888")
-	t.Setenv("k1", "v1")
-	t.Setenv("FOO_PATH", "/usr/local/bin")
+	t.Setenv("PATH", "/path/to/generic")
+	t.Setenv("both", "from_generic")
+	t.Setenv("FOO_only_foo", "foo_value")
+	t.Setenv("FOO_both", "from_foo")
+	t.Setenv("FOO_HTTPS_PROXY", "foo.example.com:1080")
+	t.Setenv("HTTPS_PROXY", "generic.example.com:8888")
+	t.Setenv("only_generic", "generic_value")
+	t.Setenv("FOO_PATH", "/path/to/foo")
 
 	expected := []string{
-		"HTTPS_PROXY=a.b.c:1080",
-		fmt.Sprintf("PATH=/var/lib/k0s/bin%c/usr/local/bin", os.PathListSeparator),
+		"HTTPS_PROXY=foo.example.com:1080",
+		fmt.Sprintf("PATH=/var/lib/k0s/bin%c/path/to/foo", os.PathListSeparator),
 		"_K0S_MANAGED=yes",
-		"k1=v1",
-		"k2=foo_v2",
-		"k3=foo_v3",
-		"k4=v4",
+		"both=from_foo",
+		"only_foo=foo_value",
+		"only_generic=generic_value",
 	}
 	actual := getEnv("/var/lib/k0s", "foo", false)
 	assert.ElementsMatch(t, expected, actual)
 
 	expected = []string{
-		"FOO_PATH=/usr/local/bin",
-		"FOO_k2=foo_v2",
-		"FOO_k3=foo_v3",
-		"HTTPS_PROXY=a.b.c:1080",
-		fmt.Sprintf("PATH=/var/lib/k0s/bin%c/bin", os.PathListSeparator),
+		"FOO_PATH=/path/to/foo",
+		"FOO_both=from_foo",
+		"FOO_only_foo=foo_value",
+		"HTTPS_PROXY=foo.example.com:1080",
+		fmt.Sprintf("PATH=/var/lib/k0s/bin%c/path/to/generic", os.PathListSeparator),
 		"_K0S_MANAGED=yes",
-		"k1=v1",
-		"k2=v2",
-		"k3=v3",
-		"k4=v4",
+		"both=from_generic",
+		"only_generic=generic_value",
 	}
 	actual = getEnv("/var/lib/k0s", "foo", true)
 	assert.ElementsMatch(t, expected, actual)
