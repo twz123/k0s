@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package supervisor
+package supervisor_test
 
 import (
 	"fmt"
@@ -22,6 +22,8 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/k0sproject/k0s/pkg/supervisor"
 
 	"github.com/k0sproject/k0s/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -44,14 +46,16 @@ func TestGetEnv(t *testing.T) {
 		expected := []string{
 			"HTTPS_PROXY=foo.example.com:1080",
 			fmt.Sprintf("PATH=/var/lib/k0s/bin%c/path/to/foo", os.PathListSeparator),
-			"_K0S_MANAGED=yes",
 			"both=from_foo",
 			"only_foo=foo_value",
 			"only_generic=generic_value",
 		}
 
 		testutil.Permute(env, func() bool {
-			actual := getEnv(slices.Clone(env), "/var/lib/k0s", "foo", false)
+			actual := supervisor.EnvForComponent("foo").
+				WithPathPrefix("/var/lib/k0s/bin").
+				Build(slices.Clone(env))
+
 			return assert.ElementsMatch(t, expected, actual, "for input: %v", env)
 		})
 	})
@@ -63,13 +67,16 @@ func TestGetEnv(t *testing.T) {
 			"FOO_only_foo=foo_value",
 			"HTTPS_PROXY=foo.example.com:1080",
 			fmt.Sprintf("PATH=/var/lib/k0s/bin%c/path/to/generic", os.PathListSeparator),
-			"_K0S_MANAGED=yes",
 			"both=from_generic",
 			"only_generic=generic_value",
 		}
 
 		testutil.Permute(env, func() bool {
-			actual := getEnv(slices.Clone(env), "/var/lib/k0s", "foo", true)
+			actual := supervisor.EnvForComponent("foo").
+				WithPathPrefix("/var/lib/k0s/bin").
+				KeepEnvPrefix().
+				Build(slices.Clone(env))
+
 			return assert.ElementsMatch(t, expected, actual, "for input: %v", env)
 		})
 	})
@@ -85,21 +92,20 @@ func TestGetEnv(t *testing.T) {
 		}
 
 		for _, env := range envs {
-			expected := []string{"_K0S_MANAGED=yes", "X=A"}
-			actual := getEnv(slices.Clone(env), "", "comp", false)
+			expected := []string{"X=A"}
+			actual := supervisor.EnvForComponent("comp").Build(slices.Clone(env))
 			require.ElementsMatch(t, expected, actual, "for input: %v", env)
 
-			expected = []string{"_K0S_MANAGED=yes", "X=1", "COMP_X=A"}
-			actual = getEnv(slices.Clone(env), "", "comp", true)
+			expected = []string{"X=1", "COMP_X=A"}
+			actual = supervisor.EnvForComponent("comp").KeepEnvPrefix().Build(slices.Clone(env))
 			require.ElementsMatch(t, expected, actual, "for input: %v", env)
 		}
 	})
 
 	t.Run("add PATH if missing", func(t *testing.T) {
-		dataDir := filepath.Join("path", "to", "data")
-		binDir := filepath.Join(dataDir, "bin")
-		expected := []string{"_K0S_MANAGED=yes", "PATH=" + binDir}
-		actual := getEnv(nil, dataDir, "", false)
+		binDir := filepath.Join("path", "to", "bin")
+		expected := []string{"PATH=" + binDir}
+		actual := supervisor.EnvForComponent("").WithPathPrefix(binDir).Build(nil)
 		assert.ElementsMatch(t, expected, actual, "for input: %v", env)
 	})
 }

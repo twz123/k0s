@@ -166,6 +166,7 @@ func (a *APIServer) Start(_ context.Context) error {
 	a.supervisor = supervisor.Supervisor{
 		Name:    kubeAPIComponentName,
 		BinPath: assets.BinPath(kubeAPIComponentName, a.K0sVars.BinDir),
+		Env:     supervisor.EnvForComponent(kubeAPIComponentName).WithPathPrefix(a.K0sVars.BinDir).Build(os.Environ()),
 		RunDir:  a.K0sVars.RunDir,
 		DataDir: a.K0sVars.DataDir,
 		Args:    apiServerArgs,

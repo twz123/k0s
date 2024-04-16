@@ -109,6 +109,7 @@ func (k *Keepalived) Start(_ context.Context) error {
 	k.supervisor = &supervisor.Supervisor{
 		Name:    "keepalived",
 		BinPath: assets.BinPath("keepalived", k.K0sVars.BinDir),
+		Env:     supervisor.EnvForComponent("keepalived").WithPathPrefix(k.K0sVars.BinDir).Build(os.Environ()),
 		Args:    args,
 		RunDir:  filepath.Dir(k.K0sVars.KeepalivedConfigFile),
 		DataDir: filepath.Dir(k.K0sVars.KeepalivedConfigFile),

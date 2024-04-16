@@ -215,14 +215,14 @@ func (e *Etcd) Start(ctx context.Context) error {
 	logrus.Debugf("starting etcd with args: %v", args)
 
 	e.supervisor = supervisor.Supervisor{
-		Name:          "etcd",
-		BinPath:       assets.BinPath("etcd", e.K0sVars.BinDir),
-		RunDir:        e.K0sVars.RunDir,
-		DataDir:       e.K0sVars.DataDir,
-		Args:          args.ToArgs(),
-		UID:           e.uid,
-		GID:           e.gid,
-		KeepEnvPrefix: true,
+		Name:    "etcd",
+		BinPath: assets.BinPath("etcd", e.K0sVars.BinDir),
+		Env:     supervisor.EnvForComponent("etcd").WithPathPrefix(e.K0sVars.BinDir).KeepEnvPrefix().Build(os.Environ()),
+		RunDir:  e.K0sVars.RunDir,
+		DataDir: e.K0sVars.DataDir,
+		Args:    args.ToArgs(),
+		UID:     e.uid,
+		GID:     e.gid,
 	}
 
 	return e.supervisor.Supervise()

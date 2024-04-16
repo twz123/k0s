@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 
 	"github.com/sirupsen/logrus"
@@ -115,6 +116,7 @@ func (a *Scheduler) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterC
 	a.supervisor = &supervisor.Supervisor{
 		Name:    kubeSchedulerComponentName,
 		BinPath: assets.BinPath(kubeSchedulerComponentName, a.K0sVars.BinDir),
+		Env:     supervisor.EnvForComponent(kubeSchedulerComponentName).WithPathPrefix(a.K0sVars.BinDir).Build(os.Environ()),
 		RunDir:  a.K0sVars.RunDir,
 		DataDir: a.K0sVars.DataDir,
 		Args:    args.ToDashedArgs(),

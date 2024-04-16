@@ -177,6 +177,7 @@ func (k *Konnectivity) runServer(count int) error {
 	k.supervisor = &supervisor.Supervisor{
 		Name:    "konnectivity",
 		BinPath: assets.BinPath("konnectivity-server", k.K0sVars.BinDir),
+		Env:     supervisor.EnvForComponent("konnectivity").WithPathPrefix(k.K0sVars.BinDir).Build(os.Environ()),
 		DataDir: k.K0sVars.DataDir,
 		RunDir:  k.K0sVars.RunDir,
 		Args:    k.serverArgs(count),

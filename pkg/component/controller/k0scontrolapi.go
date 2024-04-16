@@ -52,6 +52,7 @@ func (m *K0SControlAPI) Start(_ context.Context) error {
 	m.supervisor = supervisor.Supervisor{
 		Name:    "k0s-control-api",
 		BinPath: selfExe,
+		Env:     supervisor.EnvForComponent("k0s_control_api").WithPathPrefix(m.K0sVars.BinDir).Build(os.Environ()),
 		RunDir:  m.K0sVars.RunDir,
 		DataDir: m.K0sVars.DataDir,
 		Args: []string{

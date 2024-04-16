@@ -207,6 +207,7 @@ func (k *Kubelet) Start(ctx context.Context) error {
 	k.supervisor = supervisor.Supervisor{
 		Name:    cmd,
 		BinPath: assets.BinPath(cmd, k.K0sVars.BinDir),
+		Env:     supervisor.EnvForComponent(cmd).WithPathPrefix(k.K0sVars.BinDir).Build(os.Environ()),
 		RunDir:  k.K0sVars.RunDir,
 		DataDir: k.K0sVars.DataDir,
 		Args:    args.ToArgs(),

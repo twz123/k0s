@@ -19,15 +19,41 @@ package supervisor
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
-// Prepare the env for exec:
-// - handle component specific env
-// - inject k0s embedded bins into path
-func getEnv(env []string, dataDir, component string, keepEnvPrefix bool) []string {
-	componentPrefix := fmt.Sprintf("%s_", strings.ToUpper(component))
+type envSpec struct {
+	componentPrefix string
+	pathPrefix      string
+	keepEnvPrefix   bool
+}
+
+// Prepares a component's process environment for execution by stripping the
+// component prefixes from the original environment variable names, replacing
+// the general, non-prefixed ones.
+func EnvForComponent(component string) *envSpec {
+	return &envSpec{componentPrefix: fmt.Sprintf("%s_", strings.ToUpper(component))}
+}
+
+// Set the PATH prefix to be prepended in front of the original PATH. If the
+// PATH is empty or not defined in the original environment, PATH will be set to
+// this prefix. Setting the prefix to the empty string will disable this
+// functionality.
+func (s *envSpec) WithPathPrefix(pathPrefix string) *envSpec {
+	s.pathPrefix = pathPrefix
+	return s
+}
+
+// Won't strip the component prefix from variable names. Use for components that
+// define their own prefix convention, such as ETCD_XXX. Note that the HTTP
+// proxy variables will be rewritten even when the prefixes are to be kept.
+func (s *envSpec) KeepEnvPrefix() *envSpec {
+	s.keepEnvPrefix = true
+	return s
+}
+
+// Build the process environment based on the given original environment.
+func (s *envSpec) Build(env []string) []string {
 
 	type envVarValue = struct {
 		fromPrefixed bool   // indicates if the value originates from a prefixed variable
@@ -50,13 +76,13 @@ func getEnv(env []string, dataDir, component string, keepEnvPrefix bool) []strin
 		}
 
 		// Does this variable have the component prefix?
-		isPrefixed := strings.HasPrefix(name, componentPrefix)
+		isPrefixed := strings.HasPrefix(name, s.componentPrefix)
 		if isPrefixed {
 			// This is the non-prefixed target name.
-			targetName := name[len(componentPrefix):]
+			targetName := name[len(s.componentPrefix):]
 
 			// Are the prefixes to be kept?
-			if keepEnvPrefix {
+			if s.keepEnvPrefix {
 				// Rename these variables even if the prefix is to be kept.
 				// All other variables are not renamed and used as is.
 				switch targetName {
@@ -75,17 +101,14 @@ func getEnv(env []string, dataDir, component string, keepEnvPrefix bool) []strin
 		}
 	}
 
-	// Prepend the bin dir to PATH.
-	if dataDir != "" {
-		newPath := filepath.Join(dataDir, "bin")
+	// Prepend the PATH prefix.
+	if s.pathPrefix != "" {
+		newPath := s.pathPrefix
 		if path, exists := vars["PATH"]; exists && path.value != "" {
 			newPath = newPath + string(os.PathListSeparator) + path.value
 		}
 		vars["PATH"] = envVarValue{value: newPath}
 	}
-
-	// Mark this as k0s-managed.
-	vars["_K0S_MANAGED"] = envVarValue{value: "yes"}
 
 	// Construct the resulting environment variables.
 	env = make([]string, 0, len(vars))

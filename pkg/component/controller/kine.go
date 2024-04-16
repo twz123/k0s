@@ -110,6 +110,7 @@ func (k *Kine) Start(ctx context.Context) error {
 	k.supervisor = supervisor.Supervisor{
 		Name:    "kine",
 		BinPath: assets.BinPath("kine", k.K0sVars.BinDir),
+		Env:     supervisor.EnvForComponent("kine").WithPathPrefix(k.K0sVars.BinDir).Build(os.Environ()),
 		DataDir: k.K0sVars.DataDir,
 		RunDir:  k.K0sVars.RunDir,
 		Args: []string{

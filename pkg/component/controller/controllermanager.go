@@ -153,6 +153,7 @@ func (a *Manager) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterCon
 	a.supervisor = &supervisor.Supervisor{
 		Name:    kubeControllerManagerComponent,
 		BinPath: assets.BinPath(kubeControllerManagerComponent, a.K0sVars.BinDir),
+		Env:     supervisor.EnvForComponent(kubeControllerManagerComponent).WithPathPrefix(a.K0sVars.BinDir).Build(os.Environ()),
 		RunDir:  a.K0sVars.RunDir,
 		DataDir: a.K0sVars.DataDir,
 		Args:    args.ToDashedArgs(),

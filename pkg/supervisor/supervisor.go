@@ -37,6 +37,7 @@ import (
 type Supervisor struct {
 	Name           string
 	BinPath        string
+	Env            []string
 	RunDir         string
 	DataDir        string
 	Args           []string
@@ -45,8 +46,6 @@ type Supervisor struct {
 	GID            int
 	TimeoutStop    time.Duration
 	TimeoutRespawn time.Duration
-	// For those components having env prefix convention such as ETCD_xxx, we should keep the prefix.
-	KeepEnvPrefix bool
 	// ProcFSPath is only used for testing
 	ProcFSPath string
 	// KillFunction is only used for testing
@@ -171,7 +170,12 @@ func (s *Supervisor) Supervise() error {
 			} else {
 				s.cmd = exec.Command(s.BinPath, s.Args...)
 				s.cmd.Dir = s.DataDir
-				s.cmd.Env = getEnv(os.Environ(), s.DataDir, s.Name, s.KeepEnvPrefix)
+				s.cmd.Env = []string{"_K0S_MANAGED=yes"}
+				if s.Env == nil {
+					s.cmd.Env = append(s.cmd.Env, os.Environ()...)
+				} else {
+					s.cmd.Env = append(s.cmd.Env, s.Env...)
+				}
 
 				// detach from the process group so children don't
 				// get signals sent directly to parent.

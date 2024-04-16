@@ -140,6 +140,7 @@ func (c *Component) Start(ctx context.Context) error {
 		c.supervisor = supervisor.Supervisor{
 			Name:    "containerd",
 			BinPath: assets.BinPath("containerd", c.K0sVars.BinDir),
+			Env:     supervisor.EnvForComponent("containerd").WithPathPrefix(c.K0sVars.BinDir).Build(os.Environ()),
 			RunDir:  c.K0sVars.RunDir,
 			DataDir: c.K0sVars.DataDir,
 			Args: []string{
