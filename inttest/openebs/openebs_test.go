@@ -23,14 +23,16 @@ import (
 
 	"github.com/k0sproject/bootloose/pkg/config"
 	"github.com/k0sproject/k0s/inttest/common"
-	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/client-go/kubernetes"
-
 	helmv1beta1 "github.com/k0sproject/k0s/pkg/apis/helm/v1beta1"
 	helmclient "github.com/k0sproject/k0s/pkg/client/clientset/typed/helm/v1beta1"
-	"github.com/stretchr/testify/suite"
+	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
+
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+
+	"github.com/stretchr/testify/suite"
 )
 
 type OpenEBSSuite struct {
@@ -80,25 +82,29 @@ func (s *OpenEBSSuite) TestK0sGetsUp() {
 	s.Require().NoError(s.InitController(0, "--config=/tmp/k0s.yaml", "--disable-components=konnectivity-server,metrics-server,applier-manager"))
 	s.Require().NoError(s.WaitForNodeReady(s.WorkerNode(0), kc))
 
+	if c, err := hc.Charts("kube-system").Get(ctx, openEBSChart, metav1.GetOptions{}); s.NoError(err) {
+		s.T().Logf("%+#v", c)
+	}
+
 	s.T().Log("Removing Label and annotation")
-	c, err := hc.Charts("kube-system").Get(ctx, openEBSChart, metav1.GetOptions{})
-	s.Require().NoError(err, "Error getting OpenEBS chart after removing the storage extension")
-	delete(c.Annotations, "k0s.k0sproject.io/stack-checksum")
-	delete(c.Labels, "k0s.k0sproject.io/stack")
-	_, err = hc.Charts("kube-system").Update(ctx, c, metav1.UpdateOptions{})
-	s.Require().NoError(err, "Error removing stack applier information in OpenEBS chart")
+	patch := `[
+		{"op": "remove", "path": "/metadata/labels/k0s.k0sproject.io~1stack"},
+		{"op": "remove", "path": "/metadata/annotations/k0s.k0sproject.io~1stack-checksum"},
+		{"op": "remove", "path": "/metadata/annotations/k0s.k0sproject.io~1last-applied-configuration"}
+	]`
+
+	_, err = hc.Charts("kube-system").Patch(ctx, openEBSChart, types.JSONPatchType, []byte(patch), metav1.PatchOptions{})
+	s.Require().NoError(err, "Error removing stack applier information in OpenEBS chart\n%s", patch)
 
 	s.T().Log("Removing the manifest")
 	ssh, err := s.SSH(s.Context(), s.ControllerNode(0))
 	s.Require().NoError(err)
 	defer ssh.Disconnect()
-	s.Require().NoError(ssh.Exec(ctx, "rm -f /var/lib/k0s/manifests/helm/0_helm_extension_openebs.yaml", common.SSHStreams{}))
+	s.Require().NoError(ssh.Exec(ctx, "rm /var/lib/k0s/manifests/helm/0_helm_extension_openebs.yaml", common.SSHStreams{}))
 
 	s.T().Log("Upgrading to 3.9.0")
-	c, err = hc.Charts("kube-system").Get(ctx, openEBSChart, metav1.GetOptions{})
-	s.Require().NoError(err, "Error getting OpenEBS chart after removing the storage extension")
-	c.Spec.Version = "3.9.0"
-	_, err = hc.Charts("kube-system").Update(ctx, c, metav1.UpdateOptions{})
+	patch = `{"spec":{"chartName":"openebs-internal/openebs","version":"3.9.0"}}`
+	_, err = hc.Charts("kube-system").Patch(ctx, openEBSChart, types.MergePatchType, []byte(patch), metav1.PatchOptions{})
 	s.Require().NoError(err, "Error upgrading OpenEBS chart")
 
 	s.T().Log("Checking that the chart is upgrades to 3.9.0 and becomes ready")

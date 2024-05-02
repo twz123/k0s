@@ -13,6 +13,7 @@ objects defined in the API will still behave normally.
 OpenEBS can be installed as a helm chart by adding it as an extension to your configuration:
 
 ```yaml
+spec:
   extensions:
     helm:
       repositories:
@@ -48,22 +49,37 @@ component on all controllers. For each controller, restart the controller
 with the flag `--disable-components=applier-manager`. If you already had this flag,
 set it to `--disable-components=<previous value>,applier-manager`.
 
-Once the `applier-manager` is disabled in every running controller, you need to modify
-the configuration to use `external_storage` instead of `openebs_local_storage`.
-
-If you are using [dynamic configuration](../dynamic-configuration.md), you can
-change it with this command:
+Once the `applier-manager` is disabled in every running controller, you need to
+modify the configuration to add the OpenEBS Chart repository and to use
+`external_storage` instead of `openebs_local_storage`. If you are using [dynamic
+configuration](../dynamic-configuration.md), you can change it with this
+command:
 
 ```shell
-kubectl patch clusterconfig -n kube-system  k0s --patch '{"spec":{"extensions":{"storage":{"type":"external_storage"}}}}' --type=merge
+kubectl apply --server-side=true --field-manager=k0s-openebs-migration -f - <<EOF
+apiVersion: k0s.k0sproject.io/v1beta1
+kind: ClusterConfig
+metadata:
+  name: k0s
+  namespace: kube-system
+spec:
+  extensions:
+    helm:
+      repositories:
+      - name: openebs-internal
+        url: https://openebs.github.io/charts
+    storage:
+      type: external_storage
+EOF
 ```
 
 If you are using a static configuration file, replace `spec.extensions.storage.type`
-from `openebs_local_storage` to `external_storage` in all control plane nodes and
-restart all the control plane nodes one by one.
+from `openebs_local_storage` to `external_storage` and add the `openebs-internal`
+Helm chart repository in all control plane nodes and restart all the control
+plane nodes one by one.
 
 When the configuration is set to `external_storage` and the servers are
-restarted, you must manage the it as a chart object in the API:
+restarted, you will need to manage it as a chart object in the API:
 
 ```shell
 kubectl get chart -n kube-system k0s-addon-chart-openebs -o yaml
@@ -89,11 +105,12 @@ data loss.
 Finally, we want to re-enable the `applier-manager` and restart all controllers
 without the `--disable-components=applier-manager` flag.
 
-Once the migration is coplete, you'll be able to update the OpenEBS chart.
+Once the migration is complete, you'll be able to update the OpenEBS chart.
 Let's take v3.9.0 as an example:
 
 ```shell
-kubectl patch chart -n kube-system k0s-addon-chart-openebs --patch '{"spec":{"version":"3.9.0"}}' --type=merge
+kubectl patch chart -n kube-system k0s-addon-chart-openebs --type=merge \
+  --patch '{"spec":{"chartName":"openebs-internal/openebs","version":"3.9.0"}}'
 ```
 
 ## Usage

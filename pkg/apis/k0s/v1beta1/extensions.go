@@ -35,19 +35,30 @@ type ClusterExtensions struct {
 
 // HelmExtensions specifies settings for cluster helm based extensions
 type HelmExtensions struct {
-	ConcurrencyLevel int                  `json:"concurrencyLevel"`
-	Repositories     RepositoriesSettings `json:"repositories"`
-	Charts           ChartsSettings       `json:"charts"`
+	// Currently unused.
+	ConcurrencyLevel int          `json:"concurrencyLevel,omitempty"`
+	Repositories     Repositories `json:"repositories,omitempty"`
+	Charts           Charts       `json:"charts,omitempty"`
 }
 
-// RepositoriesSettings repository settings
-type RepositoriesSettings []Repository
+func DefaultHelmExtensions() *HelmExtensions {
+	return &HelmExtensions{
+		// ConcurrencyLevel: 5, // Currently unused.
+	}
+}
 
-// ChartsSettings charts settings
-type ChartsSettings []Chart
+// A list of Helm chart repositories.
+// +listType=map
+// +listMapKey=name
+type Repositories []Repository
+
+// A list of Helm charts.
+// +listType=map
+// +listMapKey=name
+type Charts []Chart
 
 // Validate performs validation
-func (rs RepositoriesSettings) Validate() []error {
+func (rs Repositories) Validate() []error {
 	var errs []error
 	for _, r := range rs {
 		if err := r.Validate(); err != nil {
@@ -61,7 +72,7 @@ func (rs RepositoriesSettings) Validate() []error {
 }
 
 // Validate performs validation
-func (cs ChartsSettings) Validate() []error {
+func (cs Charts) Validate() []error {
 	var errs []error
 	for _, c := range cs {
 		if err := c.Validate(); err != nil {
@@ -75,7 +86,7 @@ func (cs ChartsSettings) Validate() []error {
 }
 
 // Validate performs validation
-func (he HelmExtensions) Validate() []error {
+func (he *HelmExtensions) Validate() []error {
 	var errs []error
 	if rErrs := he.Repositories.Validate(); rErrs != nil {
 		errs = append(errs, rErrs...)
@@ -91,24 +102,30 @@ func (he HelmExtensions) Validate() []error {
 
 // Chart single helm addon
 type Chart struct {
-	Name      string `json:"name"`
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
 	ChartName string `json:"chartname"`
 	Version   string `json:"version"`
 	Values    string `json:"values"`
-	TargetNS  string `json:"namespace"`
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	TargetNS string `json:"namespace"`
 	// Timeout specifies the timeout for how long to wait for the chart installation to finish.
 	// A duration string is a sequence of decimal numbers, each with optional fraction and a unit suffix, such as "300ms" or "2h45m". Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h".
-	Timeout metav1.Duration `json:"timeout"`
-	Order   int             `json:"order"`
+	Timeout metav1.Duration `json:"timeout,omitempty"`
+	Order   int             `json:"order,omitempty"`
 }
 
 // ManifestFileName returns filename to use for the crd manifest
-func (c Chart) ManifestFileName() string {
+func (c *Chart) ManifestFileName() string {
 	return fmt.Sprintf("%d_helm_extension_%s.yaml", c.Order, c.Name)
 }
 
 // Validate performs validation
-func (c Chart) Validate() error {
+func (c *Chart) Validate() error {
 	if c.Name == "" {
 		return errors.New("chart must have Name field not empty")
 	}
@@ -126,18 +143,22 @@ func (c Chart) Validate() error {
 
 // Repository describes single repository entry. Fields map to the CLI flags for the "helm add" command
 type Repository struct {
-	Name     string `json:"name"`
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
 	URL      string `json:"url"`
-	CAFile   string `json:"caFile"`
-	CertFile string `json:"certFile"`
-	Insecure bool   `json:"insecure"`
-	KeyFile  string `json:"keyfile"`
-	Username string `json:"username"`
-	Password string `json:"password"`
+	CAFile   string `json:"caFile,omitempty"`
+	CertFile string `json:"certFile,omitempty"`
+	Insecure bool   `json:"insecure,omitempty"`
+	KeyFile  string `json:"keyfile,omitempty"`
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
 }
 
 // Validate performs validation
-func (r Repository) Validate() error {
+func (r *Repository) Validate() error {
 	if r.Name == "" {
 		return errors.New("repository must have Name field not empty")
 	}
@@ -164,8 +185,7 @@ func (e *ClusterExtensions) Validate() []error {
 
 func DefaultStorageExtension() *StorageExtension {
 	return &StorageExtension{
-		Type:                      ExternalStorage,
-		CreateDefaultStorageClass: false,
+		Type: ExternalStorage,
 	}
 }
 
@@ -173,8 +193,6 @@ func DefaultStorageExtension() *StorageExtension {
 func DefaultExtensions() *ClusterExtensions {
 	return &ClusterExtensions{
 		Storage: DefaultStorageExtension(),
-		Helm: &HelmExtensions{
-			ConcurrencyLevel: 5,
-		},
+		Helm:    DefaultHelmExtensions(),
 	}
 }

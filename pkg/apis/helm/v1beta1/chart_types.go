@@ -27,13 +27,19 @@ import (
 
 // ChartSpec defines the desired state of Chart
 type ChartSpec struct {
-	ChartName   string `json:"chartName,omitempty"`
-	ReleaseName string `json:"releaseName,omitempty"`
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	ChartName string `json:"chartName"`
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	ReleaseName string `json:"releaseName"`
 	Values      string `json:"values,omitempty"`
 	Version     string `json:"version,omitempty"`
-	Namespace   string `json:"namespace,omitempty"`
-	Timeout     string `json:"timeout,omitempty"`
-	Order       int    `json:"order,omitempty"`
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Namespace string `json:"namespace"`
+	Timeout   string `json:"timeout,omitempty"`
+	Order     int    `json:"order,omitempty"`
 }
 
 // YamlValues returns values as map
@@ -71,7 +77,7 @@ type ChartStatus struct {
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:subresource:status
 // +genclient
-// +genclient:onlyVerbs=create,delete,list,get,watch,update
+// +genclient:onlyVerbs=create,get,list,watch,update,patch,delete
 // +groupName=helm.k0sproject.io
 // Chart is the Schema for the charts API
 type Chart struct {

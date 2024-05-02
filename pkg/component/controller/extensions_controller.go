@@ -31,6 +31,7 @@ import (
 	helmapi "github.com/k0sproject/k0s/pkg/apis/helm"
 	"github.com/k0sproject/k0s/pkg/apis/helm/v1beta1"
 	k0sAPI "github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
+	"github.com/k0sproject/k0s/pkg/build"
 	"github.com/k0sproject/k0s/pkg/component/controller/leaderelector"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/config"
@@ -107,8 +108,11 @@ func (ec *ExtensionsController) configureStorage(clusterConfig *k0sAPI.ClusterCo
 	}
 
 	for _, chart := range helmSettings.Charts {
-		if chart.ChartName == "openebs-internal/openebs" {
-			return nil, fmt.Errorf("openebs-internal/openebs is defined in spec.extensions.helm.charts and spec.extensions.storage.type is set to openebs_local_storage. https://docs.k0sproject.io/stable/examples/openebs")
+		switch chart.ChartName {
+		case constant.OpenEBSChart, "openebs-internal/openebs":
+			return nil, fmt.Errorf("%s is defined in spec.extensions.helm.charts and spec.extensions.storage.type is set to openebs_local_storage. %s",
+				chart.ChartName, build.DocsLink("examples/openebs", ""),
+			)
 		}
 	}
 	helmSettings, err := addOpenEBSHelmExtension(helmSettings, clusterConfig.Spec.Extensions.Storage)
@@ -134,19 +138,16 @@ func addOpenEBSHelmExtension(helmSpec *k0sAPI.HelmExtensions, storageExtension *
 	}
 	if helmSpec == nil {
 		helmSpec = &k0sAPI.HelmExtensions{
-			Repositories: k0sAPI.RepositoriesSettings{},
-			Charts:       k0sAPI.ChartsSettings{},
+			Repositories: k0sAPI.Repositories{},
+			Charts:       k0sAPI.Charts{},
 		}
 	}
-	helmSpec.Repositories = append(helmSpec.Repositories, k0sAPI.Repository{
-		Name: "openebs-internal",
-		URL:  constant.OpenEBSRepository,
-	})
+
 	helmSpec.Charts = append(helmSpec.Charts, k0sAPI.Chart{
 		Name:      "openebs",
-		ChartName: "openebs-internal/openebs",
+		ChartName: "oci://" + constant.OpenEBSChart,
 		TargetNS:  "openebs",
-		Version:   constant.OpenEBSVersion,
+		Version:   constant.OpenEBSChartVersion,
 		Values:    values,
 		Timeout:   metav1.Duration{Duration: time.Duration(time.Minute * 30)}, // it takes a while to install openebs
 	})

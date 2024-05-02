@@ -94,7 +94,7 @@ spec:
                       based extensions
                     properties:
                       charts:
-                        description: ChartsSettings charts settings
+                        description: A list of Helm charts.
                         items:
                           description: Chart single helm addon
                           properties:
@@ -115,12 +115,20 @@ spec:
                               type: string
                             version:
                               type: string
+                          required:
+                          - chartname
+                          - name
+                          - namespace
                           type: object
                         type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
                       concurrencyLevel:
+                        description: Currently unused.
                         type: integer
                       repositories:
-                        description: RepositoriesSettings repository settings
+                        description: A list of Helm chart repositories.
                         items:
                           description: Repository describes single repository entry.
                             Fields map to the CLI flags for the "helm add" command
@@ -141,8 +149,14 @@ spec:
                               type: string
                             username:
                               type: string
+                          required:
+                          - name
+                          - url
                           type: object
                         type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
                     type: object
                   storage:
                     description: StorageExtenstion specifies cluster default storage

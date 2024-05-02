@@ -164,12 +164,12 @@ func (hc *Commands) locateChart(name string, version string) (string, error) {
 	if _, err := os.Stat(name); err == nil {
 		abs, err := filepath.Abs(name)
 		if err != nil {
-			return abs, fmt.Errorf("can't locate chart `%s-%s`: %w", name, version, err)
+			return abs, fmt.Errorf("failed to obtain absolute path: %w", err)
 		}
 		return abs, nil
 	}
 	if filepath.IsAbs(name) || strings.HasPrefix(name, ".") {
-		return name, fmt.Errorf("can't locate chart: path not found: %s", name)
+		return name, fmt.Errorf("path not found: %s", name)
 	}
 
 	dl := downloader.ChartDownloader{
@@ -181,18 +181,19 @@ func (hc *Commands) locateChart(name string, version string) (string, error) {
 	}
 
 	if err := dir.Init(hc.helmCacheDir, constant.DataDirMode); err != nil {
-		return "", fmt.Errorf("can't locate chart `%s-%s`: %w", name, version, err)
+		return "", fmt.Errorf("failed to initialize Helm cache directory: %w", err)
 	}
 
 	filename, _, err := dl.DownloadTo(name, version, hc.helmCacheDir)
-	if err == nil {
-		lname, err := filepath.Abs(filename)
-		if err != nil {
-			return filename, fmt.Errorf("can't locate chart `%s-%s`: %w", name, version, err)
-		}
-		return lname, nil
+	if err != nil {
+		return filename, fmt.Errorf("download failed: %w", err)
 	}
-	return filename, fmt.Errorf("can't locate chart `%s-%s`: %w", name, version, err)
+
+	lname, err := filepath.Abs(filename)
+	if err != nil {
+		return filename, fmt.Errorf("failed to obtain absolute path: %w", err)
+	}
+	return lname, nil
 }
 
 func (hc *Commands) isInstallable(chart *chart.Chart) bool {
@@ -216,7 +217,7 @@ func (hc *Commands) InstallChart(ctx context.Context, chartName string, version 
 	install.Timeout = timeout
 	chartDir, err := hc.locateChart(chartName, version)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("can't locate chart %s:%s: %w", chartName, version, err)
 	}
 	install.Namespace = namespace
 	install.Atomic = true
@@ -268,7 +269,7 @@ func (hc *Commands) UpgradeChart(ctx context.Context, chartName string, version 
 	upgrade.Timeout = timeout
 	chartDir, err := hc.locateChart(chartName, version)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("can't locate chart %s:%s: %w", chartName, version, err)
 	}
 	loadedChart, err := loader.Load(chartDir)
 	if err != nil {

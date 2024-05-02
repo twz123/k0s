@@ -24,6 +24,7 @@ import (
 	v1beta1 "github.com/k0sproject/k0s/pkg/apis/helm/v1beta1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	labels "k8s.io/apimachinery/pkg/labels"
+	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	testing "k8s.io/client-go/testing"
 )
@@ -106,4 +107,15 @@ func (c *FakeCharts) Delete(ctx context.Context, name string, opts v1.DeleteOpti
 		Invokes(testing.NewDeleteActionWithOptions(chartsResource, c.ns, name, opts), &v1beta1.Chart{})
 
 	return err
+}
+
+// Patch applies the patch and returns the patched chart.
+func (c *FakeCharts) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.Chart, err error) {
+	obj, err := c.Fake.
+		Invokes(testing.NewPatchSubresourceAction(chartsResource, c.ns, name, pt, data, subresources...), &v1beta1.Chart{})
+
+	if obj == nil {
+		return nil, err
+	}
+	return obj.(*v1beta1.Chart), err
 }

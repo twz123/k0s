@@ -16,6 +16,11 @@ limitations under the License.
 
 package build
 
+import (
+	"net/url"
+	"path"
+)
+
 // Version gets overridden at build time using -X main.Version=$VERSION
 var Version string
 
@@ -25,3 +30,12 @@ var KubernetesVersion string
 var KineVersion string
 var EtcdVersion string
 var KonnectivityVersion string
+
+func DocsLink(docPath, anchor string) *url.URL {
+	return &url.URL{
+		Scheme:   "https",
+		Host:     "docs.k0sproject.io",
+		Path:     path.Join("/", Version, docPath),
+		Fragment: anchor,
+	}
+}
