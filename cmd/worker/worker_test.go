@@ -17,15 +17,58 @@ limitations under the License.
 package worker_test
 
 import (
+	"io"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/k0sproject/k0s/cmd"
+	"github.com/k0sproject/k0s/cmd/worker"
 	"github.com/k0sproject/k0s/pkg/constant"
+
+	"github.com/spf13/cobra"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func TestWorkerCmd_Args(t *testing.T) {
+
+	newCommand := func(args ...string) *cobra.Command {
+		c := worker.NewWorkerCmd()
+		c.SetArgs(args)
+		c.SetOut(io.Discard)
+		c.SetErr(io.Discard)
+		return c
+	}
+
+	t.Run("none", func(t *testing.T) {
+		var ok bool
+		underTest := newCommand()
+		underTest.RunE = func(cmd *cobra.Command, args []string) error { ok = true; return nil }
+
+		assert.NoError(t, underTest.Execute())
+		assert.True(t, ok, "RunE has not been called")
+	})
+
+	t.Run("with join token", func(t *testing.T) {
+		var ok bool
+		underTest := newCommand("the-join-token")
+		underTest.RunE = func(cmd *cobra.Command, args []string) error { ok = true; return nil }
+
+		assert.NoError(t, underTest.Execute())
+		assert.True(t, ok, "RunE has not been called")
+	})
+
+	t.Run("with bogus extra arg", func(t *testing.T) {
+		underTest := newCommand("the-join-token", "u-no-pass-more-than-one-arg")
+		underTest.RunE = func(cmd *cobra.Command, args []string) error {
+			assert.Fail(t, "RunE has been called")
+			return nil
+		}
+
+		assert.Error(t, underTest.Execute())
+	})
+}
 
 func TestWorkerCmd_Help(t *testing.T) {
 	defaultDataDir := strconv.Quote(constant.DataDirDefault)
@@ -39,15 +82,15 @@ func TestWorkerCmd_Help(t *testing.T) {
 	assert.Equal(t, `Run worker
 
 Usage:
-  k0s worker [join-token] [flags]
+  k0s worker [flags] [[--] <join-token>]
 
 Examples:
 	Command to add worker node to the master node:
 	CLI argument:
-	$ k0s worker [token]
+	$ k0s worker <join-token>
 
 	or CLI flag:
-	$ k0s worker --token-file [path_to_file]
+	$ k0s worker --token-file <path>
 	Note: Token can be passed either as a CLI argument or as a flag
 
 Flags:

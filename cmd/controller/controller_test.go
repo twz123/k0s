@@ -17,15 +17,58 @@ limitations under the License.
 package controller_test
 
 import (
+	"io"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/k0sproject/k0s/cmd"
+	"github.com/k0sproject/k0s/cmd/controller"
 	"github.com/k0sproject/k0s/pkg/constant"
+
+	"github.com/spf13/cobra"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func TestControllerCmd_Args(t *testing.T) {
+
+	newCommand := func(args ...string) *cobra.Command {
+		c := controller.NewControllerCmd()
+		c.SetArgs(args)
+		c.SetOut(io.Discard)
+		c.SetErr(io.Discard)
+		return c
+	}
+
+	t.Run("none", func(t *testing.T) {
+		var ok bool
+		underTest := newCommand()
+		underTest.RunE = func(cmd *cobra.Command, args []string) error { ok = true; return nil }
+
+		assert.NoError(t, underTest.Execute())
+		assert.True(t, ok, "RunE has not been called")
+	})
+
+	t.Run("with join token", func(t *testing.T) {
+		var ok bool
+		underTest := newCommand("the-join-token")
+		underTest.RunE = func(cmd *cobra.Command, args []string) error { ok = true; return nil }
+
+		assert.NoError(t, underTest.Execute())
+		assert.True(t, ok, "RunE has not been called")
+	})
+
+	t.Run("with bogus extra arg", func(t *testing.T) {
+		underTest := newCommand("the-join-token", "u-no-pass-more-than-one-arg")
+		underTest.RunE = func(cmd *cobra.Command, args []string) error {
+			assert.Fail(t, "RunE has been called")
+			return nil
+		}
+
+		assert.Error(t, underTest.Execute())
+	})
+}
 
 func TestControllerCmd_Help(t *testing.T) {
 	defaultConfigPath := strconv.Quote(constant.K0sConfigPathDefault)
@@ -40,7 +83,7 @@ func TestControllerCmd_Help(t *testing.T) {
 	assert.Equal(t, `Run controller
 
 Usage:
-  k0s controller [join-token] [flags]
+  k0s controller [flags] [[--] <join-token>]
 
 Aliases:
   controller, server
@@ -48,10 +91,10 @@ Aliases:
 Examples:
 	Command to associate master nodes:
 	CLI argument:
-	$ k0s controller [join-token]
+	$ k0s controller <join-token>
 
 	or CLI flag:
-	$ k0s controller --token-file [path_to_file]
+	$ k0s controller --token-file <path>
 	Note: Token can be passed either as a CLI argument or as a flag
 
 Flags:

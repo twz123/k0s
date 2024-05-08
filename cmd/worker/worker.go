@@ -48,14 +48,15 @@ func NewWorkerCmd() *cobra.Command {
 	var ignorePreFlightChecks bool
 
 	cmd := &cobra.Command{
-		Use:   "worker [join-token]",
+		Use:   "worker [flags] [[--] <join-token>]",
 		Short: "Run worker",
+		Args:  cobra.RangeArgs(0, 1),
 		Example: `	Command to add worker node to the master node:
 	CLI argument:
-	$ k0s worker [token]
+	$ k0s worker <join-token>
 
 	or CLI flag:
-	$ k0s worker --token-file [path_to_file]
+	$ k0s worker --token-file <path>
 	Note: Token can be passed either as a CLI argument or as a flag`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			logrus.SetOutput(cmd.OutOrStdout())
