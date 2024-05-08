@@ -22,7 +22,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"syscall"
 
@@ -40,11 +39,11 @@ type PIDFD struct {
 }
 
 // Linux specific implementation of [OpenHandle].
-func openHandle(pid int) (Handle, error) {
+func openHandle(pid PID) (Handle, error) {
 	return OpenPIDFD(pid)
 }
 
-func OpenPIDFD(pid int) (*PIDFD, error) {
+func OpenPIDFD(pid PID) (*PIDFD, error) {
 	f, err := procfsPidfdOpen(pid)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -90,7 +89,7 @@ func (p *PIDFD) Signal(signal os.Signal) error {
 	return err
 }
 
-func (p *PIDFD) Environ() (map[string]string, error) {
+func (p *PIDFD) Environ() ([]string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -133,7 +132,7 @@ func (p *PIDFD) readEnvBlock() (_ []byte, err error) {
 //
 // Opens a /proc/<pid> directory. The file descriptor obtained in this way is
 // not pollable and can't be waited on with waitid(2).
-func procfsPidfdOpen(pid int) (*os.File, error) {
+func procfsPidfdOpen(pid PID) (*os.File, error) {
 
 	// Since Linux 5.3, the pidfd_open syscall would be the preferred way of
 	// obtaining process file descriptors. They allow for polling and awaiting
@@ -153,7 +152,7 @@ func procfsPidfdOpen(pid int) (*os.File, error) {
 		return nil, err
 	}
 
-	pidDir := filepath.Join(procMount, strconv.Itoa(pid))
+	pidDir := filepath.Join(procMount, pid.String())
 	return os.OpenFile(pidDir, syscall.O_DIRECTORY|syscall.O_CLOEXEC, 0)
 }
 

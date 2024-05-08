@@ -21,16 +21,21 @@ type ProcHandle struct {
 }
 
 // Windows specific implementation of [OpenHandle].
-func openHandle(pid int) (Handle, error) {
+func openHandle(pid PID) (Handle, error) {
 	return OpenProcHandle(pid)
 }
 
-func OpenProcHandle(pid int) (_ *ProcHandle, err error) {
+func OpenProcHandle(pid PID) (_ *ProcHandle, err error) {
 	const ACCESS_FLAGS = windows.PROCESS_QUERY_INFORMATION /* for NtQueryInformationProcess */ |
 		windows.PROCESS_VM_READ /* for ReadProcessMemory */ |
 		windows.PROCESS_TERMINATE /* for TerminateProcess */
 
-	handle, err := windows.OpenProcess(ACCESS_FLAGS, false, uint32(pid))
+	sysPID := uint32(pid)
+	if pid != PID(sysPID) { // check for lossless conversion
+		return nil, fmt.Errorf("invalid PID: %s", pid)
+	}
+
+	handle, err := windows.OpenProcess(ACCESS_FLAGS, false, sysPID)
 	if err != nil {
 		// If there's no such process for the given PID, OpenProcess will return
 		// an invalid parameter error. Normalize this to ErrPIDNotExist.
@@ -77,7 +82,8 @@ func (h *ProcHandle) Signal(signal os.Signal) error {
 		return syscall.EINVAL
 	}
 
-	err := windows.TerminateProcess(h.handle, 1)
+	const exitCode = 1
+	err := windows.TerminateProcess(h.handle, exitCode)
 	if err != nil {
 		err = os.NewSyscallError("TerminateProcess", err)
 
@@ -99,7 +105,7 @@ func (h *ProcHandle) Signal(signal os.Signal) error {
 	return nil
 }
 
-func (h *ProcHandle) Environ() (map[string]string, error) {
+func (h *ProcHandle) Environ() ([]string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 

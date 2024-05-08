@@ -1,7 +1,5 @@
-//go:build !linux && !windows
-
 /*
-Copyright 2022 k0s authors
+Copyright 2023 k0s authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,22 +16,21 @@ limitations under the License.
 
 package process
 
-import (
-	"fmt"
-	"runtime"
-	"syscall"
-)
+import "strconv"
 
-func openHandle(PID) (Handle, error) {
-	return nil, unsupportedOSErr{}
+// An operating system process ID.
+type PID uint32
+
+// Parses a PID from a string.
+func ParsePID(s string) (PID, error) {
+	pid, err := strconv.ParseUint(s, 10, 32)
+	if err != nil {
+		return 0, err
+	}
+	return PID(pid), nil
 }
 
-type unsupportedOSErr struct{}
-
-func (unsupportedOSErr) Error() string {
-	return fmt.Sprint("unsupported OS: ", runtime.GOOS)
-}
-
-func (unsupportedOSErr) Is(target error) bool {
-	return target == syscall.ENOSYS
+// Converts the PID to a string.
+func (p PID) String() string {
+	return strconv.FormatUint(uint64(p), 10)
 }

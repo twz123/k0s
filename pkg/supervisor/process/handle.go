@@ -19,6 +19,7 @@ package process
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 )
 
@@ -32,12 +33,25 @@ type Handle interface {
 	Signal(os.Signal) error
 
 	// Reads and returns the process's environment.
-	Environ() (map[string]string, error)
+	Environ() ([]string, error)
+}
+
+func Open(p *os.Process) (Handle, error) {
+	if p == nil {
+		return nil, ErrGone
+	}
+
+	pid := PID(p.Pid)
+	if p.Pid != int(p.Pid) {
+		return nil, fmt.Errorf("illegal PID: %d", p.Pid)
+	}
+
+	return OpenHandle(pid)
 }
 
 // Obtains a handle that refers to a process.
 // Returns [ErrPIDNotExist] if there's no such process.
-func OpenHandle(pid int) (Handle, error) {
+func OpenHandle(pid PID) (Handle, error) {
 	return openHandle(pid)
 }
 
@@ -46,19 +60,15 @@ var (
 	ErrGone        = errors.New("process gone")
 )
 
-// Parses a raw environment block into a map of strings.
-func parseEnvBlock(envBytes []byte) map[string]string {
-	env := make(map[string]string)
-
-	for len(envBytes) > 0 {
+// Parses a raw environment block into a string slice.
+func parseEnvBlock(block []byte) (env []string) {
+	for len(block) > 0 {
 		// Each env variable is NUL terminated.
-		current, rest, _ := bytes.Cut(envBytes, []byte{0})
-
-		// Each env variable has the form of KEY=VALUE.
-		k, v, _ := bytes.Cut(current, []byte{'='})
-		env[string(k)] = string(v)
-
-		envBytes = rest
+		current, rest, _ := bytes.Cut(block, []byte{0})
+		if len(current) > 0 {
+			env = append(env, string(current))
+		}
+		block = rest
 	}
 
 	return env

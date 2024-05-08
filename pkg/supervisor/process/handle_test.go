@@ -19,6 +19,8 @@ limitations under the License.
 package process_test
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -46,7 +48,7 @@ func TestHandle_Signal_Kill(t *testing.T) {
 	cmd := makeSleepCommand(t)
 	require.NoError(t, cmd.Start())
 
-	underTest, err := process.OpenHandle(cmd.Process.Pid)
+	underTest, err := process.Open(cmd.Process)
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, underTest.Close()) })
 
@@ -60,7 +62,12 @@ func TestHandle_Signal_Kill(t *testing.T) {
 func TestHandle_Environ(t *testing.T) {
 	cmd := makeSleepCommand(t)
 
-	cmd.Env = []string{"FOO=BAR"}
+	var rnd [16]byte
+	_, err := rand.Read(rnd[:])
+	require.NoError(t, err)
+	marker := "_K0S_SUPERVISOR_PROCESS_TEST_MARKER=" + hex.EncodeToString(rnd[:])
+
+	cmd.Env = []string{marker}
 	require.NoError(t, cmd.Start())
 	t.Cleanup(func() {
 		if assert.NoError(t, cmd.Process.Kill()) {
@@ -69,24 +76,25 @@ func TestHandle_Environ(t *testing.T) {
 		}
 	})
 
-	underTest, err := process.OpenHandle(cmd.Process.Pid)
+	underTest, err := process.Open(cmd.Process)
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, underTest.Close()) })
 
-	var env map[string]string
+	var env []string
 
 	// Give the process a bit of startup time.
+	// FIXME: does this make any sense?
 	assert.Eventually(t, func() bool {
 		env, err = underTest.Environ()
 		require.NoError(t, err)
 		return len(env) > 0
 	}, 1*time.Second, 10*time.Millisecond)
 
-	for k, v := range env {
-		t.Logf("Environ: %q -> %q", k, v)
+	for _, v := range env {
+		t.Logf("Environ: %q", v)
 	}
 
-	assert.Equal(t, "BAR", env["FOO"])
+	assert.Contains(t, env, marker)
 }
 
 func TestHandle_AfterExit(t *testing.T) {
@@ -102,7 +110,7 @@ func TestHandle_AfterExit(t *testing.T) {
 		}
 	})
 
-	underTest, err := process.OpenHandle(cmd.Process.Pid)
+	underTest, err := process.Open(cmd.Process)
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, underTest.Close()) })
 
@@ -133,7 +141,10 @@ func TestHandle_AfterClose(t *testing.T) {
 		}
 	})
 
-	underTest, err := process.OpenHandle(cmd.Process.Pid)
+	pid := process.PID(cmd.Process.Pid)
+	require.Equal(t, cmd.Process.Pid, int(pid))
+
+	underTest, err := process.OpenHandle(pid)
 	require.NoError(t, err)
 
 	require.NoError(t, underTest.Close())
