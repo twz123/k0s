@@ -17,15 +17,54 @@ limitations under the License.
 package install_test
 
 import (
+	"io"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/k0sproject/k0s/cmd"
 	"github.com/k0sproject/k0s/pkg/constant"
+	"github.com/spf13/cobra"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestControllerCmd_Args(t *testing.T) {
+
+	newCommand := func(args ...string) *cobra.Command {
+		cmdArgs := append([]string{"install", "controller"}, args...)
+		c := cmd.NewRootCmd()
+		c.SetArgs(cmdArgs)
+		c.SetOut(io.Discard)
+		c.SetErr(io.Discard)
+		c, subCmdArgs, err := c.Find(cmdArgs)
+		require.NoError(t, err, "subcommand not found: install controller")
+		if len(args) != 0 || len(subCmdArgs) != 0 {
+			require.Equal(t, args, subCmdArgs)
+		}
+		return c
+	}
+
+	t.Run("none", func(t *testing.T) {
+		var ok bool
+		underTest := newCommand()
+		underTest.RunE = func(cmd *cobra.Command, args []string) error { ok = true; return nil }
+
+		assert.NoError(t, underTest.Execute())
+		assert.True(t, ok, "RunE has not been called")
+	})
+
+	t.Run("with disallowed join token", func(t *testing.T) {
+		underTest := newCommand("disallowed-join-token")
+		underTest.RunE = func(cmd *cobra.Command, args []string) error {
+			assert.Fail(t, "RunE has been called")
+			return nil
+		}
+
+		assert.Error(t, underTest.Execute())
+	})
+}
 
 func TestInstallCmd_Controller_Help(t *testing.T) {
 	defaultConfigPath := strconv.Quote(constant.K0sConfigPathDefault)

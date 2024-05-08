@@ -26,6 +26,7 @@ func installWorkerCmd(installFlags *installFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "worker",
 		Short: "Install k0s worker on a brand-new system. Must be run as root (or with sudo)",
+		Args:  cobra.NoArgs,
 		Example: `Worker subcommand allows you to pass in all available worker parameters.
 All default values of worker command will be passed to the service stub unless overridden.
 
