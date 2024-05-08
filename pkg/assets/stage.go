@@ -30,6 +30,7 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/sirupsen/logrus"
+	"github.com/ulikunitz/xz/lzma"
 )
 
 // EmbeddedBinaryNeedsUpdate returns true if the provided embedded binary file should
@@ -99,6 +100,13 @@ func Stage(dataDir string, name string, dirMode os.FileMode) error {
 	zipFile.RegisterDecompressor( /* bzip2: */ 12, func(r io.Reader) io.ReadCloser {
 		return io.NopCloser(bzip2.NewReader(r))
 	})
+	zipFile.RegisterDecompressor( /* lzma: */ 14, func(r io.Reader) io.ReadCloser {
+		r, err := lzma.NewReader(r)
+		if err != nil {
+			return io.NopCloser(&deferredReaderError{err})
+		}
+		return io.NopCloser(r)
+	})
 
 	var (
 		fileToExtract *zip.File
@@ -159,3 +167,7 @@ func Stage(dataDir string, name string, dirMode os.FileMode) error {
 	}
 	return nil
 }
+
+type deferredReaderError struct{ err error }
+
+func (d *deferredReaderError) Read(p []byte) (n int, err error) { return 0, d.err }

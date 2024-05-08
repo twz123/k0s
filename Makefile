@@ -181,7 +181,7 @@ else
 	touch -- '$@'
 
 codegen_targets += bindata_$(TARGET_OS)
-bindata_$(TARGET_OS): .bins.$(TARGET_OS).stamp
+bindata_$(TARGET_OS): .bins.$(TARGET_OS).stamp hack/zip-files/*
 	CGO_ENABLED=0 $(GO) run -tags=hack hack/zip-files/main.go embedded-bins/staging/$(TARGET_OS)/bin/* >$@
 endif
 

@@ -36,6 +36,8 @@ import (
 	"syscall"
 
 	"github.com/dsnet/compress/bzip2"
+	"github.com/klauspost/compress/zstd"
+	"github.com/ulikunitz/xz/lzma"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -65,12 +67,15 @@ func compress(ctx context.Context, w io.Writer, filePaths []string) (err error) 
 		}
 	}
 
+	// m := bzip2Method{}
+	// m := zstdMethod{}
+	m := lzmaMethod{}
 	compressedFiles := make([]*compressedFile, len(filePaths))
 	g, ctx := errgroup.WithContext(ctx)
 	for i := range filePaths {
 		i := i
 		g.Go(func() error {
-			f, err := compressFile(ctx, filePaths[i])
+			f, err := compressFile(ctx, filePaths[i], m)
 			if err != nil {
 				return err
 			}
@@ -111,7 +116,33 @@ func compress(ctx context.Context, w io.Writer, filePaths []string) (err error) 
 	return nil
 }
 
-func compressFile(ctx context.Context, filePath string) (*compressedFile, error) {
+type method interface {
+	Method() uint16
+	NewWriter(io.Writer) (io.WriteCloser, error)
+}
+
+type bzip2Method struct{}
+
+func (bzip2Method) Method() uint16 { return 12 }
+func (bzip2Method) NewWriter(w io.Writer) (io.WriteCloser, error) {
+	return bzip2.NewWriter(w, &bzip2.WriterConfig{Level: bzip2.BestCompression})
+}
+
+type lzmaMethod struct{}
+
+func (lzmaMethod) Method() uint16 { return 14 }
+func (lzmaMethod) NewWriter(w io.Writer) (io.WriteCloser, error) {
+	return lzma.NewWriter(w)
+}
+
+type zstdMethod struct{}
+
+func (zstdMethod) Method() uint16 { return zstd.ZipMethodPKWare }
+func (zstdMethod) NewWriter(w io.Writer) (io.WriteCloser, error) {
+	return zstd.NewWriter(w, zstd.WithEncoderLevel(zstd.SpeedBestCompression))
+}
+
+func compressFile(ctx context.Context, filePath string, m method) (*compressedFile, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
@@ -119,7 +150,7 @@ func compressFile(ctx context.Context, filePath string) (*compressedFile, error)
 	defer func() { err = errors.Join(err, file.Close()) }()
 
 	var f compressedFile
-	compressed, err := bzip2.NewWriter(&f.buf, &bzip2.WriterConfig{Level: bzip2.BestCompression})
+	compressed, err := m.NewWriter(&f.buf)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +167,7 @@ func compressFile(ctx context.Context, filePath string) (*compressedFile, error)
 	f.header.Name = filepath.Base(filePath)
 	f.header.UncompressedSize64 = uint64(bytesWritten)
 	f.header.CompressedSize64 = uint64(f.buf.Len())
-	f.header.Method = 12 // this is bzip2
+	f.header.Method = m.Method()
 	f.header.CRC32 = crc32.Sum32()
 	if f.header.UncompressedSize64 > math.MaxUint32 {
 		f.header.UncompressedSize = math.MaxUint32
