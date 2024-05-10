@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -95,6 +96,49 @@ func TestHandle_Environ(t *testing.T) {
 	}
 
 	assert.Contains(t, env, marker)
+}
+
+func TestHandle_IsDone(t *testing.T) {
+	cmd := makeSleepCommand(t)
+
+	var killOnce sync.Once
+	require.NoError(t, cmd.Start())
+	t.Cleanup(func() {
+		killOnce.Do(func() {
+			if assert.NoError(t, cmd.Process.Kill()) {
+				_, err := cmd.Process.Wait()
+				assert.NoError(t, err)
+			}
+		})
+	})
+
+	var closeOnce sync.Once
+	underTest, err := process.Open(cmd.Process)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		closeOnce.Do(func() {
+			assert.NoError(t, underTest.Close())
+		})
+	})
+	if done, err := underTest.IsDone(); assert.NoError(t, err) {
+		assert.False(t, done, "Process should still be running.")
+	}
+
+	killOnce.Do(func() {
+		if assert.NoError(t, cmd.Process.Kill()) {
+			_, err := cmd.Process.Wait()
+			assert.NoError(t, err)
+		}
+	})
+	if done, err := underTest.IsDone(); assert.NoError(t, err) {
+		assert.True(t, done, "Process has been killed and should be done.")
+	}
+
+	closeOnce.Do(func() {
+		assert.NoError(t, underTest.Close())
+	})
+	_, err = underTest.IsDone()
+	assert.ErrorIs(t, err, syscall.EINVAL, "Closed handle should return EINVAL.")
 }
 
 func TestHandle_AfterExit(t *testing.T) {

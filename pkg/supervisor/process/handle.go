@@ -34,6 +34,9 @@ type Handle interface {
 
 	// Reads and returns the process's environment.
 	Environ() ([]string, error)
+
+	// Indicates if this process exited or is still running.
+	IsDone() (bool, error)
 }
 
 func Open(p *os.Process) (Handle, error) {

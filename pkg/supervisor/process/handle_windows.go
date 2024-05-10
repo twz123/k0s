@@ -49,7 +49,7 @@ func OpenProcHandle(pid PID) (_ *ProcHandle, err error) {
 	return &ProcHandle{handle: handle}, nil
 }
 
-// Closes this handle.
+// Close implements [Handle].
 func (h *ProcHandle) Close() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -69,7 +69,7 @@ func (h *ProcHandle) Close() error {
 	return nil
 }
 
-// Send a signal to the process denoted by this handle.
+// Signal implements [Handle].
 func (h *ProcHandle) Signal(signal os.Signal) error {
 	if signal != os.Kill {
 		return fmt.Errorf("unsupported signal: %v", signal)
@@ -105,6 +105,7 @@ func (h *ProcHandle) Signal(signal os.Signal) error {
 	return nil
 }
 
+// Environ implements [Handle].
 func (h *ProcHandle) Environ() ([]string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -152,6 +153,18 @@ func (h *ProcHandle) Environ() ([]string, error) {
 	}
 
 	return parseEnvBlock(envBlock), nil
+}
+
+// IsDone implements [Handle].
+func (h *ProcHandle) IsDone() (bool, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.handle == windows.InvalidHandle {
+		return false, syscall.EINVAL
+	}
+
+	return h.exited()
 }
 
 func (h *ProcHandle) exited() (bool, error) {

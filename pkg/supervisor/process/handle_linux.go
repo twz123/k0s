@@ -55,6 +55,7 @@ func OpenPIDFD(pid PID) (*PIDFD, error) {
 	return &PIDFD{f: f}, nil
 }
 
+// Close implements [Handle].
 func (p *PIDFD) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -68,6 +69,7 @@ func (p *PIDFD) Close() error {
 	return err
 }
 
+// Signal implements [Handle].
 func (p *PIDFD) Signal(signal os.Signal) error {
 	sig, ok := signal.(syscall.Signal)
 	if !ok {
@@ -89,6 +91,7 @@ func (p *PIDFD) Signal(signal os.Signal) error {
 	return err
 }
 
+// Environ implements [Handle].
 func (p *PIDFD) Environ() ([]string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -107,6 +110,21 @@ func (p *PIDFD) Environ() ([]string, error) {
 	}
 
 	return parseEnvBlock(envBlock), nil
+}
+
+// IsDone implements [Handle].
+func (p *PIDFD) IsDone() (bool, error) {
+	// Send "the null signal" to probe if the PID still exists.
+	// https://www.man7.org/linux/man-pages/man3/kill.3p.html
+	err := p.Signal(syscall.Signal(0))
+	switch err { //nolint:errorlint // guarded by a unit test
+	case nil:
+		return false, nil
+	case ErrGone:
+		return true, nil
+	default:
+		return false, err
+	}
 }
 
 func (p *PIDFD) readEnvBlock() (_ []byte, err error) {
