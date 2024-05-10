@@ -14,16 +14,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package supervisor
+package pingpong
 
 import (
+	_ "embed"
 	"io"
 	"net"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
-
-	"github.com/k0sproject/k0s/internal/pkg/file"
 
 	"github.com/Microsoft/go-winio"
 	"github.com/Microsoft/go-winio/pkg/guid"
@@ -31,6 +31,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/multierr"
 )
+
+//go:embed pingpong.ps1
+var script []byte
 
 type pingPong struct {
 	shellPath string
@@ -45,7 +48,7 @@ func makePingPong(t *testing.T) *pingPong {
 
 	// We need that copy, otherwise tests get cached.
 	scriptPath := filepath.Join(t.TempDir(), "pingpong.ps1")
-	require.NoError(t, file.Copy("pingpong.ps1", scriptPath))
+	require.NoError(t, os.WriteFile(scriptPath, script, 0644))
 
 	guid, err := guid.NewV4()
 	require.NoError(t, err)
