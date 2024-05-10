@@ -18,6 +18,7 @@ package pingpong
 
 import (
 	_ "embed"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -35,14 +36,14 @@ import (
 //go:embed pingpong.ps1
 var script []byte
 
-type pingPong struct {
+type PingPong struct {
 	shellPath string
 	shellArgs []string
 	ping      net.Listener
 	pong      string
 }
 
-func makePingPong(t *testing.T) *pingPong {
+func New(t *testing.T) *PingPong {
 	shellPath, err := exec.LookPath("powershell")
 	require.NoError(t, err)
 
@@ -61,32 +62,32 @@ func makePingPong(t *testing.T) *pingPong {
 	require.NoError(t, err, "Failed to listen ping pipe")
 	t.Cleanup(func() { assert.NoError(t, ping.Close(), "Failed to close ping pipe") })
 
-	return &pingPong{
+	return &PingPong{
 		shellPath, []string{"-noprofile", "-noninteractive", scriptPath, namespace},
 		ping, pongPath,
 	}
 }
 
-func (pp *pingPong) binPath() string {
+func (pp *PingPong) BinPath() string {
 	return pp.shellPath
 }
 
-func (pp *pingPong) binArgs() []string {
+func (pp *PingPong) BinArgs() []string {
 	return pp.shellArgs
 }
 
-func (pp *pingPong) awaitPing() (err error) {
+func (pp *PingPong) AwaitPing() (err error) {
 	conn, err := pp.ping.Accept()
 	if err != nil {
 		return err
 	}
-	defer func() { err = multierr.Append(err, conn.Close()) }()
+	defer func() { err = errors.Join(err, conn.Close()) }()
 
 	_, err = io.ReadAll(conn)
 	return err
 }
 
-func (pp *pingPong) sendPong() (err error) {
+func (pp *PingPong) SendPong() (err error) {
 	conn, err := winio.DialPipe(pp.pong, nil)
 	if err != nil {
 		return err

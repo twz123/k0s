@@ -19,6 +19,7 @@ limitations under the License.
 package pingpong
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,19 +27,18 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"go.uber.org/multierr"
 )
 
-type pingPong struct {
+type PingPong struct {
 	shellPath, ping, pong string
 }
 
-func makePingPong(t *testing.T) *pingPong {
+func New(t *testing.T) *PingPong {
 	shellPath, err := exec.LookPath("sh")
 	require.NoError(t, err)
 
 	tmpDir := t.TempDir()
-	pp := pingPong{
+	pp := PingPong{
 		shellPath,
 		filepath.Join(tmpDir, "pipe.ping"),
 		filepath.Join(tmpDir, "pipe.pong"),
@@ -52,20 +52,20 @@ func makePingPong(t *testing.T) *pingPong {
 	return &pp
 }
 
-func (pp *pingPong) binPath() string {
+func (pp *PingPong) BinPath() string {
 	return pp.shellPath
 }
 
-func (pp *pingPong) binArgs() []string {
+func (pp *PingPong) BinArgs() []string {
 	return []string{"-euc", `cat -- "$1" && echo pong >"$2"`, "--", pp.ping, pp.pong}
 }
 
-func (pp *pingPong) awaitPing() (err error) {
+func (pp *PingPong) AwaitPing() (err error) {
 	f, err := os.OpenFile(pp.ping, os.O_WRONLY, 0)
 	if err != nil {
 		return err
 	}
-	defer func() { err = multierr.Append(err, f.Close()) }()
+	defer func() { err = errors.Join(err, f.Close()) }()
 
 	// The write will block until the process reads from the FIFO file.
 	if _, err := f.Write([]byte("ping\n")); err != nil {
@@ -75,7 +75,7 @@ func (pp *pingPong) awaitPing() (err error) {
 	return nil
 }
 
-func (pp *pingPong) sendPong() (err error) {
+func (pp *PingPong) SendPong() (err error) {
 	// Read from the FIFO file to unblock the process.
 	_, err = os.ReadFile(pp.pong)
 	return err
