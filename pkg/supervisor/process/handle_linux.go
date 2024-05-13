@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -177,11 +178,12 @@ func procfsPidfdOpen(pid PID) (*os.File, error) {
 func ensureProcfs() error {
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(procMount, &st); err != nil {
-		if os.IsNotExist(err) {
+		err := &fs.PathError{Op: "statfs", Path: procMount, Err: err}
+		if errors.Is(err, os.ErrNotExist) {
 			return &noProcfsError{err}
 		}
 
-		return fmt.Errorf("proc(5) filesystem check failed: failed to statfs %s: %w", procMount, err)
+		return fmt.Errorf("proc(5) filesystem check failed: %v", err)
 	}
 
 	if st.Type != unix.PROC_SUPER_MAGIC {
@@ -197,17 +199,14 @@ func (e *noProcfsError) Error() string {
 	return fmt.Sprintf("proc(5) filesystem unavailable: %v", e.err)
 }
 
-func (e *noProcfsError) Unwrap() error {
-	return e.err
-}
-
 func (e *noProcfsError) Is(target error) bool {
-	// This is kinda like an unsupported syscall.
-	if target == syscall.ENOSYS {
+	if target == errors.ErrUnsupported {
 		return true
 	}
-
-	return errors.Is(e.err, target)
+	if other, ok := target.(*noProcfsError); ok {
+		return errors.Is(e.err, other.err)
+	}
+	return false
 }
 
 // Send a signal to a process specified by a file descriptor.
