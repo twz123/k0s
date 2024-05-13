@@ -93,13 +93,6 @@ func (p *PIDFD) Signal(signal os.Signal) error {
 
 // Environ implements [Handle].
 func (p *PIDFD) Environ() ([]string, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.procFile == nil {
-		return nil, syscall.EINVAL
-	}
-
 	envBlock, err := p.readEnvBlock()
 	if err != nil {
 		if errors.Is(err, syscall.ESRCH) {
@@ -129,6 +122,13 @@ func (p *PIDFD) IsDone() (bool, error) {
 
 func (p *PIDFD) readEnvBlock() (_ []byte, err error) {
 	const environ = "environ"
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.procFile == nil {
+		return nil, syscall.EINVAL
+	}
 
 	path := filepath.Join(p.procFile.Name(), environ)
 
