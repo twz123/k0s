@@ -35,7 +35,7 @@ type PIDFD struct {
 	mu sync.Mutex
 
 	// A file backed by the pidfd that refers to the process.
-	f *os.File
+	procFile *os.File
 }
 
 // Linux specific implementation of [OpenHandle].
@@ -52,7 +52,7 @@ func OpenPIDFD(pid PID) (*PIDFD, error) {
 		return nil, err
 	}
 
-	return &PIDFD{f: f}, nil
+	return &PIDFD{procFile: f}, nil
 }
 
 // Close implements [Handle].
@@ -60,12 +60,12 @@ func (p *PIDFD) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.f == nil {
+	if p.procFile == nil {
 		return syscall.EINVAL
 	}
 
-	err := p.f.Close()
-	p.f = nil
+	err := p.procFile.Close()
+	p.procFile = nil
 	return err
 }
 
@@ -79,11 +79,11 @@ func (p *PIDFD) Signal(signal os.Signal) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.f == nil {
+	if p.procFile == nil {
 		return syscall.EINVAL
 	}
 
-	err := pidfdSendSignal(int(p.f.Fd()), sig)
+	err := pidfdSendSignal(int(p.procFile.Fd()), sig)
 	if errors.Is(err, syscall.ESRCH) {
 		return ErrGone
 	}
@@ -96,7 +96,7 @@ func (p *PIDFD) Environ() ([]string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.f == nil {
+	if p.procFile == nil {
 		return nil, syscall.EINVAL
 	}
 
@@ -130,12 +130,12 @@ func (p *PIDFD) IsDone() (bool, error) {
 func (p *PIDFD) readEnvBlock() (_ []byte, err error) {
 	const environ = "environ"
 
-	path := filepath.Join(p.f.Name(), environ)
+	path := filepath.Join(p.procFile.Name(), environ)
 
 	// Using openat here so that the file gets opened through the already opened
 	// process descriptor instead of going through a filesystem lookup, which
 	// might yield another process's env under certain circumstances.
-	envFD, err := syscall.Openat(int(p.f.Fd()), environ, os.O_RDONLY|syscall.O_CLOEXEC, 0)
+	envFD, err := syscall.Openat(int(p.procFile.Fd()), environ, os.O_RDONLY|syscall.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, &os.PathError{Op: "openat", Path: path, Err: err}
 	}
