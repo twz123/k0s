@@ -23,8 +23,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
+	"runtime"
 	"sync"
 	"syscall"
 	"testing"
@@ -112,14 +114,9 @@ func TestHandle_IsDone(t *testing.T) {
 		})
 	})
 
-	var closeOnce sync.Once
 	underTest, err := process.Open(cmd.Process)
 	require.NoError(t, err)
-	t.Cleanup(func() {
-		closeOnce.Do(func() {
-			assert.NoError(t, underTest.Close())
-		})
-	})
+	t.Cleanup(func() { assert.NoError(t, underTest.Close()) })
 	if done, err := underTest.IsDone(); assert.NoError(t, err) {
 		assert.False(t, done, "Process should still be running.")
 	}
@@ -133,12 +130,6 @@ func TestHandle_IsDone(t *testing.T) {
 	if done, err := underTest.IsDone(); assert.NoError(t, err) {
 		assert.True(t, done, "Process has been killed and should be done.")
 	}
-
-	closeOnce.Do(func() {
-		assert.NoError(t, underTest.Close())
-	})
-	_, err = underTest.IsDone()
-	assert.ErrorIs(t, err, syscall.EINVAL, "Closed handle should return EINVAL.")
 }
 
 func TestHandle_AfterExit(t *testing.T) {
@@ -188,24 +179,34 @@ func TestHandle_AfterClose(t *testing.T) {
 	pid := process.PID(cmd.Process.Pid)
 	require.Equal(t, cmd.Process.Pid, int(pid))
 
-	underTest, err := process.OpenHandle(pid)
+	underTest, err := pid.OpenHandle()
 	require.NoError(t, err)
 
 	require.NoError(t, underTest.Close())
 
+	expectedClosedErr := fs.ErrClosed
+	if runtime.GOOS == "windows" {
+		expectedClosedErr = syscall.Errno(6) // == windows.ERROR_INVALID_HANDLE
+	}
+
 	t.Run("Close", func(t *testing.T) {
 		err := underTest.Close()
-		require.ErrorIs(t, err, syscall.EINVAL)
+		assert.ErrorIs(t, err, expectedClosedErr)
 	})
 
 	t.Run("Signal", func(t *testing.T) {
-		err := underTest.Signal(os.Kill)
-		require.ErrorIs(t, err, syscall.EINVAL)
+		err := underTest.Signal(syscall.Signal(0))
+		assert.ErrorIs(t, err, expectedClosedErr)
 	})
 
 	t.Run("Environ", func(t *testing.T) {
 		_, err := underTest.Environ()
-		require.ErrorIs(t, err, syscall.EINVAL)
+		assert.ErrorIs(t, err, expectedClosedErr)
+	})
+
+	t.Run("IsDone", func(t *testing.T) {
+		_, err := underTest.IsDone()
+		assert.ErrorIs(t, err, expectedClosedErr)
 	})
 }
 

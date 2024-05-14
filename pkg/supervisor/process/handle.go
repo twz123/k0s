@@ -17,7 +17,6 @@ limitations under the License.
 package process
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -49,30 +48,16 @@ func Open(p *os.Process) (Handle, error) {
 		return nil, fmt.Errorf("illegal PID: %d", p.Pid)
 	}
 
-	return OpenHandle(pid)
+	return pid.OpenHandle()
 }
 
 // Obtains a handle that refers to a process.
 // Returns [ErrPIDNotExist] if there's no such process.
-func OpenHandle(pid PID) (Handle, error) {
-	return openHandle(pid)
+func (p PID) OpenHandle() (Handle, error) {
+	return openHandle(p)
 }
 
 var (
 	ErrPIDNotExist = errors.New("process specified by PID does not exist")
 	ErrGone        = errors.New("process gone")
 )
-
-// Parses a raw environment block into a string slice.
-func parseEnvBlock(block []byte) (env []string) {
-	for len(block) > 0 {
-		// Each env variable is NUL terminated.
-		current, rest, _ := bytes.Cut(block, []byte{0})
-		if len(current) > 0 {
-			env = append(env, string(current))
-		}
-		block = rest
-	}
-
-	return env
-}

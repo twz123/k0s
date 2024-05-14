@@ -19,9 +19,9 @@ limitations under the License.
 package process
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
-	"syscall"
 )
 
 func openHandle(PID) (Handle, error) {
@@ -35,5 +35,5 @@ func (unsupportedOSErr) Error() string {
 }
 
 func (unsupportedOSErr) Is(target error) bool {
-	return target == syscall.ENOSYS
+	return target == errors.ErrUnsupported
 }
