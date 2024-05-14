@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -48,52 +49,108 @@ import (
 // https://github.com/torvalds/linux/commit/32fcb426ec001cb6d5a4a195091a8486ea77e2df
 // https://github.com/torvalds/linux/commit/7615d9e1780e26e0178c93c55b73309a5dc093d7
 type PIDFD struct {
-	mu sync.Mutex
-
-	// A file backed by the pidfd that refers to the process.
-	pidFile *os.File
+	mu sync.Mutex // Mutex that guards the below fields.
+	f  *os.File   // The open file pointing to the proc dir of the process.
 }
 
 func newPIDFD(f *os.File) *PIDFD {
-	return &PIDFD{pidFile: f}
+	return &PIDFD{f: f}
 }
 
-func (p *PIDFD) Close() error {
-	if p == nil {
+func (d *PIDFD) Close() error {
+	if d == nil {
 		return os.ErrInvalid
 	}
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	d.mu.Lock()
+	defer d.mu.Unlock()
 
-	if p.pidFile == nil {
+	if d.f == nil {
 		return os.ErrClosed
 	}
 
-	err := p.pidFile.Close()
-	p.pidFile = nil
+	err := d.f.Close()
+	d.f = nil
 	return err
+}
+
+var _ interface {
+	fs.ReadFileFS
+	fs.ReadDirFS
+} = (*PIDFD)(nil)
+
+func (d *PIDFD) Open(path string) (fs.File, error) {
+	return d.OpenAt(path, syscall.O_RDONLY)
+}
+
+func (d *PIDFD) OpenAt(path string, flags int) (*os.File, error) {
+	if d == nil {
+		return nil, os.ErrInvalid
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if d.f == nil {
+		return nil, os.ErrClosed
+	}
+
+	if filepath.IsAbs(path) {
+		return nil, &os.PathError{
+			Op:   "openat",
+			Path: path,
+			Err:  fmt.Errorf("%w: can't open absolute paths", syscall.EINVAL),
+		}
+	}
+
+	// Using openat here so that the file gets opened through the already opened
+	// process descriptor instead of going through a filesystem lookup, which
+	// might yield another process's env under certain circumstances.
+	envFD, err := syscall.Openat(int(d.f.Fd()), path, flags|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, &os.PathError{Op: "openat", Path: path, Err: err}
+	}
+
+	return os.NewFile(uintptr(envFD), filepath.Join(d.f.Name(), path)), nil
+}
+
+func (d *PIDFD) ReadFile(name string) (_ []byte, err error) {
+	f, err := d.OpenAt(name, os.O_RDONLY)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, f.Close()) }()
+	return io.ReadAll(f)
+}
+
+func (d *PIDFD) ReadDir(name string) (_ []fs.DirEntry, err error) {
+	dir, err := d.OpenAt(name, syscall.O_DIRECTORY|syscall.O_RDONLY)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, dir.Close()) }()
+	return dir.ReadDir(-1)
 }
 
 // Returns the underlying Unix file descriptor.
 // See [os.File.Fd] for details.
-func (p *PIDFD) Fd() uintptr {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.pidFile.Fd()
+func (d *PIDFD) Fd() uintptr {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.f.Fd()
 }
 
 // Sends a signal to the process. The calling process must either be in the same
 // PID namespace as the process referred to by this descriptor, or be in an
 // ancestor of that namespace.
-func (p *PIDFD) Signal(signal os.Signal) error {
-	if p == nil {
+func (d *PIDFD) Signal(signal os.Signal) error {
+	if d == nil {
 		return os.ErrInvalid
 	}
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.pidFile == nil {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.f == nil {
 		return os.ErrClosed
 	}
 
@@ -102,12 +159,12 @@ func (p *PIDFD) Signal(signal os.Signal) error {
 		return fmt.Errorf("%w: %s", errors.ErrUnsupported, signal)
 	}
 
-	return pidfdSendSignal(int(p.pidFile.Fd()), sig)
+	return pidfdSendSignal(int(d.f.Fd()), sig)
 }
 
 // Environ implements [Handle].
-func (p *PIDFD) Environ() (env []string, _ error) {
-	raw, err := p.readAll("environ")
+func (d *PIDFD) Environ() (env []string, _ error) {
+	raw, err := d.ReadFile("environ")
 	if err != nil {
 		return nil, err
 	}
@@ -125,11 +182,11 @@ func (p *PIDFD) Environ() (env []string, _ error) {
 }
 
 // IsDone implements [Handle].
-func (p *PIDFD) IsDone() (bool, error) {
+func (d *PIDFD) IsDone() (bool, error) {
 
 	// Send "the null signal" to probe if the PID still exists.
 	// https://www.man7.org/linux/man-pages/man3/kill.3p.html
-	err := p.Signal(syscall.Signal(0))
+	err := d.Signal(syscall.Signal(0))
 	switch {
 	case err == nil:
 		return false, nil
@@ -138,38 +195,6 @@ func (p *PIDFD) IsDone() (bool, error) {
 	default:
 		return false, err
 	}
-}
-
-func (p *PIDFD) readAll(path string) (_ []byte, err error) {
-	f, err := p.openat(path, os.O_RDONLY)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { err = errors.Join(err, f.Close()) }()
-	return io.ReadAll(f)
-}
-
-func (p *PIDFD) openat(path string, flags int) (*os.File, error) {
-	if p == nil {
-		return nil, os.ErrInvalid
-	}
-
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.pidFile == nil {
-		return nil, os.ErrClosed
-	}
-
-	// Using openat here so that the file gets opened through the already opened
-	// process descriptor instead of going through a filesystem lookup, which
-	// might yield another process's env under certain circumstances.
-	envFD, err := syscall.Openat(int(p.pidFile.Fd()), path, flags|syscall.O_CLOEXEC, 0)
-	if err != nil {
-		return nil, &os.PathError{Op: "openat", Path: path, Err: err}
-	}
-
-	return os.NewFile(uintptr(envFD), filepath.Join(p.pidFile.Name(), path)), nil
 }
 
 // Send a signal to a process specified by a file descriptor.

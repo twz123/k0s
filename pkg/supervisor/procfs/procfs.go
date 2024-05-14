@@ -19,9 +19,10 @@ limitations under the License.
 package procfs
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
-	iofs "io/fs"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -41,8 +42,8 @@ func At(mountPoint string) ProcFS {
 	return ProcFS(mountPoint)
 }
 
-func (fs ProcFS) String() string {
-	return string(fs)
+func (p ProcFS) String() string {
+	return string(p)
 }
 
 // Delegates to [Default].
@@ -56,26 +57,68 @@ func OpenPID(pid uint) (*PIDFD, error) {
 //
 // Opens a /proc/<pid> directory. The file descriptor obtained in this way is
 // not pollable and can't be waited on with waitid(2).
-func (fs ProcFS) OpenPID(pid uint) (*PIDFD, error) {
+func (p ProcFS) OpenPID(pid uint) (*PIDFD, error) {
 	const flags = syscall.O_DIRECTORY | syscall.O_CLOEXEC
-	path := filepath.Join(fs.String(), strconv.FormatUint(uint64(pid), 10))
+	path := filepath.Join(p.String(), strconv.FormatUint(uint64(pid), 10))
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
 	pidFile, err := os.OpenFile(path, flags, 0)
-	if err == nil {
-		return newPIDFD(pidFile), nil
+	if err != nil {
+		// If there was an error, check if the procfs is actually valid.
+		verifyErr := p.Verify()
+		if verifyErr != nil {
+			err = fmt.Errorf("%w (%v)", verifyErr, err) //nolint:errorlint // shadow open err
+		}
+		return nil, err
 	}
 
-	// If there was an error, check if the procfs is actually valid.
-	verifyErr := fs.Verify()
-	if verifyErr != nil {
-		err = fmt.Errorf("%w (%v)", verifyErr, err) //nolint:errorlint // shadow open err
+	d := newPIDFD(pidFile)
+
+	// The file is open. It might refer to a thread, though.
+	// Check if the thread group ID is the process ID.
+	err = func() error {
+		status, err := d.ReadFile("status")
+		if err != nil {
+			return err
+		}
+
+		for len(status) > 0 {
+			line, rest, ok := bytes.Cut(status, []byte{'\n'})
+			if !ok {
+				return fmt.Errorf("status file not properly terminated: %q", status)
+			}
+			name, val, ok := bytes.Cut(line, []byte{':'})
+			if ok && bytes.Equal(name, []byte("Tgid")) {
+				expected := strconv.FormatUint(uint64(pid), 10)
+				actual := string(bytes.TrimSpace(val))
+				if expected == actual {
+					return nil
+				}
+				return fmt.Errorf("%w (thread group ID is %s)", fs.ErrNotExist, actual)
+			}
+			status = rest
+		}
+
+		return errors.New("failed to find thread group ID")
+	}()
+	if err != nil {
+		return nil, errors.Join(err, d.Close())
 	}
-	return nil, err
+
+	return d, nil
 }
 
-func (fs ProcFS) Verify() error {
+func (p ProcFS) Verify() error {
+	path, err := filepath.Abs(p.String())
+	if err != nil {
+		return fmt.Errorf("proc(5) filesystem check failed: %w", err)
+	}
+
 	var st syscall.Statfs_t
-	if err := syscall.Statfs(string(fs), &st); err != nil {
-		statErr := &iofs.PathError{Op: "statfs", Path: fs.String(), Err: err}
+	if err := syscall.Statfs(path, &st); err != nil {
+		statErr := &fs.PathError{Op: "statfs", Path: path, Err: err}
 		if errors.Is(err, os.ErrNotExist) {
 			err = fmt.Errorf("%w: proc(5) filesystem unavailable", errors.ErrUnsupported)
 		} else {
@@ -85,7 +128,7 @@ func (fs ProcFS) Verify() error {
 	}
 
 	if st.Type != unix.PROC_SUPER_MAGIC {
-		return fmt.Errorf("%w: not a proc(5) filesystem: %s: type is 0x%x", errors.ErrUnsupported, fs, st.Type)
+		return fmt.Errorf("%w: not a proc(5) filesystem: %s: type is 0x%x", errors.ErrUnsupported, p, st.Type)
 	}
 	return nil
 }

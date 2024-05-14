@@ -25,15 +25,13 @@ import (
 	"github.com/k0sproject/k0s/pkg/supervisor/procfs"
 )
 
-type handle struct {
-	pidFD *procfs.PIDFD
-}
+type handle procfs.PIDFD
 
 // Linux specific implementation of [OpenHandle].
 func openHandle(pid PID) (Handle, error) {
 	pidFD, err := procfs.OpenPID(uint(pid))
 	if err == nil {
-		return &handle{pidFD}, nil
+		return (*handle)(pidFD), nil
 	}
 	if errors.Is(err, fs.ErrNotExist) {
 		err = ErrPIDNotExist
@@ -43,27 +41,17 @@ func openHandle(pid PID) (Handle, error) {
 
 // Close implements [Handle].
 func (h *handle) Close() error {
-	if h == nil {
-		return os.ErrInvalid
-	}
-	return h.pidFD.Close()
+	return (*procfs.PIDFD)(h).Close()
 }
 
 // Signal implements [Handle].
 func (h *handle) Signal(signal os.Signal) error {
-	if h == nil {
-		return os.ErrInvalid
-	}
-	return normalizeErr(h.pidFD.Signal(signal))
+	return normalizeErr((*procfs.PIDFD)(h).Signal(signal))
 }
 
 // Environ implements [Handle].
 func (h *handle) Environ() ([]string, error) {
-	if h == nil {
-		return nil, os.ErrInvalid
-	}
-
-	env, err := h.pidFD.Environ()
+	env, err := (*procfs.PIDFD)(h).Environ()
 	return env, normalizeErr(err)
 }
 
