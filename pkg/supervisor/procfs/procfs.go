@@ -19,7 +19,6 @@ limitations under the License.
 package procfs
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -31,6 +30,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// A proc(5) filesystem.
+//
+// See https://man7.org/linux/man-pages/man5/proc.5.html
 type ProcFS string
 
 const (
@@ -78,31 +80,13 @@ func (p ProcFS) OpenPID(pid uint) (*PIDFD, error) {
 
 	// The file is open. It might refer to a thread, though.
 	// Check if the thread group ID is the process ID.
-	err = func() error {
-		status, err := d.ReadFile("status")
-		if err != nil {
-			return err
-		}
-
-		for len(status) > 0 {
-			line, rest, ok := bytes.Cut(status, []byte{'\n'})
-			if !ok {
-				return fmt.Errorf("status file not properly terminated: %q", status)
-			}
-			name, val, ok := bytes.Cut(line, []byte{':'})
-			if ok && bytes.Equal(name, []byte("Tgid")) {
-				expected := strconv.FormatUint(uint64(pid), 10)
-				actual := string(bytes.TrimSpace(val))
-				if expected == actual {
-					return nil
-				}
-				return fmt.Errorf("%w (thread group ID is %s)", fs.ErrNotExist, actual)
-			}
-			status = rest
-		}
-
-		return errors.New("failed to find thread group ID")
-	}()
+	if status, statusErr := d.Status(); statusErr != nil {
+		err = statusErr
+	} else if tgid, ok := status["Tgid"]; !ok {
+		err = errors.New("no thread group ID in status")
+	} else if tgid != strconv.FormatUint(uint64(pid), 10) {
+		err = fmt.Errorf("%w (thread group ID is %s)", fs.ErrNotExist, tgid)
+	}
 	if err != nil {
 		return nil, errors.Join(err, d.Close())
 	}

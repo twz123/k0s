@@ -162,7 +162,7 @@ func (d *PIDFD) Signal(signal os.Signal) error {
 	return pidfdSendSignal(int(d.f.Fd()), sig)
 }
 
-// Environ implements [Handle].
+// Reads and parses /proc/pid/environ.
 func (d *PIDFD) Environ() (env []string, _ error) {
 	raw, err := d.ReadFile("environ")
 	if err != nil {
@@ -179,6 +179,30 @@ func (d *PIDFD) Environ() (env []string, _ error) {
 		raw = rest
 	}
 	return env, nil
+}
+
+// Reads and parses /proc/pid/status.
+func (d *PIDFD) Status() (map[string]string, error) {
+	raw, err := d.ReadFile("status")
+	if err != nil {
+		return nil, err
+	}
+
+	status := make(map[string]string, 64)
+	for len(raw) > 0 {
+		line, rest, ok := bytes.Cut(raw, []byte{'\n'})
+		if !ok {
+			return nil, fmt.Errorf("status file not properly terminated: %q", raw)
+		}
+		name, val, ok := bytes.Cut(line, []byte{':'})
+		if !ok {
+			return nil, fmt.Errorf("line without colon: %q", line)
+		}
+		status[string(name)] = string(bytes.TrimSpace(val))
+		raw = rest
+	}
+
+	return status, nil
 }
 
 // IsDone implements [Handle].
