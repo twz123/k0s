@@ -21,77 +21,63 @@ package process_test
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
 	"runtime"
-	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/k0sproject/k0s/internal/testutil/pingpong"
 	"github.com/k0sproject/k0s/pkg/supervisor/process"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestMain(m *testing.M) {
-	if _, err := newSleepCommand(); err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		os.Exit(1)
-	}
+func TestHandle_Kill(t *testing.T) {
+	cmd, pingPong := startPingPong(t)
 
-	os.Exit(m.Run())
-}
+	// Wait until the process is running
+	require.NoError(t, pingPong.AwaitPing())
 
-func TestHandle_Signal_Kill(t *testing.T) {
-	cmd := makeSleepCommand(t)
-	require.NoError(t, cmd.Start())
-
+	// Open process handle
 	underTest, err := process.Open(cmd.Process)
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, underTest.Close()) })
 
-	require.NoError(t, underTest.Signal(os.Kill))
-
-	state, err := cmd.Process.Wait()
-	require.NoError(t, err)
-	require.False(t, state.Success())
+	require.NoError(t, underTest.Kill())
+	assert.ErrorContains(t, cmd.Wait(), "signal: killed")
 }
 
 func TestHandle_Environ(t *testing.T) {
-	cmd := makeSleepCommand(t)
-
 	var rnd [16]byte
 	_, err := rand.Read(rnd[:])
 	require.NoError(t, err)
 	marker := "_K0S_SUPERVISOR_PROCESS_TEST_MARKER=" + hex.EncodeToString(rnd[:])
 
+	pingPong := pingpong.New(t)
+	cmd := exec.Command(pingPong.BinPath(), pingPong.BinArgs()...)
 	cmd.Env = []string{marker}
 	require.NoError(t, cmd.Start())
 	t.Cleanup(func() {
-		if assert.NoError(t, cmd.Process.Kill()) {
-			_, err := cmd.Process.Wait()
-			assert.NoError(t, err)
+		if assert.NoError(t, pingPong.SendPong()) {
+			assert.NoError(t, cmd.Wait())
 		}
 	})
 
+	// Wait until the process is running
+	require.NoError(t, pingPong.AwaitPing())
+
+	// Open process handle
 	underTest, err := process.Open(cmd.Process)
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, underTest.Close()) })
 
-	var env []string
-
-	// Give the process a bit of startup time.
-	// FIXME: does this make any sense?
-	assert.Eventually(t, func() bool {
-		env, err = underTest.Environ()
-		require.NoError(t, err)
-		return len(env) > 0
-	}, 1*time.Second, 10*time.Millisecond)
+	env, err := underTest.Environ()
+	require.NoError(t, err)
 
 	for _, v := range env {
 		t.Logf("Environ: %q", v)
@@ -100,86 +86,191 @@ func TestHandle_Environ(t *testing.T) {
 	assert.Contains(t, env, marker)
 }
 
-func TestHandle_IsDone(t *testing.T) {
-	cmd := makeSleepCommand(t)
-
-	var killOnce sync.Once
-	require.NoError(t, cmd.Start())
+func TestHandle_Wait_IsTerminated(t *testing.T) {
+	cmd, pingPong := startPingPong(t)
+	var pongSent atomic.Bool
 	t.Cleanup(func() {
-		killOnce.Do(func() {
-			if assert.NoError(t, cmd.Process.Kill()) {
-				_, err := cmd.Process.Wait()
-				assert.NoError(t, err)
-			}
-		})
+		if !pongSent.Load() && assert.NoError(t, pingPong.SendPong()) {
+			assert.NoError(t, cmd.Wait())
+		}
 	})
 
+	// Wait until the process is running
+	require.NoError(t, pingPong.AwaitPing())
+
+	// Open process handle
 	underTest, err := process.Open(cmd.Process)
 	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, underTest.Close()) })
-	if done, err := underTest.IsDone(); assert.NoError(t, err) {
+
+	if done, err := underTest.IsTerminated(); assert.NoError(t, err) {
 		assert.False(t, done, "Process should still be running.")
 	}
 
-	killOnce.Do(func() {
-		if assert.NoError(t, cmd.Process.Kill()) {
-			_, err := cmd.Process.Wait()
-			assert.NoError(t, err)
+	// Ensure that Wait is blocking
+	handleWaitStarts := make(chan struct{})
+	handleWaitDone := make(chan struct{})
+	go func() {
+		defer close(handleWaitDone)
+		close(handleWaitStarts)
+		err := underTest.Wait()
+		if assert.NoError(t, err, "Wait failed.") {
+			assert.True(t, pongSent.Load(), "Wait returned before pong was sent.")
+		}
+	}()
+	t.Cleanup(func() {
+		assert.NoError(t, underTest.Close())
+		<-handleWaitDone
+	})
+
+	<-handleWaitStarts
+	select {
+	case <-time.After(100 * time.Millisecond):
+	case <-handleWaitDone:
+		require.Fail(t, "Expected Wait to be ongoing")
+	}
+
+	// Send a pong, so that the process exits.
+	pongSent.Store(true)
+	require.NoError(t, pingPong.SendPong())
+
+	select {
+	case <-time.After(3 * time.Second):
+		assert.Fail(t, "Expected Wait to be returning after process has exited")
+	case <-handleWaitDone:
+		if done, err := underTest.IsTerminated(); assert.NoError(t, err) {
+			assert.True(t, done, "Process should be terminated after Wait returned.")
+		}
+	}
+
+	assert.NoError(t, cmd.Wait())
+}
+
+func TestHandle_Wait_Close(t *testing.T) {
+	cmd, pingPong := startPingPong(t)
+	t.Cleanup(func() {
+		if assert.NoError(t, pingPong.SendPong()) {
+			assert.NoError(t, cmd.Wait())
 		}
 	})
-	if done, err := underTest.IsDone(); assert.NoError(t, err) {
-		assert.True(t, done, "Process has been killed and should be done.")
+
+	// Wait until the process is running
+	require.NoError(t, pingPong.AwaitPing())
+
+	// Open process handle
+	underTest, err := process.Open(cmd.Process)
+	require.NoError(t, err)
+
+	// Ensure that Wait is interrupted when handle is closed.
+	waitStarts, waitErr := make(chan struct{}), make(chan error)
+	go func() { close(waitStarts); waitErr <- underTest.Wait() }()
+
+	<-waitStarts
+	select {
+	case <-time.After(100 * time.Millisecond):
+	case err := <-waitErr:
+		require.Fail(t, "Expected Wait to be ongoing, got %v", err)
+	}
+
+	require.NoError(t, underTest.Close())
+
+	select {
+	case err := <-waitErr:
+		assert.ErrorIs(t, err, fs.ErrClosed, "Expected Wait to return a closed error.")
+	case <-time.After(3 * time.Second):
+		assert.Fail(t, "Expected Wait to be returning after handle has been closed.")
 	}
 }
 
-func TestHandle_AfterExit(t *testing.T) {
-	cmd := makeSleepCommand(t)
-	require.NoError(t, cmd.Start())
-	var closed bool
+func TestHandle_Terminated(t *testing.T) {
+	cmd, pingPong := startPingPong(t)
+	var stopped bool
 	t.Cleanup(func() {
-		if !closed {
-			if assert.NoError(t, cmd.Process.Kill()) {
-				_, err := cmd.Process.Wait()
-				assert.NoError(t, err)
-			}
+		if stopped || assert.NoError(t, pingPong.SendPong()) {
+			assert.NoError(t, cmd.Wait())
 		}
 	})
+
+	require.NoError(t, pingPong.AwaitPing())
 
 	underTest, err := process.Open(cmd.Process)
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, underTest.Close()) })
 
-	require.NoError(t, cmd.Process.Kill())
-	closed = true
-	_, err = cmd.Process.Wait()
-	require.NoError(t, err)
+	stopped = true
+	require.NoError(t, pingPong.SendPong())
+
+	require.Eventually(t, func() bool {
+		terminated, err := underTest.IsTerminated()
+		require.NoError(t, err)
+		return terminated
+	}, 10*time.Second, 100*time.Millisecond)
 
 	t.Run("Signal", func(t *testing.T) {
 		err := underTest.Signal(os.Kill)
-		require.ErrorIs(t, err, process.ErrGone)
+		assert.NoError(t, err, "Signal should succeed for terminated processes as long as they weren't reaped.")
 	})
 
 	t.Run("Environ", func(t *testing.T) {
 		_, err := underTest.Environ()
-		require.ErrorIs(t, err, process.ErrGone)
+		assert.ErrorIs(t, err, process.ErrTerminated)
+	})
+
+	t.Run("Wait", func(t *testing.T) {
+		err := underTest.Wait()
+		assert.NoError(t, err)
+	})
+}
+
+func TestHandle_Reaped(t *testing.T) {
+	cmd, pingPong := startPingPong(t)
+	var reaped bool
+	t.Cleanup(func() {
+		if !reaped && assert.NoError(t, pingPong.SendPong()) {
+			assert.NoError(t, cmd.Wait())
+		}
+	})
+
+	require.NoError(t, pingPong.AwaitPing())
+
+	underTest, err := process.Open(cmd.Process)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, underTest.Close()) })
+
+	reaped = true
+	require.NoError(t, pingPong.SendPong())
+	require.NoError(t, cmd.Wait())
+
+	t.Run("Signal", func(t *testing.T) {
+		err := underTest.Signal(os.Kill)
+		require.ErrorIs(t, err, process.ErrTerminated)
+	})
+
+	t.Run("Environ", func(t *testing.T) {
+		_, err := underTest.Environ()
+		require.ErrorIs(t, err, process.ErrTerminated)
+	})
+
+	t.Run("Wait", func(t *testing.T) {
+		err := underTest.Wait()
+		assert.NoError(t, err)
 	})
 }
 
 func TestHandle_AfterClose(t *testing.T) {
-	cmd := makeSleepCommand(t)
-
-	require.NoError(t, cmd.Start())
+	cmd, pingPong := startPingPong(t)
 	t.Cleanup(func() {
-		if assert.NoError(t, cmd.Process.Kill()) {
+		if assert.NoError(t, pingPong.SendPong()) {
 			_, err := cmd.Process.Wait()
 			assert.NoError(t, err)
 		}
 	})
 
+	require.NoError(t, pingPong.AwaitPing())
+
 	pid := process.PID(cmd.Process.Pid)
 	require.Equal(t, cmd.Process.Pid, int(pid))
 
-	underTest, err := pid.OpenHandle()
+	underTest, err := pid.Open()
 	require.NoError(t, err)
 
 	require.NoError(t, underTest.Close())
@@ -204,26 +295,20 @@ func TestHandle_AfterClose(t *testing.T) {
 		assert.ErrorIs(t, err, expectedClosedErr)
 	})
 
-	t.Run("IsDone", func(t *testing.T) {
-		_, err := underTest.IsDone()
+	t.Run("Wait", func(t *testing.T) {
+		err := underTest.Wait()
+		assert.ErrorIs(t, err, expectedClosedErr)
+	})
+
+	t.Run("IsTerminated", func(t *testing.T) {
+		_, err := underTest.IsTerminated()
 		assert.ErrorIs(t, err, expectedClosedErr)
 	})
 }
 
-func makeSleepCommand(t *testing.T) *exec.Cmd {
-	cmd, err := newSleepCommand()
-	require.NoError(t, err)
-	return cmd
-}
-
-func newSleepCommand() (*exec.Cmd, error) {
-	if _, err := exec.LookPath("sleep"); err == nil {
-		return exec.Command("sleep", "60"), nil
-	}
-
-	if _, err := exec.LookPath("powershell"); err == nil {
-		return exec.Command("powershell", "-noprofile", "-noninteractive", "-command", "Start-Sleep -Seconds 60"), nil
-	}
-
-	return nil, errors.New("neither sleep nor powershell in PATH, dunno how to create a dummy process")
+func startPingPong(t *testing.T) (*exec.Cmd, *pingpong.PingPong) {
+	pingPong := pingpong.New(t)
+	cmd := exec.Command(pingPong.BinPath(), pingPong.BinArgs()...)
+	require.NoError(t, cmd.Start())
+	return cmd, pingPong
 }

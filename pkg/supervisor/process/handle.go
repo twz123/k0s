@@ -19,6 +19,7 @@ package process
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 )
 
@@ -28,19 +29,27 @@ type Handle interface {
 	// Closes this handle and releases OS specific resources.
 	Close() error
 
+	// Kills the process.
+	Kill() error
+
 	// Sends a signal to the process.
 	Signal(os.Signal) error
 
 	// Reads and returns the process's environment.
 	Environ() ([]string, error)
 
-	// Indicates if this process exited or is still running.
-	IsDone() (bool, error)
+	// Blocks until the process terminates, or an error occurs.
+	Wait() error
+
+	// Indicates if the process terminated.
+	IsTerminated() (bool, error)
 }
 
+// Opens a handle to the given process. Note that, on Linux, this is only
+// guaranteed to be race-free if the the process is not yet waited on.
 func Open(p *os.Process) (Handle, error) {
 	if p == nil {
-		return nil, ErrGone
+		return nil, fs.ErrInvalid
 	}
 
 	pid := PID(p.Pid)
@@ -48,16 +57,16 @@ func Open(p *os.Process) (Handle, error) {
 		return nil, fmt.Errorf("illegal PID: %d", p.Pid)
 	}
 
-	return pid.OpenHandle()
+	return pid.Open()
 }
 
 // Obtains a handle that refers to a process.
-// Returns [ErrPIDNotExist] if there's no such process.
-func (p PID) OpenHandle() (Handle, error) {
+// Returns [ErrNotExist] if there's no such process.
+func (p PID) Open() (Handle, error) {
 	return openHandle(p)
 }
 
 var (
-	ErrPIDNotExist = errors.New("process specified by PID does not exist")
-	ErrGone        = errors.New("process gone")
+	ErrNotExist   = errors.New("process specified by PID does not exist")
+	ErrTerminated = errors.New("process terminated")
 )

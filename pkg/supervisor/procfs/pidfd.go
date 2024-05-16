@@ -19,7 +19,6 @@ limitations under the License.
 package procfs
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -49,8 +48,8 @@ import (
 // https://github.com/torvalds/linux/commit/32fcb426ec001cb6d5a4a195091a8486ea77e2df
 // https://github.com/torvalds/linux/commit/7615d9e1780e26e0178c93c55b73309a5dc093d7
 type PIDFD struct {
-	mu sync.Mutex // Mutex that guards the below fields.
-	f  *os.File   // The open file pointing to the proc dir of the process.
+	mu sync.RWMutex // Mutex that guards the below fields.
+	f  *os.File     // The open file pointing to the proc dir of the process.
 }
 
 func newPIDFD(f *os.File) *PIDFD {
@@ -72,6 +71,35 @@ func (d *PIDFD) Close() error {
 	err := d.f.Close()
 	d.f = nil
 	return err
+}
+
+// Sends a signal to the process. The calling process must either be in the same
+// PID namespace as the process referred to by this descriptor, or be in an
+// ancestor of that namespace.
+func (d *PIDFD) Signal(signal os.Signal) error {
+	if d == nil {
+		return os.ErrInvalid
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.f == nil {
+		return os.ErrClosed
+	}
+
+	sig, ok := signal.(syscall.Signal)
+	if !ok {
+		return fmt.Errorf("%w: %s", errors.ErrUnsupported, signal)
+	}
+
+	return pidfdSendSignal(int(d.f.Fd()), sig)
+}
+
+func (d *PIDFD) Dir() *PIDDir {
+	if d == nil {
+		return nil
+	}
+	return &PIDDir{FS: d}
 }
 
 var _ interface {
@@ -130,95 +158,6 @@ func (d *PIDFD) ReadDir(name string) (_ []fs.DirEntry, err error) {
 	}
 	defer func() { err = errors.Join(err, dir.Close()) }()
 	return dir.ReadDir(-1)
-}
-
-// Returns the underlying Unix file descriptor.
-// See [os.File.Fd] for details.
-func (d *PIDFD) Fd() uintptr {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.f.Fd()
-}
-
-// Sends a signal to the process. The calling process must either be in the same
-// PID namespace as the process referred to by this descriptor, or be in an
-// ancestor of that namespace.
-func (d *PIDFD) Signal(signal os.Signal) error {
-	if d == nil {
-		return os.ErrInvalid
-	}
-
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.f == nil {
-		return os.ErrClosed
-	}
-
-	sig, ok := signal.(syscall.Signal)
-	if !ok {
-		return fmt.Errorf("%w: %s", errors.ErrUnsupported, signal)
-	}
-
-	return pidfdSendSignal(int(d.f.Fd()), sig)
-}
-
-// Reads and parses /proc/pid/environ.
-func (d *PIDFD) Environ() (env []string, _ error) {
-	raw, err := d.ReadFile("environ")
-	if err != nil {
-		return nil, err
-	}
-
-	for len(raw) > 0 {
-		// Each env variable is NUL terminated.
-		current, rest, ok := bytes.Cut(raw, []byte{0})
-		if !ok {
-			return nil, fmt.Errorf("variable not properly terminated: %q", raw)
-		}
-		env = append(env, string(current))
-		raw = rest
-	}
-	return env, nil
-}
-
-// Reads and parses /proc/pid/status.
-func (d *PIDFD) Status() (map[string]string, error) {
-	raw, err := d.ReadFile("status")
-	if err != nil {
-		return nil, err
-	}
-
-	status := make(map[string]string, 64)
-	for len(raw) > 0 {
-		line, rest, ok := bytes.Cut(raw, []byte{'\n'})
-		if !ok {
-			return nil, fmt.Errorf("status file not properly terminated: %q", raw)
-		}
-		name, val, ok := bytes.Cut(line, []byte{':'})
-		if !ok {
-			return nil, fmt.Errorf("line without colon: %q", line)
-		}
-		status[string(name)] = string(bytes.TrimSpace(val))
-		raw = rest
-	}
-
-	return status, nil
-}
-
-// IsDone implements [Handle].
-func (d *PIDFD) IsDone() (bool, error) {
-
-	// Send "the null signal" to probe if the PID still exists.
-	// https://www.man7.org/linux/man-pages/man3/kill.3p.html
-	err := d.Signal(syscall.Signal(0))
-	switch {
-	case err == nil:
-		return false, nil
-	case errors.Is(err, syscall.ESRCH):
-		return true, nil
-	default:
-		return false, err
-	}
 }
 
 // Send a signal to a process specified by a file descriptor.

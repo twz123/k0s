@@ -80,12 +80,12 @@ func (p ProcFS) OpenPID(pid uint) (*PIDFD, error) {
 
 	// The file is open. It might refer to a thread, though.
 	// Check if the thread group ID is the process ID.
-	if status, statusErr := d.Status(); statusErr != nil {
+	if status, statusErr := d.Dir().Status(); statusErr != nil {
 		err = statusErr
-	} else if tgid, ok := status["Tgid"]; !ok {
-		err = errors.New("no thread group ID in status")
-	} else if tgid != strconv.FormatUint(uint64(pid), 10) {
-		err = fmt.Errorf("%w (thread group ID is %s)", fs.ErrNotExist, tgid)
+	} else if tgid, tgidErr := status.ThreadGroupID(); tgidErr != nil {
+		err = fmt.Errorf("failed to get thread group ID: %w", tgidErr)
+	} else if tgid != pid {
+		err = fmt.Errorf("%w (thread group ID is %d)", fs.ErrNotExist, tgid)
 	}
 	if err != nil {
 		return nil, errors.Join(err, d.Close())

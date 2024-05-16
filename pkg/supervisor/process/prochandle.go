@@ -26,6 +26,7 @@ import (
 	"os"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -54,7 +55,7 @@ func OpenProcHandle(pid PID) (_ *ProcHandle, err error) {
 		// If there's no such process for the given PID, OpenProcess will return
 		// an invalid parameter error. Normalize this to ErrPIDNotExist.
 		if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
-			return nil, ErrPIDNotExist
+			return nil, ErrNotExist
 		}
 
 		return nil, os.NewSyscallError("OpenProcess", err)
@@ -83,6 +84,11 @@ func (h *ProcHandle) Close() error {
 	return nil
 }
 
+// Kill implements [Handle].
+func (h *ProcHandle) Kill() error {
+	return h.Signal(os.Kill)
+}
+
 // Signal implements [Handle].
 func (h *ProcHandle) Signal(signal os.Signal) error {
 	h.mu.Lock()
@@ -109,7 +115,7 @@ func (h *ProcHandle) Signal(signal os.Signal) error {
 				return errors.Join(err, exitedErr)
 			}
 			if exited {
-				return ErrGone
+				return ErrTerminated
 			}
 		}
 
@@ -145,7 +151,7 @@ func (h *ProcHandle) Environ() ([]string, error) {
 				return nil, errors.Join(err, exitedErr)
 			}
 			if exited {
-				return nil, ErrGone
+				return nil, ErrTerminated
 			}
 		}
 
@@ -183,8 +189,22 @@ func (h *ProcHandle) Environ() ([]string, error) {
 	}
 }
 
-// IsDone implements [Handle].
-func (h *ProcHandle) IsDone() (bool, error) {
+// IsTerminated implements [Handle].
+func (h *ProcHandle) Wait() error {
+	intervals := []time.Duration{100, 100, 200, 300, 500, 800, 1300}
+	for i := uint(0); ; i++ {
+		if terminated, err := h.IsTerminated(); err != nil {
+			return err
+		} else if terminated {
+			return nil
+		}
+
+		time.Sleep(intervals[min(i, uint(len(intervals)))] * time.Millisecond)
+	}
+}
+
+// IsTerminated implements [Handle].
+func (h *ProcHandle) IsTerminated() (bool, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -221,7 +241,7 @@ func (h *ProcHandle) readEnvBlock() ([]byte, error) {
 	// Short-circuit if the process terminated in the meantime.
 	// See (*ProcHandle).exited for details.
 	if info.ExitStatus != windows.STATUS_PENDING {
-		return nil, ErrGone
+		return nil, ErrTerminated
 	}
 
 	var peb windows.PEB // https://en.wikipedia.org/wiki/Process_Environment_Block

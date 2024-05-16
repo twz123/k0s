@@ -34,7 +34,3 @@ func ParsePID(s string) (PID, error) {
 func (p PID) String() string {
 	return strconv.FormatUint(uint64(p), 10)
 }
-
-func (p PID) Open() (Handle, error) {
-	return openHandle(p)
-}
