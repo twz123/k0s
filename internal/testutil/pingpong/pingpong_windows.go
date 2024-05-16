@@ -24,13 +24,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/Microsoft/go-winio"
 	"github.com/Microsoft/go-winio/pkg/guid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/multierr"
 )
 
 //go:embed pingpong.ps1
@@ -41,6 +41,9 @@ type PingPong struct {
 	shellArgs []string
 	ping      net.Listener
 	pong      string
+
+	mu    sync.Mutex
+	state int
 }
 
 func New(t *testing.T) *PingPong {
@@ -63,8 +66,11 @@ func New(t *testing.T) *PingPong {
 	t.Cleanup(func() { assert.NoError(t, ping.Close(), "Failed to close ping pipe") })
 
 	return &PingPong{
-		shellPath, []string{"-noprofile", "-noninteractive", scriptPath, namespace},
-		ping, pongPath,
+		shellPath: shellPath,
+		shellArgs: []string{"-noprofile", "-noninteractive", scriptPath, namespace},
+		ping:      ping,
+		pong:      pongPath,
+		state:     1,
 	}
 }
 
@@ -77,22 +83,48 @@ func (pp *PingPong) BinArgs() []string {
 }
 
 func (pp *PingPong) AwaitPing() (err error) {
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+
+	if pp.state != 1 {
+		return errors.New("cannot await ping")
+	}
+	defer func() {
+		if err != nil {
+			pp.state = -2
+		}
+	}()
+	pp.state = 2
+
 	conn, err := pp.ping.Accept()
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, conn.Close()) }()
 
-	_, err = io.ReadAll(conn)
+	_, err = io.Copy(io.Discard, conn)
 	return err
 }
 
 func (pp *PingPong) SendPong() (err error) {
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+
+	if pp.state != 2 {
+		return errors.New("cannot send pong")
+	}
+	defer func() {
+		if err != nil {
+			pp.state = -1
+		}
+	}()
+	pp.state = 1
+
 	conn, err := winio.DialPipe(pp.pong, nil)
 	if err != nil {
 		return err
 	}
-	defer func() { err = multierr.Append(err, conn.Close()) }()
+	defer func() { err = errors.Join(err, conn.Close()) }()
 
 	_, err = conn.Write([]byte("pong\n"))
 	return err

@@ -20,9 +20,11 @@ package pingpong
 
 import (
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"testing"
 
@@ -30,7 +32,10 @@ import (
 )
 
 type PingPong struct {
-	shellPath, ping, pong string
+	shellPath, pipe string
+
+	mu    sync.Mutex
+	state int
 }
 
 func New(t *testing.T) *PingPong {
@@ -39,16 +44,13 @@ func New(t *testing.T) *PingPong {
 
 	tmpDir := t.TempDir()
 	pp := PingPong{
-		shellPath,
-		filepath.Join(tmpDir, "pipe.ping"),
-		filepath.Join(tmpDir, "pipe.pong"),
+		shellPath: shellPath,
+		pipe:      filepath.Join(tmpDir, "pingpong"),
+		state:     1,
 	}
 
-	for _, path := range []string{pp.ping, pp.pong} {
-		err := syscall.Mkfifo(path, 0600)
-		require.NoError(t, err, "Mkfifo failed for %s", path)
-	}
-
+	err = syscall.Mkfifo(pp.pipe, 0600)
+	require.NoError(t, err, "mkfifo failed for %s", pp.pipe)
 	return &pp
 }
 
@@ -57,26 +59,54 @@ func (pp *PingPong) BinPath() string {
 }
 
 func (pp *PingPong) BinArgs() []string {
-	return []string{"-euc", `cat -- "$1" && echo pong >"$2"`, "--", pp.ping, pp.pong}
+	// Only use shell builtins here, we might be running in an empty env.
+	return []string{"-euc", `echo ping >"$1" && read pong <"$1"`, "--", pp.pipe}
 }
 
 func (pp *PingPong) AwaitPing() (err error) {
-	f, err := os.OpenFile(pp.ping, os.O_WRONLY, 0)
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+
+	if pp.state != 1 {
+		return errors.New("cannot await ping")
+	}
+	defer func() {
+		if err != nil {
+			pp.state = -2
+		}
+	}()
+	pp.state = 2
+
+	// The open for reading call will block until the
+	// script tries to open the file for writing.
+	f, err := os.OpenFile(pp.pipe, os.O_RDONLY, 0)
 	if err != nil {
 		return err
 	}
-	defer func() { err = errors.Join(err, f.Close()) }()
-
-	// The write will block until the process reads from the FIFO file.
-	if _, err := f.Write([]byte("ping\n")); err != nil {
-		return err
-	}
-
-	return nil
+	_, err = io.Copy(io.Discard, f)
+	return errors.Join(err, f.Close())
 }
 
 func (pp *PingPong) SendPong() (err error) {
-	// Read from the FIFO file to unblock the process.
-	_, err = os.ReadFile(pp.pong)
-	return err
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+
+	if pp.state != 2 {
+		return errors.New("cannot send pong")
+	}
+	defer func() {
+		if err != nil {
+			pp.state = -1
+		}
+	}()
+	pp.state = 1
+
+	// The open for writing call will block until the
+	// script tries to open the file for reading.
+	f, err := os.OpenFile(pp.pipe, os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString("pong\n")
+	return errors.Join(err, f.Close())
 }
