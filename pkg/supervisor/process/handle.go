@@ -38,7 +38,9 @@ type Handle interface {
 	// Reads and returns the process's environment.
 	Environ() ([]string, error)
 
-	// Blocks until the process terminates, or an error occurs.
+	// Blocks until the process terminates, or an error occurs. Asynchronously
+	// closing the handle counts as an error, i.e. closing the handle is a way
+	// to interrupt an otherwise indefinitely blocking call to Wait.
 	Wait() error
 
 	// Indicates if the process terminated.
