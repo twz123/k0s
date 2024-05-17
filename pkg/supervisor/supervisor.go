@@ -128,6 +128,11 @@ func (s *Supervisor) processWaitQuit(ctx context.Context) bool {
 
 // Supervise Starts supervising the given process
 func (s *Supervisor) Supervise() error {
+	return s.SuperviseC(context.TODO())
+}
+
+// Supervise Starts supervising the given process
+func (s *Supervisor) SuperviseC(ctx context.Context) error {
 	s.startStopMutex.Lock()
 	defer s.startStopMutex.Unlock()
 	// check if it is already started
@@ -149,11 +154,11 @@ func (s *Supervisor) Supervise() error {
 		s.TimeoutRespawn = 5 * time.Second
 	}
 
-	if err := s.maybeKillPidFile(nil, nil); err != nil {
+	if err := s.maybeKillPidFile(ctx, nil, nil); err != nil {
 		return err
 	}
 
-	ctx, cancel := context.WithCancelCause(context.Background())
+	superviseCtx, cancel := context.WithCancelCause(context.Background())
 	started := make(chan struct{})
 	done := make(chan struct{})
 
@@ -163,8 +168,9 @@ func (s *Supervisor) Supervise() error {
 			close(done)
 		}()
 
-		s.log.Info("Starting to supervise")
+		ctx := superviseCtx
 		started := (chan<- struct{})(started)
+		s.log.Info("Starting to supervise")
 		for restarts := 0; ; {
 			s.mutex.Lock()
 
@@ -234,8 +240,14 @@ func (s *Supervisor) Supervise() error {
 		s.cancel, s.done = func() { cancel(nil) }, done
 		return nil
 
+	case <-superviseCtx.Done():
+		return context.Cause(superviseCtx)
+
 	case <-ctx.Done():
-		return context.Cause(ctx)
+		cause := context.Cause(ctx)
+		cancel(cause)
+		<-done
+		return fmt.Errorf("while waiting for supervised process to start: %w", cause)
 	}
 }
 

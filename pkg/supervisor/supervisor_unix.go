@@ -19,6 +19,7 @@ limitations under the License.
 package supervisor
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -35,7 +36,7 @@ const (
 
 // killPid signals SIGTERM to a PID and if it's still running after
 // s.TimeoutStop sends SIGKILL.
-func (s *Supervisor) killPid(pid int, check <-chan time.Time, deadline <-chan time.Time) error {
+func (s *Supervisor) killPid(ctx context.Context, pid int, check <-chan time.Time, deadline <-chan time.Time) error {
 	if s.KillFunction == nil {
 		s.KillFunction = syscall.Kill
 	}
@@ -73,6 +74,8 @@ Loop:
 			}
 		case <-deadline:
 			break Loop
+		case <-ctx.Done():
+			return context.Cause(ctx)
 		}
 	}
 
@@ -98,7 +101,7 @@ Loop:
 // `_KOS_MANAGED=yes`. This function does not delete the old pidFile as
 // this is done by the caller.
 // The tickers are used for testing purposes, otherwise set them to nil.
-func (s *Supervisor) maybeKillPidFile(check <-chan time.Time, deadline <-chan time.Time) error {
+func (s *Supervisor) maybeKillPidFile(ctx context.Context, check <-chan time.Time, deadline <-chan time.Time) error {
 	if s.ProcFSPath == "" {
 		s.ProcFSPath = "/proc"
 	}
@@ -115,7 +118,7 @@ func (s *Supervisor) maybeKillPidFile(check <-chan time.Time, deadline <-chan ti
 		return fmt.Errorf("failed to parse pid file %s: %w", s.PidFile, err)
 	}
 
-	return s.killPid(p, check, deadline)
+	return s.killPid(ctx, p, check, deadline)
 }
 
 func (s *Supervisor) shouldKillProcess(pid int) (bool, error) {

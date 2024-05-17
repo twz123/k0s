@@ -19,6 +19,7 @@ limitations under the License.
 package supervisor
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -104,7 +105,7 @@ func TestKillPid(t *testing.T) {
 			check <- time.Now()
 			deadline <- time.Now()
 		}()
-		require.NoError(t, s.killPid(123, check, deadline), "Failed to kill pid")
+		require.NoError(t, s.killPid(context.TODO(), 123, check, deadline), "Failed to kill pid")
 
 		// If we can read deadline, then we guarantee that check was read twice because it's
 		// unbuffered. This guarantees the loop has run exactly twice.
@@ -136,7 +137,7 @@ func TestKillPid(t *testing.T) {
 			deadline <- time.Now()
 			verify <- time.Now()
 		}()
-		require.NoError(t, s.killPid(123, check, deadline), "Error deleting fake pid")
+		require.NoError(t, s.killPid(context.TODO(), 123, check, deadline), "Error deleting fake pid")
 
 		<-verify
 	})
@@ -147,7 +148,7 @@ func TestMaybeKillPidFile(t *testing.T) {
 		s := Supervisor{
 			PidFile: filepath.Join(t.TempDir(), "invalid"),
 		}
-		require.NoError(t, s.maybeKillPidFile(nil, nil), "If the file doesn't exist should exit without error")
+		require.NoError(t, s.maybeKillPidFile(context.TODO(), nil, nil), "If the file doesn't exist should exit without error")
 	})
 
 	t.Run("Kill invalid pidFile", func(t *testing.T) {
@@ -156,7 +157,7 @@ func TestMaybeKillPidFile(t *testing.T) {
 		}
 		require.NoError(t, ioutil.WriteFile(s.PidFile, []byte("invalid"), 0600), "Failed to create invalid pidFile")
 
-		require.Error(t, s.maybeKillPidFile(nil, nil), "Should have failed to kill invalid pidFile")
+		require.Error(t, s.maybeKillPidFile(context.TODO(), nil, nil), "Should have failed to kill invalid pidFile")
 	})
 	t.Run("Don't kill validPidFile pointing to different process", func(t *testing.T) {
 		m := mockKiller{
@@ -180,7 +181,7 @@ func TestMaybeKillPidFile(t *testing.T) {
 			check <- time.Now()
 		}()
 
-		require.NoError(t, s.maybeKillPidFile(check, deadline), "Error killing valid pidFile")
+		require.NoError(t, s.maybeKillPidFile(context.TODO(), check, deadline), "Error killing valid pidFile")
 
 		_, err := os.Stat(filepath.Join(m.ProcFSPath, "12345"))
 		require.NoError(t, err, "Should not have killed the process")
@@ -207,7 +208,7 @@ func TestMaybeKillPidFile(t *testing.T) {
 		go func() {
 			check <- time.Now()
 		}()
-		require.NoError(t, s.maybeKillPidFile(check, deadline), "Error killing valid pidFile")
+		require.NoError(t, s.maybeKillPidFile(context.TODO(), check, deadline), "Error killing valid pidFile")
 
 		_, err := os.Stat(filepath.Join(m.ProcFSPath, "12345"))
 		require.NoError(t, err, "Should not have killed the process")
@@ -237,7 +238,7 @@ func TestMaybeKillPidFile(t *testing.T) {
 			check <- time.Now()
 		}()
 
-		require.NoError(t, s.maybeKillPidFile(check, deadline), "Error killing valid pidFile")
+		require.NoError(t, s.maybeKillPidFile(context.TODO(), check, deadline), "Error killing valid pidFile")
 
 		_, err := os.Stat(filepath.Join(m.ProcFSPath, "12345"))
 		require.Error(t, err, "Should have killed the process")
