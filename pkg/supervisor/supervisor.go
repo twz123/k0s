@@ -18,6 +18,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -58,7 +59,7 @@ type Supervisor struct {
 	CleanBeforeFn func() error
 
 	cmd            *exec.Cmd
-	done           chan bool
+	done           <-chan struct{}
 	log            logrus.FieldLogger
 	mutex          sync.Mutex
 	startStopMutex sync.Mutex
@@ -152,19 +153,19 @@ func (s *Supervisor) Supervise() error {
 		return err
 	}
 
-	var ctx context.Context
-	ctx, s.cancel = context.WithCancel(context.Background())
-	started := make(chan error)
-	s.done = make(chan bool)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	started := make(chan struct{})
+	done := make(chan struct{})
 
 	go func() {
 		defer func() {
-			close(s.done)
+			cancel(errors.New("goroutine exited"))
+			close(done)
 		}()
 
 		s.log.Info("Starting to supervise")
-		restarts := 0
-		for {
+		started := (chan<- struct{})(started)
+		for restarts := 0; ; {
 			s.mutex.Lock()
 
 			var err error
@@ -197,18 +198,19 @@ func (s *Supervisor) Supervise() error {
 			s.mutex.Unlock()
 			if err != nil {
 				s.log.Warnf("Failed to start: %s", err)
-				if restarts == 0 {
-					started <- err
+				if started != nil {
+					cancel(err)
 					return
 				}
 			} else {
-				if restarts == 0 {
+				if started != nil {
 					s.log.Infof("Started successfully, go nuts pid %d", s.cmd.Process.Pid)
-					started <- nil
+					close(started)
+					started = nil
 				} else {
+					restarts++
 					s.log.Infof("Restarted (%d)", restarts)
 				}
-				restarts++
 				if s.processWaitQuit(ctx) {
 					return
 				}
@@ -226,7 +228,15 @@ func (s *Supervisor) Supervise() error {
 			}
 		}
 	}()
-	return <-started
+
+	select {
+	case <-started:
+		s.cancel, s.done = func() { cancel(nil) }, done
+		return nil
+
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	}
 }
 
 // Stop stops the supervised
