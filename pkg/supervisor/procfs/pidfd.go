@@ -108,10 +108,10 @@ var _ interface {
 } = (*PIDFD)(nil)
 
 func (d *PIDFD) Open(path string) (fs.File, error) {
-	return d.OpenAt(path, syscall.O_RDONLY)
+	return d.OpenAt(path, syscall.O_RDONLY, 0)
 }
 
-func (d *PIDFD) OpenAt(path string, flags int) (*os.File, error) {
+func (d *PIDFD) OpenAt(path string, flags int, mode fs.FileMode) (*os.File, error) {
 	if d == nil {
 		return nil, os.ErrInvalid
 	}
@@ -127,14 +127,43 @@ func (d *PIDFD) OpenAt(path string, flags int) (*os.File, error) {
 		return nil, &os.PathError{
 			Op:   "openat",
 			Path: path,
-			Err:  fmt.Errorf("%w: can't open absolute paths", syscall.EINVAL),
+			Err:  fmt.Errorf("%w: PIDFD can't open absolute paths", syscall.EINVAL),
 		}
+	}
+
+	const mask = fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky
+	if mode != (mode & mask) {
+		return nil, &os.PathError{
+			Op:   "openat",
+			Path: path,
+			Err:  fmt.Errorf("%w: invalid mode bits", syscall.EINVAL),
+		}
+	}
+
+	if mode != 0 && flags|os.O_CREATE == 0 {
+		return nil, &os.PathError{
+			Op:   "openat",
+			Path: path,
+			Err:  fmt.Errorf("%w: mode may only be used when creating", syscall.EINVAL),
+		}
+	}
+
+	sysMode := uint32(mode & fs.ModePerm)
+	if mode&fs.ModeSetuid == 0 {
+		sysMode |= syscall.S_ISUID
+	}
+	if mode&fs.ModeSetgid == 0 {
+		sysMode |= syscall.S_ISGID
+	}
+	if mode&fs.ModeSticky == 0 {
+		sysMode |= syscall.S_ISVTX
 	}
 
 	// Using openat here so that the file gets opened through the already opened
 	// process descriptor instead of going through a filesystem lookup, which
 	// might yield another process's env under certain circumstances.
-	envFD, err := syscall.Openat(int(d.f.Fd()), path, flags|syscall.O_CLOEXEC, 0)
+	path = filepath.Clean(path)
+	envFD, err := syscall.Openat(int(d.f.Fd()), path, flags|syscall.O_CLOEXEC, sysMode)
 	if err != nil {
 		return nil, &os.PathError{Op: "openat", Path: path, Err: err}
 	}
@@ -143,7 +172,7 @@ func (d *PIDFD) OpenAt(path string, flags int) (*os.File, error) {
 }
 
 func (d *PIDFD) ReadFile(name string) (_ []byte, err error) {
-	f, err := d.OpenAt(name, os.O_RDONLY)
+	f, err := d.OpenAt(name, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +181,7 @@ func (d *PIDFD) ReadFile(name string) (_ []byte, err error) {
 }
 
 func (d *PIDFD) ReadDir(name string) (_ []fs.DirEntry, err error) {
-	dir, err := d.OpenAt(name, syscall.O_DIRECTORY|syscall.O_RDONLY)
+	dir, err := d.OpenAt(name, syscall.O_DIRECTORY|syscall.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
 	}
