@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"path"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,6 +36,7 @@ import (
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/pkg/constant"
+	"github.com/k0sproject/k0s/pkg/supervisor/process"
 )
 
 // Supervisor is dead simple and stupid process supervisor, just tries to keep the process running in a while-true loop
@@ -153,6 +155,10 @@ func (s *Supervisor) SuperviseC(ctx context.Context) error {
 	if s.TimeoutRespawn == 0 {
 		s.TimeoutRespawn = 5 * time.Second
 	}
+
+	// if err := s.clearPIDFile(ctx); err != nil {
+	// 	s.log.WithError(err).Error("Failed to clear PID file")
+	// }
 
 	if err := s.maybeKillPidFile(ctx, nil, nil); err != nil {
 		return err
@@ -328,4 +334,84 @@ func (s *Supervisor) GetProcess() *os.Process {
 		return nil
 	}
 	return s.cmd.Process
+}
+
+func (s *Supervisor) Signal(sig os.Signal) error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	if s.cmd == nil {
+		return nil
+	}
+
+	return s.cmd.Process.Signal(sig)
+}
+
+func (s *Supervisor) clearPIDFile(ctx context.Context) error {
+	data, err := os.ReadFile(s.PidFile)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+
+	pid, err := process.ParsePID(string(data))
+	if err != nil {
+		return fmt.Errorf("not a PID in %q: %w: %s", s.PidFile, err, data)
+	}
+
+	h, err := pid.Open()
+	if err != nil {
+		if errors.Is(err, process.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("failed to open process handle: %w", err)
+	}
+	defer func() { err = errors.Join(err, h.Close()) }()
+
+	env, err := h.Environ()
+	if err != nil {
+		return fmt.Errorf("failed to inspect process environment: %w", err)
+	}
+	if !slices.Contains(env, k0sManaged) {
+		return fmt.Errorf("process with PID %v doesn't seem to be supervised by k0s", pid)
+	}
+
+	terminated := make(chan error, 1)
+	go func() {
+		defer close(terminated)
+		terminated <- h.Wait()
+	}()
+
+	if err := h.Signal(syscall.SIGTERM); err != nil {
+		if terminated, err := h.IsTerminated(); err != nil {
+			return err
+		} else if terminated {
+			return nil
+		}
+		s.log.WithError(err).Info("Failed to send SIGTERM - killing", pid)
+	} else {
+		s.log.Info("Sent SIGTERM to ", pid, ", awaiting termination")
+		select {
+		case <-time.After(s.TimeoutStop):
+			s.log.Info("Not yet terminated after ", s.TimeoutStop, " - killing ", pid)
+		case <-ctx.Done():
+			return fmt.Errorf("while awaiting graceful termination: %w", context.Cause(ctx))
+		case err := <-terminated:
+			return err
+		}
+	}
+
+	if err := h.Kill(); err != nil {
+		return err
+	}
+
+	select {
+	case <-time.After(s.TimeoutRespawn):
+		return errors.New("timed out while waiting for killed process to terminate")
+	case <-ctx.Done():
+		return fmt.Errorf("while awaiting termination of killed process: %w", context.Cause(ctx))
+	case err := <-terminated:
+		return err
+	}
 }
