@@ -58,8 +58,9 @@ func (h *handle) Close() error {
 	if d == nil {
 		return fs.ErrClosed
 	}
+	err := d.Close()
 	close(h.closed)
-	return d.Close()
+	return err
 }
 
 // Kill implements [Handle].
