@@ -40,7 +40,7 @@ type Handle interface {
 
 	// Blocks until the process terminates, or an error occurs. Asynchronously
 	// closing the handle counts as an error, i.e. closing the handle is a way
-	// to interrupt an otherwise indefinitely blocking call to Wait.
+	// to interrupt an otherwise blocking call to Wait.
 	Wait() error
 
 	// Indicates if the process terminated.

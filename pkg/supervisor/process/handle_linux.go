@@ -23,7 +23,6 @@ import (
 	"os"
 	"sync/atomic"
 	"syscall"
-	"time"
 
 	"github.com/k0sproject/k0s/pkg/supervisor/procfs"
 
@@ -104,20 +103,10 @@ func (h *handle) Environ() ([]string, error) {
 	return env, err
 }
 
-// Wait implements [Handle].
-func (h *handle) Wait() error {
-	err := h.pidfdWait()
-	if !errors.Is(err, errors.ErrUnsupported) {
-		return err
-	}
-
-	return h.pollWait()
-}
-
-// Waits until the process terminated by using poll() on a pidfd. This is the
-// only way that doesn't involve userspace polling using timeouts and such, but
-// requires at least Linux 5.3.
-func (h *handle) pidfdWait() (err error) {
+// Wait implements [Handle]. Waits until the process terminated by using poll()
+// on a pidfd. This is the only way that doesn't involve userspace polling using
+// timeouts and such, but requires at least Linux 5.3.
+func (h *handle) Wait() (err error) {
 	d := h.d.Load()
 	if d == nil {
 		return fs.ErrClosed
@@ -136,13 +125,14 @@ func (h *handle) pidfdWait() (err error) {
 	defer func() { err = errors.Join(err, os.NewSyscallError("close", unix.Close(pidFD))) }()
 
 	// Since the process has been opened via its PID, there might have been a
-	// race. Check if the procfs.PIDFD is still referring to a running process.
-	// If it is, then it's guaranteed that the PID hasn't been recycled in the
-	// meantime and both pidFD and h.d are referring to the same process.
-	if terminated, err := h.IsTerminated(); err != nil {
+	// race. Check if the procfs.PIDFD is still referring to a non-reaped
+	// process. If it is, then it's guaranteed that the PID hasn't been recycled
+	// in the meantime and both pidFD and h.d are referring to the same process.
+	if err := d.Signal(syscall.Signal(0)); err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return nil // Process reaped.
+		}
 		return err
-	} else if terminated {
-		return nil // Process terminated, nothing to wait for.
 	}
 
 	// Setup an eventfd object to wake up the poll call from a goroutine when
@@ -159,10 +149,10 @@ func (h *handle) pidfdWait() (err error) {
 		defer close(done)
 		select {
 		case <-h.closed:
-			// eventfds accept a uint64 between 0 and 2^64-1, i.e. exactly 8 bytes.
+			// eventfds accept an uint64 between 0 and 2^64-1.
 			one := [8]byte{7: 1}
 			_, err := unix.Write(eventFD, one[:])
-			done <- err
+			done <- os.NewSyscallError("write", err)
 		case <-exit:
 		}
 	}()
@@ -197,22 +187,6 @@ func (h *handle) pidfdWait() (err error) {
 			return fs.ErrClosed
 		}
 		return fmt.Errorf("woke up unexpectedly (0x%x / 0x%x)", fds[0].Revents, fds[1].Revents)
-	}
-}
-
-func (h *handle) pollWait() error {
-	intervals := []time.Duration{100, 100, 200, 300, 500, 800, 1300}
-	for i := uint(0); ; i++ {
-		if terminated, err := h.IsTerminated(); err != nil {
-			return err
-		} else if terminated {
-			return nil
-		}
-		select {
-		case <-time.After(intervals[min(i, uint(len(intervals)))] * time.Millisecond):
-		case <-h.closed:
-			return fs.ErrClosed
-		}
 	}
 }
 

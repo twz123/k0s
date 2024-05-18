@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path"
@@ -33,6 +34,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/pkg/constant"
@@ -380,16 +382,17 @@ func (s *Supervisor) clearPIDFile(ctx context.Context) error {
 	terminated := make(chan error, 1)
 	go func() {
 		defer close(terminated)
-		terminated <- h.Wait()
+		terminated <- s.awaitTermination(ctx, h)
 	}()
 
 	if err := h.Signal(syscall.SIGTERM); err != nil {
-		if terminated, err := h.IsTerminated(); err != nil {
-			return err
+		err := fmt.Errorf("failed to send SIGTERM: %w", err)
+		if terminated, termErr := h.IsTerminated(); termErr != nil {
+			return errors.Join(err, fmt.Errorf("failed to check for process termination: %w", termErr))
 		} else if terminated {
 			return nil
 		}
-		s.log.WithError(err).Info("Failed to send SIGTERM - killing", pid)
+		s.log.WithError(err).Info("Killing", pid)
 	} else {
 		s.log.Info("Sent SIGTERM to ", pid, ", awaiting termination")
 		select {
@@ -414,4 +417,28 @@ func (s *Supervisor) clearPIDFile(ctx context.Context) error {
 	case err := <-terminated:
 		return err
 	}
+}
+
+func (s *Supervisor) awaitTermination(ctx context.Context, h process.Handle) error {
+	err := h.Wait()
+
+	// Handle doesn't support this for all OSes,
+	// i.e. old Linux kernels don't have the required syscalls.
+	if !errors.Is(err, errors.ErrUnsupported) {
+		return err
+	}
+
+	s.log.WithError(err).Debug("Falling back to userspace polling to await process termination")
+
+	backoff := wait.Backoff{
+		Duration: 25 * time.Millisecond,
+		Cap:      3 * time.Second,
+		Steps:    math.MaxInt32,
+		Factor:   1.5,
+		Jitter:   0.1,
+	}
+
+	return wait.ExponentialBackoffWithContext(ctx, backoff, func(context.Context) (bool, error) {
+		return h.IsTerminated()
+	})
 }

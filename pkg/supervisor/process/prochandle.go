@@ -26,7 +26,6 @@ import (
 	"os"
 	"sync"
 	"syscall"
-	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -191,16 +190,9 @@ func (h *ProcHandle) Environ() ([]string, error) {
 
 // IsTerminated implements [Handle].
 func (h *ProcHandle) Wait() error {
-	intervals := []time.Duration{100, 100, 200, 300, 500, 800, 1300}
-	for i := uint(0); ; i++ {
-		if terminated, err := h.IsTerminated(); err != nil {
-			return err
-		} else if terminated {
-			return nil
-		}
+	// FIXME implement me!
+	return fmt.Errorf("%w: not yet implemented", syscall.EWINDOWS)
 
-		time.Sleep(intervals[min(i, uint(len(intervals)))] * time.Millisecond)
-	}
 }
 
 // IsTerminated implements [Handle].
