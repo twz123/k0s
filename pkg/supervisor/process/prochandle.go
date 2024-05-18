@@ -101,7 +101,9 @@ func (h *ProcHandle) Signal(signal os.Signal) error {
 		return fmt.Errorf("%w: %s", syscall.EWINDOWS, signal)
 	}
 
-	const exitCode = 1
+	// Exit code 137 will be returned e.g. by shells when they observe child
+	// process termination due to a SIGKILL. Let's simulate this for Windows.
+	const exitCode = 137
 	err := windows.TerminateProcess(h.handle, exitCode)
 	if err != nil {
 		err = os.NewSyscallError("TerminateProcess", err)

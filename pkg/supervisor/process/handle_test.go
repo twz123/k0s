@@ -39,6 +39,7 @@ import (
 
 func TestHandle_Kill(t *testing.T) {
 	cmd, pingPong := startPingPong(t)
+	t.Cleanup(func() { _, _ = cmd.Process.Kill(), cmd.Wait() })
 
 	// Wait until the process is running
 	require.NoError(t, pingPong.AwaitPing())
@@ -49,7 +50,14 @@ func TestHandle_Kill(t *testing.T) {
 	t.Cleanup(func() { assert.NoError(t, underTest.Close()) })
 
 	require.NoError(t, underTest.Kill())
-	assert.ErrorContains(t, cmd.Wait(), "signal: killed")
+
+	err = cmd.Wait()
+	switch runtime.GOOS {
+	case "windows":
+		assert.ErrorContains(t, err, "exit status 137")
+	default:
+		assert.ErrorContains(t, err, "signal: killed")
+	}
 }
 
 func TestHandle_Environ(t *testing.T) {
@@ -175,7 +183,12 @@ func TestHandle_Wait_Close(t *testing.T) {
 
 	select {
 	case err := <-waitErr:
-		assert.ErrorIs(t, err, fs.ErrClosed, "Expected Wait to return a closed error.")
+		switch runtime.GOOS {
+		case "windows":
+			assert.ErrorContains(t, err, "The handle is invalid.")
+		default:
+			assert.ErrorIs(t, err, fs.ErrClosed, "Expected Wait to return a closed error.")
+		}
 	case <-time.After(3 * time.Second):
 		assert.Fail(t, "Expected Wait to be returning after handle has been closed.")
 	}
@@ -207,7 +220,19 @@ func TestHandle_Terminated(t *testing.T) {
 
 	t.Run("Signal", func(t *testing.T) {
 		err := underTest.Signal(os.Kill)
-		assert.NoError(t, err, "Signal should succeed for terminated processes as long as they weren't reaped.")
+		// This is a difference between Linux and Windows where it's not clear
+		// how process.Handle could abstract away platform specific differences
+		// in a meaningful way. On Linux, there's zombie processes, i.e.
+		// processes that terminated, but weren't reaped yet. Such processes can
+		// be signalled just fine. Windows doesn't have signals. SIGKILL is
+		// usually translated to the TerminateProcess syscall, and that only
+		// works once.
+		switch runtime.GOOS {
+		case "windows":
+			assert.ErrorIs(t, err, process.ErrTerminated)
+		default:
+			assert.NoError(t, err, "Signal should succeed for terminated processes as long as they weren't reaped.")
+		}
 	})
 
 	t.Run("Environ", func(t *testing.T) {
