@@ -60,7 +60,7 @@ func (pp *PingPong) BinPath() string {
 
 func (pp *PingPong) BinArgs() []string {
 	// Only use shell builtins here, we might be running in an empty env.
-	return []string{"-euc", `echo ping >"$1" && read pong <"$1"`, "--", pp.pipe}
+	return []string{"-euc", `trap exit TERM && echo ping >"$1" && read pong <"$1"`, "--", pp.pipe}
 }
 
 func (pp *PingPong) AwaitPing() (err error) {

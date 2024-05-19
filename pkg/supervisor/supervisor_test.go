@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -236,6 +237,47 @@ func TestMultiThread(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestClearPIDFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("PID file handling not yet implemented on Windows")
+	}
+
+	// Start some k0s-managed process
+	prevCmd, prevPingPong := pingpong.Start(t, func(cmd *exec.Cmd) { cmd.Env = []string{k0sManaged} })
+	require.NoError(t, prevPingPong.AwaitPing())
+
+	// Prepare another supervised process
+	pingPong := pingpong.New(t)
+	s := Supervisor{
+		Name:           t.Name(),
+		BinPath:        pingPong.BinPath(),
+		RunDir:         t.TempDir(),
+		Args:           pingPong.BinArgs(),
+		TimeoutRespawn: 1 * time.Millisecond,
+	}
+
+	// Create a PID file that's pointing to the running process.
+	pidFilePath := filepath.Join(s.RunDir, s.Name+".pid")
+	require.NoError(t, os.WriteFile(pidFilePath, []byte(fmt.Sprintf("%d\n", prevCmd.Process.Pid)), 0644))
+
+	// Start to supervise the new process.
+	require.NoError(t, s.Supervise())
+	t.Cleanup(func() { assert.NoError(t, s.Stop()) })
+
+	// Expect the previous process to be terminated.
+	err := prevCmd.Wait()
+	switch runtime.GOOS {
+	case "windows": // We don't have graceful termination here
+		assert.ErrorContains(t, err, "exit status 137")
+	default:
+		assert.NoError(t, err)
+	}
+
+	// Stop the supervisor and check if the PID file is gone.
+	assert.NoError(t, s.Stop())
+	assert.NoFileExists(t, pidFilePath)
 }
 
 type cmd struct {

@@ -39,7 +39,7 @@ import (
 )
 
 func TestHandle_Kill(t *testing.T) {
-	cmd, pingPong := startPingPong(t)
+	cmd, pingPong := pingpong.Start(t)
 	t.Cleanup(func() { _, _ = cmd.Process.Kill(), cmd.Wait() })
 
 	// Wait until the process is running
@@ -67,15 +67,7 @@ func TestHandle_Environ(t *testing.T) {
 	require.NoError(t, err)
 	marker := "_K0S_SUPERVISOR_PROCESS_TEST_MARKER=" + hex.EncodeToString(rnd[:])
 
-	pingPong := pingpong.New(t)
-	cmd := exec.Command(pingPong.BinPath(), pingPong.BinArgs()...)
-	cmd.Env = []string{marker}
-	require.NoError(t, cmd.Start())
-	t.Cleanup(func() {
-		if assert.NoError(t, pingPong.SendPong()) {
-			assert.NoError(t, cmd.Wait())
-		}
-	})
+	cmd, pingPong := pingpong.Start(t, func(cmd *exec.Cmd) { cmd.Env = []string{marker} })
 
 	// Wait until the process is running
 	require.NoError(t, pingPong.AwaitPing())
@@ -96,7 +88,7 @@ func TestHandle_Environ(t *testing.T) {
 }
 
 func TestHandle_Wait_IsTerminated(t *testing.T) {
-	cmd, pingPong := startPingPong(t)
+	cmd, pingPong := pingpong.Start(t)
 	var pongSent atomic.Bool
 	t.Cleanup(func() {
 		if !pongSent.Load() && assert.NoError(t, pingPong.SendPong()) {
@@ -161,12 +153,7 @@ func TestHandle_Wait_IsTerminated(t *testing.T) {
 }
 
 func TestHandle_Wait_Close(t *testing.T) {
-	cmd, pingPong := startPingPong(t)
-	t.Cleanup(func() {
-		if assert.NoError(t, pingPong.SendPong()) {
-			assert.NoError(t, cmd.Wait())
-		}
-	})
+	cmd, pingPong := pingpong.Start(t)
 
 	// Wait until the process is running
 	require.NoError(t, pingPong.AwaitPing())
@@ -205,7 +192,7 @@ func TestHandle_Wait_Close(t *testing.T) {
 }
 
 func TestHandle_Terminated(t *testing.T) {
-	cmd, pingPong := startPingPong(t)
+	cmd, pingPong := pingpong.Start(t)
 	var stopped bool
 	t.Cleanup(func() {
 		if stopped || assert.NoError(t, pingPong.SendPong()) {
@@ -257,13 +244,7 @@ func TestHandle_Terminated(t *testing.T) {
 }
 
 func TestHandle_Reaped(t *testing.T) {
-	cmd, pingPong := startPingPong(t)
-	var reaped bool
-	t.Cleanup(func() {
-		if !reaped && assert.NoError(t, pingPong.SendPong()) {
-			assert.NoError(t, cmd.Wait())
-		}
-	})
+	cmd, pingPong := pingpong.Start(t)
 
 	require.NoError(t, pingPong.AwaitPing())
 
@@ -271,7 +252,6 @@ func TestHandle_Reaped(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, underTest.Close()) })
 
-	reaped = true
 	require.NoError(t, pingPong.SendPong())
 	require.NoError(t, cmd.Wait())
 
@@ -292,13 +272,7 @@ func TestHandle_Reaped(t *testing.T) {
 }
 
 func TestHandle_AfterClose(t *testing.T) {
-	cmd, pingPong := startPingPong(t)
-	t.Cleanup(func() {
-		if assert.NoError(t, pingPong.SendPong()) {
-			_, err := cmd.Process.Wait()
-			assert.NoError(t, err)
-		}
-	})
+	cmd, pingPong := pingpong.Start(t)
 
 	require.NoError(t, pingPong.AwaitPing())
 
@@ -339,12 +313,4 @@ func TestHandle_AfterClose(t *testing.T) {
 		_, err := underTest.IsTerminated()
 		assert.ErrorIs(t, err, expectedClosedErr)
 	})
-}
-
-func startPingPong(t *testing.T) (*exec.Cmd, *pingpong.PingPong) {
-	pingPong := pingpong.New(t)
-	cmd := exec.Command(pingPong.BinPath(), pingPong.BinArgs()...)
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	require.NoError(t, cmd.Start())
-	return cmd, pingPong
 }
