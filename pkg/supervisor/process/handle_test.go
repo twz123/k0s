@@ -21,6 +21,7 @@ package process_test
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -116,13 +117,15 @@ func TestHandle_Wait_IsTerminated(t *testing.T) {
 
 	// Ensure that Wait is blocking
 	handleWaitStarts := make(chan struct{})
-	handleWaitDone := make(chan struct{})
+	handleWaitDone := make(chan error, 1)
 	go func() {
 		defer close(handleWaitDone)
 		close(handleWaitStarts)
 		err := underTest.Wait()
-		if assert.NoError(t, err, "Wait failed.") {
+		if err == nil {
 			assert.True(t, pongSent.Load(), "Wait returned before pong was sent.")
+		} else {
+			handleWaitDone <- err
 		}
 	}()
 	t.Cleanup(func() {
@@ -133,7 +136,11 @@ func TestHandle_Wait_IsTerminated(t *testing.T) {
 	<-handleWaitStarts
 	select {
 	case <-time.After(100 * time.Millisecond):
-	case <-handleWaitDone:
+	case err := <-handleWaitDone:
+		if errors.Is(err, errors.ErrUnsupported) {
+			t.Skip("This test can't be performed on this platform:", err)
+		}
+		require.NoError(t, err, "Wait failed.")
 		require.Fail(t, "Expected Wait to be ongoing")
 	}
 
@@ -176,7 +183,10 @@ func TestHandle_Wait_Close(t *testing.T) {
 	select {
 	case <-time.After(100 * time.Millisecond):
 	case err := <-waitErr:
-		require.Fail(t, "Expected Wait to be ongoing, got %v", err)
+		if errors.Is(err, errors.ErrUnsupported) {
+			t.Skip("This test can't be performed on this platform:", err)
+		}
+		require.Fail(t, "Expected Wait to be ongoing", err.Error())
 	}
 
 	require.NoError(t, underTest.Close())
@@ -334,6 +344,7 @@ func TestHandle_AfterClose(t *testing.T) {
 func startPingPong(t *testing.T) (*exec.Cmd, *pingpong.PingPong) {
 	pingPong := pingpong.New(t)
 	cmd := exec.Command(pingPong.BinPath(), pingPong.BinArgs()...)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	require.NoError(t, cmd.Start())
 	return cmd, pingPong
 }
