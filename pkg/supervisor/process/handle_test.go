@@ -239,6 +239,9 @@ func TestHandle_Terminated(t *testing.T) {
 
 	t.Run("Wait", func(t *testing.T) {
 		err := underTest.Wait()
+		if errors.Is(err, errors.ErrUnsupported) {
+			t.Skip("This test can't be performed on this platform:", err)
+		}
 		assert.NoError(t, err)
 	})
 }
@@ -267,6 +270,9 @@ func TestHandle_Reaped(t *testing.T) {
 
 	t.Run("Wait", func(t *testing.T) {
 		err := underTest.Wait()
+		if errors.Is(err, errors.ErrUnsupported) {
+			t.Skip("This test can't be performed on this platform:", err)
+		}
 		assert.NoError(t, err)
 	})
 }
@@ -306,6 +312,9 @@ func TestHandle_AfterClose(t *testing.T) {
 
 	t.Run("Wait", func(t *testing.T) {
 		err := underTest.Wait()
+		if errors.Is(err, errors.ErrUnsupported) {
+			t.Skip("This test can't be performed on this platform:", err)
+		}
 		assert.ErrorIs(t, err, expectedClosedErr)
 	})
 

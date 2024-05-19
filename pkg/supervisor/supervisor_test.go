@@ -276,6 +276,7 @@ func TestClearPIDFile(t *testing.T) {
 	}
 
 	// Stop the supervisor and check if the PID file is gone.
+	assert.NoError(t, pingPong.AwaitPing())
 	assert.NoError(t, s.Stop())
 	assert.NoFileExists(t, pidFilePath)
 }
