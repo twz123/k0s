@@ -24,13 +24,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Start(t *testing.T, opts ...func(cmd *exec.Cmd)) (*exec.Cmd, *PingPong) {
+type StartOptions struct {
+	Env                           []string
+	IgnoreGracefulShutdownRequest bool
+}
+
+func Start(t *testing.T, opts ...StartOptions) (*exec.Cmd, *PingPong) {
 	pingPong := New(t)
+	for _, opt := range opts {
+		pingPong.IgnoreGracefulShutdownRequest = opt.IgnoreGracefulShutdownRequest
+	}
 	cmd := exec.Command(pingPong.BinPath(), pingPong.BinArgs()...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	for _, opt := range opts {
-		opt(cmd)
+		cmd.Env = opt.Env
 	}
 	require.NoError(t, cmd.Start())
 	t.Cleanup(func() { _, _ = cmd.Process.Kill(), cmd.Wait() })

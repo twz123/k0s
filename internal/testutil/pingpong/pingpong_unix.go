@@ -19,6 +19,7 @@ limitations under the License.
 package pingpong
 
 import (
+	_ "embed"
 	"errors"
 	"io"
 	"os"
@@ -31,8 +32,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+//go:embed pingpong.sh
+var script []byte
+
 type PingPong struct {
-	shellPath, pipe string
+	IgnoreGracefulShutdownRequest bool // If set, SIGTERM won't terminate the program.
+
+	shellPath, pipe, script string
 
 	mu    sync.Mutex
 	state int
@@ -46,11 +52,14 @@ func New(t *testing.T) *PingPong {
 	pp := PingPong{
 		shellPath: shellPath,
 		pipe:      filepath.Join(tmpDir, "pingpong"),
+		script:    filepath.Join(tmpDir, "pingpong.sh"),
 		state:     1,
 	}
 
 	err = syscall.Mkfifo(pp.pipe, 0600)
 	require.NoError(t, err, "mkfifo failed for %s", pp.pipe)
+	err = os.WriteFile(pp.script, script, 0700)
+	require.NoError(t, err, "Failed to write script file")
 	return &pp
 }
 
@@ -59,8 +68,12 @@ func (pp *PingPong) BinPath() string {
 }
 
 func (pp *PingPong) BinArgs() []string {
-	// Only use shell builtins here, we might be running in an empty env.
-	return []string{"-euc", `trap exit TERM && echo ping >"$1" && read pong <"$1"`, "--", pp.pipe}
+	var ignoreSIGTERM string
+	if pp.IgnoreGracefulShutdownRequest {
+		ignoreSIGTERM = "1"
+	}
+
+	return []string{pp.script, pp.pipe, ignoreSIGTERM}
 }
 
 func (pp *PingPong) AwaitPing() (err error) {

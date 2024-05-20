@@ -37,6 +37,8 @@ import (
 var script []byte
 
 type PingPong struct {
+	IgnoreGracefulShutdownRequest bool // Has no effect on Windows.
+
 	shellPath string
 	shellArgs []string
 	ping      net.Listener
@@ -50,7 +52,6 @@ func New(t *testing.T) *PingPong {
 	shellPath, err := exec.LookPath("powershell")
 	require.NoError(t, err)
 
-	// We need that copy, otherwise tests get cached.
 	scriptPath := filepath.Join(t.TempDir(), "pingpong.ps1")
 	require.NoError(t, os.WriteFile(scriptPath, script, 0644))
 

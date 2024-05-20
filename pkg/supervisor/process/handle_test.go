@@ -24,7 +24,6 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"os/exec"
 	"runtime"
 	"sync/atomic"
 	"syscall"
@@ -67,7 +66,9 @@ func TestHandle_Environ(t *testing.T) {
 	require.NoError(t, err)
 	marker := "_K0S_SUPERVISOR_PROCESS_TEST_MARKER=" + hex.EncodeToString(rnd[:])
 
-	cmd, pingPong := pingpong.Start(t, func(cmd *exec.Cmd) { cmd.Env = []string{marker} })
+	cmd, pingPong := pingpong.Start(t, pingpong.StartOptions{
+		Env: []string{marker},
+	})
 
 	// Wait until the process is running
 	require.NoError(t, pingPong.AwaitPing())

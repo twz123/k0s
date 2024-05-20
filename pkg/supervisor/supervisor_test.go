@@ -19,6 +19,7 @@ package supervisor
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -239,13 +240,15 @@ func TestMultiThread(t *testing.T) {
 	wg.Wait()
 }
 
-func TestClearPIDFile(t *testing.T) {
+func TestCleanupPIDFile_Gracefully(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("PID file handling not yet implemented on Windows")
+		t.Skip("PID file cleanup not yet implemented on Windows")
 	}
 
 	// Start some k0s-managed process
-	prevCmd, prevPingPong := pingpong.Start(t, func(cmd *exec.Cmd) { cmd.Env = []string{k0sManaged} })
+	prevCmd, prevPingPong := pingpong.Start(t, pingpong.StartOptions{
+		Env: []string{k0sManaged},
+	})
 	require.NoError(t, prevPingPong.AwaitPing())
 
 	// Prepare another supervised process
@@ -255,7 +258,8 @@ func TestClearPIDFile(t *testing.T) {
 		BinPath:        pingPong.BinPath(),
 		RunDir:         t.TempDir(),
 		Args:           pingPong.BinArgs(),
-		TimeoutRespawn: 1 * time.Millisecond,
+		TimeoutStop:    1 * time.Second,
+		TimeoutRespawn: 1 * time.Hour,
 	}
 
 	// Create a PID file that's pointing to the running process.
@@ -266,7 +270,7 @@ func TestClearPIDFile(t *testing.T) {
 	require.NoError(t, s.Supervise())
 	t.Cleanup(func() { assert.NoError(t, s.Stop()) })
 
-	// Expect the previous process to be terminated.
+	// Expect the previous process to be gracefully terminated.
 	err := prevCmd.Wait()
 	switch runtime.GOOS {
 	case "windows": // We don't have graceful termination here
@@ -279,6 +283,132 @@ func TestClearPIDFile(t *testing.T) {
 	assert.NoError(t, pingPong.AwaitPing())
 	assert.NoError(t, s.Stop())
 	assert.NoFileExists(t, pidFilePath)
+}
+
+func TestCleanupPIDFile_Forcefully(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("PID file cleanup not yet implemented on Windows")
+	}
+
+	// Start some k0s-managed process that won't terminate gracefully
+	prevCmd, prevPingPong := pingpong.Start(t, pingpong.StartOptions{
+		Env:                           []string{k0sManaged},
+		IgnoreGracefulShutdownRequest: true,
+	})
+	require.NoError(t, prevPingPong.AwaitPing())
+
+	// Prepare another supervised process
+	pingPong := pingpong.New(t)
+	s := Supervisor{
+		Name:           t.Name(),
+		BinPath:        pingPong.BinPath(),
+		RunDir:         t.TempDir(),
+		Args:           pingPong.BinArgs(),
+		TimeoutStop:    1 * time.Second,
+		TimeoutRespawn: 1 * time.Second,
+	}
+
+	// Create a PID file that's pointing to the running process.
+	pidFilePath := filepath.Join(s.RunDir, s.Name+".pid")
+	require.NoError(t, os.WriteFile(pidFilePath, []byte(fmt.Sprintf("%d\n", prevCmd.Process.Pid)), 0644))
+
+	// Start to supervise the new process.
+	require.NoError(t, s.Supervise())
+	t.Cleanup(func() { assert.NoError(t, s.Stop()) })
+
+	// Expect the previous process to be forcefully terminated.
+	err := prevCmd.Wait()
+	switch runtime.GOOS {
+	case "windows":
+		assert.ErrorContains(t, err, "exit status 137")
+	default:
+		assert.ErrorContains(t, err, "signal: killed")
+	}
+
+	// Stop the supervisor and check if the PID file is gone.
+	assert.NoError(t, pingPong.AwaitPing())
+	assert.NoError(t, s.Stop())
+	assert.NoFileExists(t, pidFilePath)
+}
+
+func TestCleanupPIDFile_WrongProcess(t *testing.T) {
+	// Start some process that's not managed by k0s.
+	prevCmd, prevPingPong := pingpong.Start(t, pingpong.StartOptions{})
+	require.NoError(t, prevPingPong.AwaitPing())
+
+	// Prepare another supervised process
+	pingPong := pingpong.New(t)
+	s := Supervisor{
+		Name:           t.Name(),
+		BinPath:        pingPong.BinPath(),
+		RunDir:         t.TempDir(),
+		Args:           pingPong.BinArgs(),
+		TimeoutStop:    1 * time.Second,
+		TimeoutRespawn: 1 * time.Second,
+	}
+
+	// Create a PID file that's pointing to the running process.
+	pidFilePath := filepath.Join(s.RunDir, s.Name+".pid")
+	require.NoError(t, os.WriteFile(pidFilePath, []byte(fmt.Sprintf("%d\n", prevCmd.Process.Pid)), 0644))
+
+	// Start to supervise the new process.
+	require.NoError(t, s.Supervise())
+	t.Cleanup(func() { assert.NoError(t, s.Stop()) })
+
+	// Expect the PID file tp be replaced with the new PID.
+	if pid, err := os.ReadFile(pidFilePath); assert.NoError(t, err, "Failed to read PID file") {
+		assert.Equal(t, []byte(fmt.Sprintf("%d\n", s.cmd.Process.Pid)), pid)
+	}
+
+	// Expect the previous process to be still alive and react to the pong signal.
+	if assert.NoError(t, prevPingPong.SendPong()) {
+		assert.NoError(t, prevCmd.Wait())
+	}
+}
+
+func TestCleanupPIDFile_NonexistingProcess(t *testing.T) {
+	// Prepare some supervised process
+	pingPong := pingpong.New(t)
+	s := Supervisor{
+		Name:    t.Name(),
+		BinPath: pingPong.BinPath(),
+		RunDir:  t.TempDir(),
+		Args:    pingPong.BinArgs(),
+	}
+
+	// Create a PID file that's pointing to some non-existing process. Note that
+	// this is probably not 100% safe, but we'll assume MaxInt32 will be unused.
+	pidFilePath := filepath.Join(s.RunDir, s.Name+".pid")
+	require.NoError(t, os.WriteFile(pidFilePath, []byte(fmt.Sprintf("%d\n", math.MaxInt32)), 0644))
+
+	// Start to supervise the new process.
+	require.NoError(t, s.Supervise())
+	t.Cleanup(func() { assert.NoError(t, s.Stop()) })
+
+	// Expect the PID file tp be replaced with the new PID.
+	if pid, err := os.ReadFile(pidFilePath); assert.NoError(t, err, "Failed to read PID file") {
+		assert.Equal(t, []byte(fmt.Sprintf("%d\n", s.cmd.Process.Pid)), pid)
+	}
+}
+
+func TestCleanupPIDFile_BogusPIDFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("PID file cleanup not yet implemented on Windows")
+	}
+
+	// Prepare some supervised process that should never be started.
+	s := Supervisor{
+		Name:    t.Name(),
+		BinPath: filepath.Join(t.TempDir(), "foo"),
+		RunDir:  t.TempDir(),
+	}
+
+	// Create a PID file with non-parsable content.
+	pidFilePath := filepath.Join(s.RunDir, s.Name+".pid")
+	require.NoError(t, os.WriteFile(pidFilePath, []byte("rubbish"), 0644))
+
+	// Expect the supervisor to bail out.
+	assert.ErrorContains(t, s.Supervise(), `"rubbish": invalid`)
 }
 
 type cmd struct {

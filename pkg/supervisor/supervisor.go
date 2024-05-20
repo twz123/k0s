@@ -80,11 +80,6 @@ func (s *Supervisor) processWaitQuit(ctx context.Context) bool {
 		waitresult <- s.cmd.Wait()
 	}()
 
-	pidbuf := []byte(strconv.Itoa(s.cmd.Process.Pid) + "\n")
-	err := os.WriteFile(s.PidFile, pidbuf, constant.PidFileMode)
-	if err != nil {
-		s.log.Warnf("Failed to write file %s: %v", s.PidFile, err)
-	}
 	defer os.Remove(s.PidFile)
 
 	select {
@@ -217,6 +212,11 @@ func (s *Supervisor) SuperviseC(ctx context.Context) error {
 					return
 				}
 			} else {
+				err := os.WriteFile(s.PidFile, []byte(strconv.Itoa(s.cmd.Process.Pid)+"\n"), constant.PidFileMode)
+				if err != nil {
+					s.log.WithError(err).Warn("Failed to write PID file for PID ", s.cmd.Process.Pid)
+				}
+
 				if started != nil {
 					s.log.Infof("Started successfully, go nuts pid %d", s.cmd.Process.Pid)
 					close(started)
