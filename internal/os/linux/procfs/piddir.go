@@ -18,8 +18,10 @@ package procfs
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io/fs"
+	"math/bits"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -32,12 +34,15 @@ import (
 // See https://man7.org/linux/man-pages/man5/proc.5.html
 type PIDDir struct{ fs.FS }
 
+func idiomaticPIDDirPath(pid uint) string {
+	return filepath.Join("/proc", strconv.FormatUint(uint64(pid), 10))
+}
+
 // Returns a PIDDir for the given PID, reading contents from their idiomatic
 // paths. No checks are performed, so there may be no process with the given
 // PID, or the proc filesystem may not be mounted at all.
 func NewPIDDIR(pid uint) *PIDDir {
-	path := filepath.Join("/proc", strconv.FormatUint(uint64(pid), 10))
-	return &PIDDir{os.DirFS(path)}
+	return &PIDDir{os.DirFS(idiomaticPIDDirPath(pid))}
 }
 
 // Reads and parses /proc/pid/cmdline. Returns complete command line for the
@@ -83,4 +88,39 @@ func (d *PIDDir) Environ() ([]string, error) {
 	// The entries are separated by null bytes,
 	// and there may be a null byte at the end.
 	return strings.Split(string(raw), "\x00"), nil
+}
+
+// Reads and parses /proc/pid/status.
+func (d *PIDDir) Status() (PIDStatus, error) {
+	raw, err := fs.ReadFile(d, "status")
+	if err != nil {
+		return nil, err
+	}
+
+	status := make(PIDStatus, 64)
+	for len(raw) > 0 {
+		line, rest, ok := bytes.Cut(raw, []byte{'\n'})
+		if !ok {
+			return nil, fmt.Errorf("status file not properly terminated: %q", raw)
+		}
+		name, val, ok := bytes.Cut(line, []byte{':'})
+		if !ok {
+			return nil, fmt.Errorf("line without colon: %q", line)
+		}
+		status[string(name)] = string(bytes.TrimSpace(val))
+		raw = rest
+	}
+
+	return status, nil
+}
+
+type PIDStatus map[string]string
+
+// Thread group ID (i.e., Process ID).
+func (s PIDStatus) ThreadGroupID() (uint, error) {
+	if tgid, ok := s["Tgid"]; ok {
+		tgid, err := strconv.ParseUint(tgid, 10, bits.UintSize)
+		return uint(tgid), err
+	}
+	return 0, errors.New("no such field")
 }
