@@ -22,11 +22,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/k0sproject/k0s/internal/os/linux/procfs"
 )
 
 const (
@@ -107,7 +109,8 @@ func (s *Supervisor) maybeKillPidFile() error {
 }
 
 func (s *Supervisor) shouldKillProcess(pid int) (bool, error) {
-	cmdline, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
+	pidDir := procfs.NewPIDDIR(uint(pid))
+	cmdline, err := pidDir.Cmdline()
 	if os.IsNotExist(err) {
 		return false, nil
 	} else if err != nil {
@@ -115,23 +118,17 @@ func (s *Supervisor) shouldKillProcess(pid int) (bool, error) {
 	}
 
 	// only kill process if it has the expected cmd
-	cmd := strings.Split(string(cmdline), "\x00")
-	if cmd[0] != s.BinPath {
+	if len(cmdline) < 1 || cmdline[0] != s.BinPath {
 		return false, nil
 	}
 
 	//only kill process if it has the _KOS_MANAGED env set
-	env, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "environ"))
+	env, err := pidDir.Environ()
 	if os.IsNotExist(err) {
 		return false, nil
 	} else if err != nil {
 		return false, fmt.Errorf("failed to read process environ: %w", err)
 	}
 
-	for _, e := range strings.Split(string(env), "\x00") {
-		if e == k0sManaged {
-			return true, nil
-		}
-	}
-	return false, nil
+	return slices.Contains(env, k0sManaged), nil
 }
