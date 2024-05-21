@@ -19,13 +19,9 @@ limitations under the License.
 package supervisor
 
 import (
-	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 	"syscall"
+
+	"github.com/k0sproject/k0s/internal/os/linux/procfs"
 )
 
 type unixPID int
@@ -35,27 +31,13 @@ func newProcHandle(pid int) (procHandle, error) {
 }
 
 func (pid unixPID) cmdline() ([]string, error) {
-	cmdline, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(int(pid)), "cmdline"))
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("%w: %w", syscall.ESRCH, err)
-		}
-		return nil, fmt.Errorf("failed to read process cmdline: %w", err)
-	}
-
-	return strings.Split(string(cmdline), "\x00"), nil
+	pidDir := procfs.NewPIDDIR(uint(pid))
+	return pidDir.Cmdline()
 }
 
 func (pid unixPID) environ() ([]string, error) {
-	env, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(int(pid)), "environ"))
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("%w: %w", syscall.ESRCH, err)
-		}
-		return nil, fmt.Errorf("failed to read process environ: %w", err)
-	}
-
-	return strings.Split(string(env), "\x00"), nil
+	pidDir := procfs.NewPIDDIR(uint(pid))
+	return pidDir.Environ()
 }
 
 func (pid unixPID) terminateGracefully() error {
