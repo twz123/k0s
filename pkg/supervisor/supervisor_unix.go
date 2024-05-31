@@ -23,8 +23,6 @@ import (
 	"fmt"
 	"os"
 	"slices"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -82,26 +80,6 @@ Loop:
 		return fmt.Errorf("failed to send SIGKILL to pid %d: %w", s.cmd.Process.Pid, err)
 	}
 	return nil
-}
-
-// maybeKillPidFile checks kills the process in the pidFile if it's has
-// the same binary as the supervisor's and also checks that the env
-// `_KOS_MANAGED=yes`. This function does not delete the old pidFile as
-// this is done by the caller.
-func (s *Supervisor) maybeKillPidFile() error {
-	pid, err := os.ReadFile(s.PidFile)
-	if os.IsNotExist(err) {
-		return nil
-	} else if err != nil {
-		return fmt.Errorf("failed to read pid file %s: %w", s.PidFile, err)
-	}
-
-	p, err := strconv.Atoi(strings.TrimSuffix(string(pid), "\n"))
-	if err != nil {
-		return fmt.Errorf("failed to parse pid file %s: %w", s.PidFile, err)
-	}
-
-	return s.killPid(p)
 }
 
 func (s *Supervisor) shouldKillProcess(pid int) (bool, error) {
