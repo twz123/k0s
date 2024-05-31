@@ -85,6 +85,9 @@ func (d *PIDDir) Environ() ([]string, error) {
 		return nil, err
 	}
 
+	// FIXME this returns a trailing empty string.
+	// Needs tests!
+
 	// The entries are separated by null bytes,
 	// and there may be a null byte at the end.
 	return strings.Split(string(raw), "\x00"), nil
