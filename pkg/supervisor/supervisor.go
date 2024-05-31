@@ -18,6 +18,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -140,7 +141,10 @@ func (s *Supervisor) Supervise() error {
 	}
 
 	if err := s.maybeKillPidFile(); err != nil {
-		return err
+		if !errors.Is(err, errors.ErrUnsupported) {
+			return err
+		}
+		s.log.WithError(err).Info("Process referenced by PID file wasn't terminated")
 	}
 
 	var ctx context.Context
@@ -300,4 +304,28 @@ func (s *Supervisor) GetProcess() *os.Process {
 		return nil
 	}
 	return s.cmd.Process
+}
+
+// maybeKillPidFile checks kills the process in the pidFile if it's has
+// the same binary as the supervisor's and also checks that the env
+// `_KOS_MANAGED=yes`. This function does not delete the old pidFile as
+// this is done by the caller.
+func (s *Supervisor) maybeKillPidFile() error {
+	pid, err := os.ReadFile(s.PidFile)
+	if os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("failed to read pid file %s: %w", s.PidFile, err)
+	}
+
+	p, err := strconv.Atoi(strings.TrimSuffix(string(pid), "\n"))
+	if err != nil {
+		return fmt.Errorf("failed to parse pid file %s: %w", s.PidFile, err)
+	}
+
+	if err := s.killPid(p); err != nil {
+		return fmt.Errorf("failed to kill process with PID %d: %w", p, err)
+	}
+
+	return nil
 }
