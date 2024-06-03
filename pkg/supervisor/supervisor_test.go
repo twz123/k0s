@@ -265,7 +265,13 @@ func TestCleanupPIDFile_Gracefully(t *testing.T) {
 	t.Cleanup(s.Stop)
 
 	// Expect the previous process to be gracefully terminated.
-	assert.NoError(t, prevCmd.Wait())
+	err := prevCmd.Wait()
+	switch runtime.GOOS {
+	case "windows": // We don't have graceful termination here
+		assert.ErrorContains(t, err, "exit status 137")
+	default:
+		assert.NoError(t, err)
+	}
 
 	// Stop the supervisor and check if the PID file is gone.
 	s.Stop()
@@ -307,7 +313,13 @@ func TestCleanupPIDFile_Forcefully(t *testing.T) {
 	t.Cleanup(s.Stop)
 
 	// Expect the previous process to be forcefully terminated.
-	assert.ErrorContains(t, prevCmd.Wait(), "signal: killed")
+	err := prevCmd.Wait()
+	switch runtime.GOOS {
+	case "windows":
+		assert.ErrorContains(t, err, "exit status 137")
+	default:
+		assert.ErrorContains(t, err, "signal: killed")
+	}
 
 	// Stop the supervisor and check if the PID file is gone.
 	assert.NoError(t, pingPong.AwaitPing())
