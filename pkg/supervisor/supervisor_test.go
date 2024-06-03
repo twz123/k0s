@@ -241,10 +241,6 @@ func TestMultiThread(t *testing.T) {
 }
 
 func TestCleanupPIDFile_Gracefully(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("PID file cleanup not yet implemented on Windows")
-	}
-
 	// Start some k0s-managed process.
 	prevCmd, prevPingPong := pingpong.Start(t, pingpong.StartOptions{
 		Env: []string{k0sManaged},
@@ -271,7 +267,13 @@ func TestCleanupPIDFile_Gracefully(t *testing.T) {
 	t.Cleanup(s.Stop)
 
 	// Expect the previous process to be gracefully terminated.
-	assert.NoError(t, prevCmd.Wait())
+	err := prevCmd.Wait()
+	switch runtime.GOOS {
+	case "windows": // We don't have graceful termination here
+		assert.ErrorContains(t, err, "exit status 137")
+	default:
+		assert.NoError(t, err)
+	}
 
 	// Stop the supervisor and check if the PID file is gone.
 	s.Stop()
@@ -279,10 +281,6 @@ func TestCleanupPIDFile_Gracefully(t *testing.T) {
 }
 
 func TestCleanupPIDFile_Forcefully(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("PID file cleanup not yet implemented on Windows")
-	}
-
 	// Start some k0s-managed process that won't terminate gracefully.
 	prevCmd, prevPingPong := pingpong.Start(t, pingpong.StartOptions{
 		Env:                           []string{k0sManaged},
@@ -310,7 +308,13 @@ func TestCleanupPIDFile_Forcefully(t *testing.T) {
 	t.Cleanup(s.Stop)
 
 	// Expect the previous process to be forcefully terminated.
-	assert.ErrorContains(t, prevCmd.Wait(), "signal: killed")
+	err := prevCmd.Wait()
+	switch runtime.GOOS {
+	case "windows":
+		assert.ErrorContains(t, err, "exit status 137")
+	default:
+		assert.ErrorContains(t, err, "signal: killed")
+	}
 
 	// Stop the supervisor and check if the PID file is gone.
 	assert.NoError(t, pingPong.AwaitPing())
