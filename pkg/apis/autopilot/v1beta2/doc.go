@@ -12,8 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// +kubebuilder:object:generate=true
+// +k8s:defaulter-gen=TypeMeta
 // +groupName=autopilot.k0sproject.io
+// +kubebuilder:object:generate=true
 
 // Package v1beta2 is the v1beta2 version of the API.
 package v1beta2
+
+func init() {
+	localSchemeBuilder.Register(RegisterDefaults)
+}
