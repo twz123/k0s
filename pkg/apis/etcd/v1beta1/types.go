@@ -31,6 +31,7 @@ import (
 // +kubebuilder:printcolumn:name="Member ID",type=string,JSONPath=`.status.memberID`
 // +kubebuilder:printcolumn:name="Joined",type=string,JSONPath=`.status.conditions[?(@.type=="Joined")].status`
 // +kubebuilder:printcolumn:name="Reconcile Status",type=string,JSONPath=`.status.reconcileStatus`
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +genclient
 // +genclient:onlyVerbs=create,delete,list,get,watch,update,updateStatus,patch
 // +genclient:nonNamespaced
@@ -145,6 +146,7 @@ func (s *Status) SetCondition(t ConditionType, status ConditionStatus, msg strin
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type EtcdMemberList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`

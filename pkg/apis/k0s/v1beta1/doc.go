@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 // +k8s:defaulter-gen=TypeMeta
+// +k8s:deepcopy-gen=package
 // +groupName=k0s.k0sproject.io
 // +kubebuilder:object:generate=true
 

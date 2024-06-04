@@ -68,8 +68,8 @@ type ChartStatus struct {
 }
 
 // +kubebuilder:object:root=true
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:subresource:status
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +genclient
 // +genclient:onlyVerbs=create,delete,list,get,watch,update
 // Chart is the Schema for the charts API

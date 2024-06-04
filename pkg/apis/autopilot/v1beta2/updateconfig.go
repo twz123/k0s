@@ -32,6 +32,7 @@ const (
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +genclient
 // +genclient:onlyVerbs=create,delete,list,get,watch,update
 // +genclient:nonNamespaced
@@ -151,6 +152,7 @@ func startTimeForCurrentDay(startTime time.Time) time.Time {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type UpdateConfigList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
