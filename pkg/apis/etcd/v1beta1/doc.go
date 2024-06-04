@@ -12,8 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// +kubebuilder:object:generate=true
+// +k8s:defaulter-gen=TypeMeta
 // +groupName=etcd.k0sproject.io
+// +kubebuilder:object:generate=true
 
 // Package k0s contains API Schema definitions for the etcd.k0sproject.io API group.
 package v1beta1
+
+func init() {
+	localSchemeBuilder.Register(RegisterDefaults)
+}

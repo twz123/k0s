@@ -116,7 +116,8 @@ go.sum: go.mod .k0sbuild.docker-image.k0s
 api_group_versions := $(foreach path,$(wildcard pkg/apis/*/v*/doc.go),$(path:pkg/apis/%/doc.go=%))
 
 # Declare the requisites for the generators operating on API group versions.
-api_group_version_targets := .controller-gen.stamp zz_generated.register.go
+k8s_code_generators := register defaulter
+api_group_version_targets := .controller-gen.stamp $(foreach gen,$(k8s_code_generators),zz_generated.$(gen).go)
 $(foreach gv,$(api_group_versions),$(eval $(foreach t,$(api_group_version_targets),pkg/apis/$(gv)/$(t)): $$(shell find pkg/apis/$(gv)/ -maxdepth 1 -type f -name '*.go' -not -name '*_test.go' -not -name 'zz_generated*')))
 
 # Run controller-gen for each API group version.
@@ -134,11 +135,11 @@ $(controller_gen_targets): .k0sbuild.docker-image.k0s hack/tools/boilerplate.go.
 	  && mv -f -- "$$gendir"/zz_generated.deepcopy.go '$(dir $@).'
 	touch -- '$@'
 
-# Run register-gen for each API group version.
-register_gen_targets := $(foreach gv,$(api_group_versions),pkg/apis/$(gv)/zz_generated.register.go)
-codegen_targets += $(register_gen_targets)
-$(register_gen_targets): .k0sbuild.docker-image.k0s hack/tools/boilerplate.go.txt embedded-bins/Makefile.variables
-	CGO_ENABLED=0 $(GO) run k8s.io/code-generator/cmd/register-gen@v$(kubernetes_version:1.%=0.%) \
+# Run Kubernetes code generators for each API group versions.
+k8s_code_generator_targets := $(foreach gv,$(api_group_versions),$(foreach gen,$(k8s_code_generators),pkg/apis/$(gv)/zz_generated.$(gen).go))
+codegen_targets += $(k8s_code_generator_targets)
+$(k8s_code_generator_targets): .k0sbuild.docker-image.k0s hack/tools/boilerplate.go.txt embedded-bins/Makefile.variables
+	CGO_ENABLED=0 $(GO) run k8s.io/code-generator/cmd/$(patsubst zz_generated.%.go,%,$(notdir $@))-gen@v$(kubernetes_version:1.%=0.%) \
 	  --go-header-file=hack/tools/boilerplate.go.txt \
 	  --output-file='_$(notdir $@).tmp' \
 	  'github.com/k0sproject/k0s/$(dir $@)' || { \
