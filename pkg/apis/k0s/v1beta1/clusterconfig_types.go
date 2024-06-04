@@ -59,14 +59,13 @@ type ClusterConfigStatus struct {
 	// Important: Run "make" to regenerate code after modifying this file
 }
 
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-//+kubebuilder:validation:Optional
+// ClusterConfig is the Schema for the clusterconfigs API
+//
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
 // +genclient
 // +genclient:onlyVerbs=create,delete,list,get,watch,update
-// +groupName=k0s.k0sproject.io
-
-// ClusterConfig is the Schema for the clusterconfigs API
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type ClusterConfig struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 	metav1.TypeMeta   `json:",omitempty,inline"`
@@ -146,8 +145,10 @@ var _ Validateable = (*SchedulerSpec)(nil)
 
 func (*SchedulerSpec) Validate() []error { return nil }
 
-// +kubebuilder:object:root=true
 // ClusterConfigList contains a list of ClusterConfig
+//
+// +kubebuilder:object:root=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type ClusterConfigList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`

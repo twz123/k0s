@@ -25,6 +25,7 @@ import (
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster
 // +kubebuilder:subresource:status
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +genclient
 // +genclient:onlyVerbs=create,delete,list,get,watch,update,updateStatus
 // +genclient:nonNamespaced
@@ -53,6 +54,7 @@ func (c *ControlNodeStatus) GetInternalIP() string {
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type ControlNodeList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
@@ -68,6 +70,7 @@ type ControlNodeList struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=".status.state"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +genclient
 // +genclient:onlyVerbs=create,delete,list,get,watch,update
 // +genclient:nonNamespaced
@@ -87,6 +90,7 @@ type Plan struct {
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type PlanList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
