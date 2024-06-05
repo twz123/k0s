@@ -25,7 +25,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
 
@@ -45,24 +44,34 @@ func (c *containers) Name() string {
 
 // Run removes all the pods and mounts and stops containers afterwards
 // Run starts containerd if custom CRI is not configured
-func (c *containers) Run() error {
+func (c *containers) Run() (err error) {
+	ctx := context.TODO()
+
 	if !c.isCustomCriUsed() {
-		if err := c.startContainerd(); err != nil {
-			if errors.Is(err, fs.ErrNotExist) || errors.Is(err, exec.ErrNotFound) {
+		containerdCtx, cancel, done, startErr := c.startContainerd()
+		if startErr != nil {
+			if errors.Is(startErr, fs.ErrNotExist) || errors.Is(startErr, exec.ErrNotFound) {
 				logrus.Debugf("containerd binary not found. Skipping container cleanup")
 				return nil
 			}
-			return fmt.Errorf("failed to start containerd: %w", err)
+			return fmt.Errorf("failed to start containerd: %w", startErr)
 		}
+
+		defer func() {
+			cancel(nil)
+			err = errors.Join(err, <-done)
+		}()
+
+		ctx = containerdCtx
 	}
 
-	if err := c.stopAllContainers(); err != nil {
+	if err := c.stopAllContainers(ctx); err != nil {
 		logrus.Debugf("error stopping containers: %v", err)
 	}
 
-	if !c.isCustomCriUsed() {
-		c.stopContainerd()
-	}
+	// if !c.isCustomCriUsed() {
+	// 	c.stopContainerd()
+	// }
 	return nil
 }
 
@@ -95,60 +104,80 @@ func (c *containers) isCustomCriUsed() bool {
 	return c.Config.containerd == nil
 }
 
-func (c *containers) startContainerd() error {
+func (c *containers) startContainerd() (context.Context, context.CancelCauseFunc, <-chan error, error) {
 	logrus.Debugf("starting containerd")
 	args := []string{
 		fmt.Sprintf("--root=%s", filepath.Join(c.Config.dataDir, "containerd")),
 		fmt.Sprintf("--state=%s", filepath.Join(c.Config.runDir, "containerd")),
 		fmt.Sprintf("--address=%s", c.Config.containerd.socketPath),
 	}
-	if file.Exists("/etc/k0s/containerd.toml") {
-		args = append(args, "--config=/etc/k0s/containerd.toml")
+
+	confPath := c.Config.containerd.configPath
+	if confPath == "" {
+		confPath = "/etc/k0s/containerd.toml"
 	}
-	cmd := exec.Command(c.Config.containerd.binPath, args...)
-	if err := cmd.Start(); err != nil {
-		return err
+	if file.Exists(confPath) {
+		args = append(args, "--config", confPath)
 	}
 
-	c.Config.containerd.cmd = cmd
+	ctx, cancel := context.WithCancelCause(context.TODO())
+	cmd := exec.Command(c.Config.containerd.binPath, args...)
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
+	if err := cmd.Start(); err != nil {
+		return nil, nil, nil, err
+	}
+
 	logrus.Debugf("started containerd successfully")
 
-	return nil
-}
+	terminated := make(chan struct{})
+	go func() {
+		defer close(terminated)
+		cancel(fmt.Errorf("process terminated: %w", cmd.Wait()))
+	}()
 
-func (c *containers) stopContainerd() {
-	logrus.Debug("attempting to stop containerd")
-	logrus.Debugf("found containerd pid: %v", c.Config.containerd.cmd.Process.Pid)
-	if err := c.Config.containerd.cmd.Process.Signal(os.Interrupt); err != nil {
-		logrus.Errorf("failed to kill containerd: %v", err)
-	}
-	// if process, didn't exit, wait a few seconds and send SIGKILL
-	if c.Config.containerd.cmd.ProcessState.ExitCode() != -1 {
-		time.Sleep(5 * time.Second)
-
-		if err := c.Config.containerd.cmd.Process.Kill(); err != nil {
-			logrus.Errorf("failed to send SIGKILL to containerd: %v", err)
+	done := make(chan error, 1)
+	go func() {
+		defer close(done)
+		<-ctx.Done()
+		if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			done <- fmt.Errorf("failed to kill containerd with PID %d: %w", cmd.Process.Pid, err)
+			return
 		}
-	}
-	logrus.Debug("successfully stopped containerd")
+		<-terminated
+	}()
+
+	return ctx, cancel, done, nil
 }
 
-func (c *containers) stopAllContainers() error {
+func (c *containers) stopAllContainers(ctx context.Context) error {
 	var errs []error
 
-	var pods []string
-	ctx := context.TODO()
-	err := retry.Do(func() error {
-		logrus.Debugf("trying to list all pods")
-		var err error
-		pods, err = c.Config.containerRuntime.ListContainers(ctx)
-		if err != nil {
-			return err
+	var (
+		pods    []string
+		lastErr error
+	)
+	retryErr := retry.Do(
+		func() error {
+			logrus.Debugf("trying to list all pods")
+			pods, lastErr = c.Config.containerRuntime.ListContainers(ctx)
+			return lastErr
+		},
+		retry.Attempts(6),
+		retry.Context(ctx),
+		retry.LastErrorOnly(true),
+		retry.OnRetry(func(n uint, err error) {
+			logrus.WithError(err).Debugf("Failed to list containers in attempt %d, retrying after backoff", n)
+		}),
+	)
+	if retryErr != nil {
+		if lastErr == nil {
+			lastErr = retryErr
+		} else if errors.Is(retryErr, ctx.Err()) {
+			lastErr = fmt.Errorf("%w (%w)", lastErr, context.Cause(ctx))
 		}
-		return nil
-	}, retry.Context(ctx), retry.LastErrorOnly(true))
-	if err != nil {
-		return fmt.Errorf("failed at listing pods %w", err)
+
+		return fmt.Errorf("failed at listing pods: %w", lastErr)
 	}
 	if len(pods) > 0 {
 		if err := removeMount("kubelet/pods"); err != nil {
@@ -177,8 +206,8 @@ func (c *containers) stopAllContainers() error {
 		}
 	}
 
-	pods, err = c.Config.containerRuntime.ListContainers(ctx)
-	if err == nil && len(pods) == 0 {
+	pods, retryErr = c.Config.containerRuntime.ListContainers(ctx)
+	if retryErr == nil && len(pods) == 0 {
 		logrus.Info("successfully removed k0s containers!")
 	}
 

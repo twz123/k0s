@@ -19,7 +19,6 @@ package cleanup
 import (
 	"errors"
 	"fmt"
-	"os/exec"
 
 	"github.com/k0sproject/k0s/pkg/component/worker"
 	"github.com/k0sproject/k0s/pkg/config"
@@ -39,8 +38,8 @@ type Config struct {
 
 type containerdConfig struct {
 	binPath    string
-	cmd        *exec.Cmd
 	socketPath string
+	configPath string
 }
 
 func NewConfig(k0sVars *config.CfgVars, cfgFile string, criSocketFlag string) (*Config, error) {
