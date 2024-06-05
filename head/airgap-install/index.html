@@ -22,7 +22,7 @@
       
       
       <link rel="icon" href="../img/k0s_social.png">
-      <meta name="generator" content="mkdocs-1.6.0, mkdocs-material-9.5.21">
+      <meta name="generator" content="mkdocs-1.6.0, mkdocs-material-9.5.25">
     
     
       
@@ -30,7 +30,7 @@
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.66ac8b77.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.6543a935.min.css">
       
         
         <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
@@ -1825,6 +1825,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Command Line
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../cis_benchmark/" class="md-nav__link">
         
   
@@ -2143,12 +2164,12 @@
 <li>A working cluster with at least one controller that will be used to build the
   image bundle. See the <a href="../install/">Quick Start Guide</a> for more information.</li>
 <li>The containerd CLI management tool <code>ctr</code>, installed on the worker node. See
-  the <a href="https://github.com/containerd/containerd/blob/v1.7.16/docs/getting-started.md">containerd Getting Started Guide</a> for more information.</li>
+  the <a href="https://github.com/containerd/containerd/blob/v1.7.17/docs/getting-started.md">containerd Getting Started Guide</a> for more information.</li>
 </ul>
 <h2 id="1-create-your-own-image-bundle-optional">1. Create your own image bundle (optional)<a class="headerlink" href="#1-create-your-own-image-bundle-optional" title="Permanent link">#</a></h2>
 <p>k0s/containerd uses OCI (Open Container Initiative) bundles for airgap installation. OCI bundles must be uncompressed. As OCI bundles are built specifically for each architecture, create an OCI bundle that uses the same processor architecture (x86-64, ARM64, ARMv7) as on the target system.</p>
 <p>k0s offers two methods for creating OCI bundles, one using Docker and the other using a previously set up k0s worker.</p>
-<p><strong>Note:</strong> k0s strictly matches image architecture, e.g. arm/v7 images won't work for arm64.</p>
+<p><strong>Note:</strong> When importing the image bundle k0s uses containerd "loose" <a href="https://pkg.go.dev/github.com/containerd/containerd/platforms#Only">platform matching</a>. For arm/v8, it will also match arm/v7, arm/v6 and arm/v5. This means that your bundle can contain multi arch images and the import will be done using platform compatibility.</p>
 <h3 id="docker">Docker<a class="headerlink" href="#docker" title="Permanent link">#</a></h3>
 <ol>
 <li>
@@ -2182,7 +2203,7 @@
 <span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">k0s-cluster</span>
 <span class="nt">spec</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">k0s</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.30.0+k0s.0</span>
+<span class="w">    </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.30.1+k0s.0</span>
 <span class="w">  </span><span class="nt">hosts</span><span class="p">:</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">controller</span>
 <span class="w">      </span><span class="nt">ssh</span><span class="p">:</span>
@@ -2320,7 +2341,7 @@
     <script id="__config" type="application/json">{"base": "..", "features": ["toc.autohide", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "stable", "provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.a7c05c9e.min.js"></script>
+      <script src="../assets/javascripts/bundle.081f42fc.min.js"></script>
       
     
   </body>
