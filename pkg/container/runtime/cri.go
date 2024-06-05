@@ -96,7 +96,7 @@ func (cri *CRIRuntime) StopContainer(ctx context.Context, id string) error {
 }
 
 func getRuntimeClient(addr string) (pb.RuntimeServiceClient, *grpc.ClientConn, error) {
-	conn, err := getRuntimeClientConnection(addr)
+	conn, err := getRuntimeClientConnectionNew(addr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("connect: %w", err)
 	}
@@ -104,7 +104,18 @@ func getRuntimeClient(addr string) (pb.RuntimeServiceClient, *grpc.ClientConn, e
 	return runtimeClient, conn, nil
 }
 
-func getRuntimeClientConnection(addr string) (*grpc.ClientConn, error) {
+func getRuntimeClientConnectionOld(addr string) (*grpc.ClientConn, error) {
+	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
+	if err != nil {
+		errMsg := fmt.Errorf("connect endpoint %s, make sure you are running as root and the endpoint has been started: %w", addr, err)
+		logrus.Error(errMsg)
+	} else {
+		logrus.Debugf("connected successfully using endpoint: %s", addr)
+	}
+	return conn, nil
+}
+
+func getRuntimeClientConnectionNew(addr string) (*grpc.ClientConn, error) {
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("connect endpoint %s, make sure you are running as root and the endpoint has been started: %w", addr, err)

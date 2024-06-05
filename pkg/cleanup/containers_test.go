@@ -46,11 +46,15 @@ func TestYolo(t *testing.T) {
 	require.NoError(t, os.WriteFile(confPath, confData, 0640))
 
 	var binPath string
+	var endpoint *url.URL
 	switch runtime.GOOS {
 	case "windows":
 		binPath = filepath.Join("windows", "bin", "containerd.exe")
+		// That's probably not the right thing on Windows.
+		endpoint = &url.URL{Scheme: "npipe", Path: "//./pipe/containerd-containerd"}
 	default:
 		binPath = filepath.Join("linux", "bin", "containerd")
+		endpoint = &url.URL{Scheme: "unix", OmitHost: true, Path: filepath.ToSlash(socketPath) + ".borked"}
 	}
 	binPath = filepath.Join("..", "..", "embedded-bins", "staging", binPath)
 	binPath, err = filepath.Abs(binPath)
@@ -63,7 +67,7 @@ func TestYolo(t *testing.T) {
 			socketPath: socketPath,
 			configPath: confPath,
 		},
-		containerRuntime: containerruntime.NewContainerRuntime(&url.URL{Scheme: "unix", OmitHost: true, Path: filepath.ToSlash(socketPath)}),
+		containerRuntime: containerruntime.NewContainerRuntime(endpoint),
 		dataDir:          dataDir,
 		k0sVars:          &config.CfgVars{},
 		runDir:           runDir,
