@@ -25,6 +25,9 @@ import (
 	workerconfig "github.com/k0sproject/k0s/pkg/component/worker/config"
 	"github.com/k0sproject/k0s/pkg/config"
 
+	serverconfig "github.com/containerd/containerd/services/server/config"
+
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -121,4 +124,45 @@ version = 2
 		require.NoError(t, err)
 		require.False(t, isManaged)
 	})
+}
+
+func TestSetupConfig_Import_Resolution(t *testing.T) {
+	containerdConfPath := filepath.Join(t.TempDir(), "containerd.toml")
+	importsDir, runDir := t.TempDir(), t.TempDir()
+	underTest := Component{
+		K0sVars: &config.CfgVars{RunDir: runDir},
+		Profile: &workerconfig.Profile{PauseImage: &v1beta1.ImageSpec{
+			Image:   "pause",
+			Version: "42",
+		}},
+		confPath:    containerdConfPath,
+		importsPath: importsDir,
+	}
+
+	require.NoError(t, os.WriteFile(
+		filepath.Join(importsDir, "containerd-snapshotter-zfs.toml"),
+		[]byte(`plugins."io.containerd.grpc.v1.cri".containerd.snapshotter = "zfs"`),
+		0644,
+	))
+
+	err := underTest.setupConfig()
+
+	require.NoError(t, err)
+
+	// Dump the config for inspection
+	if configData, err := os.ReadFile(containerdConfPath); assert.NoError(t, err) {
+		t.Log("config: ", string(configData))
+	}
+
+	var containerdConfig serverconfig.Config
+	err = serverconfig.LoadConfig(containerdConfPath, &containerdConfig)
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, containerdConfig.Version)
+	criPluginConfig := containerdConfig.Plugins["io.containerd.grpc.v1.cri"]
+	require.NotNil(t, criPluginConfig, "No CRI plugin configuration section found")
+	sandboxImage := criPluginConfig.Get("sandbox_image")
+	assert.Equal(t, "pause:42", sandboxImage, "Custom pause image not found in CRI configuration")
+	snapshotter := criPluginConfig.GetPath([]string{"containerd", "snapshotter"})
+	assert.Equal(t, "zfs", snapshotter, "Overridden snapshotter not found in CRI configuration")
 }
