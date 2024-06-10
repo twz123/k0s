@@ -26,8 +26,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"syscall"
 	"time"
 
@@ -68,6 +70,7 @@ type Component struct {
 	OCIBundlePath string
 	confPath      string
 	importsPath   string
+	defaultConfig []byte
 }
 
 func NewComponent(logLevel string, vars *config.CfgVars, profile *workerconfig.Profile) *Component {
@@ -100,10 +103,34 @@ func (c *Component) Init(ctx context.Context) error {
 			return assets.Stage(c.K0sVars.BinDir, b, constant.BinDirMode)
 		})
 	}
+	if err := g.Wait(); err != nil {
+		return err
+	}
+
+	if err := c.loadDefaultConfig(ctx); err != nil {
+		return fmt.Errorf("failed to obtain containerd default configuration: %w", err)
+	}
+
 	if err := c.windowsInit(); err != nil {
 		return fmt.Errorf("windows init failed: %w", err)
 	}
-	return g.Wait()
+
+	return nil
+}
+
+func (c *Component) loadDefaultConfig(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, assets.BinPath("containerd", c.K0sVars.BinDir), "config", "default")
+	config, err := cmd.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			err = fmt.Errorf("%s: %s", exitErr.Error(), bytes.TrimSpace(exitErr.Stderr))
+		}
+		return err
+	}
+
+	c.defaultConfig = config
+	return nil
 }
 
 func (c *Component) windowsInit() error {
@@ -187,9 +214,10 @@ func (c *Component) setupConfig() error {
 	}
 
 	configurer := &configurer{
-		loadPath:   filepath.Join(c.importsPath, "*.toml"),
-		pauseImage: c.Profile.PauseImage.URI(),
-		log:        logrus.WithField("component", "containerd"),
+		defaultConfig: slices.Clone(c.defaultConfig),
+		loadPath:      filepath.Join(c.importsPath, "*.toml"),
+		pauseImage:    c.Profile.PauseImage.URI(),
+		log:           logrus.WithField("component", "containerd"),
 	}
 
 	config, err := configurer.handleImports()
