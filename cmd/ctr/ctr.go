@@ -23,7 +23,7 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/pkg/config"
 
-	"github.com/containerd/containerd/cmd/ctr/app"
+	"github.com/containerd/containerd/v2/cmd/ctr/app"
 	"github.com/spf13/cobra"
 	"github.com/urfave/cli"
 )

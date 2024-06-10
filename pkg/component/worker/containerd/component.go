@@ -53,7 +53,7 @@ import (
 const confTmpl = `# k0s_managed=true
 # This is a placeholder configuration for k0s managed containerd.
 # If you wish to override the config, remove the first line and replace this file with your custom configuration.
-# For reference see https://github.com/containerd/containerd/blob/main/docs/man/containerd-config.toml.5.md
+# For reference see https://github.com/containerd/containerd/blob/v2.0.0-rc.2/docs/man/containerd-config.toml.5.md
 version = 2
 imports = [
 	{{- range $i := .Imports }}

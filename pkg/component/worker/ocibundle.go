@@ -24,9 +24,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/avast/retry-go"
-	"github.com/containerd/containerd"
-	"github.com/containerd/containerd/platforms"
+	retry "github.com/avast/retry-go"
+	"github.com/containerd/containerd/v2/client"
+	"github.com/containerd/platforms"
 	"github.com/fsnotify/fsnotify"
 	"github.com/sirupsen/logrus"
 
@@ -68,28 +68,28 @@ func (a *OCIBundleReconciler) Init(_ context.Context) error {
 
 // loadOne connects to containerd and imports the provided OCI bundle.
 func (a *OCIBundleReconciler) loadOne(ctx context.Context, fpath string) error {
-	var client *containerd.Client
+	var containerd *client.Client
 	sock := filepath.Join(a.k0sVars.RunDir, "containerd.sock")
 	if err := retry.Do(func() (err error) {
-		client, err = containerd.New(
+		containerd, err = client.New(
 			sock,
-			containerd.WithDefaultNamespace("k8s.io"),
-			containerd.WithDefaultPlatform(
+			client.WithDefaultNamespace("k8s.io"),
+			client.WithDefaultPlatform(
 				platforms.Only(platforms.DefaultSpec()),
 			),
 		)
 		if err != nil {
 			return fmt.Errorf("failed to connect to containerd: %w", err)
 		}
-		if _, err = client.ListImages(ctx); err != nil {
+		if _, err = containerd.ListImages(ctx); err != nil {
 			return fmt.Errorf("failed to communicate with containerd: %w", err)
 		}
 		return nil
 	}, retry.Context(ctx), retry.Delay(time.Second*5)); err != nil {
 		return err
 	}
-	defer client.Close()
-	if err := a.unpackBundle(ctx, client, fpath); err != nil {
+	defer containerd.Close()
+	if err := a.unpackBundle(ctx, containerd, fpath); err != nil {
 		return fmt.Errorf("failed to process OCI bundle: %w", err)
 	}
 	return nil
@@ -202,7 +202,7 @@ func (a *OCIBundleReconciler) Start(ctx context.Context) error {
 	return nil
 }
 
-func (a *OCIBundleReconciler) unpackBundle(ctx context.Context, client *containerd.Client, bundlePath string) error {
+func (a *OCIBundleReconciler) unpackBundle(ctx context.Context, containerd *client.Client, bundlePath string) error {
 	r, err := os.Open(bundlePath)
 	if err != nil {
 		return fmt.Errorf("can't open bundle file %s: %w", bundlePath, err)
@@ -212,11 +212,11 @@ func (a *OCIBundleReconciler) unpackBundle(ctx context.Context, client *containe
 	// Without this the importing would fail if the bundle does not images for compatible architectures
 	// because the image manifest still refers to those. E.g. on arm64 containerd would stil try to unpack arm/v8&arm/v7
 	// images but would fail as those are not present on k0s airgap bundles.
-	images, err := client.Import(ctx, r, containerd.WithSkipMissing())
+	images, err := containerd.Import(ctx, r, client.WithSkipMissing())
 	if err != nil {
 		return fmt.Errorf("can't import bundle: %w", err)
 	}
-	is := client.ImageService()
+	is := containerd.ImageService()
 	for _, i := range images {
 		a.log.Infof("Imported image %s", i.Name)
 		// Update labels for each image to include io.cri-containerd.pinned=pinned

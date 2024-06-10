@@ -55,7 +55,7 @@ func (s *EmbeddedBinariesSuite) TestK0sGetsUp() {
 			checkError bool
 			contains   string
 		}{
-			{"containerd -v", true, "containerd github.com/containerd/containerd"},
+			{"containerd -v", true, "containerd github.com/containerd/containerd/v2"},
 			{"containerd-shim -v", false, "containerd-shim"},
 			{"containerd-shim-runc-v1 -v", true, "containerd-shim-runc-v1:"},
 			{"containerd-shim-runc-v2 -v", true, "containerd-shim-runc-v2:"},

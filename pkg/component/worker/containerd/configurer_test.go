@@ -21,7 +21,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	serverconfig "github.com/containerd/containerd/services/server/config"
+	serverconfig "github.com/containerd/containerd/v2/cmd/containerd/server"
 	"github.com/sirupsen/logrus"
 
 	"github.com/stretchr/testify/assert"
