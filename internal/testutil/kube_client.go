@@ -30,7 +30,6 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
-	restfake "k8s.io/client-go/rest/fake"
 	kubetesting "k8s.io/client-go/testing"
 
 	etcdMemberClient "github.com/k0sproject/k0s/pkg/client/clientset/typed/etcd/v1beta1"
@@ -60,7 +59,6 @@ func NewFakeClientFactory(objects ...runtime.Object) FakeClientFactory {
 		DynamicClient:   dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), gvkLists),
 		DiscoveryClient: memory.NewMemCacheClient(rawDiscovery),
 		RawDiscovery:    rawDiscovery,
-		RESTClient:      &restfake.RESTClient{},
 	}
 }
 
@@ -69,7 +67,6 @@ type FakeClientFactory struct {
 	DynamicClient   dynamic.Interface
 	DiscoveryClient discovery.CachedDiscoveryInterface
 	RawDiscovery    *discoveryfake.FakeDiscovery
-	RESTClient      rest.Interface
 }
 
 func (f FakeClientFactory) GetClient() (kubernetes.Interface, error) {
@@ -88,9 +85,6 @@ func (f FakeClientFactory) GetConfigClient() (cfgClient.ClusterConfigInterface, 
 	return nil, fmt.Errorf("NOT IMPLEMENTED")
 }
 
-func (f FakeClientFactory) GetRESTClient() (rest.Interface, error) {
-	return f.RESTClient, nil
-}
 func (f FakeClientFactory) GetRESTConfig() *rest.Config {
 	return &rest.Config{}
 }
