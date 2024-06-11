@@ -39,7 +39,7 @@ func NewRESTClientGetter(clientFactory ClientFactoryInterface, log logrus.FieldL
 }
 
 func (r *restClientGetter) ToRESTConfig() (*rest.Config, error) {
-	return r.clientFactory.GetRESTConfig(), nil
+	return r.clientFactory.GetRESTConfig()
 }
 
 func (r *restClientGetter) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {

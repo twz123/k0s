@@ -85,8 +85,8 @@ func (f FakeClientFactory) GetConfigClient() (cfgClient.ClusterConfigInterface, 
 	return nil, fmt.Errorf("NOT IMPLEMENTED")
 }
 
-func (f FakeClientFactory) GetRESTConfig() *rest.Config {
-	return &rest.Config{}
+func (f FakeClientFactory) GetRESTConfig() (*rest.Config, error) {
+	return nil, fmt.Errorf("NOT IMPLEMENTED")
 }
 
 func (f FakeClientFactory) GetEtcdMemberClient() (etcdMemberClient.EtcdMemberInterface, error) {
