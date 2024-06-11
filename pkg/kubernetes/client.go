@@ -42,7 +42,7 @@ type ClientFactoryInterface interface {
 	GetAPIExtensionsClient() (apiextensionsclientset.Interface, error)
 	GetK0sClient() (k0sclientset.Interface, error)
 	GetConfigClient() (cfgClient.ClusterConfigInterface, error) // Deprecated: Use [ClientFactoryInterface.GetK0sClient] instead.
-	GetRESTConfig() *rest.Config
+	GetRESTConfig() (*rest.Config, error)
 	GetEtcdMemberClient() (etcdMemberClient.EtcdMemberInterface, error) // Deprecated: Use [ClientFactoryInterface.GetK0sClient] instead.
 }
 
@@ -59,11 +59,11 @@ func NewAdminClientFactory(kubeconfigPath string) ClientFactoryInterface {
 type ClientFactory struct {
 	configPath string
 
-	client              kubernetes.Interface
-	dynamicClient       dynamic.Interface
+	client              *kubernetes.Clientset
+	dynamicClient       *dynamic.DynamicClient
 	discoveryClient     discovery.CachedDiscoveryInterface
-	apiExtensionsClient apiextensionsclientset.Interface
-	k0sClient           k0sclientset.Interface
+	apiExtensionsClient *apiextensionsclientset.Clientset
+	k0sClient           *k0sclientset.Clientset
 	restConfig          *rest.Config
 
 	mutex sync.Mutex
@@ -72,139 +72,42 @@ type ClientFactory struct {
 func (c *ClientFactory) GetClient() (kubernetes.Interface, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	var err error
 
-	if c.restConfig == nil {
-		c.restConfig, err = clientcmd.BuildConfigFromFlags("", c.configPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load kubeconfig: %w", err)
-		}
-		// We're always running the client on the same host as the API, no need to compress
-		c.restConfig.DisableCompression = true
-		// To mitigate stack applier bursts in startup
-		c.restConfig.QPS = 40.0
-		c.restConfig.Burst = 400.0
-	}
-
-	if c.client != nil {
-		return c.client, nil
-	}
-
-	client, err := kubernetes.NewForConfig(c.restConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	c.client = client
-
-	return c.client, nil
+	return lazyLoadClient(&c.client, c.getRESTConfig, kubernetes.NewForConfig)
 }
 
 func (c *ClientFactory) GetDynamicClient() (dynamic.Interface, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	var err error
-	if c.restConfig == nil {
-		c.restConfig, err = clientcmd.BuildConfigFromFlags("", c.configPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load kubeconfig: %w", err)
-		}
-		// We're always running the client on the same host as the API, no need to compress
-		c.restConfig.DisableCompression = true
-		// To mitigate stack applier bursts in startup
-		c.restConfig.QPS = 40.0
-		c.restConfig.Burst = 400.0
-	}
 
-	if c.dynamicClient != nil {
-		return c.dynamicClient, nil
-	}
-
-	dynamicClient, err := dynamic.NewForConfig(c.restConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	c.dynamicClient = dynamicClient
-
-	return c.dynamicClient, nil
+	return lazyLoadClient(&c.dynamicClient, c.getRESTConfig, dynamic.NewForConfig)
 }
 
 func (c *ClientFactory) GetDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	var err error
-	if c.restConfig == nil {
-		c.restConfig, err = clientcmd.BuildConfigFromFlags("", c.configPath)
+
+	return lazyLoadClient(&c.discoveryClient, c.getRESTConfig, func(c *rest.Config) (discovery.CachedDiscoveryInterface, error) {
+		discoveryClient, err := discovery.NewDiscoveryClientForConfig(c)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load kubeconfig: %w", err)
+			return nil, err
 		}
-	}
-
-	if c.discoveryClient != nil {
-		return c.discoveryClient, nil
-	}
-
-	discoveryClient, err := discovery.NewDiscoveryClientForConfig(c.restConfig)
-	cachedDiscoveryClient := memory.NewMemCacheClient(discoveryClient)
-	if err != nil {
-		return nil, err
-	}
-	c.discoveryClient = cachedDiscoveryClient
-
-	return c.discoveryClient, nil
+		return memory.NewMemCacheClient(discoveryClient), nil
+	})
 }
 
 func (c *ClientFactory) GetAPIExtensionsClient() (apiextensionsclientset.Interface, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	var err error
 
-	if c.restConfig == nil {
-		c.restConfig, err = clientcmd.BuildConfigFromFlags("", c.configPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load kubeconfig: %w", err)
-		}
-	}
-
-	if c.apiExtensionsClient != nil {
-		return c.apiExtensionsClient, nil
-	}
-
-	client, err := apiextensionsclientset.NewForConfig(c.restConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	c.apiExtensionsClient = client
-
-	return c.apiExtensionsClient, nil
+	return lazyLoadClient(&c.apiExtensionsClient, c.getRESTConfig, apiextensionsclientset.NewForConfig)
 }
 
 func (c *ClientFactory) GetK0sClient() (k0sclientset.Interface, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	var err error
 
-	if c.restConfig == nil {
-		c.restConfig, err = clientcmd.BuildConfigFromFlags("", c.configPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load kubeconfig: %w", err)
-		}
-	}
-
-	if c.k0sClient != nil {
-		return c.k0sClient, nil
-	}
-
-	client, err := k0sclientset.NewForConfig(c.restConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	c.k0sClient = client
-
-	return c.k0sClient, nil
+	return lazyLoadClient(&c.k0sClient, c.getRESTConfig, k0sclientset.NewForConfig)
 }
 
 // Deprecated: Use [ClientFactory.GetK0sClient] instead.
@@ -227,8 +130,32 @@ func (c *ClientFactory) GetEtcdMemberClient() (etcdMemberClient.EtcdMemberInterf
 	return k0sClient.EtcdV1beta1().EtcdMembers(), nil
 }
 
-func (c *ClientFactory) GetRESTConfig() *rest.Config {
-	return c.restConfig
+func (c *ClientFactory) GetRESTConfig() (*rest.Config, error) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	return c.getRESTConfig()
+}
+
+func (c *ClientFactory) getRESTConfig() (_ *rest.Config, err error) {
+	if c.restConfig == nil {
+		c.restConfig, err = loadRESTConfig(c.configPath)
+	}
+
+	return c.restConfig, err
+}
+
+func loadRESTConfig(kubeconfigPath string) (*rest.Config, error) {
+	restConfig, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+	// We're always running the client on the same host as the API, no need to compress
+	restConfig.DisableCompression = true
+	// To mitigate stack applier bursts in startup
+	restConfig.QPS = 40.0
+	restConfig.Burst = 400.0
+
+	return restConfig, nil
 }
 
 // KubeconfigFromFile returns a [clientcmd.KubeconfigGetter] that tries to load
@@ -262,4 +189,24 @@ func NewClient(getter clientcmd.KubeconfigGetter) (kubernetes.Interface, error) 
 	}
 
 	return kubernetes.NewForConfig(config)
+}
+
+func lazyLoadClient[I comparable](loaded *I, loadConfig func() (*rest.Config, error), newForConfig func(*rest.Config) (I, error)) (I, error) {
+	return lazyLoad(loaded, func() (t I, _ error) {
+		config, err := loadConfig()
+		if err != nil {
+			return t, err
+		}
+		return newForConfig(config)
+	})
+}
+
+func lazyLoad[T comparable](loaded *T, load func() (T, error)) (t T, err error) {
+	if *loaded == t {
+		t, err := load()
+		if err == nil {
+			*loaded = t
+		}
+	}
+	return *loaded, err
 }

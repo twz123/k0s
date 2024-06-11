@@ -17,6 +17,8 @@ limitations under the License.
 package testutil
 
 import (
+	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 
@@ -113,8 +115,8 @@ func (f *FakeClientFactory) GetConfigClient() (k0sv1beta1.ClusterConfigInterface
 	return f.K0sClient.K0sV1beta1().ClusterConfigs(constant.ClusterConfigNamespace), nil
 }
 
-func (f FakeClientFactory) GetRESTConfig() *rest.Config {
-	return &rest.Config{}
+func (f FakeClientFactory) GetRESTConfig() (*rest.Config, error) {
+	return nil, fmt.Errorf("%w: GetRESTConfig", errors.ErrUnsupported)
 }
 
 // Deprecated: Use [FakeClientFactory.GetK0sClient] instead.

@@ -42,7 +42,12 @@ func CanUpdate(ctx context.Context, log logrus.FieldLogger, clientFactory kubern
 		}
 	}
 
-	metaClient, err := metadata.NewForConfig(clientFactory.GetRESTConfig())
+	restConfig, err := clientFactory.GetRESTConfig()
+	if err != nil {
+		return err
+	}
+
+	metaClient, err := metadata.NewForConfig(restConfig)
 	if err != nil {
 		return err
 	}

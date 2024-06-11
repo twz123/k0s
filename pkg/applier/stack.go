@@ -30,7 +30,6 @@ import (
 	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
 
 	extensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	extensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -155,7 +154,7 @@ func (s *Stack) Apply(ctx context.Context, prune bool) error {
 
 // waitForCRD waits 5 seconds for a CRD to become established on a best-effort basis.
 func (s *Stack) waitForCRD(ctx context.Context, crdName string) {
-	client, err := extensionsclient.NewForConfig(s.Clients.GetRESTConfig())
+	client, err := s.Clients.GetAPIExtensionsClient()
 	if err != nil {
 		return
 	}
@@ -163,7 +162,7 @@ func (s *Stack) waitForCRD(ctx context.Context, crdName string) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	_ = watch.CRDs(client.CustomResourceDefinitions()).
+	_ = watch.CRDs(client.ApiextensionsV1().CustomResourceDefinitions()).
 		WithObjectName(crdName).
 		WithErrorCallback(watch.IsRetryable).
 		Until(ctx, func(item *extensionsv1.CustomResourceDefinition) (bool, error) {
