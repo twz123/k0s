@@ -25,7 +25,6 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/pkg/component/controller/leaderelector"
 	"github.com/k0sproject/k0s/pkg/component/manager"
-	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
 
@@ -35,11 +34,9 @@ import (
 
 // Manager is the Component interface wrapper for Applier
 type Manager struct {
-	K0sVars           *config.CfgVars
+	ManifestsDir      string
 	KubeClientFactory kubeutil.ClientFactoryInterface
 
-	// client               kubernetes.Interface
-	applier       Applier
 	bundlePath    string
 	cancelWatcher context.CancelFunc
 	log           *logrus.Entry
@@ -57,15 +54,13 @@ type stack = struct {
 
 // Init initializes the Manager
 func (m *Manager) Init(ctx context.Context) error {
-	err := dir.Init(m.K0sVars.ManifestsDir, constant.ManifestsDirMode)
+	err := dir.Init(m.ManifestsDir, constant.ManifestsDirMode)
 	if err != nil {
-		return fmt.Errorf("failed to create manifest bundle dir %s: %w", m.K0sVars.ManifestsDir, err)
+		return fmt.Errorf("failed to create manifest bundle dir %s: %w", m.ManifestsDir, err)
 	}
 	m.log = logrus.WithField("component", constant.ApplierManagerComponentName)
 	m.stacks = make(map[string]stack)
-	m.bundlePath = m.K0sVars.ManifestsDir
-
-	m.applier = NewApplier(m.K0sVars.ManifestsDir, m.KubeClientFactory)
+	m.bundlePath = m.ManifestsDir
 
 	m.LeaderElector.AddAcquiredLeaseCallback(func() {
 		watcherCtx, cancel := context.WithCancel(ctx)
