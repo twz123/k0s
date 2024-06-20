@@ -172,7 +172,7 @@ func TestReconcilerWithNeedForUpdate(t *testing.T) {
 	assert.Equal(t, "bar", e.ObjectMeta.Annotations["foo"])
 }
 
-func verifyEndpointAddresses(t *testing.T, expectedAddresses []string, fakeFactory testutil.FakeClientFactory) *corev1.Endpoints {
+func verifyEndpointAddresses(t *testing.T, expectedAddresses []string, fakeFactory *testutil.FakeClientFactory) *corev1.Endpoints {
 	fakeClient, _ := fakeFactory.GetClient()
 	ep, err := fakeClient.CoreV1().Endpoints("default").Get(context.TODO(), "kubernetes", v1.GetOptions{})
 	assert.NoError(t, err)
