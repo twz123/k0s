@@ -18,8 +18,10 @@ package applier
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
+	"sync/atomic"
 	"time"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
@@ -38,10 +40,9 @@ type Manager struct {
 	K0sVars           *config.CfgVars
 	KubeClientFactory kubeutil.ClientFactoryInterface
 
-	bundlePath    string
-	cancelWatcher context.CancelFunc
-	log           *logrus.Entry
-	stacks        map[string]stack
+	bundlePath string
+	cancel     atomic.Pointer[context.CancelCauseFunc]
+	log        logrus.FieldLogger
 
 	LeaderElector leaderelector.Interface
 }
@@ -49,7 +50,7 @@ type Manager struct {
 var _ manager.Component = (*Manager)(nil)
 
 type stack = struct {
-	context.CancelFunc
+	context.CancelCauseFunc
 	*StackApplier
 }
 
@@ -59,20 +60,39 @@ func (m *Manager) Init(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create manifest bundle dir %s: %w", m.K0sVars.ManifestsDir, err)
 	}
-	m.log = logrus.WithField("component", "applier-manager")
-	m.stacks = make(map[string]stack)
+	if m.log == nil {
+		m.log = logrus.StandardLogger()
+	}
 	m.bundlePath = m.K0sVars.ManifestsDir
+	m.log = m.log.WithFields(logrus.Fields{
+		"component": "applier",
+		"path":      m.bundlePath,
+	})
 
 	m.LeaderElector.AddAcquiredLeaseCallback(func() {
-		watcherCtx, cancel := context.WithCancel(ctx)
-		m.cancelWatcher = cancel
+		ctx, cancel := context.WithCancelCause(context.Background())
+		for {
+			prevCancel := m.cancel.Load()
+			if prevCancel == &managerStopped {
+				return
+			}
+
+			if m.cancel.CompareAndSwap(prevCancel, &cancel) {
+				if prevCancel != nil {
+					(*prevCancel)(errors.New("replaced after having acquired a new lease"))
+				}
+				break
+			}
+		}
+
 		go func() {
-			_ = m.runWatchers(watcherCtx)
+			// FIXME retry on err???
+			_ = m.runStacks(ctx)
 		}()
 	})
 	m.LeaderElector.AddLostLeaseCallback(func() {
-		if m.cancelWatcher != nil {
-			m.cancelWatcher()
+		if cancel := m.cancel.Load(); cancel != nil {
+			(*cancel)(errors.New("lost lease"))
 		}
 	})
 
@@ -84,16 +104,18 @@ func (m *Manager) Start(_ context.Context) error {
 	return nil
 }
 
+var managerStopped = context.CancelCauseFunc(func(error) {})
+
 // Stop stops the Manager
 func (m *Manager) Stop() error {
-	if m.cancelWatcher != nil {
-		m.cancelWatcher()
+	if cancel := m.cancel.Swap(&managerStopped); cancel != nil {
+		(*cancel)(errors.New("manager stopped"))
 	}
 	return nil
 }
 
-func (m *Manager) runWatchers(ctx context.Context) error {
-	log := logrus.WithField("component", "applier-manager")
+func (m *Manager) runStacks(ctx context.Context) error {
+	log := m.log.WithField("component", "applier").WithField("path", m.bundlePath)
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -104,7 +126,7 @@ func (m *Manager) runWatchers(ctx context.Context) error {
 
 	err = watcher.Add(m.bundlePath)
 	if err != nil {
-		log.Warnf("Failed to start watcher: %s", err.Error())
+		log.WithError(err).Warn("Failed to start watcher")
 	}
 
 	// Add all directories after the bundle dir has been added to the watcher.
@@ -116,8 +138,10 @@ func (m *Manager) runWatchers(ctx context.Context) error {
 		return err
 	}
 
+	stacks := make(map[string]stack)
+
 	for _, dir := range dirs {
-		m.createStack(ctx, path.Join(m.bundlePath, dir))
+		m.createStack(ctx, stacks, path.Join(m.bundlePath, dir))
 	}
 
 	for {
@@ -127,7 +151,8 @@ func (m *Manager) runWatchers(ctx context.Context) error {
 				return err
 			}
 
-			log.Warnf("watch error: %s", err.Error())
+			log.WithError(err).Warn("Error while watching manifest directory")
+
 		case event, ok := <-watcher.Events:
 			if !ok {
 				return nil
@@ -135,58 +160,58 @@ func (m *Manager) runWatchers(ctx context.Context) error {
 			switch event.Op {
 			case fsnotify.Create:
 				if dir.IsDirectory(event.Name) {
-					m.createStack(ctx, event.Name)
+					m.createStack(ctx, stacks, event.Name)
 				}
 			case fsnotify.Remove:
-				m.removeStack(ctx, event.Name)
+				m.removeStack(ctx, stacks, event.Name)
 			}
 		case <-ctx.Done():
-			log.Info("manifest watcher done")
+			log.WithField("reason", context.Cause(ctx)).Info("Manifest watcher done")
 			return nil
 		}
 	}
 }
 
-func (m *Manager) createStack(ctx context.Context, name string) {
-	// safeguard in case the fswatcher would trigger an event for an already existing stack
-	if _, ok := m.stacks[name]; ok {
-		return
-	}
+func (m *Manager) createStack(ctx context.Context, stacks map[string]stack, path string) {
+	ctx, cancel := context.WithCancelCause(ctx)
+	stack := stack{cancel, NewStackApplier(path, m.KubeClientFactory, m.log)}
 
-	stackCtx, cancelStack := context.WithCancel(ctx)
-	stack := stack{cancelStack, NewStackApplier(name, m.KubeClientFactory)}
-	m.stacks[name] = stack
+	if prevStack, ok := stacks[path]; ok {
+		prevStack.CancelCauseFunc(errors.New("replaced by new stack"))
+	}
+	stacks[path] = stack
 
 	go func() {
-		log := m.log.WithField("stack", name)
+		log := m.log.WithField("stack", path)
+		log.Info("Running stack")
 		for {
-			log.Info("Running stack")
-			if err := stack.Run(stackCtx); err != nil {
+			if err := stack.Run(ctx); err != nil {
 				log.WithError(err).Error("Failed to run stack")
 			}
 
 			select {
 			case <-time.After(10 * time.Second):
+				log.Info("Restarting stack")
 				continue
-			case <-stackCtx.Done():
-				log.Info("Stack done")
+			case <-ctx.Done():
+				log.WithField("reason", context.Cause(ctx)).Info("Stack done")
 				return
 			}
 		}
 	}()
 }
 
-func (m *Manager) removeStack(ctx context.Context, name string) {
-	stack, ok := m.stacks[name]
+func (m *Manager) removeStack(ctx context.Context, stacks map[string]stack, name string) {
+	stack, ok := stacks[name]
 	if !ok {
 		m.log.
 			WithField("path", name).
-			Debug("attempted to remove non-existent stack, probably not a directory")
+			Debug("Attempted to remove non-existent stack, probably not a directory")
 		return
 	}
 
-	delete(m.stacks, name)
-	stack.CancelFunc()
+	stack.CancelCauseFunc(errors.New("directory has been removed from file system"))
+	delete(stacks, name)
 
 	log := m.log.WithField("stack", name)
 	if err := stack.DeleteStack(ctx); err != nil {

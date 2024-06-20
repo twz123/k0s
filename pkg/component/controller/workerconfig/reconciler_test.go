@@ -51,7 +51,7 @@ type kubeletConfig = kubeletv1beta1.KubeletConfiguration
 
 // TODO: simplify it somehow, it is hard to read and to modify, both tests and implementation
 func TestReconciler_Lifecycle(t *testing.T) {
-	createdReconciler := func(t *testing.T) (*Reconciler, testutil.FakeClientFactory) {
+	createdReconciler := func(t *testing.T) (*Reconciler, *testutil.FakeClientFactory) {
 		t.Helper()
 		clients := testutil.NewFakeClientFactory()
 		k0sVars, err := config.NewCfgVars(nil, t.TempDir())
@@ -112,7 +112,7 @@ func TestReconciler_Lifecycle(t *testing.T) {
 		})
 	})
 
-	initializedReconciler := func(t *testing.T) (*Reconciler, testutil.FakeClientFactory) {
+	initializedReconciler := func(t *testing.T) (*Reconciler, *testutil.FakeClientFactory) {
 		t.Helper()
 		underTest, clients := createdReconciler(t)
 		require.NoError(t, underTest.Init(testContext(t)))
@@ -851,7 +851,7 @@ func installMockApplier(t *testing.T, underTest *Reconciler) *mockApplier {
 	return &mockApplier
 }
 
-func mockKubernetesEndpoints(t *testing.T, clients testutil.FakeClientFactory) {
+func mockKubernetesEndpoints(t *testing.T, clients *testutil.FakeClientFactory) {
 	t.Helper()
 	client, err := clients.GetClient()
 	require.NoError(t, err)

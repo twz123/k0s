@@ -37,10 +37,8 @@ const manifestFilePattern = "*.yaml"
 
 // Applier manages all the "static" manifests and applies them on the k8s API
 type Applier struct {
-	Name string
-	Dir  string
-
-	log             *logrus.Entry
+	dir             string
+	log             logrus.FieldLogger
 	clientFactory   kubernetes.ClientFactoryInterface
 	client          dynamic.Interface
 	discoveryClient discovery.CachedDiscoveryInterface
@@ -49,19 +47,17 @@ type Applier struct {
 }
 
 // NewApplier creates new Applier
-func NewApplier(dir string, kubeClientFactory kubernetes.ClientFactoryInterface) Applier {
-	name := filepath.Base(dir)
-	log := logrus.WithFields(logrus.Fields{
-		"component": "applier",
-		"bundle":    name,
-	})
+func NewApplier(dir string, kubeClientFactory kubernetes.ClientFactoryInterface, log logrus.FieldLogger) Applier {
+	if log == nil {
+		log = logrus.StandardLogger()
+	}
+	log = log.WithField("path", dir)
 
 	clientGetter := kubernetes.NewRESTClientGetter(kubeClientFactory)
 
 	return Applier{
+		dir:              dir,
 		log:              log,
-		Dir:              dir,
-		Name:             name,
 		clientFactory:    kubeClientFactory,
 		restClientGetter: clientGetter,
 	}
@@ -96,7 +92,7 @@ func (a *Applier) Apply(ctx context.Context) error {
 		return fmt.Errorf("failed to initialize: %w", err)
 	}
 
-	files, err := filepath.Glob(path.Join(a.Dir, manifestFilePattern))
+	files, err := filepath.Glob(path.Join(a.dir, manifestFilePattern))
 	if err != nil {
 		return fmt.Errorf("while searching for files: %w", err)
 	}
@@ -105,14 +101,9 @@ func (a *Applier) Apply(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("while parsing files: %w", err)
 	}
-	stack := Stack{
-		Name:      a.Name,
-		Resources: resources,
-		Client:    a.client,
-		Discovery: a.discoveryClient,
-	}
+
 	a.log.Debug("applying stack")
-	if err = stack.Apply(ctx, true); err != nil {
+	if err = a.newStack(resources...).Apply(ctx, true); err != nil {
 		a.discoveryClient.Invalidate()
 		return fmt.Errorf("failed to apply stack: %w", err)
 	}
@@ -127,14 +118,19 @@ func (a *Applier) Delete(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	stack := Stack{
-		Name:      a.Name,
+	a.log.Debug("about to delete stack with empty apply")
+	err = a.newStack().Apply(ctx, true)
+	return err
+}
+
+func (a *Applier) newStack(resources ...*unstructured.Unstructured) *Stack {
+	return &Stack{
+		Name:      filepath.Base(a.dir),
+		Resources: resources,
 		Client:    a.client,
 		Discovery: a.discoveryClient,
+		log:       a.log,
 	}
-	logrus.Debugf("about to delete a stack %s with empty apply", a.Name)
-	err = stack.Apply(ctx, true)
-	return err
 }
 
 func (a *Applier) parseFiles(files []string) ([]*unstructured.Unstructured, error) {

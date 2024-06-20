@@ -39,13 +39,18 @@ type StackApplier struct {
 	doApply, doDelete func(context.Context) error
 }
 
-// NewStackApplier crates new stack applier to manage a stack
-func NewStackApplier(path string, kubeClientFactory kubernetes.ClientFactoryInterface) *StackApplier {
+// NewStackApplier creates a new stack applier to manage a stack.
+func NewStackApplier(path string, kubeClientFactory kubernetes.ClientFactoryInterface, log logrus.FieldLogger) *StackApplier {
+	if log == nil {
+		log = logrus.StandardLogger()
+	}
+	log = log.WithField("path", path)
+
 	var mu sync.Mutex
-	applier := NewApplier(path, kubeClientFactory)
+	applier := NewApplier(path, kubeClientFactory, log)
 
 	return &StackApplier{
-		log:  logrus.WithField("component", "applier-"+applier.Name),
+		log:  log,
 		path: path,
 
 		doApply: func(ctx context.Context) error {

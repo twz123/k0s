@@ -46,13 +46,16 @@ type Stack struct {
 	Client        dynamic.Interface
 	Discovery     discovery.CachedDiscoveryInterface
 
-	log *logrus.Entry
+	log logrus.FieldLogger
 }
 
 // Apply applies stack resources by creating or updating the resources. If prune is requested,
 // the previously applied stack resources which are not part of the current stack are removed from k8s api
 func (s *Stack) Apply(ctx context.Context, prune bool) error {
-	s.log = logrus.WithField("stack", s.Name)
+	if s.log == nil {
+		s.log = logrus.StandardLogger()
+	}
+	s.log = s.log.WithField("stack", s.Name)
 
 	s.log.Debugf("applying with %d resources", len(s.Resources))
 	mapper := restmapper.NewDeferredDiscoveryRESTMapper(s.Discovery)
@@ -120,7 +123,7 @@ func (s *Stack) Apply(ctx context.Context, prune bool) error {
 
 func (s *Stack) keepResource(resource *unstructured.Unstructured) {
 	resourceID := generateResourceID(*resource)
-	logrus.WithField("stack", s.Name).Debugf("marking resource to be kept: %s", resourceID)
+	s.log.Debugf("marking resource to be kept: %s", resourceID)
 	s.keepResources = append(s.keepResources, resourceID)
 }
 
