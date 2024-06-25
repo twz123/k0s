@@ -136,7 +136,7 @@ func (m *Manager) runWatchers(ctx context.Context) error {
 				if dir.IsDirectory(event.Name) {
 					m.createStack(ctx, event.Name)
 				}
-			case fsnotify.Remove:
+			case fsnotify.Remove, fsnotify.Rename:
 				m.removeStack(ctx, event.Name)
 			}
 		case <-ctx.Done():
