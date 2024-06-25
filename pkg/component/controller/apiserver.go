@@ -224,6 +224,8 @@ func (a *APIServer) Ready() error {
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		RootCAs:      caCertPool,
+		MinVersion:   tls.VersionTLS12,
+		CipherSuites: constant.AllowedTLS12CipherSuiteIDs,
 	}
 	tr := &http.Transport{
 		TLSClientConfig: tlsConfig,

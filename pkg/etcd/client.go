@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
+	"github.com/k0sproject/k0s/pkg/constant"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	"go.etcd.io/etcd/client/pkg/v3/transport"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -46,6 +47,8 @@ func NewClient(certDir, etcdCertDir string, etcdConf *v1beta1.EtcdConfig) (*Clie
 			CertFile:      etcdConf.GetCertFilePath(certDir),
 			KeyFile:       etcdConf.GetKeyFilePath(certDir),
 			TrustedCAFile: etcdConf.GetCaFilePath(etcdCertDir),
+			MinVersion:    tls.VersionTLS12,
+			CipherSuites:  constant.AllowedTLS12CipherSuiteIDs,
 		}
 
 		var err error

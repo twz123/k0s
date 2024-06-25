@@ -75,6 +75,7 @@ func registerCordoning(logger *logrus.Entry, mgr crman.Manager, eventFilter crpr
 
 	// create the clientset
 	clientset, err := kubernetes.NewForConfig(mgr.GetConfig())
+	xoxo
 	if err != nil {
 		return err
 	}

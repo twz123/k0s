@@ -17,12 +17,15 @@ limitations under the License.
 package kubernetes
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 
 	etcdMemberClient "github.com/k0sproject/k0s/pkg/client/clientset/typed/etcd/v1beta1"
 	cfgClient "github.com/k0sproject/k0s/pkg/client/clientset/typed/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/constant"
+	"github.com/sirupsen/logrus"
 
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
@@ -30,9 +33,11 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+
+	// ClientFactoryInterface defines a factory interface to load a kube client
+	"k8s.io/client-go/tools/clientcmd/api"
 )
 
-// ClientFactoryInterface defines a factory interface to load a kube client
 type ClientFactoryInterface interface {
 	GetClient() (kubernetes.Interface, error)
 	GetDynamicClient() (dynamic.Interface, error)
@@ -72,7 +77,7 @@ func (c *ClientFactory) GetClient() (kubernetes.Interface, error) {
 	var err error
 
 	if c.restConfig == nil {
-		c.restConfig, err = clientcmd.BuildConfigFromFlags("", c.configPath)
+		c.restConfig, err = ClientConfig(c.configPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load kubeconfig: %w", err)
 		}
@@ -81,6 +86,10 @@ func (c *ClientFactory) GetClient() (kubernetes.Interface, error) {
 		// To mitigate stack applier bursts in startup
 		c.restConfig.QPS = 40.0
 		c.restConfig.Burst = 400.0
+		c.restConfig.Wrap(func(rt http.RoundTripper) http.RoundTripper {
+			logrus.Infof("Wrapping roundTripper: %#v", rt)
+			return rt
+		})
 	}
 
 	if c.client != nil {
@@ -210,12 +219,21 @@ func (c *ClientFactory) GetRESTConfig() *rest.Config {
 // KubeconfigFromFile returns a [clientcmd.KubeconfigGetter] that tries to load
 // a kubeconfig from the given path.
 func KubeconfigFromFile(path string) clientcmd.KubeconfigGetter {
-	return (&clientcmd.ClientConfigLoadingRules{ExplicitPath: path}).Load
+	return func() (*api.Config, error) {
+		if path == "" {
+			return nil, errors.New("path to kubeconfig is empty")
+		}
+		return (&clientcmd.ClientConfigLoadingRules{ExplicitPath: path}).Load()
+	}
 }
 
 // NewClientFromFile creates a new Kubernetes client based of the given
 // kubeconfig file.
 func NewClientFromFile(kubeconfig string) (kubernetes.Interface, error) {
+	if kubeconfig == "" {
+		return nil, errors.New("path to kubeconfig is empty")
+	}
+
 	return NewClient(KubeconfigFromFile(kubeconfig))
 }
 
@@ -225,7 +243,17 @@ func ClientConfig(getter clientcmd.KubeconfigGetter) (*rest.Config, error) {
 		return nil, err
 	}
 
-	return clientcmd.NewNonInteractiveClientConfig(*kubeconfig, "", nil, nil).ClientConfig()
+	cfg, err := clientcmd.NewNonInteractiveClientConfig(*kubeconfig, "", nil, nil).ClientConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	cfg.Wrap(func(rt http.RoundTripper) http.RoundTripper {
+		logrus.WithField("where", "pkg/kubernetes.ClientConfig").Infof("Wrapping roundTripper: %#v", rt)
+		return rt
+	})
+
+	return cfg, nil
 }
 
 // NewClient creates new k8s client based of the given kubeconfig getter. This

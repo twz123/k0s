@@ -55,6 +55,14 @@ func JoinClientFromToken(encodedToken string) (*JoinClient, error) {
 		return nil, err
 	}
 
+	// ca := x509.NewCertPool()
+	// ca.AppendCertsFromPEM(config.CAData)
+	// tlsConfig := &tls.Config{
+	// 	RootCAs:      ca,
+	// 	MinVersion:   tls.VersionTLS12,
+	// 	CipherSuites: constant.AllowedTLS12CipherSuiteIDs,
+	// }
+
 	restConfig = dynamic.ConfigFor(restConfig)
 	restClient, err := rest.UnversionedRESTClientFor(restConfig)
 	if err != nil {

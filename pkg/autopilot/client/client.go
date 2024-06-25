@@ -44,6 +44,7 @@ type clientFactory struct {
 var _ FactoryInterface = (*clientFactory)(nil)
 
 func NewClientFactory(config *rest.Config) (FactoryInterface, error) {
+	xoxo
 	return &clientFactory{restConfig: config}, nil
 }
 

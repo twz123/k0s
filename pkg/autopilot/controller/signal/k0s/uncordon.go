@@ -75,6 +75,7 @@ func registerUnCordoning(logger *logrus.Entry, mgr crman.Manager, eventFilter cr
 
 	// create the clientset
 	clientset, err := kubernetes.NewForConfig(mgr.GetConfig())
+	xoxo
 	if err != nil {
 		return err
 	}

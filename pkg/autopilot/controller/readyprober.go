@@ -23,14 +23,15 @@ import (
 
 	apv1beta2 "github.com/k0sproject/k0s/pkg/apis/autopilot/v1beta2"
 	apcli "github.com/k0sproject/k0s/pkg/autopilot/client"
+	"github.com/k0sproject/k0s/pkg/constant"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"github.com/sirupsen/logrus"
-	"golang.org/x/sync/errgroup"
 	"k8s.io/client-go/rest"
 	k8sprobe "k8s.io/kubernetes/pkg/probe"
 	k8shttpprobe "k8s.io/kubernetes/pkg/probe/http"
+
+	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
 
 const readyzURLFormat = "https://%s:6443/readyz?verbose"
@@ -55,6 +56,9 @@ func NewReadyProber(logger *logrus.Entry, cf apcli.FactoryInterface, restConfig 
 	if err != nil {
 		return nil, err
 	}
+
+	tlscfg.MinVersion = tls.VersionTLS12
+	tlscfg.CipherSuites = constant.AllowedTLS12CipherSuiteIDs
 
 	return &readyProber{
 		log:           logger,

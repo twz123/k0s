@@ -32,6 +32,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/config"
+	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/sirupsen/logrus"
 )
@@ -280,7 +281,11 @@ func (j *job) collectAndPush(ctx context.Context) error {
 func getClient(certFile, keyFile string) (*http.Client, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.ResponseHeaderTimeout = time.Minute
-	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: true,
+		MinVersion:         tls.VersionTLS12,
+		CipherSuites:       constant.AllowedTLS12CipherSuiteIDs,
+	}
 	transport.TLSClientConfig = tlsConfig
 
 	if certFile != "" && keyFile != "" {

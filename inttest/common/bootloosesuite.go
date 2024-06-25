@@ -47,6 +47,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/k0scontext"
 	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
+	"github.com/sirupsen/logrus"
 	extclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 
 	corev1 "k8s.io/api/core/v1"
@@ -840,6 +841,12 @@ func (s *BootlooseSuite) GetKubeConfig(node string, k0sKubeconfigArgs ...string)
 		return nil, fmt.Errorf("can't find host port for Kubernetes API server port %d: %w", port, err)
 	}
 	cfg.Host = fmt.Sprintf("localhost:%d", hostPort)
+
+	cfg.Wrap(func(rt http.RoundTripper) http.RoundTripper {
+		logrus.Infof("Wrapping roundTripper: %#v", rt)
+		return rt
+	})
+
 	return cfg, nil
 }
 
@@ -877,6 +884,12 @@ func (s *BootlooseSuite) CreateUserAndGetKubeClientConfig(node string, username 
 		return nil, fmt.Errorf("bootloose machine has to have %d port mapped: %w", port, err)
 	}
 	cfg.Host = fmt.Sprintf("localhost:%d", hostPort)
+
+	cfg.Wrap(func(rt http.RoundTripper) http.RoundTripper {
+		logrus.Infof("Wrapping roundTripper: %#v", rt)
+		return rt
+	})
+
 	return cfg, nil
 }
 
@@ -1005,7 +1018,11 @@ func (s *BootlooseSuite) WaitJoinAPI(node string) error {
 		return err
 	}
 	client := &http.Client{Transport: &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+			MinVersion:         tls.VersionTLS12,
+			CipherSuites:       constant.AllowedTLS12CipherSuiteIDs,
+		},
 	}}
 	checkURL := fmt.Sprintf("https://localhost:%d/v1beta1/ca", joinPort)
 
