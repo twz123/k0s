@@ -11,6 +11,7 @@ env:
 
 jobs:
   sbom-upload:
+    if: github.organization == 'k0sproject'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
