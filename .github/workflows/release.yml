@@ -47,7 +47,8 @@ jobs:
           echo IMAGE_TAGS="${TAGS//+/-}" >> $GITHUB_OUTPUT
   x64:
     needs: release
-    runs-on: [self-hosted, linux, x64]
+    # runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-22.04
     env:
       SEGMENT_TOKEN: ${{ secrets.SEGMENT_WRITE_KEY_PROD }}
     steps:
@@ -164,7 +165,8 @@ jobs:
 
   windows:
     needs: release
-    runs-on: [self-hosted, linux, x64]
+    # runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-22.04
     env:
       SEGMENT_TOKEN: ${{ secrets.SEGMENT_WRITE_KEY_PROD }}
       TARGET_OS: windows
@@ -232,6 +234,7 @@ jobs:
 
   arm64:
     needs: release
+    if: 'false'
     runs-on: [self-hosted, linux, arm64]
     env:
       SEGMENT_TOKEN: ${{ secrets.SEGMENT_WRITE_KEY_PROD }}
@@ -318,6 +321,7 @@ jobs:
 
   armv7:
     needs: release
+    if: 'false'
     runs-on: [self-hosted, linux, arm]
     env:
       SEGMENT_TOKEN: ${{ secrets.SEGMENT_WRITE_KEY_PROD }}
@@ -422,8 +426,8 @@ jobs:
     needs:
       - release
       - x64
-      - arm64
-      - armv7
+      # - arm64
+      # - armv7
     runs-on: ubuntu-24.04
     steps:
       - name: Download assets for generating checksums
@@ -449,8 +453,8 @@ jobs:
     needs:
       - release
       - x64
-      - arm64
-      - armv7
+      # - arm64
+      # - armv7
     runs-on: ubuntu-24.04
     steps:
       - name: Set up Docker Buildx
@@ -461,6 +465,7 @@ jobs:
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
+        if: 'false'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -468,6 +473,7 @@ jobs:
 
       - name: Login to DockerHub
         uses: docker/login-action@v3
+        if: 'false'
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
@@ -477,16 +483,16 @@ jobs:
         with:
           name: k0s-linux-amd64
           path: ./k0s-amd64
-      - name: Fetch k0s arm64
-        uses: actions/download-artifact@v4
-        with:
-          name: k0s-linux-arm64
-          path: ./k0s-arm64
-      - name: Fetch k0s arm
-        uses: actions/download-artifact@v4
-        with:
-          name: k0s-linux-arm
-          path: ./k0s-arm
+      # - name: Fetch k0s arm64
+      #   uses: actions/download-artifact@v4
+      #   with:
+      #     name: k0s-linux-arm64
+      #     path: ./k0s-arm64
+      # - name: Fetch k0s arm
+      #   uses: actions/download-artifact@v4
+      #   with:
+      #     name: k0s-linux-arm
+      #     path: ./k0s-arm
 
       - name: Make binaries executable
         run: chmod +x ./k0s-*/k0s
@@ -500,10 +506,11 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          # platforms: linux/amd64,linux/arm64,linux/arm/v7
+          platforms: linux/amd64
+          # ghcr.io/k0sproject/k0s:${{ needs.release.outputs.image_tag }}
           tags: |
-            ghcr.io/k0sproject/k0s:${{ needs.release.outputs.image_tag }}
-            docker.io/k0sproject/k0s:${{ needs.release.outputs.image_tag }}
+            ttl.sh/k0s-${{ needs.release.outputs.image_tag }}
           build-args: |
             ALPINE_VERSION=${{ env.ALPINE_PATCH_VERSION }}
           push: true
@@ -536,11 +543,12 @@ jobs:
   conformance-test:
     needs:
       - x64
-      - arm64
+      # - arm64
     strategy:
       fail-fast: false
       matrix:
-        arch: [ amd64, arm64 ]
+        # arch: [ amd64, arm64 ]
+        arch: [ amd64 ]
 
     name: "K8s Conformance Testing"
     uses: ./.github/workflows/ostests-e2e.yaml
@@ -562,7 +570,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [ amd64, arm64 ]
+        arch: [ amd64 ]
+        # arch: [ amd64, arm64 ]
 
     steps:
       - name: Download conformance test results

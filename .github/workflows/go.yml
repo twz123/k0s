@@ -97,8 +97,6 @@ jobs:
 
   generate-sbom:
     name: "Build :: SBOM"
-    needs: [build-k0s]
-
     runs-on: ubuntu-24.04
 
     steps:
