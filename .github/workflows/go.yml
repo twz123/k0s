@@ -117,10 +117,19 @@ jobs:
           name: spdx.json
           path: sbom/spdx.json
 
+  unittests-k0s-linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        target-arch: ${{ github.organization == 'k0sproject' && fromJSON('["amd64", "arm64", "arm"]') || fromJSON('["amd64"]')}}
 
-  unittests-k0s-linux-amd64:
-    name: "Unit tests :: linux-amd64"
-    runs-on: ubuntu-22.04
+    name: "Unit tests :: linux-${{ matrix.target-arch }}"
+    runs-on: >-
+      ${{
+           inputs.target-arch == 'arm'   && fromJSON('["self-hosted", "linux", "arm"]')
+        || inputs.target-arch == 'arm64' && fromJSON('["self-hosted", "linux", "arm64"]')
+        || 'ubuntu-22.04'
+      }}
 
     steps:
       - name: Check out code into the Go module directory
@@ -131,19 +140,19 @@ jobs:
       - name: Cache GOCACHE
         uses: actions/cache@v4
         with:
-          key: unittests-k0s-linux-amd64-gocache-${{ github.ref_name }}-${{ github.sha }}
+          key: unittests-k0s-linux-${{ matrix.target-arch }}-gocache-${{ github.ref_name }}-${{ github.sha }}
           restore-keys: |
-            unittests-k0s-linux-amd64-gocache-${{ github.ref_name }}-
-            build-k0s-linux-amd64-gocache-${{ github.ref_name }}-
+            unittests-k0s-linux-${{ matrix.target-arch }}-gocache-${{ github.ref_name }}-
+            build-k0s-linux-${{ matrix.target-arch }}-gocache-${{ github.ref_name }}-
           path: |
             build/cache/go/build
 
       - name: Cache GOMODCACHE
         uses: actions/cache@v4
         with:
-          key: unittests-k0s-linux-amd64-gomodcache-${{ hashFiles('go.sum') }}
+          key: unittests-k0s-linux-${{ matrix.target-arch }}-gomodcache-${{ hashFiles('go.sum') }}
           restore-keys: |
-            build-k0s-linux-amd64-gomodcache-${{ hashFiles('go.sum') }}
+            build-k0s-linux-${{ matrix.target-arch }}-gomodcache-${{ hashFiles('go.sum') }}
           path: |
             build/cache/go/mod
 
