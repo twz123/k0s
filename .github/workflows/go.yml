@@ -76,9 +76,13 @@ jobs:
 
   build-k0s:
     strategy:
+      fail-fast: false
       matrix:
-        target-os: [linux, windows]
-        target-arch: [amd64]
+        target-os: [linux]
+        target-arch: ${{ github.organization == 'k0sproject' && fromJSON('["amd64", "arm64", "arm"]') || fromJSON('["amd64"]')}}
+        include:
+          - target-os: windows
+            target-arch: amd64
 
     name: "Build :: k0s :: ${{ matrix.target-os }}-${{ matrix.target-arch }}"
     uses: ./.github/workflows/build-k0s.yml
