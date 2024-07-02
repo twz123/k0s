@@ -71,6 +71,9 @@ jobs:
       - name: Check out code into the Go module directory
         uses: actions/checkout@v4
 
+      - name: Reclaim runner disk space
+        run: .github/workflows/reclaim-runner-disk-space.bash
+
       - name: Prepare build environment
         run: .github/workflows/prepare-build-env.sh
 
@@ -250,9 +253,11 @@ jobs:
       - name: Check out code into the Go module directory
         uses: actions/checkout@v4
 
+      - name: Reclaim runner disk space
+        run: .github/workflows/reclaim-runner-disk-space.bash
+
       - name: Prepare build environment
         run: .github/workflows/prepare-build-env.sh
-        working-directory: ./
 
       - name: Build
         run: make EMBEDDED_BINS_BUILDMODE=docker
@@ -337,9 +342,11 @@ jobs:
       - name: Check out code into the Go module directory
         uses: actions/checkout@v4
 
+      - name: Reclaim runner disk space
+        run: .github/workflows/reclaim-runner-disk-space.bash
+
       - name: Prepare build environment
         run: .github/workflows/prepare-build-env.sh
-        working-directory: ./
 
       - name: Build
         run: make EMBEDDED_BINS_BUILDMODE=docker
