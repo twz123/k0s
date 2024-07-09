@@ -45,6 +45,33 @@ type Peeker[T any] interface {
 	Peek() (value T, expired <-chan struct{})
 }
 
+type GetterFunc[T any] func() T
+
+var _ Getter[any] = (GetterFunc[any])(nil)
+
+// Get implements [Getter].
+func (f GetterFunc[T]) Get() T {
+	return f()
+}
+
+type XformedPeeker[T any, U any] struct {
+	Inner Peeker[T]
+	F     func(T) U
+}
+
+var _ Peeker[any] = (*XformedPeeker[struct{}, any])(nil)
+
+// Get implements [Getter].
+func (x *XformedPeeker[T, U]) Get() U {
+	return x.F(x.Inner.Get())
+}
+
+// Peek implements [Peeker].
+func (x *XformedPeeker[T, U]) Peek() (U, <-chan struct{}) {
+	value, expired := x.Inner.Peek()
+	return x.F(value), expired
+}
+
 // Allows to retrieve a value that may not yet exist.
 // Such a value is usually previously set by a [Setter].
 // The Ready channel is closed as soon as the value is available.
