@@ -58,18 +58,13 @@ func TestLeasesInitialPending(t *testing.T) {
 	}
 }
 
-func closeLeaseEvents(events *leaderelection.LeaseEvents) {
-	close(events.AcquiredLease)
-	close(events.LostLease)
-}
-
 // TestLeadershipWatcher runs through a table of tests that describe
 // various lease acquired/lost scenarios
 func TestLeadershipWatcher(t *testing.T) {
 	var tests = []struct {
 		name           string
 		expectedEvents []LeaseEventStatus
-		eventSource    func(events *leaderelection.LeaseEvents)
+		eventSource    func(acquiredLease, lostLease chan<- struct{})
 	}{
 		{
 			"AcquiredThenLost",
@@ -77,10 +72,9 @@ func TestLeadershipWatcher(t *testing.T) {
 				LeaseAcquired,
 				LeasePending,
 			},
-			func(events *leaderelection.LeaseEvents) {
-				sendEventAfter100ms(events.AcquiredLease)
-				sendEventAfter100ms(events.LostLease)
-				closeLeaseEvents(events)
+			func(acquiredLease, lostLease chan<- struct{}) {
+				sendEventAfter100ms(acquiredLease)
+				sendEventAfter100ms(lostLease)
 			},
 		},
 		{
@@ -89,10 +83,9 @@ func TestLeadershipWatcher(t *testing.T) {
 				LeasePending,
 				LeaseAcquired,
 			},
-			func(events *leaderelection.LeaseEvents) {
-				sendEventAfter100ms(events.LostLease)
-				sendEventAfter100ms(events.AcquiredLease)
-				closeLeaseEvents(events)
+			func(acquiredLease, lostLease chan<- struct{}) {
+				sendEventAfter100ms(lostLease)
+				sendEventAfter100ms(acquiredLease)
 			},
 		},
 		{
@@ -101,11 +94,10 @@ func TestLeadershipWatcher(t *testing.T) {
 				LeaseAcquired,
 				LeasePending,
 			},
-			func(events *leaderelection.LeaseEvents) {
-				sendEventAfter100ms(events.AcquiredLease)
-				sendEventAfter100ms(events.LostLease)
-				sendEventAfter100ms(events.AcquiredLease)
-				closeLeaseEvents(events)
+			func(acquiredLease, lostLease chan<- struct{}) {
+				sendEventAfter100ms(acquiredLease)
+				sendEventAfter100ms(lostLease)
+				sendEventAfter100ms(acquiredLease)
 			},
 		},
 		{
@@ -113,9 +105,8 @@ func TestLeadershipWatcher(t *testing.T) {
 			[]LeaseEventStatus{
 				LeasePending,
 			},
-			func(events *leaderelection.LeaseEvents) {
-				sendEventAfter100ms(events.LostLease)
-				closeLeaseEvents(events)
+			func(acquiredLease, lostLease chan<- struct{}) {
+				sendEventAfter100ms(lostLease)
 			},
 		},
 		{
@@ -123,10 +114,9 @@ func TestLeadershipWatcher(t *testing.T) {
 			[]LeaseEventStatus{
 				LeaseAcquired,
 			},
-			func(events *leaderelection.LeaseEvents) {
-				sendEventAfter100ms(events.AcquiredLease)
-				sendEventAfter100ms(events.AcquiredLease)
-				closeLeaseEvents(events)
+			func(acquiredLease, lostLease chan<- struct{}) {
+				sendEventAfter100ms(acquiredLease)
+				sendEventAfter100ms(acquiredLease)
 			},
 		},
 	}
@@ -135,19 +125,20 @@ func TestLeadershipWatcher(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			leaseEventStatusCh := make(chan LeaseEventStatus, 100)
 
-			events := &leaderelection.LeaseEvents{
-				AcquiredLease: make(chan struct{}),
-				LostLease:     make(chan struct{}),
-			}
+			acquiredLease, lostLease := make(chan struct{}), make(chan struct{})
 
-			go test.eventSource(events)
+			go func() {
+				defer close(acquiredLease)
+				defer close(lostLease)
+				test.eventSource(acquiredLease, lostLease)
+			}()
 
-			ctx, cancel := context.WithDeadline(context.TODO(), time.Now().Add(1*time.Second))
-			wg := leadershipWatcher(ctx, leaseEventStatusCh, events)
-			wg.Wait()
+			leadershipWatcher(leaseEventStatusCh, &leaderelection.LeaseEvents{
+				AcquiredLease: acquiredLease,
+				LostLease:     lostLease,
+			})
 
 			close(leaseEventStatusCh)
-			cancel()
 
 			assert.Equal(t, test.expectedEvents, realizeLeaseEventStatus(leaseEventStatusCh))
 		})
@@ -162,7 +153,7 @@ func realizeLeaseEventStatus(ch chan LeaseEventStatus) []LeaseEventStatus {
 	return s
 }
 
-func sendEventAfter100ms(out chan struct{}) {
+func sendEventAfter100ms(out chan<- struct{}) {
 	time.Sleep(100 * time.Millisecond)
 	out <- struct{}{}
 }

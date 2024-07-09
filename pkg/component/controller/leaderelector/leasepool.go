@@ -34,7 +34,7 @@ type LeasePool struct {
 	stopCh            chan struct{}
 	leaderStatus      atomic.Bool
 	kubeClientFactory kubeutil.ClientFactoryInterface
-	leaseCancel       context.CancelFunc
+	stopFunc          func()
 
 	acquiredLeaseCallbacks []func()
 	lostLeaseCallbacks     []func()
@@ -77,22 +77,35 @@ func (l *LeasePool) Start(context.Context) error {
 		cancel()
 		return err
 	}
-	l.leaseCancel = cancel
 
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		for {
 			select {
-			case <-events.AcquiredLease:
+			case _, ok := <-events.AcquiredLease:
+				if !ok {
+					return
+				}
 				l.log.Info("acquired leader lease")
 				l.leaderStatus.Store(true)
 				runCallbacks(l.acquiredLeaseCallbacks)
-			case <-events.LostLease:
+			case _, ok := <-events.LostLease:
+				if !ok {
+					return
+				}
 				l.log.Info("lost leader lease")
 				l.leaderStatus.Store(false)
 				runCallbacks(l.lostLeaseCallbacks)
 			}
 		}
 	}()
+
+	l.stopFunc = func() {
+		cancel()
+		<-done
+	}
+
 	return nil
 }
 
@@ -113,8 +126,8 @@ func (l *LeasePool) AddLostLeaseCallback(fn func()) {
 }
 
 func (l *LeasePool) Stop() error {
-	if l.leaseCancel != nil {
-		l.leaseCancel()
+	if l.stopFunc != nil {
+		l.stopFunc()
 	}
 	return nil
 }

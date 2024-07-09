@@ -17,7 +17,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"github.com/k0sproject/k0s/pkg/autopilot/client"
 	"github.com/k0sproject/k0s/pkg/leaderelection"
@@ -95,9 +94,7 @@ func (lw *leaseWatcher) StartWatcher(ctx context.Context, namespace string, name
 					return
 				}
 
-				watchWg := leadershipWatcher(ctx, leaseEventStatusCh, events)
-				watchWg.Wait()
-
+				leadershipWatcher(leaseEventStatusCh, events)
 				cancel()
 			}
 		}
@@ -115,48 +112,37 @@ func (lw *leaseWatcher) StartWatcher(ctx context.Context, namespace string, name
 //
 // To circumvent this problem, we take note when we have become a leader, and if we lose
 // leadership at any point afterwards, this watcher goroutine will exit.
-func leadershipWatcher(ctx context.Context, leaseEventStatusCh chan<- LeaseEventStatus, events *leaderelection.LeaseEvents) *sync.WaitGroup {
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
+func leadershipWatcher(leaseEventStatusCh chan<- LeaseEventStatus, events *leaderelection.LeaseEvents) {
+	previouslyHeldLeadership := false
+	var lastLeaseEventStatus LeaseEventStatus
 
-	go func(ctx context.Context) {
-		defer wg.Done()
-		previouslyHeldLeadership := false
-		var lastLeaseEventStatus LeaseEventStatus
-
-		for {
-			select {
-			case _, ok := <-events.AcquiredLease:
-				if !ok {
-					return
-				}
-
-				if lastLeaseEventStatus != LeaseAcquired {
-					lastLeaseEventStatus = LeaseAcquired
-					leaseEventStatusCh <- lastLeaseEventStatus
-
-					previouslyHeldLeadership = true
-				}
-
-			case _, ok := <-events.LostLease:
-				if !ok {
-					return
-				}
-
-				if lastLeaseEventStatus != LeasePending {
-					lastLeaseEventStatus = LeasePending
-					leaseEventStatusCh <- lastLeaseEventStatus
-
-					if previouslyHeldLeadership {
-						return
-					}
-				}
-
-			case <-ctx.Done():
+	for {
+		select {
+		case _, ok := <-events.AcquiredLease:
+			if !ok {
 				return
 			}
-		}
-	}(ctx)
 
-	return wg
+			if lastLeaseEventStatus != LeaseAcquired {
+				lastLeaseEventStatus = LeaseAcquired
+				leaseEventStatusCh <- lastLeaseEventStatus
+
+				previouslyHeldLeadership = true
+			}
+
+		case _, ok := <-events.LostLease:
+			if !ok {
+				return
+			}
+
+			if lastLeaseEventStatus != LeasePending {
+				lastLeaseEventStatus = LeasePending
+				leaseEventStatusCh <- lastLeaseEventStatus
+
+				if previouslyHeldLeadership {
+					return
+				}
+			}
+		}
+	}
 }

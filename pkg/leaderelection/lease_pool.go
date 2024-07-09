@@ -36,8 +36,8 @@ type LeasePool struct {
 
 // LeaseEvents contains channels to inform the consumer when a lease is acquired and lost
 type LeaseEvents struct {
-	AcquiredLease chan struct{}
-	LostLease     chan struct{}
+	AcquiredLease <-chan struct{}
+	LostLease     <-chan struct{}
 }
 
 // The LeaseConfiguration allows passing through various options to customise the lease.
@@ -143,10 +143,11 @@ func (p *LeasePool) Watch(ctx context.Context, opts ...WatchOpt) (*LeaseEvents, 
 		return p.events, nil
 	}
 
+	acquiredLease, lostLease := make(chan struct{}), make(chan struct{})
 	watchOptions := watchOptions{
 		channels: &LeaseEvents{
-			AcquiredLease: make(chan struct{}),
-			LostLease:     make(chan struct{}),
+			AcquiredLease: acquiredLease,
+			LostLease:     lostLease,
 		},
 	}
 	for _, opt := range opts {
@@ -174,11 +175,11 @@ func (p *LeasePool) Watch(ctx context.Context, opts ...WatchOpt) (*LeaseEvents, 
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(ctx context.Context) {
 				p.config.log.Info("Acquired leader lease")
-				p.events.AcquiredLease <- struct{}{}
+				acquiredLease <- struct{}{}
 			},
 			OnStoppedLeading: func() {
 				p.config.log.Info("Lost leader lease")
-				p.events.LostLease <- struct{}{}
+				lostLease <- struct{}{}
 			},
 			OnNewLeader: nil,
 		},
@@ -192,6 +193,8 @@ func (p *LeasePool) Watch(ctx context.Context, opts ...WatchOpt) (*LeaseEvents, 
 	}
 
 	go func() {
+		defer close(acquiredLease)
+		defer close(lostLease)
 		for ctx.Err() == nil {
 			le.Run(ctx)
 		}

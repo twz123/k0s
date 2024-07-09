@@ -110,15 +110,10 @@ func (c *rootController) Run(ctx context.Context) error {
 		case err := <-errorCh:
 			return err
 
-		case <-ctx.Done():
-			c.log.Info("Shutting down")
-			c.stopSubHandler(subControllerCancel, subControllerErrGroup, LeaseAcquired)
-
-			return nil
-
 		case leaseEventStatus, ok := <-leaseEventStatusCh:
 			if !ok {
-				c.log.Warn("lease event status channel closed")
+				c.log.Warn("Lease event status channel closed, shutting down")
+				c.stopSubHandler(subControllerCancel, subControllerErrGroup, LeaseAcquired)
 				return nil
 			}
 
