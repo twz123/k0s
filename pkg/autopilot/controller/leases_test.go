@@ -40,9 +40,8 @@ func TestLeasesInitialPending(t *testing.T) {
 	leaseWatcher, err := NewLeaseWatcher(logger, clientFactory)
 	assert.NoError(t, err)
 
-	leaseEventStatusCh, errorCh := leaseWatcher.StartWatcher(ctx, constant.AutopilotNamespace, fmt.Sprintf("%s-lease", constant.AutopilotNamespace), t.Name())
-	assert.NotNil(t, errorCh)
-	assert.NotNil(t, leaseEventStatusCh)
+	leaseEventStatus := leaseWatcher.StartWatcher(ctx, constant.AutopilotNamespace, fmt.Sprintf("%s-lease", constant.AutopilotNamespace), t.Name())
+	assert.NotNil(t, leaseEventStatus)
 
 	timer := time.NewTimer(2 * time.Second)
 	defer timer.Stop()
@@ -56,11 +55,6 @@ func TestLeasesInitialPending(t *testing.T) {
 		assert.NotEmpty(t, leaseEventStatus)
 		assert.Equal(t, LeasePending, leaseEventStatus)
 	}
-}
-
-func closeLeaseEvents(events *leaderelection.LeaseEvents) {
-	close(events.AcquiredLease)
-	close(events.LostLease)
 }
 
 // TestLeadershipWatcher runs through a table of tests that describe

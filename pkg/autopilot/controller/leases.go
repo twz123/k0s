@@ -18,23 +18,31 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
+	"github.com/k0sproject/k0s/internal/sync/value"
 	"github.com/k0sproject/k0s/pkg/autopilot/client"
 	"github.com/k0sproject/k0s/pkg/leaderelection"
 	"github.com/sirupsen/logrus"
+	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 )
 
-type LeaseEventStatus string
+type LeaseEventStatus bool
 
 const (
-	LeaseAcquired LeaseEventStatus = "acquired"
-	LeasePending  LeaseEventStatus = "pending"
+	LeasePending  LeaseEventStatus = false
+	LeaseAcquired LeaseEventStatus = true
 )
+
+type LeaseStatus struct {
+	Status LeaseEventStatus
+	Err    error
+}
 
 // LeaseWatcher outlines the lease operations for the autopilot configuration.
 type LeaseWatcher interface {
-	StartWatcher(ctx context.Context, namespace string, name, identity string) (<-chan LeaseEventStatus, <-chan error)
+	StartWatcher(ctx context.Context, namespace string, name, identity string) value.Peeker[LeaseStatus]
 }
 
 // NewLeaseWatcher creates a new `LeaseWatcher` using the appropriate clientset
@@ -57,55 +65,55 @@ type leaseWatcher struct {
 
 var _ LeaseWatcher = (*leaseWatcher)(nil)
 
-func (lw *leaseWatcher) StartWatcher(ctx context.Context, namespace string, name, identity string) (<-chan LeaseEventStatus, <-chan error) {
-	leaseEventStatusCh := make(chan LeaseEventStatus, 10)
-	errorCh := make(chan error, 10)
+func (lw *leaseWatcher) StartWatcher(ctx context.Context, namespace string, name, identity string) value.Peeker[LeaseStatus] {
+	var status value.Latest[LeaseStatus]
 
-	go func(ctx context.Context) {
-		defer close(leaseEventStatusCh)
-		defer close(errorCh)
+	go func() {
+		wait.UntilWithContext(ctx, func(ctx context.Context) {
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
 
-		// Seed the leaseEventStatus channel to ensure that all controllers start in
-		// a `pending` state.  As leases are obtained, they will move to `acquired`
-
-		leaseEventStatusCh <- LeasePending
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-
-			default:
-				ctx, cancel := context.WithCancel(ctx)
-
-				leasePoolOpts := []leaderelection.LeaseOpt{
-					leaderelection.WithContext(ctx),
-					leaderelection.WithNamespace(namespace),
-				}
-
-				leasePool, err := leaderelection.NewLeasePool(ctx, lw.client, name, identity, leasePoolOpts...)
-				if err != nil {
-					errorCh <- fmt.Errorf("failed to create lease pool: %w", err)
-					cancel()
-					return
-				}
-
-				events, _, err := leasePool.Watch()
-				if err != nil {
-					errorCh <- fmt.Errorf("failed to watch lease pool: %w", err)
-					cancel()
-					return
-				}
-
-				watchWg := leadershipWatcher(ctx, leaseEventStatusCh, events)
-				watchWg.Wait()
-
-				cancel()
+			leasePoolOpts := []leaderelection.LeaseOpt{
+				leaderelection.WithContext(ctx),
+				leaderelection.WithNamespace(namespace),
 			}
-		}
-	}(ctx)
 
-	return leaseEventStatusCh, errorCh
+			leasePool, err := leaderelection.NewLeasePool(ctx, lw.client, name, identity, leasePoolOpts...)
+			if err != nil {
+				status.Set(LeaseStatus{Err: fmt.Errorf("failed to create lease pool: %w", err)})
+				cancel()
+				return
+			}
+
+			errs := make(chan error, 1)
+			go func() {
+				defer close(errs)
+				if err := leasePool.Run(ctx); err != nil {
+					errs <- fmt.Errorf("failed to run lease pool: %w", err)
+				}
+			}()
+
+			lastStatus := status.Get()
+			for {
+				isLeader, changed := leasePool.IsLeader().Peek()
+				currentStatus := LeaseStatus{Status: LeaseEventStatus(isLeader)}
+				if lastStatus != currentStatus {
+					status.Set(currentStatus)
+					lastStatus = currentStatus
+				}
+
+				select {
+				case <-changed:
+				case err := <-errs:
+					cancel()
+					status.Set(LeaseStatus{Err: err})
+					return
+				}
+			}
+		}, 3*time.Second)
+	}()
+
+	return &status
 }
 
 // leadershipWatcher watches events as they arrive, and pushes them out to the provided
