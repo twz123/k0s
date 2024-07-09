@@ -20,24 +20,21 @@ import (
 	"context"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/k0sproject/k0s/internal/sync/value"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
+
+	"github.com/sirupsen/logrus"
 )
 
 // The LeasePool represents a single lease accessed by multiple clients (considered part of the "pool")
 type LeasePool struct {
-	events *LeaseEvents
-	config LeaseConfiguration
-	client kubernetes.Interface
-}
-
-// LeaseEvents contains channels to inform the consumer when a lease is acquired and lost
-type LeaseEvents struct {
-	AcquiredLease chan struct{}
-	LostLease     chan struct{}
+	config   LeaseConfiguration
+	client   kubernetes.Interface
+	isLeader value.Latest[bool]
 }
 
 // The LeaseConfiguration allows passing through various options to customise the lease.
@@ -126,45 +123,16 @@ func NewLeasePool(ctx context.Context, client kubernetes.Interface, name, identi
 
 	return &LeasePool{
 		client: client,
-		events: nil,
 		config: leaseConfig,
 	}, nil
 }
 
-type watchOptions struct {
-	channels *LeaseEvents
+func (p *LeasePool) IsLeader() value.Peeker[bool] {
+	return &p.isLeader
 }
 
-// WatchOpt is a callback that alters the watchOptions configuration
-type WatchOpt func(options watchOptions) watchOptions
-
-// WithOutputChannels allows us to pass through channels with
-// a size greater than 0, which makes testing a lot easier.
-func WithOutputChannels(channels *LeaseEvents) WatchOpt {
-	return func(options watchOptions) watchOptions {
-		options.channels = channels
-		return options
-	}
-}
-
-// Watch is the primary function of LeasePool, and starts the leader election process
-func (p *LeasePool) Watch(opts ...WatchOpt) (*LeaseEvents, context.CancelFunc, error) {
-	if p.events != nil {
-		return p.events, nil, nil
-	}
-
-	watchOptions := watchOptions{
-		channels: &LeaseEvents{
-			AcquiredLease: make(chan struct{}),
-			LostLease:     make(chan struct{}),
-		},
-	}
-	for _, opt := range opts {
-		watchOptions = opt(watchOptions)
-	}
-
-	p.events = watchOptions.channels
-
+// Runs the lease pool until the context is done or an error occurs.
+func (p *LeasePool) Run(ctx context.Context) error {
 	lock := &resourcelock.LeaseLock{
 		LeaseMeta: metav1.ObjectMeta{
 			Name:      p.config.name,
@@ -184,30 +152,26 @@ func (p *LeasePool) Watch(opts ...WatchOpt) (*LeaseEvents, context.CancelFunc, e
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(ctx context.Context) {
 				p.config.log.Info("Acquired leader lease")
-				p.events.AcquiredLease <- struct{}{}
+				p.isLeader.Set(true)
 			},
 			OnStoppedLeading: func() {
 				p.config.log.Info("Lost leader lease")
-				p.events.LostLease <- struct{}{}
+				p.isLeader.Set(false)
 			},
 			OnNewLeader: nil,
 		},
 	}
 	le, err := leaderelection.NewLeaderElector(lec)
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 	if lec.WatchDog != nil {
 		lec.WatchDog.SetLeaderElection(le)
 	}
 
-	ctx, cancel := context.WithCancel(p.config.ctx)
+	for ctx.Err() == nil {
+		le.Run(ctx)
+	}
 
-	go func() {
-		for ctx.Err() == nil {
-			le.Run(ctx)
-		}
-	}()
-
-	return p.events, cancel, nil
+	return nil
 }

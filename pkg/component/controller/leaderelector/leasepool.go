@@ -19,8 +19,8 @@ package leaderelector
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
 
+	"github.com/k0sproject/k0s/internal/sync/value"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/k0sproject/k0s/pkg/leaderelection"
@@ -32,7 +32,7 @@ type LeasePool struct {
 
 	invocationID      string
 	stopCh            chan struct{}
-	leaderStatus      atomic.Bool
+	leaderStatus      value.Latest[bool]
 	kubeClientFactory kubeutil.ClientFactoryInterface
 	leaseCancel       context.CancelFunc
 
@@ -83,11 +83,11 @@ func (l *LeasePool) Start(ctx context.Context) error {
 			select {
 			case <-events.AcquiredLease:
 				l.log.Info("acquired leader lease")
-				l.leaderStatus.Store(true)
+				l.leaderStatus.Set(true)
 				runCallbacks(l.acquiredLeaseCallbacks)
 			case <-events.LostLease:
 				l.log.Info("lost leader lease")
-				l.leaderStatus.Store(false)
+				l.leaderStatus.Set(false)
 				runCallbacks(l.lostLeaseCallbacks)
 			}
 		}

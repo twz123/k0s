@@ -19,6 +19,8 @@ package leaderelection
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -34,45 +36,6 @@ import (
 	"k8s.io/utils/ptr"
 )
 
-func TestLeasePoolWatcherTriggersOnLeaseAcquisition(t *testing.T) {
-	const identity = "test-node"
-
-	fakeClient := fake.NewSimpleClientset()
-
-	pool, err := NewLeasePool(context.TODO(), fakeClient, "test", identity, WithNamespace("test"))
-	require.NoError(t, err)
-
-	output := &LeaseEvents{
-		AcquiredLease: make(chan struct{}, 1),
-		LostLease:     make(chan struct{}, 1),
-	}
-
-	events, cancel, err := pool.Watch(WithOutputChannels(output))
-	require.NoError(t, err)
-	defer cancel()
-
-	done := make(chan struct{})
-	failed := make(chan struct{})
-
-	go func() {
-		for {
-			select {
-			case <-events.AcquiredLease:
-				close(done)
-			case <-events.LostLease:
-				close(failed)
-			}
-		}
-	}()
-
-	select {
-	case <-done:
-		t.Log("successfully acquired lease")
-	case <-failed:
-		assert.Fail(t, "lost lease")
-	}
-}
-
 func TestLeasePoolTriggersLostLeaseWhenCancelled(t *testing.T) {
 	const identity = "test-node"
 
@@ -81,19 +44,35 @@ func TestLeasePoolTriggersLostLeaseWhenCancelled(t *testing.T) {
 	pool, err := NewLeasePool(context.TODO(), fakeClient, "test", identity, WithNamespace("test"))
 	require.NoError(t, err)
 
-	output := &LeaseEvents{
-		AcquiredLease: make(chan struct{}, 1),
-		LostLease:     make(chan struct{}, 1),
+	errs := make(chan error, 1)
+	ctx, cancel := context.WithCancel(context.TODO())
+	t.Cleanup(cancel)
+	go func() {
+		defer close(errs)
+		errs <- pool.Run(ctx)
+	}()
+
+	isLeader, changed := pool.IsLeader().Peek()
+	for !isLeader {
+		select {
+		case <-changed:
+		case err := <-errs:
+			require.Fail(t, "%v", err)
+		}
+
+		isLeader, changed = pool.IsLeader().Peek()
 	}
 
-	events, cancel, err := pool.Watch(WithOutputChannels(output))
-	require.NoError(t, err)
-
-	<-events.AcquiredLease
-	t.Log("lease acquired, cancelling leaser")
+	t.Log("Pool is leading, cancelling ...")
 	cancel()
-	<-events.LostLease
-	t.Log("context cancelled and lease successfully lost")
+
+	select {
+	case <-changed:
+	case err := <-errs:
+		require.Fail(t, "%v", err)
+	}
+
+	assert.False(t, pool.IsLeader().Get())
 }
 
 func TestLeasePoolWatcherReacquiresLostLease(t *testing.T) {
@@ -117,34 +96,75 @@ func TestLeasePoolWatcherReacquiresLostLease(t *testing.T) {
 
 	pool, err := NewLeasePool(context.TODO(), fakeClient, "test", identity,
 		WithNamespace("test"),
-		WithRetryPeriod(10*time.Millisecond),
+		WithRetryPeriod(35*time.Millisecond),
+		WithRenewDeadline(150*time.Millisecond),
 	)
 	require.NoError(t, err)
 
-	output := &LeaseEvents{
-		AcquiredLease: make(chan struct{}, 1),
-		LostLease:     make(chan struct{}, 1),
+	givenLeaderElectorError(nil)
+	errs := make(chan error, 1)
+	ctx, cancel := context.WithCancel(context.TODO())
+	t.Cleanup(cancel)
+	go func() {
+		defer close(errs)
+		errs <- pool.Run(ctx)
+	}()
+
+	for {
+		isLeader, changed := pool.IsLeader().Peek()
+		if isLeader {
+			break
+		}
+
+		t.Log("Waiting for the pool to lead")
+
+		select {
+		case <-changed:
+		case err := <-errs:
+			require.Fail(t, "%v", err)
+		}
 	}
 
-	givenLeaderElectorError(nil)
-	events, cancel, err := pool.Watch(WithOutputChannels(output))
-	require.NoError(t, err)
-	defer cancel()
-
-	<-events.AcquiredLease
-	t.Log("Acquired lease, disrupting leader election and waiting to loose the lease")
+	t.Log("Pool is leading, disrupting leader election and waiting to loose the lease")
 	givenLeaderElectorError(errors.New("leader election disrupted by test case"))
 
-	<-events.LostLease
-	t.Log("Lost lease, restoring leader election and waiting for the reacquisition of the lease")
+	for {
+		isLeader, changed := pool.IsLeader().Peek()
+		if !isLeader {
+			break
+		}
+
+		t.Log("Waiting to loose leadership")
+
+		select {
+		case <-changed:
+		case err := <-errs:
+			require.Fail(t, "%v", err)
+		}
+	}
+
+	t.Log("Lost leadership, restoring leader election and waiting to lead again")
 	givenLeaderElectorError(nil)
 
-	select {
-	case <-events.AcquiredLease:
-		t.Log("Reacquired lease, all good ...")
-	case <-time.After(10 * time.Second):
-		assert.Fail(t, "Timed out while waiting for the reacquisition of the lease")
+	for {
+		isLeader, changed := pool.IsLeader().Peek()
+		if isLeader {
+			break
+		}
+
+		t.Log("Waiting for the pool to lead again")
+
+		select {
+		case <-changed:
+		case err := <-errs:
+			require.Fail(t, "%v", err)
+		}
 	}
+
+	t.Log("Pool is leading again, waiting fot it to close")
+
+	cancel()
+	assert.Nil(t, <-errs)
 }
 
 func TestSecondWatcherAcquiresReleasedLease(t *testing.T) {
@@ -161,8 +181,6 @@ func TestSecondWatcherAcquiresReleasedLease(t *testing.T) {
 		WithRetryPeriod(10*time.Millisecond),
 	)
 	require.NoError(t, err)
-
-	expectedEventOrder := []string{"pool1-acquired", "pool1-lost", "pool2-acquired"}
 
 	// Pre-create the acquired lease for the first identity, so that there are
 	// no races when acquiring the lease by the two competing pools.
@@ -185,47 +203,70 @@ func TestSecondWatcherAcquiresReleasedLease(t *testing.T) {
 	require.NoError(t, err)
 	t.Log("Pre-created acquired lease for first identity")
 
-	events1, cancel1, err := pool1.Watch(WithOutputChannels(&LeaseEvents{
-		AcquiredLease: make(chan struct{}, 1),
-		LostLease:     make(chan struct{}, 1),
-	}))
-	require.NoError(t, err)
-	defer cancel1()
-	t.Log("Started first lease pool")
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	t.Cleanup(wg.Wait)
 
-	events2, cancel2, err := pool2.Watch(WithOutputChannels(&LeaseEvents{
-		AcquiredLease: make(chan struct{}, 1),
-		LostLease:     make(chan struct{}, 1),
-	}))
-	require.NoError(t, err)
-	defer cancel2()
-	t.Log("Started second lease pool, receiving events ...")
+	ctx1, cancel1 := context.WithCancel(context.TODO())
+	t.Cleanup(cancel1)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		t.Log("Starting first lease pool")
+		if err := pool1.Run(ctx1); err != nil {
+			errs <- fmt.Errorf("pool1: %w", err)
+		}
+	}()
 
-	var receivedEvents []string
+	ctx2, cancel2 := context.WithCancel(context.TODO())
+	t.Cleanup(cancel2)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		t.Log("Starting second lease pool")
+		if err := pool2.Run(ctx2); err != nil {
+			errs <- fmt.Errorf("pool2: %w", err)
+		}
+	}()
 
 	for {
-		select {
-		case <-events1.AcquiredLease:
-			t.Log("First lease acquired, cancelling pool")
+		firstLeads, firstChanged := pool1.IsLeader().Peek()
+		secondLeads, secondChanged := pool2.IsLeader().Peek()
+
+		require.False(t, secondLeads)
+
+		if firstLeads {
+			t.Log("First pool leads")
 			cancel1()
-			receivedEvents = append(receivedEvents, "pool1-acquired")
-		case <-events1.LostLease:
-			t.Log("First lease lost")
-			receivedEvents = append(receivedEvents, "pool1-lost")
-		case <-events2.AcquiredLease:
-			t.Log("Second lease acquired")
-			receivedEvents = append(receivedEvents, "pool2-acquired")
-		case <-events2.LostLease:
-			t.Log("Second lease lost")
-			receivedEvents = append(receivedEvents, "pool2-lost")
-		case <-time.After(10 * time.Second):
-			require.Fail(t, "Didn't receive any events for 10 seconds.")
+			break
 		}
 
-		if len(receivedEvents) >= 3 {
-			break
+		select {
+		case <-firstChanged:
+		case <-secondChanged:
+		case err := <-errs:
+			require.Fail(t, "%v", err)
 		}
 	}
 
-	assert.Equal(t, expectedEventOrder, receivedEvents)
+	for {
+		firstLeads, firstChanged := pool1.IsLeader().Peek()
+		secondLeads, secondChanged := pool2.IsLeader().Peek()
+
+		if firstLeads {
+			require.False(t, secondLeads)
+			t.Log("First pool still leading")
+		} else if secondLeads {
+			require.False(t, firstLeads)
+			t.Log("Second pool leads")
+			break
+		}
+
+		select {
+		case <-firstChanged:
+		case <-secondChanged:
+		case err := <-errs:
+			require.Fail(t, "%v", err)
+		}
+	}
 }
