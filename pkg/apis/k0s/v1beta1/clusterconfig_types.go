@@ -34,11 +34,13 @@ const (
 	ClusterConfigAPIVersion = "k0s.k0sproject.io/v1beta1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // ClusterSpec defines the desired state of ClusterConfig
+// +kubebuilder:validation:XValidation:rule="!has(self.api) || self.api == null",message="All API settings have to be configured in the local k0s controller configuration"
+// +kubebuilder:validation:XValidation:rule="!has(self.storage) || self.storage == null",message="All storage settings have to be configured in the local k0s controller configuration"
+// +kubebuilder:validation:XValidation:rule="!has(self.installConfig) || self.installConfig == null",message="All install settings have to be configured in the local k0s controller configuration"
 type ClusterSpec struct {
+	// Keep the validation rules in sync with the GetClusterWideConfig method.
+
 	API               *APISpec               `json:"api,omitempty"`
 	ControllerManager *ControllerManagerSpec `json:"controllerManager,omitempty"`
 	Scheduler         *SchedulerSpec         `json:"scheduler,omitempty"`
@@ -54,10 +56,7 @@ type ClusterSpec struct {
 }
 
 // ClusterConfigStatus defines the observed state of ClusterConfig
-type ClusterConfigStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-}
+type ClusterConfigStatus struct{}
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
@@ -388,16 +387,20 @@ func (c *ClusterConfig) Validate() (errs []error) {
 // - APISpec
 // - StorageSpec
 // - Network.ServiceCIDR
+// - Network.DualStack.IPv6ServiceCIDR
 // - Network.ClusterDomain
 // - Network.ControlPlaneLoadBalancing
 // - Install
 func (c *ClusterConfig) GetClusterWideConfig() *ClusterConfig {
+	// Keep this method in sync with the XValidation rules.
+
 	c = c.DeepCopy()
 	if c != nil && c.Spec != nil {
 		c.Spec.API = nil
 		c.Spec.Storage = nil
 		if c.Spec.Network != nil {
 			c.Spec.Network.ServiceCIDR = ""
+			c.Spec.Network.DualStack.IPv6ServiceCIDR = ""
 			c.Spec.Network.ClusterDomain = ""
 			c.Spec.Network.ControlPlaneLoadBalancing = nil
 		}

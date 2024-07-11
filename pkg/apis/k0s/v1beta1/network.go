@@ -30,7 +30,13 @@ import (
 var _ Validateable = (*Network)(nil)
 
 // Network defines the network related config options
+// +kubebuilder:validation:XValidation:rule="!has(self.serviceCIDR) || size(self.serviceCIDR) == 0",message="The service CIDR has to be configured in the local k0s controller configuration"
+// +kubebuilder:validation:XValidation:rule="!has(self.clusterDomain) || size(self.clusterDomain) == 0",message="The cluster domain has to be configured in the local k0s controller configuration"
+// +kubebuilder:validation:XValidation:rule="!has(self.controlPlaneLoadBalancing)",message="Control plane load balancing has to be configured in the local k0s controller configuration"
+// +kubebuilder:validation:XValidation:rule="!has(self.dualStack.enabled) || !self.dualStack.enabled || !has(self.provider) || self.provider != 'calico' || (has(self.calico.mode) && self.calico.mode == 'bird') ",message="dual-stack for calico is only supported for mode `bird`"
 type Network struct {
+	// Keep the validation rules in sync with the GetClusterWideConfig method.
+
 	Calico    *Calico   `json:"calico"`
 	DualStack DualStack `json:"dualStack,omitempty"`
 
@@ -102,6 +108,7 @@ func (n *Network) Validate() []error {
 
 	if n.DualStack.Enabled {
 		if n.Provider == "calico" && n.Calico.Mode != "bird" {
+			// This is also covered by an XValidation marker.
 			errors = append(errors, field.Forbidden(field.NewPath("calico", "mode"), "dual-stack for calico is only supported for mode `bird`"))
 		}
 		_, _, err := net.ParseCIDR(n.DualStack.IPv6PodCIDR)

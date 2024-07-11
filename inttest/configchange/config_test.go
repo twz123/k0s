@@ -100,7 +100,7 @@ func (s *ConfigSuite) TestK0sGetsUp() {
 	s.Run("changing cni should fail", func() {
 		originalConfig, err := cfgClient.Get(s.Context(), "k0s", metav1.GetOptions{})
 		s.Require().NoError(err)
-		newConfig := originalConfig.DeepCopy()
+		newConfig := originalConfig.GetClusterWideConfig()
 		newConfig.Spec.Network.Provider = constant.CNIProviderCalico
 		newConfig.Spec.Network.Calico = v1beta1.DefaultCalico()
 		newConfig.Spec.Network.KubeRouter = nil
@@ -119,8 +119,9 @@ func (s *ConfigSuite) TestK0sGetsUp() {
 	s.Run("setting bad ip address should fail", func() {
 		originalConfig, err := cfgClient.Get(context.Background(), "k0s", metav1.GetOptions{})
 		s.Require().NoError(err)
-		newConfig := originalConfig.DeepCopy()
+		newConfig := originalConfig.GetClusterWideConfig()
 		newConfig.Spec.Network = v1beta1.DefaultNetwork()
+		newConfig = newConfig.GetClusterWideConfig()
 		newConfig.Spec.Network.PodCIDR = "invalid ip address"
 		_, err = cfgClient.Update(context.Background(), newConfig, metav1.UpdateOptions{})
 		s.Require().NoError(err)
@@ -137,8 +138,9 @@ func (s *ConfigSuite) TestK0sGetsUp() {
 	s.Run("changing kuberouter MTU should work", func() {
 		originalConfig, err := cfgClient.Get(context.Background(), "k0s", metav1.GetOptions{})
 		s.Require().NoError(err)
-		newConfig := originalConfig.DeepCopy()
+		newConfig := originalConfig.GetClusterWideConfig()
 		newConfig.Spec.Network = v1beta1.DefaultNetwork()
+		newConfig = newConfig.GetClusterWideConfig()
 		newConfig.Spec.Network.KubeRouter.AutoMTU = false
 		newConfig.Spec.Network.KubeRouter.MTU = 1300
 

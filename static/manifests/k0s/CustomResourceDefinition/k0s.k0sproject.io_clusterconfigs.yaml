@@ -537,6 +537,11 @@ spec:
                       enabled:
                         type: boolean
                     type: object
+                    x-kubernetes-validations:
+                    - message: The IPv6 service CIDR has to be configured in the local
+                        k0s controller configuration
+                      rule: '!has(self.IPv6serviceCIDR) || size(self.IPv6serviceCIDR)
+                        == 0'
                   kubeProxy:
                     description: KubeProxy defines the configuration for kube-proxy
                     properties:
@@ -722,6 +727,20 @@ spec:
                     description: Network CIDR to use for cluster VIP services
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: The service CIDR has to be configured in the local k0s
+                    controller configuration
+                  rule: '!has(self.serviceCIDR) || size(self.serviceCIDR) == 0'
+                - message: The cluster domain has to be configured in the local k0s
+                    controller configuration
+                  rule: '!has(self.clusterDomain) || size(self.clusterDomain) == 0'
+                - message: Control plane load balancing has to be configured in the
+                    local k0s controller configuration
+                  rule: '!has(self.controlPlaneLoadBalancing)'
+                - message: dual-stack for calico is only supported for mode `bird`
+                  rule: '!has(self.dualStack.enabled) || !self.dualStack.enabled ||
+                    !has(self.provider) || self.provider != ''calico'' || (has(self.calico.mode)
+                    && self.calico.mode == ''bird'') '
               scheduler:
                 description: SchedulerSpec defines the fields for the Scheduler
                 properties:
@@ -808,6 +827,16 @@ spec:
                   type: object
                 type: array
             type: object
+            x-kubernetes-validations:
+            - message: All API settings have to be configured in the local k0s controller
+                configuration
+              rule: '!has(self.api) || self.api == null'
+            - message: All storage settings have to be configured in the local k0s
+                controller configuration
+              rule: '!has(self.storage) || self.storage == null'
+            - message: All install settings have to be configured in the local k0s
+                controller configuration
+              rule: '!has(self.installConfig) || self.installConfig == null'
           status:
             description: ClusterConfigStatus defines the observed state of ClusterConfig
             type: object

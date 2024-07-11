@@ -17,7 +17,10 @@ limitations under the License.
 package v1beta1
 
 // DualStack defines network configuration for ipv4\ipv6 mixed cluster setup
+// +kubebuilder:validation:XValidation:rule="!has(self.IPv6serviceCIDR) || size(self.IPv6serviceCIDR) == 0",message="The IPv6 service CIDR has to be configured in the local k0s controller configuration"
 type DualStack struct {
+	// Keep the validation rules in sync with the GetClusterWideConfig method.
+
 	Enabled         bool   `json:"enabled,omitempty"`
 	IPv6PodCIDR     string `json:"IPv6podCIDR,omitempty"`
 	IPv6ServiceCIDR string `json:"IPv6serviceCIDR,omitempty"`
