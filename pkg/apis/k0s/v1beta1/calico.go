@@ -16,7 +16,11 @@ limitations under the License.
 
 package v1beta1
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/k0sproject/k0s/internal/defaults"
+)
 
 // Calico defines the calico related config options
 type Calico struct {
@@ -59,26 +63,23 @@ type Calico struct {
 
 // DefaultCalico returns sane defaults for calico
 func DefaultCalico() *Calico {
-	return &Calico{
-		Mode:                 "vxlan",
-		VxlanPort:            4789,
-		VxlanVNI:             4096,
-		MTU:                  1450,
-		FlexVolumeDriverPath: "/usr/libexec/k0s/kubelet-plugins/volume/exec/nodeagent~uds",
-		Overlay:              "Always",
-	}
+	return defaults.New(SetDefaults_Calico)
 }
 
 // UnmarshalJSON sets in some sane defaults when unmarshaling the data from JSON
 func (c *Calico) UnmarshalJSON(data []byte) error {
-	c.Mode = "vxlan"
-	c.VxlanPort = 4789
-	c.VxlanVNI = 4096
-	c.MTU = 1450
-	c.FlexVolumeDriverPath = "/usr/libexec/kubernetes/kubelet-plugins/volume/exec/nodeagent~uds"
-	c.Overlay = "Always"
+	SetDefaults_Calico(c)
 
 	type calico Calico
 	jc := (*calico)(c)
 	return json.Unmarshal(data, jc)
+}
+
+func SetDefaults_Calico(c *Calico) {
+	defaults.IfZero(&c.Mode).To("vxlan")
+	defaults.IfZero(&c.VxlanPort).To(4789)
+	defaults.IfZero(&c.VxlanVNI).To(4096)
+	defaults.IfZero(&c.MTU).To(1450)
+	defaults.IfZero(&c.FlexVolumeDriverPath).To("/usr/libexec/kubernetes/kubelet-plugins/volume/exec/nodeagent~uds")
+	defaults.IfZero(&c.Overlay).To("Always")
 }

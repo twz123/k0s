@@ -28,6 +28,7 @@ import (
 	"testing"
 	"testing/iotest"
 
+	"github.com/k0sproject/k0s/internal/defaults"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/spf13/cobra"
 
@@ -42,7 +43,7 @@ func TestAirgapListImages(t *testing.T) {
 	// on a host executing this test, it will interfere with it.
 	require.NoFileExists(t, "/run/k0s/k0s.yaml", "Runtime config exists and will interfere with this test.")
 
-	defaultImage := v1beta1.DefaultEnvoyProxyImage().URI()
+	defaultImage := defaults.From(v1beta1.SetDefaults_EnvoyProxy).Image.URI()
 
 	t.Run("All", func(t *testing.T) {
 		underTest, out, err := newAirgapListImagesCmdWithConfig(t, "{}", "--all")

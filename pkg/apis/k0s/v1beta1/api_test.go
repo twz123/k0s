@@ -37,7 +37,7 @@ func (s *APISuite) TestValidation() {
 	s.Run("accepts_ipv6_as_address", func() {
 		ipV6Addr := "2001:0db8:85a3:0000:0000:8a2e:0370:7334"
 		a := APISpec{Address: ipV6Addr}
-		a.setDefaults()
+		SetDefaults_APISpec(&a)
 
 		s.Equal(ipV6Addr, a.Address)
 		s.NoError(errors.Join(a.Validate()...))
@@ -47,7 +47,7 @@ func (s *APISuite) TestValidation() {
 		a := APISpec{
 			Address: "something.that.is.not.valid//(())",
 		}
-		a.setDefaults()
+		SetDefaults_APISpec(&a)
 
 		errors := a.Validate()
 		s.NotNil(errors)
@@ -62,7 +62,7 @@ func (s *APISuite) TestValidation() {
 				"something.that.is.not.valid//(())",
 			},
 		}
-		a.setDefaults()
+		SetDefaults_APISpec(&a)
 
 		errors := a.Validate()
 		s.NotNil(errors)

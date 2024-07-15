@@ -19,6 +19,7 @@ package v1beta1
 import (
 	"fmt"
 
+	"github.com/k0sproject/k0s/internal/defaults"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -65,10 +66,7 @@ type KubeProxyIPVSConfiguration struct {
 
 // DefaultKubeProxy creates the default config for kube-proxy
 func DefaultKubeProxy() *KubeProxy {
-	return &KubeProxy{
-		Mode:               "iptables",
-		MetricsBindAddress: "0.0.0.0:10249",
-	}
+	return defaults.New(SetDefaults_KubeProxy)
 }
 
 // Validate validates kube proxy config
@@ -81,4 +79,9 @@ func (k *KubeProxy) Validate() []error {
 		errors = append(errors, fmt.Errorf("unsupported mode %s for kubeProxy config", k.Mode))
 	}
 	return errors
+}
+
+func SetDefaults_KubeProxy(k *KubeProxy) {
+	defaults.IfZero(&k.Mode).To("iptables")
+	defaults.IfZero(&k.MetricsBindAddress).To("0.0.0.0:10249")
 }

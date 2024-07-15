@@ -17,6 +17,7 @@ limitations under the License.
 package v1beta1
 
 import (
+	"github.com/k0sproject/k0s/internal/defaults"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
@@ -40,10 +41,12 @@ type KonnectivitySpec struct {
 
 // DefaultKonnectivitySpec builds default KonnectivitySpec
 func DefaultKonnectivitySpec() *KonnectivitySpec {
-	return &KonnectivitySpec{
-		AgentPort: 8132,
-		AdminPort: 8133,
-	}
+	return defaults.New(SetDefaults_KonnectivitySpec)
+}
+
+func SetDefaults_KonnectivitySpec(k *KonnectivitySpec) {
+	defaults.IfZero(&k.AgentPort).To(8132)
+	defaults.IfZero(&k.AdminPort).To(8133)
 }
 
 // Validate implements [Validateable].

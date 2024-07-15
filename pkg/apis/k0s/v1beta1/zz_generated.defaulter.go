@@ -29,5 +29,45 @@ import (
 // Public to allow building arbitrary schemes.
 // All generated defaulters are covering - they call all nested defaulters.
 func RegisterDefaults(scheme *runtime.Scheme) error {
+	scheme.AddTypeDefaultingFunc(&ClusterConfig{}, func(obj interface{}) { SetObjectDefaults_ClusterConfig(obj.(*ClusterConfig)) })
+	scheme.AddTypeDefaultingFunc(&ClusterConfigList{}, func(obj interface{}) { SetObjectDefaults_ClusterConfigList(obj.(*ClusterConfigList)) })
 	return nil
+}
+
+func SetObjectDefaults_ClusterConfig(in *ClusterConfig) {
+	if in.Spec != nil {
+		if in.Spec.API != nil {
+			SetDefaults_APISpec(in.Spec.API)
+		}
+		if in.Spec.Network != nil {
+			if in.Spec.Network.Calico != nil {
+				SetDefaults_Calico(in.Spec.Network.Calico)
+			}
+			if in.Spec.Network.KubeProxy != nil {
+				SetDefaults_KubeProxy(in.Spec.Network.KubeProxy)
+			}
+			if in.Spec.Network.KubeRouter != nil {
+				SetDefaults_KubeRouter(in.Spec.Network.KubeRouter)
+			}
+			if in.Spec.Network.NodeLocalLoadBalancing != nil {
+				SetDefaults_NodeLocalLoadBalancing(in.Spec.Network.NodeLocalLoadBalancing)
+				if in.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy != nil {
+					SetDefaults_EnvoyProxy(in.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy)
+				}
+			}
+		}
+		if in.Spec.Telemetry != nil {
+			SetDefaults_ClusterTelemetry(in.Spec.Telemetry)
+		}
+		if in.Spec.Konnectivity != nil {
+			SetDefaults_KonnectivitySpec(in.Spec.Konnectivity)
+		}
+	}
+}
+
+func SetObjectDefaults_ClusterConfigList(in *ClusterConfigList) {
+	for i := range in.Items {
+		a := &in.Items[i]
+		SetObjectDefaults_ClusterConfig(a)
+	}
 }

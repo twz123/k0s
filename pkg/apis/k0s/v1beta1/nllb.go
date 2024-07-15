@@ -19,17 +19,19 @@ package v1beta1
 import (
 	"encoding/json"
 
+	"github.com/k0sproject/k0s/internal/defaults"
 	"github.com/k0sproject/k0s/pkg/constant"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/utils/ptr"
 )
 
 // NodeLocalLoadBalancing defines the configuration options related to k0s's
 // node-local load balancing feature.
 // NOTE: This feature is currently unsupported on ARMv7!
+//
+// +k8s:defaulter-gen=true
 type NodeLocalLoadBalancing struct {
 	// enabled indicates if node-local load balancing should be used to access
 	// Kubernetes API servers from worker nodes.
@@ -58,13 +60,6 @@ const (
 	NllbTypeEnvoyProxy NllbType = "EnvoyProxy"
 )
 
-// DefaultNodeLocalLoadBalancing returns the default node-local load balancing configuration.
-func DefaultNodeLocalLoadBalancing() *NodeLocalLoadBalancing {
-	var nllb NodeLocalLoadBalancing
-	nllb.setDefaults()
-	return &nllb
-}
-
 var _ json.Unmarshaler = (*NodeLocalLoadBalancing)(nil)
 
 func (n *NodeLocalLoadBalancing) UnmarshalJSON(data []byte) error {
@@ -73,17 +68,17 @@ func (n *NodeLocalLoadBalancing) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	n.setDefaults()
+	SetDefaults_NodeLocalLoadBalancing(n)
 
 	return nil
 }
 
-func (n *NodeLocalLoadBalancing) setDefaults() {
-	if n.Type == "" {
-		n.Type = NllbTypeEnvoyProxy
-	}
-	if n.EnvoyProxy == nil {
-		n.EnvoyProxy = DefaultEnvoyProxy()
+func SetDefaults_NodeLocalLoadBalancing(n *NodeLocalLoadBalancing) {
+	if n.Enabled == true {
+		defaults.IfZero(&n.Type).To(NllbTypeEnvoyProxy)
+		if n.Type == NllbTypeEnvoyProxy {
+			defaults.IfNil(&n.EnvoyProxy).ToNew()
+		}
 	}
 }
 
@@ -141,13 +136,6 @@ type EnvoyProxy struct {
 	KonnectivityServerBindPort *int32 `json:"konnectivityServerBindPort,omitempty"`
 }
 
-// DefaultEnvoyProxy returns the default envoy proxy configuration.
-func DefaultEnvoyProxy() *EnvoyProxy {
-	p := new(EnvoyProxy)
-	p.setDefaults()
-	return p
-}
-
 var _ json.Unmarshaler = (*EnvoyProxy)(nil)
 
 func (p *EnvoyProxy) UnmarshalJSON(data []byte) error {
@@ -156,28 +144,17 @@ func (p *EnvoyProxy) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	p.setDefaults()
+	SetDefaults_EnvoyProxy(p)
 
 	return nil
 }
 
-func (p *EnvoyProxy) setDefaults() {
-	if p.Image == nil {
-		p.Image = DefaultEnvoyProxyImage()
-	} else {
-		if p.Image.Image == "" {
-			p.Image.Image = constant.EnvoyProxyImage
-		}
-		if p.Image.Version == "" {
-			p.Image.Version = constant.EnvoyProxyImageVersion
-		}
-	}
-	if p.APIServerBindPort == 0 {
-		p.APIServerBindPort = 7443
-	}
-	if p.KonnectivityServerBindPort == nil {
-		p.KonnectivityServerBindPort = ptr.To(int32(7132))
-	}
+func SetDefaults_EnvoyProxy(p *EnvoyProxy) {
+	defaults.IfNil(&p.Image).ToNew()
+	defaults.IfZero(&p.Image.Image).To(constant.EnvoyProxyImage)
+	defaults.IfZero(&p.Image.Version).To(constant.EnvoyProxyImageVersion)
+	defaults.IfZero(&p.APIServerBindPort).To(7443)
+	defaults.IfNil(&p.KonnectivityServerBindPort).ToPtrTo(7132)
 }
 
 func (p *EnvoyProxy) Validate(path *field.Path) (errs field.ErrorList) {
@@ -222,12 +199,4 @@ func (p *EnvoyProxy) Validate(path *field.Path) (errs field.ErrorList) {
 	}
 
 	return
-}
-
-// DefaultEnvoyProxyImage returns the default image spec to use for Envoy.
-func DefaultEnvoyProxyImage() *ImageSpec {
-	return &ImageSpec{
-		Image:   constant.EnvoyProxyImage,
-		Version: constant.EnvoyProxyImageVersion,
-	}
 }

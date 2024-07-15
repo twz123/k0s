@@ -25,6 +25,7 @@ import (
 	utilnet "k8s.io/utils/net"
 
 	"github.com/asaskevich/govalidator"
+	"github.com/k0sproject/k0s/internal/defaults"
 )
 
 var _ Validateable = (*Network)(nil)
@@ -61,17 +62,13 @@ type Network struct {
 	ClusterDomain string `json:"clusterDomain,omitempty"`
 }
 
-// DefaultNetwork creates the Network config struct with sane default values
-func DefaultNetwork() *Network {
-	return &Network{
-		PodCIDR:                "10.244.0.0/16",
-		ServiceCIDR:            "10.96.0.0/12",
-		Provider:               "kuberouter",
-		KubeRouter:             DefaultKubeRouter(),
-		DualStack:              DefaultDualStack(),
-		KubeProxy:              DefaultKubeProxy(),
-		NodeLocalLoadBalancing: DefaultNodeLocalLoadBalancing(),
-		ClusterDomain:          "cluster.local",
+func SetDefaults_Network(n *Network) {
+	defaults.IfZero(&n.PodCIDR).To("10.244.0.0/16")
+	defaults.IfZero(&n.ServiceCIDR).To("10.96.0.0/12")
+	defaults.IfZero(&n.ClusterDomain).To("cluster.local")
+
+	if defaults.IfZero(&n.Provider).To("kuberouter") {
+		defaults.IfNil(&n.KubeRouter).ToNew()
 	}
 }
 

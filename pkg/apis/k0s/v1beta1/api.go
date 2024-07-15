@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/k0sproject/k0s/internal/defaults"
 	"github.com/k0sproject/k0s/internal/pkg/iface"
 	"github.com/k0sproject/k0s/internal/pkg/stringslice"
 
@@ -61,8 +62,10 @@ type APISpec struct {
 
 // DefaultAPISpec default settings for api
 func DefaultAPISpec() *APISpec {
-	a := new(APISpec)
-	a.setDefaults()
+	a := defaults.New(SetDefaults_APISpec)
+	if a.Address == "" {
+		a.Address, _ = iface.FirstPublicAddress()
+	}
 	a.SANs, _ = iface.AllAddresses()
 	return a
 }
@@ -162,18 +165,15 @@ func (a *APISpec) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	a.setDefaults()
-	return nil
-}
-
-func (a *APISpec) setDefaults() {
 	if a.Address == "" {
 		a.Address, _ = iface.FirstPublicAddress()
 	}
-	if a.K0sAPIPort == 0 {
-		a.K0sAPIPort = 9443
-	}
-	if a.Port == 0 {
-		a.Port = 6443
-	}
+
+	SetDefaults_APISpec(a)
+	return nil
+}
+
+func SetDefaults_APISpec(a *APISpec) {
+	defaults.IfZero(&a.K0sAPIPort).To(9443)
+	defaults.IfZero(&a.Port).To(6443)
 }

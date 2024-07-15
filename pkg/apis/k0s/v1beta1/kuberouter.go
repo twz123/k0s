@@ -16,7 +16,9 @@ limitations under the License.
 
 package v1beta1
 
-import "k8s.io/utils/ptr"
+import (
+	"github.com/k0sproject/k0s/internal/defaults"
+)
 
 // KubeRouter defines the kube-router related config options
 type KubeRouter struct {
@@ -66,10 +68,11 @@ const (
 
 // DefaultKubeRouter returns the default config for kube-router
 func DefaultKubeRouter() *KubeRouter {
-	return &KubeRouter{
-		MTU:         0,
-		AutoMTU:     ptr.To(true),
-		MetricsPort: 8080,
-		Hairpin:     HairpinEnabled,
-	}
+	return defaults.New(SetDefaults_KubeRouter)
+}
+
+func SetDefaults_KubeRouter(k *KubeRouter) {
+	defaults.IfNil(&k.AutoMTU).ToPtrTo(true)
+	defaults.IfZero(&k.MetricsPort).To(8080)
+	defaults.IfZero(&k.Hairpin).To(HairpinEnabled)
 }

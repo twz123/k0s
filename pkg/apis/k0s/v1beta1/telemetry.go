@@ -16,7 +16,9 @@ limitations under the License.
 
 package v1beta1
 
-import "k8s.io/utils/ptr"
+import (
+	"github.com/k0sproject/k0s/internal/defaults"
+)
 
 var _ Validateable = (*ClusterTelemetry)(nil)
 
@@ -30,11 +32,8 @@ func (t *ClusterTelemetry) IsEnabled() bool {
 	return t == nil || t.Enabled == nil || *t.Enabled
 }
 
-// DefaultClusterTelemetry default settings
-func DefaultClusterTelemetry() *ClusterTelemetry {
-	return &ClusterTelemetry{
-		Enabled: ptr.To(true),
-	}
+func SetDefaults_ClusterTelemetry(c *ClusterTelemetry) {
+	defaults.IfNil(&c.Enabled).ToPtrTo(true)
 }
 
 // Validate stub for Validateable interface
