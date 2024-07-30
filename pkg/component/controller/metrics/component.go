@@ -21,7 +21,9 @@ import (
 	"crypto/tls"
 	_ "embed"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -232,26 +234,40 @@ func (c *Component) run(ctx context.Context, j *job) {
 }
 
 func (c *Component) collectAndPush(ctx context.Context, j *job) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, j.scrapeURL, nil)
+	metrics, err := j.Scrape(ctx)
 	if err != nil {
-		return fmt.Errorf("error creating GET request for %s: %w", j.scrapeURL, err)
+		return err
 	}
-
-	resp, err := j.scrapeClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("error collecting metrics from %s: %w", j.scrapeURL, err)
-	}
-	defer resp.Body.Close()
 
 	res := c.restClient.Post().Prefix("api", "v1").
 		Resource("services").Namespace("k0s-system").Name("http:k0s-pushgateway:http").
 		SubResource("proxy").Suffix("metrics", "job", j.name, "instance", c.hostname).
-		Body(resp.Body).
+		Body(metrics).
 		Do(ctx)
 	if res.Error() != nil {
 		return fmt.Errorf("error sending POST request for job %s: %w", j.name, res.Error())
 	}
 	return nil
+}
+
+func (j *job) Scrape(ctx context.Context) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, j.scrapeURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating %s request for %s: %w", http.MethodGet, j.scrapeURL, err)
+	}
+
+	if resp, err := j.scrapeClient.Do(req); err != nil {
+		return nil, err
+	} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return resp.Body, nil
+	} else {
+		resp.Body.Close()
+		return nil, &url.Error{
+			Op:  "Get",
+			URL: j.scrapeURL,
+			Err: fmt.Errorf("non-successful status code: %s", resp.Status),
+		}
+	}
 }
 
 func getClient(certFile, keyFile string) (*http.Client, error) {
