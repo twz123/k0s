@@ -168,8 +168,6 @@ func (c *Component) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterC
 }
 
 type job struct {
-	log logrus.FieldLogger
-
 	scrapeURL    string
 	name         string
 	hostname     string
@@ -186,7 +184,6 @@ func (c *Component) newEtcdJob() (*job, error) {
 	}
 
 	return &job{
-		log:          c.log.WithField("metrics_job", "etcd"),
 		scrapeURL:    "https://localhost:2379/metrics",
 		name:         "etcd",
 		hostname:     c.hostname,
@@ -201,7 +198,6 @@ func (c *Component) newKineJob() (*job, error) {
 	}
 
 	return &job{
-		log:          c.log.WithField("metrics_job", "kine"),
 		scrapeURL:    "http://localhost:2380/metrics",
 		name:         "kine",
 		hostname:     c.hostname,
@@ -219,7 +215,6 @@ func (c *Component) newJob(name, scrapeURL string) (*job, error) {
 	}
 
 	return &job{
-		log:          c.log.WithField("metrics_job", name),
 		scrapeURL:    scrapeURL,
 		name:         name,
 		hostname:     c.hostname,
@@ -228,7 +223,9 @@ func (c *Component) newJob(name, scrapeURL string) (*job, error) {
 }
 
 func (c *Component) run(ctx context.Context, j *job) {
-	j.log.Debugf("Running %s job", j.name)
+	log := c.log.WithField("metrics_job", j.name)
+	log.Debug("Running job")
+	defer log.Debug("Stopped job")
 
 	wait.NonSlidingUntilWithContext(ctx, func(ctx context.Context) {
 		// Only start scraping if the pushgateway has been deployed
@@ -236,7 +233,7 @@ func (c *Component) run(ctx context.Context, j *job) {
 			return
 		}
 		if err := c.collectAndPush(ctx, j); err != nil {
-			j.log.WithError(err).Error("Failed to collect metrics")
+			log.WithError(err).Error("Failed to collect metrics")
 		}
 	}, time.Second*30)
 }
