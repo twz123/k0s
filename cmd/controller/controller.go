@@ -43,6 +43,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/component/controller"
 	"github.com/k0sproject/k0s/pkg/component/controller/clusterconfig"
 	"github.com/k0sproject/k0s/pkg/component/controller/leaderelector"
+	"github.com/k0sproject/k0s/pkg/component/controller/metrics"
 	"github.com/k0sproject/k0s/pkg/component/controller/workerconfig"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/component/prober"
@@ -485,7 +486,7 @@ func (c *command) start(ctx context.Context) error {
 	}
 
 	if c.EnableMetricsScraper {
-		metrics, err := controller.NewMetrics(c.K0sVars, adminClientFactory, nodeConfig.Spec.Storage.Type)
+		metrics, err := metrics.NewMetrics(c.K0sVars, adminClientFactory, nodeConfig.Spec.Storage.Type)
 		if err != nil {
 			return fmt.Errorf("failed to create metrics reconciler: %w", err)
 		}
