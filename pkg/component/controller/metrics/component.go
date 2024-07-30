@@ -167,7 +167,6 @@ func (c *Component) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterC
 type job struct {
 	scrapeURL    string
 	name         string
-	hostname     string
 	scrapeClient *http.Client
 }
 
@@ -183,7 +182,6 @@ func (c *Component) newEtcdJob() (*job, error) {
 	return &job{
 		scrapeURL:    "https://localhost:2379/metrics",
 		name:         "etcd",
-		hostname:     c.hostname,
 		scrapeClient: httpClient,
 	}, nil
 }
@@ -197,7 +195,6 @@ func (c *Component) newKineJob() (*job, error) {
 	return &job{
 		scrapeURL:    "http://localhost:2380/metrics",
 		name:         "kine",
-		hostname:     c.hostname,
 		scrapeClient: httpClient,
 	}, nil
 }
@@ -214,7 +211,6 @@ func (c *Component) newJob(name, scrapeURL string) (*job, error) {
 	return &job{
 		scrapeURL:    scrapeURL,
 		name:         name,
-		hostname:     c.hostname,
 		scrapeClient: httpClient,
 	}, nil
 }
@@ -234,9 +230,6 @@ func (c *Component) run(ctx context.Context, j *job) {
 		}
 	}, time.Second*30)
 }
-func (j *job) pushURL() string {
-	return fmt.Sprintf("/api/v1/namespaces/k0s-system/services/http:k0s-pushgateway:http/proxy/metrics/job/%s/instance/%s", j.name, j.hostname)
-}
 
 func (c *Component) collectAndPush(ctx context.Context, j *job) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, j.scrapeURL, nil)
@@ -250,7 +243,11 @@ func (c *Component) collectAndPush(ctx context.Context, j *job) error {
 	}
 	defer resp.Body.Close()
 
-	res := c.restClient.Post().AbsPath(j.pushURL()).Body(resp.Body).Do(ctx)
+	res := c.restClient.Post().Prefix("api", "v1").
+		Resource("services").Namespace("k0s-system").Name("http:k0s-pushgateway:http").
+		SubResource("proxy").Suffix("metrics", "job", j.name, "instance", c.hostname).
+		Body(resp.Body).
+		Do(ctx)
 	if res.Error() != nil {
 		return fmt.Errorf("error sending POST request for job %s: %w", j.name, res.Error())
 	}
