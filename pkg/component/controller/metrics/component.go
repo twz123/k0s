@@ -41,11 +41,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const (
-	namespace       = "k0s-system"
-	pushGatewayName = "k0s-pushgateway"
-)
-
 // Component is the reconciler implementation for metrics server
 type Component struct {
 	log logrus.FieldLogger
@@ -152,9 +147,7 @@ func (c *Component) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterC
 			Name:     "pushgateway-with-ttl",
 			Template: pushGatewayTemplate,
 			Data: map[string]string{
-				"Namespace": namespace,
-				"Name":      pushGatewayName,
-				"Image":     newImage,
+				"Image": newImage,
 			},
 		}
 		if err := tw.Write(); err != nil {
@@ -238,8 +231,7 @@ func (c *Component) run(ctx context.Context, j *job) {
 	}, time.Second*30)
 }
 func (j *job) pushURL() string {
-	pushAddress := fmt.Sprintf("/api/v1/namespaces/%s/services/http:%s:http/proxy", namespace, pushGatewayName)
-	return fmt.Sprintf("%s/metrics/job/%s/instance/%s", pushAddress, j.name, j.hostname)
+	return fmt.Sprintf("/api/v1/namespaces/k0s-system/services/http:k0s-pushgateway:http/proxy/metrics/job/%s/instance/%s", j.name, j.hostname)
 }
 
 func (c *Component) collectAndPush(ctx context.Context, j *job) error {
@@ -285,7 +277,7 @@ const pushGatewayTemplate = `
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: {{ .Namespace }}
+  name: k0s-system
 ---
 apiVersion: v1
 kind: Service
@@ -296,8 +288,8 @@ metadata:
   labels:
     component: "pushgateway"
     app: k0s-observability
-  name: {{ .Name }}
-  namespace: {{ .Namespace }}
+  name: k0s-pushgateway
+  namespace: k0s-system
 spec:
   ports:
     - name: http
@@ -315,8 +307,8 @@ metadata:
   labels:
     component: "pushgateway"
     app: k0s-observability
-  name: {{ .Name }}
-  namespace: {{ .Namespace }}
+  name: k0s-pushgateway
+  namespace: k0s-system
 spec:
   selector:
     matchLabels:
