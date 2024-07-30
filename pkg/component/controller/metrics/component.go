@@ -19,6 +19,7 @@ package metrics
 import (
 	"context"
 	"crypto/tls"
+	_ "embed"
 	"fmt"
 	"net/http"
 	"os"
@@ -40,6 +41,9 @@ import (
 
 	"github.com/sirupsen/logrus"
 )
+
+//go:embed pushgateway.yaml
+var pushgatewayTemplate string
 
 // Component is the reconciler implementation for metrics server
 type Component struct {
@@ -145,7 +149,7 @@ func (c *Component) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterC
 		tw := templatewriter.TemplateWriter{
 			Path:     filepath.Join(c.K0sVars.ManifestsDir, "metrics", "pushgateway.yaml"),
 			Name:     "pushgateway-with-ttl",
-			Template: pushGatewayTemplate,
+			Template: pushgatewayTemplate,
 			Data: map[string]string{
 				"Image": newImage,
 			},
@@ -271,85 +275,3 @@ func getClient(certFile, keyFile string) (*http.Client, error) {
 		Timeout:   time.Minute,
 	}, nil
 }
-
-const pushGatewayTemplate = `
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: k0s-system
----
-apiVersion: v1
-kind: Service
-metadata:
-  annotations:
-    prometheus.io/port: "9091"
-    prometheus.io/scrape: "true"
-  labels:
-    component: "pushgateway"
-    app: k0s-observability
-  name: k0s-pushgateway
-  namespace: k0s-system
-spec:
-  ports:
-    - name: http
-      port: 9091
-      protocol: TCP
-      targetPort: 9091
-  selector:
-    component: "pushgateway"
-    app: k0s-observability
-  type: "ClusterIP"
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  labels:
-    component: "pushgateway"
-    app: k0s-observability
-  name: k0s-pushgateway
-  namespace: k0s-system
-spec:
-  selector:
-    matchLabels:
-      component: "pushgateway"
-      app: k0s-observability
-  replicas: 1
-  template:
-    metadata:
-      labels:
-        component: "pushgateway"
-        app: k0s-observability
-    spec:
-      tolerations:
-        - key: "CriticalAddonsOnly"
-          operator: "Exists"
-        - key: "node-role.kubernetes.io/master"
-          operator: "Exists"
-          effect: "NoSchedule"
-      containers:
-        - name: prometheus-pushgateway
-          image: {{ .Image }}
-          imagePullPolicy: "IfNotPresent"
-          args: 
-          - --metric.timetolive=120s
-          ports:
-            - containerPort: 9091
-          livenessProbe:
-            httpGet:
-              path: /-/healthy
-              port: 9091
-            initialDelaySeconds: 10
-            timeoutSeconds: 10
-          readinessProbe:
-            httpGet:
-              path: /-/ready
-              port: 9091
-            initialDelaySeconds: 10
-            timeoutSeconds: 10
-          resources:
-            {}
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 65534
-`
