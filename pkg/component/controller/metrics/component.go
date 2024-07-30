@@ -27,8 +27,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"k8s.io/client-go/rest"
-
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/templatewriter"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
@@ -36,6 +34,10 @@ import (
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/kubernetes"
+
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/rest"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -228,24 +230,15 @@ func (c *Component) newJob(name, scrapeURL string) (*job, error) {
 func (c *Component) run(ctx context.Context, j *job) {
 	j.log.Debugf("Running %s job", j.name)
 
-	t := time.NewTicker(time.Second * 30)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
+	wait.NonSlidingUntilWithContext(ctx, func(ctx context.Context) {
+		// Only start scraping if the pushgateway has been deployed
+		if c.activeImage.Load() == nil {
 			return
-		case <-t.C:
-			// Only start scraping if the pushgateway has been deployed
-			if c.activeImage.Load() == nil {
-				continue
-			}
-
-			err := c.collectAndPush(ctx, j)
-			if err != nil {
-				j.log.Error(err)
-			}
 		}
-	}
+		if err := c.collectAndPush(ctx, j); err != nil {
+			j.log.WithError(err).Error("Failed to collect metrics")
+		}
+	}, time.Second*30)
 }
 func (j *job) pushURL() string {
 	pushAddress := fmt.Sprintf("/api/v1/namespaces/%s/services/http:%s:http/proxy", namespace, pushGatewayName)
