@@ -28,6 +28,7 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/constant"
+
 	"github.com/spf13/pflag"
 )
 
@@ -42,26 +43,25 @@ const (
 // Some of the variables are duplicates of the ones in the CLIOptions struct
 // for historical and convenience reasons.
 type CfgVars struct {
-	InvocationID               string              // Unique ID for this invocation of k0s
-	AdminKubeConfigPath        string              // The cluster admin kubeconfig location
-	BinDir                     string              // location for all pki related binaries
-	CertRootDir                string              // CertRootDir defines the root location for all pki related artifacts
-	DataDir                    string              // Data directory containing k0s state
-	EtcdCertDir                string              // EtcdCertDir contains etcd certificates
-	EtcdDataDir                string              // EtcdDataDir contains etcd state
-	KineSocketPath             string              // The unix socket path for kine
-	KonnectivitySocketDir      string              // location of konnectivity's socket path
-	KubeletAuthConfigPath      string              // KubeletAuthConfigPath defines the default kubelet auth config path
-	KubeletVolumePluginDir     string              // location for kubelet plugins volume executables
-	ManifestsDir               string              // location for all stack manifests
-	RunDir                     string              // location of supervised pid files and sockets
-	KonnectivityKubeConfigPath string              // location for konnectivity kubeconfig
-	OCIBundleDir               string              // location for OCI bundles
-	DefaultStorageType         v1beta1.StorageType // Default backend storage
-	RuntimeConfigPath          string              // A static copy of the config loaded at startup
-	StatusSocketPath           string              // The unix socket path for k0s status API
-	StartupConfigPath          string              // The path to the config file used at startup
-	EnableDynamicConfig        bool                // EnableDynamicConfig enables dynamic config
+	InvocationID               string // Unique ID for this invocation of k0s
+	AdminKubeConfigPath        string // The cluster admin kubeconfig location
+	BinDir                     string // location for all pki related binaries
+	CertRootDir                string // CertRootDir defines the root location for all pki related artifacts
+	DataDir                    string // Data directory containing k0s state
+	EtcdCertDir                string // EtcdCertDir contains etcd certificates
+	EtcdDataDir                string // EtcdDataDir contains etcd state
+	KineSocketPath             string // The unix socket path for kine
+	KonnectivitySocketDir      string // location of konnectivity's socket path
+	KubeletAuthConfigPath      string // KubeletAuthConfigPath defines the default kubelet auth config path
+	KubeletVolumePluginDir     string // location for kubelet plugins volume executables
+	ManifestsDir               string // location for all stack manifests
+	RunDir                     string // location of supervised pid files and sockets
+	KonnectivityKubeConfigPath string // location for konnectivity kubeconfig
+	OCIBundleDir               string // location for OCI bundles
+	RuntimeConfigPath          string // A static copy of the config loaded at startup
+	StatusSocketPath           string // The unix socket path for k0s status API
+	StartupConfigPath          string // The path to the config file used at startup
+	EnableDynamicConfig        bool   // EnableDynamicConfig enables dynamic config
 
 	// Helm config
 	HelmHome             string
@@ -71,6 +71,8 @@ type CfgVars struct {
 	stdin      io.Reader
 	nodeConfig *v1beta1.ClusterConfig
 	origin     CfgVarsOriginType
+
+	singleNode *bool
 }
 
 func (c *CfgVars) DeepCopy() *CfgVars {
@@ -117,16 +119,10 @@ func WithCommand(cmd command) CfgVarOption {
 			c.EnableDynamicConfig = f
 		}
 
-		if f, err := flags.GetBool("single"); err == nil && f {
-			c.DefaultStorageType = v1beta1.KineStorageType
-		} else {
-			c.DefaultStorageType = v1beta1.EtcdStorageType
+		if f, err := flags.GetBool("single"); err == nil {
+			c.singleNode = &f
 		}
 	}
-}
-
-func (c *CfgVars) SetNodeConfig(cfg *v1beta1.ClusterConfig) {
-	c.nodeConfig = cfg
 }
 
 func DefaultCfgVars() *CfgVars {
@@ -217,7 +213,7 @@ func (c *CfgVars) Cleanup() error {
 }
 
 func (c *CfgVars) defaultStorageSpec() *v1beta1.StorageSpec {
-	if c.DefaultStorageType == v1beta1.KineStorageType {
+	if c.singleNode != nil && *c.singleNode {
 		return &v1beta1.StorageSpec{
 			Type: v1beta1.KineStorageType,
 			Kine: v1beta1.DefaultKineConfig(c.DataDir),
