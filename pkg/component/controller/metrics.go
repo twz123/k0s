@@ -17,21 +17,23 @@ limitations under the License.
 package controller
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"time"
 
 	"k8s.io/client-go/rest"
 
+	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/templatewriter"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/config"
+	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/sirupsen/logrus"
 )
@@ -47,7 +49,6 @@ type Metrics struct {
 
 	hostname    string
 	K0sVars     *config.CfgVars
-	saver       manifestsSaver
 	restClient  rest.Interface
 	storageType v1beta1.StorageType
 
@@ -60,7 +61,7 @@ var _ manager.Component = (*Metrics)(nil)
 var _ manager.Reconciler = (*Metrics)(nil)
 
 // NewMetrics creates new Metrics reconciler
-func NewMetrics(k0sVars *config.CfgVars, saver manifestsSaver, clientCF kubernetes.ClientFactoryInterface, storageType v1beta1.StorageType) (*Metrics, error) {
+func NewMetrics(k0sVars *config.CfgVars, clientCF kubernetes.ClientFactoryInterface, storageType v1beta1.StorageType) (*Metrics, error) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		return nil, err
@@ -76,13 +77,16 @@ func NewMetrics(k0sVars *config.CfgVars, saver manifestsSaver, clientCF kubernet
 		storageType: storageType,
 		hostname:    hostname,
 		K0sVars:     k0sVars,
-		saver:       saver,
 		restClient:  restClient,
 	}, nil
 }
 
 // Init does nothing
 func (m *Metrics) Init(_ context.Context) error {
+	if err := dir.Init(filepath.Join(m.K0sVars.ManifestsDir, "metrics"), constant.ManifestsDirMode); err != nil {
+		return err
+	}
+
 	var j *job
 	j, err := m.newJob("kube-scheduler", "https://localhost:10259/metrics")
 	if err != nil {
@@ -140,6 +144,7 @@ func (m *Metrics) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterCon
 
 	if m.clusterConfig == nil || clusterConfig.Spec.Images.PushGateway.URI() != m.clusterConfig.Spec.Images.PushGateway.URI() {
 		tw := templatewriter.TemplateWriter{
+			Path:     filepath.Join(m.K0sVars.ManifestsDir, "metrics", "pushgateway.yaml"),
 			Name:     "pushgateway-with-ttl",
 			Template: pushGatewayTemplate,
 			Data: map[string]string{
@@ -148,15 +153,10 @@ func (m *Metrics) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterCon
 				"Image":     clusterConfig.Spec.Images.PushGateway.URI(),
 			},
 		}
-		output := bytes.NewBuffer([]byte{})
-		err := tw.WriteToBuffer(output)
-		if err != nil {
+		if err := tw.Write(); err != nil {
 			return err
 		}
-		err = m.saver.Save("pushgateway.yaml", output.Bytes())
-		if err != nil {
-			return err
-		}
+		m.log.Debug("Wrote pushgateway manifest")
 	}
 
 	// We just store the last known config
