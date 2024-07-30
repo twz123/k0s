@@ -124,7 +124,7 @@ func (c *Component) Start(ctx context.Context) error {
 	ctx, c.tickerDone = context.WithCancel(ctx)
 
 	for _, j := range c.jobs {
-		go j.Run(ctx)
+		go c.run(ctx, j)
 	}
 
 	return nil
@@ -159,10 +159,6 @@ func (c *Component) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterC
 		c.log.Debug("Wrote pushgateway manifest")
 	}
 
-	// We just store the last known config
-	for _, j := range c.jobs {
-		j.clusterConfig = clusterConfig
-	}
 	c.clusterConfig = clusterConfig
 	return nil
 }
@@ -170,12 +166,10 @@ func (c *Component) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterC
 type job struct {
 	log logrus.FieldLogger
 
-	scrapeURL     string
-	name          string
-	hostname      string
-	clusterConfig *v1beta1.ClusterConfig
-	scrapeClient  *http.Client
-	restClient    rest.Interface
+	scrapeURL    string
+	name         string
+	hostname     string
+	scrapeClient *http.Client
 }
 
 func (c *Component) newEtcdJob() (*job, error) {
@@ -193,7 +187,6 @@ func (c *Component) newEtcdJob() (*job, error) {
 		name:         "etcd",
 		hostname:     c.hostname,
 		scrapeClient: httpClient,
-		restClient:   c.restClient,
 	}, nil
 }
 
@@ -209,7 +202,6 @@ func (c *Component) newKineJob() (*job, error) {
 		name:         "kine",
 		hostname:     c.hostname,
 		scrapeClient: httpClient,
-		restClient:   c.restClient,
 	}, nil
 }
 
@@ -228,11 +220,10 @@ func (c *Component) newJob(name, scrapeURL string) (*job, error) {
 		name:         name,
 		hostname:     c.hostname,
 		scrapeClient: httpClient,
-		restClient:   c.restClient,
 	}, nil
 }
 
-func (j *job) Run(ctx context.Context) {
+func (c *Component) run(ctx context.Context, j *job) {
 	j.log.Debugf("Running %s job", j.name)
 
 	t := time.NewTicker(time.Second * 30)
@@ -242,11 +233,11 @@ func (j *job) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if j.clusterConfig == nil {
+			if c.clusterConfig == nil {
 				continue
 			}
 
-			err := j.collectAndPush(ctx)
+			err := c.collectAndPush(ctx, j)
 			if err != nil {
 				j.log.Error(err)
 			}
@@ -258,7 +249,7 @@ func (j *job) pushURL() string {
 	return fmt.Sprintf("%s/metrics/job/%s/instance/%s", pushAddress, j.name, j.hostname)
 }
 
-func (j *job) collectAndPush(ctx context.Context) error {
+func (c *Component) collectAndPush(ctx context.Context, j *job) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, j.scrapeURL, nil)
 	if err != nil {
 		return fmt.Errorf("error creating GET request for %s: %w", j.scrapeURL, err)
@@ -270,7 +261,7 @@ func (j *job) collectAndPush(ctx context.Context) error {
 	}
 	defer resp.Body.Close()
 
-	res := j.restClient.Post().AbsPath(j.pushURL()).Body(resp.Body).Do(ctx)
+	res := c.restClient.Post().AbsPath(j.pushURL()).Body(resp.Body).Do(ctx)
 	if res.Error() != nil {
 		return fmt.Errorf("error sending POST request for job %s: %w", j.name, res.Error())
 	}
