@@ -486,7 +486,7 @@ func (c *command) start(ctx context.Context) error {
 	}
 
 	if c.EnableMetricsScraper {
-		metrics, err := metrics.NewMetrics(c.K0sVars, adminClientFactory, nodeConfig.Spec.Storage.Type)
+		metrics, err := metrics.NewComponent(c.K0sVars, adminClientFactory, nodeConfig.Spec.Storage.Type)
 		if err != nil {
 			return fmt.Errorf("failed to create metrics reconciler: %w", err)
 		}
