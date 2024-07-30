@@ -24,6 +24,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"k8s.io/client-go/rest"
@@ -52,9 +53,9 @@ type Component struct {
 	restClient  rest.Interface
 	storageType v1beta1.StorageType
 
-	clusterConfig *v1beta1.ClusterConfig
-	tickerDone    context.CancelFunc
-	jobs          []*job
+	activeImage atomic.Pointer[string]
+	tickerDone  context.CancelFunc
+	jobs        []*job
 }
 
 var _ manager.Component = (*Component)(nil)
@@ -142,7 +143,8 @@ func (c *Component) Stop() error {
 func (c *Component) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterConfig) error {
 	c.log.Debug("reconcile method called for: Metrics")
 
-	if c.clusterConfig == nil || clusterConfig.Spec.Images.PushGateway.URI() != c.clusterConfig.Spec.Images.PushGateway.URI() {
+	activeImage, newImage := c.activeImage.Load(), clusterConfig.Spec.Images.PushGateway.URI()
+	if activeImage == nil || newImage != *activeImage {
 		tw := templatewriter.TemplateWriter{
 			Path:     filepath.Join(c.K0sVars.ManifestsDir, "metrics", "pushgateway.yaml"),
 			Name:     "pushgateway-with-ttl",
@@ -150,16 +152,16 @@ func (c *Component) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterC
 			Data: map[string]string{
 				"Namespace": namespace,
 				"Name":      pushGatewayName,
-				"Image":     clusterConfig.Spec.Images.PushGateway.URI(),
+				"Image":     newImage,
 			},
 		}
 		if err := tw.Write(); err != nil {
 			return err
 		}
+		c.activeImage.Store(&newImage)
 		c.log.Debug("Wrote pushgateway manifest")
 	}
 
-	c.clusterConfig = clusterConfig
 	return nil
 }
 
@@ -233,7 +235,8 @@ func (c *Component) run(ctx context.Context, j *job) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if c.clusterConfig == nil {
+			// Only start scraping if the pushgateway has been deployed
+			if c.activeImage.Load() == nil {
 				continue
 			}
 
