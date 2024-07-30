@@ -115,7 +115,7 @@ func TestWithCommand_DefaultsAndOverrides(t *testing.T) {
 		c := &CfgVars{}
 		WithCommand(&FakeCommand{flagSet: fakeFlags})(c)
 
-		assert.Equal(t, tc.expectedStorageType, c.DefaultStorageType, tc.name)
+		assert.Equal(t, tc.expectedStorageType, c.defaultStorageSpec().Type, tc.name)
 	}
 }
 
