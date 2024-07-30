@@ -43,8 +43,8 @@ const (
 	pushGatewayName = "k0s-pushgateway"
 )
 
-// Metrics is the reconciler implementation for metrics server
-type Metrics struct {
+// Component is the reconciler implementation for metrics server
+type Component struct {
 	log logrus.FieldLogger
 
 	hostname    string
@@ -57,11 +57,11 @@ type Metrics struct {
 	jobs          []*job
 }
 
-var _ manager.Component = (*Metrics)(nil)
-var _ manager.Reconciler = (*Metrics)(nil)
+var _ manager.Component = (*Component)(nil)
+var _ manager.Reconciler = (*Component)(nil)
 
-// NewMetrics creates new Metrics reconciler
-func NewMetrics(k0sVars *config.CfgVars, clientCF kubernetes.ClientFactoryInterface, storageType v1beta1.StorageType) (*Metrics, error) {
+// NewComponent creates new Metrics reconciler
+func NewComponent(k0sVars *config.CfgVars, clientCF kubernetes.ClientFactoryInterface, storageType v1beta1.StorageType) (*Component, error) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		return nil, err
@@ -72,7 +72,7 @@ func NewMetrics(k0sVars *config.CfgVars, clientCF kubernetes.ClientFactoryInterf
 		return nil, fmt.Errorf("error getting REST client for metrics: %w", err)
 	}
 
-	return &Metrics{
+	return &Component{
 		log:         logrus.WithFields(logrus.Fields{"component": "metrics"}),
 		storageType: storageType,
 		hostname:    hostname,
@@ -82,48 +82,48 @@ func NewMetrics(k0sVars *config.CfgVars, clientCF kubernetes.ClientFactoryInterf
 }
 
 // Init does nothing
-func (m *Metrics) Init(_ context.Context) error {
-	if err := dir.Init(filepath.Join(m.K0sVars.ManifestsDir, "metrics"), constant.ManifestsDirMode); err != nil {
+func (c *Component) Init(_ context.Context) error {
+	if err := dir.Init(filepath.Join(c.K0sVars.ManifestsDir, "metrics"), constant.ManifestsDirMode); err != nil {
 		return err
 	}
 
 	var j *job
-	j, err := m.newJob("kube-scheduler", "https://localhost:10259/metrics")
+	j, err := c.newJob("kube-scheduler", "https://localhost:10259/metrics")
 	if err != nil {
 		return err
 	}
-	m.jobs = append(m.jobs, j)
+	c.jobs = append(c.jobs, j)
 
-	j, err = m.newJob("kube-controller-manager", "https://localhost:10257/metrics")
+	j, err = c.newJob("kube-controller-manager", "https://localhost:10257/metrics")
 	if err != nil {
 		return err
 	}
-	m.jobs = append(m.jobs, j)
+	c.jobs = append(c.jobs, j)
 
-	if m.storageType == v1beta1.EtcdStorageType {
-		etcdJob, err := m.newEtcdJob()
+	if c.storageType == v1beta1.EtcdStorageType {
+		etcdJob, err := c.newEtcdJob()
 		if err != nil {
 			return err
 		}
-		m.jobs = append(m.jobs, etcdJob)
+		c.jobs = append(c.jobs, etcdJob)
 	}
 
-	if m.storageType == v1beta1.KineStorageType {
-		kineJob, err := m.newKineJob()
+	if c.storageType == v1beta1.KineStorageType {
+		kineJob, err := c.newKineJob()
 		if err != nil {
 			return err
 		}
-		m.jobs = append(m.jobs, kineJob)
+		c.jobs = append(c.jobs, kineJob)
 	}
 
 	return nil
 }
 
 // Run runs the metric server reconciler
-func (m *Metrics) Start(ctx context.Context) error {
-	ctx, m.tickerDone = context.WithCancel(ctx)
+func (c *Component) Start(ctx context.Context) error {
+	ctx, c.tickerDone = context.WithCancel(ctx)
 
-	for _, j := range m.jobs {
+	for _, j := range c.jobs {
 		go j.Run(ctx)
 	}
 
@@ -131,20 +131,20 @@ func (m *Metrics) Start(ctx context.Context) error {
 }
 
 // Stop stops the reconciler
-func (m *Metrics) Stop() error {
-	if m.tickerDone != nil {
-		m.tickerDone()
+func (c *Component) Stop() error {
+	if c.tickerDone != nil {
+		c.tickerDone()
 	}
 	return nil
 }
 
 // Reconcile detects changes in configuration and applies them to the component
-func (m *Metrics) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterConfig) error {
-	m.log.Debug("reconcile method called for: Metrics")
+func (c *Component) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterConfig) error {
+	c.log.Debug("reconcile method called for: Metrics")
 
-	if m.clusterConfig == nil || clusterConfig.Spec.Images.PushGateway.URI() != m.clusterConfig.Spec.Images.PushGateway.URI() {
+	if c.clusterConfig == nil || clusterConfig.Spec.Images.PushGateway.URI() != c.clusterConfig.Spec.Images.PushGateway.URI() {
 		tw := templatewriter.TemplateWriter{
-			Path:     filepath.Join(m.K0sVars.ManifestsDir, "metrics", "pushgateway.yaml"),
+			Path:     filepath.Join(c.K0sVars.ManifestsDir, "metrics", "pushgateway.yaml"),
 			Name:     "pushgateway-with-ttl",
 			Template: pushGatewayTemplate,
 			Data: map[string]string{
@@ -156,14 +156,14 @@ func (m *Metrics) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterCon
 		if err := tw.Write(); err != nil {
 			return err
 		}
-		m.log.Debug("Wrote pushgateway manifest")
+		c.log.Debug("Wrote pushgateway manifest")
 	}
 
 	// We just store the last known config
-	for _, j := range m.jobs {
+	for _, j := range c.jobs {
 		j.clusterConfig = clusterConfig
 	}
-	m.clusterConfig = clusterConfig
+	c.clusterConfig = clusterConfig
 	return nil
 }
 
@@ -178,9 +178,9 @@ type job struct {
 	restClient    rest.Interface
 }
 
-func (m *Metrics) newEtcdJob() (*job, error) {
-	certFile := path.Join(m.K0sVars.CertRootDir, "apiserver-etcd-client.crt")
-	keyFile := path.Join(m.K0sVars.CertRootDir, "apiserver-etcd-client.key")
+func (c *Component) newEtcdJob() (*job, error) {
+	certFile := path.Join(c.K0sVars.CertRootDir, "apiserver-etcd-client.crt")
+	keyFile := path.Join(c.K0sVars.CertRootDir, "apiserver-etcd-client.key")
 
 	httpClient, err := getClient(certFile, keyFile)
 	if err != nil {
@@ -188,34 +188,34 @@ func (m *Metrics) newEtcdJob() (*job, error) {
 	}
 
 	return &job{
-		log:          m.log.WithField("metrics_job", "etcd"),
+		log:          c.log.WithField("metrics_job", "etcd"),
 		scrapeURL:    "https://localhost:2379/metrics",
 		name:         "etcd",
-		hostname:     m.hostname,
+		hostname:     c.hostname,
 		scrapeClient: httpClient,
-		restClient:   m.restClient,
+		restClient:   c.restClient,
 	}, nil
 }
 
-func (m *Metrics) newKineJob() (*job, error) {
+func (c *Component) newKineJob() (*job, error) {
 	httpClient, err := getClient("", "")
 	if err != nil {
 		return nil, err
 	}
 
 	return &job{
-		log:          m.log.WithField("metrics_job", "kine"),
+		log:          c.log.WithField("metrics_job", "kine"),
 		scrapeURL:    "http://localhost:2380/metrics",
 		name:         "kine",
-		hostname:     m.hostname,
+		hostname:     c.hostname,
 		scrapeClient: httpClient,
-		restClient:   m.restClient,
+		restClient:   c.restClient,
 	}, nil
 }
 
-func (m *Metrics) newJob(name, scrapeURL string) (*job, error) {
-	certFile := path.Join(m.K0sVars.CertRootDir, "admin.crt")
-	keyFile := path.Join(m.K0sVars.CertRootDir, "admin.key")
+func (c *Component) newJob(name, scrapeURL string) (*job, error) {
+	certFile := path.Join(c.K0sVars.CertRootDir, "admin.crt")
+	keyFile := path.Join(c.K0sVars.CertRootDir, "admin.key")
 
 	httpClient, err := getClient(certFile, keyFile)
 	if err != nil {
@@ -223,12 +223,12 @@ func (m *Metrics) newJob(name, scrapeURL string) (*job, error) {
 	}
 
 	return &job{
-		log:          m.log.WithField("metrics_job", name),
+		log:          c.log.WithField("metrics_job", name),
 		scrapeURL:    scrapeURL,
 		name:         name,
-		hostname:     m.hostname,
+		hostname:     c.hostname,
 		scrapeClient: httpClient,
-		restClient:   m.restClient,
+		restClient:   c.restClient,
 	}, nil
 }
 
