@@ -58,7 +58,7 @@ type Component struct {
 
 	activeImage atomic.Pointer[string]
 	tickerDone  context.CancelFunc
-	jobs        []*job
+	jobs        map[string]Scraper
 }
 
 var _ manager.Component = (*Component)(nil)
@@ -82,6 +82,7 @@ func NewComponent(k0sVars *config.CfgVars, clientCF kubernetes.ClientFactoryInte
 		hostname:    hostname,
 		K0sVars:     k0sVars,
 		restClient:  restClient,
+		jobs:        make(map[string]Scraper),
 	}, nil
 }
 
@@ -92,24 +93,24 @@ func (c *Component) Init(_ context.Context) error {
 	}
 
 	var j *job
-	j, err := c.newJob("kube-scheduler", "https://localhost:10259/metrics")
+	j, err := c.newJob("https://localhost:10259/metrics")
 	if err != nil {
 		return err
 	}
-	c.jobs = append(c.jobs, j)
+	c.jobs["kube-scheduler"] = j
 
-	j, err = c.newJob("kube-controller-manager", "https://localhost:10257/metrics")
+	j, err = c.newJob("https://localhost:10257/metrics")
 	if err != nil {
 		return err
 	}
-	c.jobs = append(c.jobs, j)
+	c.jobs["kube-controller-manager"] = j
 
 	if c.storageType == v1beta1.EtcdStorageType {
 		etcdJob, err := c.newEtcdJob()
 		if err != nil {
 			return err
 		}
-		c.jobs = append(c.jobs, etcdJob)
+		c.jobs["etcd"] = etcdJob
 	}
 
 	if c.storageType == v1beta1.KineStorageType {
@@ -117,7 +118,7 @@ func (c *Component) Init(_ context.Context) error {
 		if err != nil {
 			return err
 		}
-		c.jobs = append(c.jobs, kineJob)
+		c.jobs["kine"] = kineJob
 	}
 
 	return nil
@@ -127,8 +128,8 @@ func (c *Component) Init(_ context.Context) error {
 func (c *Component) Start(ctx context.Context) error {
 	ctx, c.tickerDone = context.WithCancel(ctx)
 
-	for _, j := range c.jobs {
-		go c.run(ctx, j)
+	for jobName, scraper := range c.jobs {
+		go c.run(ctx, jobName, scraper)
 	}
 
 	return nil
@@ -168,7 +169,6 @@ func (c *Component) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterC
 
 type job struct {
 	scrapeURL    string
-	name         string
 	scrapeClient *http.Client
 }
 
@@ -183,7 +183,6 @@ func (c *Component) newEtcdJob() (*job, error) {
 
 	return &job{
 		scrapeURL:    "https://localhost:2379/metrics",
-		name:         "etcd",
 		scrapeClient: httpClient,
 	}, nil
 }
@@ -196,12 +195,11 @@ func (c *Component) newKineJob() (*job, error) {
 
 	return &job{
 		scrapeURL:    "http://localhost:2380/metrics",
-		name:         "kine",
 		scrapeClient: httpClient,
 	}, nil
 }
 
-func (c *Component) newJob(name, scrapeURL string) (*job, error) {
+func (c *Component) newJob(scrapeURL string) (*job, error) {
 	certFile := path.Join(c.K0sVars.CertRootDir, "admin.crt")
 	keyFile := path.Join(c.K0sVars.CertRootDir, "admin.key")
 
@@ -212,13 +210,12 @@ func (c *Component) newJob(name, scrapeURL string) (*job, error) {
 
 	return &job{
 		scrapeURL:    scrapeURL,
-		name:         name,
 		scrapeClient: httpClient,
 	}, nil
 }
 
-func (c *Component) run(ctx context.Context, j *job) {
-	log := c.log.WithField("metrics_job", j.name)
+func (c *Component) run(ctx context.Context, jobName string, s Scraper) {
+	log := c.log.WithField("metrics_job", jobName)
 	log.Debug("Running job")
 	defer log.Debug("Stopped job")
 
@@ -227,26 +224,27 @@ func (c *Component) run(ctx context.Context, j *job) {
 		if c.activeImage.Load() == nil {
 			return
 		}
-		if err := c.collectAndPush(ctx, j); err != nil {
+		if err := c.collectAndPush(ctx, jobName, s); err != nil {
 			log.WithError(err).Error("Failed to collect metrics")
 		}
 	}, time.Second*30)
 }
 
-func (c *Component) collectAndPush(ctx context.Context, j *job) error {
-	metrics, err := j.Scrape(ctx)
+func (c *Component) collectAndPush(ctx context.Context, jobName string, s Scraper) error {
+	metrics, err := s.Scrape(ctx)
 	if err != nil {
 		return err
 	}
 
-	res := c.restClient.Post().Prefix("api", "v1").
+	if err := c.restClient.Post().Prefix("api", "v1").
 		Resource("services").Namespace("k0s-system").Name("http:k0s-pushgateway:http").
-		SubResource("proxy").Suffix("metrics", "job", j.name, "instance", c.hostname).
+		SubResource("proxy").Suffix("metrics", "job", jobName, "instance", c.hostname).
 		Body(metrics).
-		Do(ctx)
-	if res.Error() != nil {
-		return fmt.Errorf("error sending POST request for job %s: %w", j.name, res.Error())
+		Do(ctx).
+		Error(); err != nil {
+		return fmt.Errorf("failed to push metrics: %w", err)
 	}
+
 	return nil
 }
 
