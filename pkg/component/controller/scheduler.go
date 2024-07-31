@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 
 	"github.com/sirupsen/logrus"
@@ -82,7 +83,7 @@ func (a *Scheduler) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterC
 		"authorization-kubeconfig":  schedulerAuthConf,
 		"kubeconfig":                schedulerAuthConf,
 		"bind-address":              "127.0.0.1",
-		"leader-elect":              "true",
+		"leader-elect":              fmt.Sprint(!a.SingleNode),
 		"profiling":                 "false",
 		"v":                         a.LogLevel,
 	}
@@ -91,9 +92,6 @@ func (a *Scheduler) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterC
 			logrus.Warnf("overriding kube-scheduler flag with user provided value: %s", name)
 		}
 		args[name] = value
-	}
-	if a.SingleNode {
-		args["leader-elect"] = "false"
 	}
 	args = clusterConfig.Spec.FeatureGates.BuildArgs(args, kubeSchedulerComponentName)
 
