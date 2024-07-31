@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -47,15 +48,6 @@ type Manager struct {
 	supervisor     *supervisor.Supervisor
 	uid, gid       int
 	previousConfig stringmap.StringMap
-}
-
-var cmDefaultArgs = stringmap.StringMap{
-	"allocate-node-cidrs":             "true",
-	"bind-address":                    "127.0.0.1",
-	"cluster-name":                    "k0s",
-	"controllers":                     "*,bootstrapsigner,tokencleaner",
-	"leader-elect":                    "true",
-	"use-service-account-credentials": "true",
 }
 
 const kubeControllerManagerComponent = "kube-controller-manager"
@@ -92,12 +84,18 @@ func (a *Manager) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterCon
 		"authentication-kubeconfig":        ccmAuthConf,
 		"authorization-kubeconfig":         ccmAuthConf,
 		"kubeconfig":                       ccmAuthConf,
+		"bind-address":                     "127.0.0.1",
 		"client-ca-file":                   path.Join(a.K0sVars.CertRootDir, "ca.crt"),
 		"cluster-signing-cert-file":        path.Join(a.K0sVars.CertRootDir, "ca.crt"),
 		"cluster-signing-key-file":         path.Join(a.K0sVars.CertRootDir, "ca.key"),
 		"requestheader-client-ca-file":     path.Join(a.K0sVars.CertRootDir, "front-proxy-ca.crt"),
 		"root-ca-file":                     path.Join(a.K0sVars.CertRootDir, "ca.crt"),
+		"cluster-name":                     "k0s",
+		"controllers":                      "*,bootstrapsigner,tokencleaner",
+		"leader-elect":                     fmt.Sprint(!a.SingleNode),
+		"use-service-account-credentials":  "true",
 		"service-account-private-key-file": path.Join(a.K0sVars.CertRootDir, "sa.key"),
+		"allocate-node-cidrs":              "true",
 		"cluster-cidr":                     clusterConfig.Spec.Network.BuildPodCIDR(),
 		"service-cluster-ip-range":         a.ServiceClusterIPRange,
 		"profiling":                        "false",
@@ -123,14 +121,6 @@ func (a *Manager) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterCon
 			logger.Warnf("overriding kube-controller-manager flag with user provided value: %s", name)
 		}
 		args[name] = value
-	}
-	for name, value := range cmDefaultArgs {
-		if args[name] == "" {
-			args[name] = value
-		}
-	}
-	if a.SingleNode {
-		args["leader-elect"] = "false"
 	}
 
 	args = clusterConfig.Spec.FeatureGates.BuildArgs(args, kubeControllerManagerComponent)
