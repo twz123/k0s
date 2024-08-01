@@ -256,10 +256,7 @@ func (e *Etcd) Stop() error {
 }
 
 func (e *Etcd) setupCerts(ctx context.Context) error {
-	etcdCaCert := filepath.Join(e.K0sVars.EtcdCertDir, "ca.crt")
-	etcdCaCertKey := filepath.Join(e.K0sVars.EtcdCertDir, "ca.key")
-
-	if err := e.CertManager.EnsureCA("etcd/ca", "etcd-ca"); err != nil {
+	if _, err := e.CertManager.EnsureCA("etcd/ca", "etcd-ca"); err != nil {
 		return fmt.Errorf("failed to create etcd ca: %w", err)
 	}
 
@@ -268,11 +265,10 @@ func (e *Etcd) setupCerts(ctx context.Context) error {
 	eg.Go(func() error {
 		// etcd client cert
 		etcdCertReq := certificate.Request{
-			Name:   "apiserver-etcd-client",
-			CN:     "apiserver-etcd-client",
-			O:      "apiserver-etcd-client",
-			CACert: etcdCaCert,
-			CAKey:  etcdCaCertKey,
+			Name: "apiserver-etcd-client",
+			CN:   "apiserver-etcd-client",
+			O:    "apiserver-etcd-client",
+			CA:   "etcd/ca",
 			Hostnames: []string{
 				"127.0.0.1",
 				"localhost",
@@ -285,11 +281,10 @@ func (e *Etcd) setupCerts(ctx context.Context) error {
 	eg.Go(func() error {
 		// etcd server cert
 		etcdCertReq := certificate.Request{
-			Name:   filepath.Join("etcd", "server"),
-			CN:     "etcd-server",
-			O:      "etcd-server",
-			CACert: etcdCaCert,
-			CAKey:  etcdCaCertKey,
+			Name: filepath.Join("etcd", "server"),
+			CN:   "etcd-server",
+			O:    "etcd-server",
+			CA:   "etcd/ca",
 			Hostnames: []string{
 				"127.0.0.1",
 				"localhost",
@@ -301,11 +296,10 @@ func (e *Etcd) setupCerts(ctx context.Context) error {
 
 	eg.Go(func() error {
 		etcdPeerCertReq := certificate.Request{
-			Name:   filepath.Join("etcd", "peer"),
-			CN:     e.Config.PeerAddress,
-			O:      "etcd-peer",
-			CACert: etcdCaCert,
-			CAKey:  etcdCaCertKey,
+			Name: filepath.Join("etcd", "peer"),
+			CN:   e.Config.PeerAddress,
+			O:    "etcd-peer",
+			CA:   "etcd/ca",
 			Hostnames: []string{
 				e.Config.PeerAddress,
 			},
