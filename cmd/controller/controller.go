@@ -26,6 +26,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"sync"
 	"syscall"
 	"time"
 
@@ -34,6 +35,7 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	k0slog "github.com/k0sproject/k0s/internal/pkg/log"
+	internalnet "github.com/k0sproject/k0s/internal/pkg/net"
 	"github.com/k0sproject/k0s/internal/pkg/sysinfo"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/applier"
@@ -482,8 +484,16 @@ func (c *command) start(ctx context.Context) error {
 		clusterComponents.Add(ctx, controller.NewMetricServer(c.K0sVars, adminClientFactory))
 	}
 
+	loopbackIP := sync.OnceValue(func() net.IP {
+		ip, err := internalnet.LookupLoopbackIP(ctx)
+		if err != nil {
+			logrus.WithError(err).Warnf("Using %s as loopback address", ip)
+		}
+		return ip
+	})
+
 	if c.EnableMetricsScraper {
-		metrics, err := metrics.NewComponent(c.K0sVars, adminClientFactory, nodeConfig.Spec.Storage.Type)
+		metrics, err := metrics.NewComponent(c.K0sVars, loopbackIP(), adminClientFactory, nodeConfig.Spec.Storage.Type)
 		if err != nil {
 			return fmt.Errorf("failed to create metrics reconciler: %w", err)
 		}
@@ -525,9 +535,10 @@ func (c *command) start(ctx context.Context) error {
 
 	if !slices.Contains(c.DisableComponents, constant.KubeSchedulerComponentName) {
 		clusterComponents.Add(ctx, &controller.Scheduler{
-			LogLevel:   c.LogLevels.KubeScheduler,
-			K0sVars:    c.K0sVars,
-			SingleNode: c.SingleNode,
+			LogLevel:    c.LogLevels.KubeScheduler,
+			K0sVars:     c.K0sVars,
+			SingleNode:  c.SingleNode,
+			BindAddress: loopbackIP(),
 		})
 	}
 
@@ -536,6 +547,7 @@ func (c *command) start(ctx context.Context) error {
 			LogLevel:              c.LogLevels.KubeControllerManager,
 			K0sVars:               c.K0sVars,
 			SingleNode:            c.SingleNode,
+			BindAddress:           loopbackIP(),
 			ServiceClusterIPRange: nodeConfig.Spec.Network.BuildServiceCIDR(nodeConfig.Spec.API.Address),
 			ExtraArgs:             c.KubeControllerManagerExtraArgs,
 		})

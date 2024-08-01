@@ -22,6 +22,7 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -52,6 +53,7 @@ type Component struct {
 	log logrus.FieldLogger
 
 	hostname    string
+	loopbackIP  net.IP
 	K0sVars     *config.CfgVars
 	restClient  rest.Interface
 	storageType v1beta1.StorageType
@@ -65,7 +67,7 @@ var _ manager.Component = (*Component)(nil)
 var _ manager.Reconciler = (*Component)(nil)
 
 // NewComponent creates new Metrics reconciler
-func NewComponent(k0sVars *config.CfgVars, clientCF kubernetes.ClientFactoryInterface, storageType v1beta1.StorageType) (*Component, error) {
+func NewComponent(k0sVars *config.CfgVars, loopbackIP net.IP, clientCF kubernetes.ClientFactoryInterface, storageType v1beta1.StorageType) (*Component, error) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		return nil, err
@@ -80,6 +82,7 @@ func NewComponent(k0sVars *config.CfgVars, clientCF kubernetes.ClientFactoryInte
 		log:         logrus.WithFields(logrus.Fields{"component": "metrics"}),
 		storageType: storageType,
 		hostname:    hostname,
+		loopbackIP:  loopbackIP,
 		K0sVars:     k0sVars,
 		restClient:  restClient,
 		jobs:        make(map[string]Scraper),
@@ -93,13 +96,13 @@ func (c *Component) Init(_ context.Context) error {
 	}
 
 	var j *job
-	j, err := c.newJob("https://localhost:10259/metrics")
+	j, err := c.newJob("https://" + net.JoinHostPort(c.loopbackIP.String(), "10259") + "/metrics")
 	if err != nil {
 		return err
 	}
 	c.jobs["kube-scheduler"] = j
 
-	j, err = c.newJob("https://localhost:10257/metrics")
+	j, err = c.newJob("https://" + net.JoinHostPort(c.loopbackIP.String(), "10257") + "/metrics")
 	if err != nil {
 		return err
 	}

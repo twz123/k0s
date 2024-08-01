@@ -19,22 +19,26 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
-
-	"github.com/sirupsen/logrus"
 
 	"github.com/k0sproject/k0s/internal/pkg/flags"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
 	"github.com/k0sproject/k0s/internal/pkg/users"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/assets"
+	"github.com/k0sproject/k0s/pkg/certificate"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/supervisor"
+
+	"golang.org/x/sync/errgroup"
+
+	"github.com/sirupsen/logrus"
 )
 
 // Manager implement the component interface to run kube scheduler
@@ -42,11 +46,13 @@ type Manager struct {
 	K0sVars               *config.CfgVars
 	LogLevel              string
 	SingleNode            bool
+	BindAddress           net.IP
 	ServiceClusterIPRange string
 	ExtraArgs             string
 
 	supervisor     *supervisor.Supervisor
 	uid, gid       int
+	certificate    *certificate.Certificate
 	previousConfig stringmap.StringMap
 }
 
@@ -56,20 +62,47 @@ var _ manager.Component = (*Manager)(nil)
 var _ manager.Reconciler = (*Manager)(nil)
 
 // Init extracts the needed binaries
-func (a *Manager) Init(_ context.Context) error {
-	var err error
-	// controller manager running as api-server user as they both need access to same sa.key
-	a.uid, err = users.GetUID(constant.ApiserverUser)
-	if err != nil {
-		logrus.Warn("running kube-controller-manager as root: ", err)
+func (a *Manager) Init(ctx context.Context) error {
+	log := logrus.WithField("component", kubeControllerManagerComponent)
+
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.Go(func() error {
+		return assets.Stage(a.K0sVars.BinDir, kubeControllerManagerComponent, constant.BinDirMode)
+	})
+
+	eg.Go(func() (err error) {
+		// controller manager running as api-server user as they both need access to same sa.key
+		a.uid, err = users.GetUID(constant.ApiserverUser)
+		if err != nil {
+			a.uid = 0
+			log.WithError(err).Warn("Running kube-controller-manager as root")
+		}
+		return nil
+	})
+
+	eg.Go(func() (err error) {
+		req := certificate.Request{
+			Name:      kubeControllerManagerComponent,
+			CN:        kubeControllerManagerComponent,
+			O:         "kubernetes",
+			Hostnames: []string{a.BindAddress.String()},
+		}
+
+		a.certificate, err = a.K0sVars.CertManager().EnsureCertificate(req, constant.ApiserverUser)
+		return err
+	})
+
+	if err := eg.Wait(); err != nil {
+		return err
 	}
 
 	// controller manager should be the only component that needs access to
 	// ca.key so let it own it.
-	if err := os.Chown(path.Join(a.K0sVars.CertRootDir, "ca.key"), a.uid, -1); err != nil && os.Geteuid() == 0 {
-		logrus.Warn("failed to change permissions for the ca.key: ", err)
+	if err := os.Chown(filepath.Join(a.K0sVars.CertRootDir, "ca.key"), a.uid, -1); err != nil && os.Geteuid() == 0 {
+		log.WithError(err).Warn("Failed to change permissions for the CA key file")
 	}
-	return assets.Stage(a.K0sVars.BinDir, kubeControllerManagerComponent, constant.BinDirMode)
+
+	return nil
 }
 
 // Run runs kube Manager
@@ -84,7 +117,11 @@ func (a *Manager) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterCon
 		"authentication-kubeconfig":        ccmAuthConf,
 		"authorization-kubeconfig":         ccmAuthConf,
 		"kubeconfig":                       ccmAuthConf,
-		"bind-address":                     "127.0.0.1",
+		"bind-address":                     a.BindAddress.String(),
+		"tls-cert-file":                    a.certificate.CertPath,
+		"tls-private-key-file":             a.certificate.KeyPath,
+		"tls-min-version":                  "VersionTLS12",
+		"tls-cipher-suites":                constant.AllowedTLS12CipherSuiteNames(),
 		"client-ca-file":                   path.Join(a.K0sVars.CertRootDir, "ca.crt"),
 		"cluster-signing-cert-file":        path.Join(a.K0sVars.CertRootDir, "ca.crt"),
 		"cluster-signing-key-file":         path.Join(a.K0sVars.CertRootDir, "ca.key"),
