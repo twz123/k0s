@@ -39,7 +39,6 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/stringslice"
 	"github.com/k0sproject/k0s/internal/pkg/users"
-	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 )
 
@@ -61,13 +60,13 @@ type Certificate struct {
 
 // Manager is the certificate manager
 type Manager struct {
-	K0sVars *config.CfgVars
+	RootDir string
 }
 
 // EnsureCA makes sure the given CA certs and key is created.
 func (m *Manager) EnsureCA(name, cn string) error {
-	keyFile := filepath.Join(m.K0sVars.CertRootDir, fmt.Sprintf("%s.key", name))
-	certFile := filepath.Join(m.K0sVars.CertRootDir, fmt.Sprintf("%s.crt", name))
+	keyFile := filepath.Join(m.RootDir, fmt.Sprintf("%s.key", name))
+	certFile := filepath.Join(m.RootDir, fmt.Sprintf("%s.crt", name))
 
 	if file.Exists(keyFile) && file.Exists(certFile) {
 		return nil
@@ -102,8 +101,8 @@ func (m *Manager) EnsureCA(name, cn string) error {
 // EnsureCertificate creates the specified certificate if it does not already exist
 func (m *Manager) EnsureCertificate(certReq Request, ownerName string) (Certificate, error) {
 
-	keyFile := filepath.Join(m.K0sVars.CertRootDir, fmt.Sprintf("%s.key", certReq.Name))
-	certFile := filepath.Join(m.K0sVars.CertRootDir, fmt.Sprintf("%s.crt", certReq.Name))
+	keyFile := filepath.Join(m.RootDir, fmt.Sprintf("%s.key", certReq.Name))
+	certFile := filepath.Join(m.RootDir, fmt.Sprintf("%s.crt", certReq.Name))
 
 	uid, _ := users.GetUID(ownerName)
 
@@ -231,8 +230,8 @@ func isManagedByK0s(cert *certinfo.Certificate) bool {
 }
 
 func (m *Manager) CreateKeyPair(name string, owner string) error {
-	keyFile := filepath.Join(m.K0sVars.CertRootDir, fmt.Sprintf("%s.key", name))
-	pubFile := filepath.Join(m.K0sVars.CertRootDir, fmt.Sprintf("%s.pub", name))
+	keyFile := filepath.Join(m.RootDir, fmt.Sprintf("%s.key", name))
+	pubFile := filepath.Join(m.RootDir, fmt.Sprintf("%s.pub", name))
 
 	if file.Exists(keyFile) && file.Exists(pubFile) {
 		return file.Chown(keyFile, owner, constant.CertSecureMode)

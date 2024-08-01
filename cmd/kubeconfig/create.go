@@ -90,10 +90,7 @@ func createUserKubeconfig(k0sVars *config.CfgVars, clusterAPIURL, username, grou
 		CACert: filepath.Join(k0sVars.CertRootDir, "ca.crt"),
 		CAKey:  filepath.Join(k0sVars.CertRootDir, "ca.key"),
 	}
-	certManager := certificate.Manager{
-		K0sVars: k0sVars,
-	}
-	userCert, err := certManager.EnsureCertificate(userReq, "root")
+	userCert, err := k0sVars.CertManager().EnsureCertificate(userReq, "root")
 	if err != nil {
 		return nil, fmt.Errorf("failed generate user certificate: %w, check if the control plane is initialized on this node", err)
 	}

@@ -27,6 +27,7 @@ import (
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
+	"github.com/k0sproject/k0s/pkg/certificate"
 	"github.com/k0sproject/k0s/pkg/constant"
 
 	"github.com/spf13/pflag"
@@ -274,4 +275,8 @@ func (c *CfgVars) NodeConfig() (*v1beta1.ClusterConfig, error) {
 	c.nodeConfig = nodeConfig
 
 	return nodeConfig, nil
+}
+
+func (c *CfgVars) CertManager() *certificate.Manager {
+	return &certificate.Manager{RootDir: c.CertRootDir}
 }
