@@ -103,7 +103,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			return err
 		}
 
-		return c.CertManager.CreateKeyPair("sa", c.K0sVars, constant.ApiserverUser)
+		return c.CertManager.CreateKeyPair("sa", constant.ApiserverUser)
 	})
 
 	eg.Go(func() error {

@@ -108,7 +108,7 @@ func (m *Manager) EnsureCertificate(certReq Request, ownerName string) (Certific
 	uid, _ := users.GetUID(ownerName)
 
 	// if regenerateCert returns true, it means we need to create the certs
-	if m.regenerateCert(certReq, keyFile, certFile) {
+	if regenerateCert(keyFile, certFile) {
 		logrus.Debugf("creating certificate %s", certFile)
 		req := csr.CertificateRequest{
 			KeyRequest: csr.NewKeyRequest(),
@@ -194,7 +194,7 @@ func (m *Manager) EnsureCertificate(certReq Request, ownerName string) (Certific
 
 // if regenerateCert does not need to do any changes, it will return false
 // if a change in SAN hosts is detected, if will return true, to re-generate certs
-func (m *Manager) regenerateCert(certReq Request, keyFile string, certFile string) bool {
+func regenerateCert(keyFile string, certFile string) bool {
 	var cert *certinfo.Certificate
 	var err error
 
@@ -230,9 +230,9 @@ func isManagedByK0s(cert *certinfo.Certificate) bool {
 	return false
 }
 
-func (m *Manager) CreateKeyPair(name string, k0sVars *config.CfgVars, owner string) error {
-	keyFile := filepath.Join(k0sVars.CertRootDir, fmt.Sprintf("%s.key", name))
-	pubFile := filepath.Join(k0sVars.CertRootDir, fmt.Sprintf("%s.pub", name))
+func (m *Manager) CreateKeyPair(name string, owner string) error {
+	keyFile := filepath.Join(m.K0sVars.CertRootDir, fmt.Sprintf("%s.key", name))
+	pubFile := filepath.Join(m.K0sVars.CertRootDir, fmt.Sprintf("%s.pub", name))
 
 	if file.Exists(keyFile) && file.Exists(pubFile) {
 		return file.Chown(keyFile, owner, constant.CertSecureMode)
