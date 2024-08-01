@@ -131,7 +131,7 @@ func (e *envoyProxy) start(ctx context.Context, profile workerconfig.Profile, ap
 		}
 	}()
 
-	loopbackIP, err := getLoopbackIP(ctx)
+	loopbackIP, err := k0snet.LookupLoopbackIP(ctx)
 	if err != nil {
 		if errors.Is(err, ctx.Err()) {
 			return err

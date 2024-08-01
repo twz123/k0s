@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -416,21 +415,4 @@ func writePatchedKubeconfig(path string, kubeconfig *clientcmdapi.Config, server
 	}
 
 	return file.WriteContentAtomically(path, bytes, constant.CertSecureMode)
-}
-
-func getLoopbackIP(ctx context.Context) (net.IP, error) {
-	localIPs, err := net.DefaultResolver.LookupIPAddr(ctx, "localhost")
-	if err != nil {
-		err = fmt.Errorf("failed to resolve localhost: %w", err)
-	} else {
-		for _, addr := range localIPs {
-			if addr.IP.IsLoopback() {
-				return addr.IP, nil
-			}
-		}
-
-		err = fmt.Errorf("no loopback IPs found for localhost: %v", localIPs)
-	}
-
-	return net.IP{127, 0, 0, 1}, err
 }

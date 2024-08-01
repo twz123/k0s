@@ -19,18 +19,22 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net"
 	"path/filepath"
-
-	"github.com/sirupsen/logrus"
 
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
 	"github.com/k0sproject/k0s/internal/pkg/users"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/assets"
+	"github.com/k0sproject/k0s/pkg/certificate"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/supervisor"
+
+	"golang.org/x/sync/errgroup"
+
+	"github.com/sirupsen/logrus"
 )
 
 // Scheduler implement the component interface to run kube scheduler
@@ -39,8 +43,10 @@ type Scheduler struct {
 	K0sVars        *config.CfgVars
 	LogLevel       string
 	SingleNode     bool
+	BindAddress    net.IP
 	supervisor     *supervisor.Supervisor
 	uid            int
+	certificate    *certificate.Certificate
 	previousConfig stringmap.StringMap
 }
 
@@ -50,13 +56,41 @@ var _ manager.Reconciler = (*Scheduler)(nil)
 const kubeSchedulerComponentName = "kube-scheduler"
 
 // Init extracts the needed binaries
-func (a *Scheduler) Init(_ context.Context) error {
-	var err error
-	a.uid, err = users.GetUID(constant.SchedulerUser)
-	if err != nil {
-		logrus.Warn("running kube-scheduler as root: ", err)
+func (a *Scheduler) Init(ctx context.Context) error {
+	log := logrus.WithField("component", kubeSchedulerComponentName)
+
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.Go(func() error {
+		return assets.Stage(a.K0sVars.BinDir, kubeSchedulerComponentName, constant.BinDirMode)
+	})
+
+	eg.Go(func() (err error) {
+		a.uid, err = users.GetUID(constant.SchedulerUser)
+		if err != nil {
+			a.uid = 0
+			log.WithError(err).Warn("Running kube-scheduler as root")
+		}
+		return nil
+	})
+
+	eg.Go(func() (err error) {
+
+		req := certificate.Request{
+			Name:      kubeSchedulerComponentName,
+			CN:        kubeSchedulerComponentName,
+			O:         "kubernetes",
+			Hostnames: []string{a.BindAddress.String()},
+		}
+
+		a.certificate, err = a.K0sVars.CertManager().EnsureCertificate(req, constant.ApiserverUser)
+		return err
+	})
+
+	if err := eg.Wait(); err != nil {
+		return err
 	}
-	return assets.Stage(a.K0sVars.BinDir, kubeSchedulerComponentName, constant.BinDirMode)
+
+	return nil
 }
 
 // Run runs kube scheduler
@@ -82,7 +116,10 @@ func (a *Scheduler) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterC
 		"authentication-kubeconfig": schedulerAuthConf,
 		"authorization-kubeconfig":  schedulerAuthConf,
 		"kubeconfig":                schedulerAuthConf,
-		"bind-address":              "127.0.0.1",
+		"bind-address":              a.BindAddress.String(),
+		"tls-cert-file":             a.certificate.CertPath,
+		"tls-private-key-file":      a.certificate.KeyPath,
+		"tls-min-version":           "VersionTLS12",
 		"leader-elect":              fmt.Sprint(!a.SingleNode),
 		"profiling":                 "false",
 		"v":                         a.LogLevel,
