@@ -44,7 +44,8 @@ func TestKubeconfigCreate(t *testing.T) {
 
 	// Create the CA
 	require.NoError(t, os.MkdirAll(k0sVars.CertRootDir, 0755))
-	require.NoError(t, k0sVars.CertManager().EnsureCA("ca", t.Name()))
+	_, err = k0sVars.CertManager().EnsureCA("ca", t.Name())
+	require.NoError(t, err)
 
 	// Setup the kubeconfig command
 	configData, err := yaml.Marshal(cfg)

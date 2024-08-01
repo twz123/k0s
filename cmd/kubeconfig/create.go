@@ -84,11 +84,9 @@ Note: A certificate once signed cannot be revoked for a particular user`,
 
 func createUserKubeconfig(k0sVars *config.CfgVars, clusterAPIURL, username, groups string) ([]byte, error) {
 	userReq := certificate.Request{
-		Name:   username,
-		CN:     username,
-		O:      groups,
-		CACert: filepath.Join(k0sVars.CertRootDir, "ca.crt"),
-		CAKey:  filepath.Join(k0sVars.CertRootDir, "ca.key"),
+		Name: username,
+		CN:   username,
+		O:    groups,
 	}
 	userCert, err := k0sVars.CertManager().EnsureCertificate(userReq, "root")
 	if err != nil {
@@ -99,7 +97,7 @@ func createUserKubeconfig(k0sVars *config.CfgVars, clusterAPIURL, username, grou
 	kubeconfig := clientcmdapi.Config{
 		Clusters: map[string]*clientcmdapi.Cluster{k0sContextName: {
 			Server:               clusterAPIURL,
-			CertificateAuthority: userReq.CACert,
+			CertificateAuthority: filepath.Join(k0sVars.CertRootDir, "ca.crt"),
 		}},
 		Contexts: map[string]*clientcmdapi.Context{k0sContextName: {
 			Cluster:  k0sContextName,
@@ -107,8 +105,8 @@ func createUserKubeconfig(k0sVars *config.CfgVars, clusterAPIURL, username, grou
 		}},
 		CurrentContext: k0sContextName,
 		AuthInfos: map[string]*clientcmdapi.AuthInfo{username: {
-			ClientCertificateData: []byte(userCert.Cert),
-			ClientKeyData:         []byte(userCert.Key),
+			ClientCertificate: userCert.CertPath,
+			ClientKey:         userCert.KeyPath,
 		}},
 	}
 	if err := clientcmdapi.FlattenConfig(&kubeconfig); err != nil {
