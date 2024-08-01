@@ -39,7 +39,6 @@ import (
 
 // Certificates is the Component implementation to manage all k0s certs
 type Certificates struct {
-	CACert      string
 	CertManager certificate.Manager
 	ClusterSpec *v1beta1.ClusterSpec
 	K0sVars     *config.CfgVars
@@ -58,11 +57,10 @@ func (c *Certificates) Init(ctx context.Context) error {
 
 	// We need CA cert loaded to generate client configs
 	logrus.Debugf("CA key and cert exists, loading")
-	cert, err := os.ReadFile(caCertPath)
+	caData, err := os.ReadFile(caCertPath)
 	if err != nil {
 		return fmt.Errorf("failed to read ca cert: %w", err)
 	}
-	c.CACert = string(cert)
 	// Changing the URL here also requires changes in the "k0s kubeconfig admin" subcommand.
 	kubeConfigAPIUrl := fmt.Sprintf("https://localhost:%d", c.ClusterSpec.API.Port)
 	eg.Go(func() error {
@@ -99,7 +97,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			return err
 		}
 
-		if err := kubeConfig(c.K0sVars.AdminKubeConfigPath, kubeConfigAPIUrl, c.CACert, adminCert.Cert, adminCert.Key, "root"); err != nil {
+		if err := kubeConfig(c.K0sVars.AdminKubeConfigPath, kubeConfigAPIUrl, caData, adminCert.Cert, adminCert.Key, "root"); err != nil {
 			return err
 		}
 
@@ -119,7 +117,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		return kubeConfig(c.K0sVars.KonnectivityKubeConfigPath, kubeConfigAPIUrl, c.CACert, konnectivityCert.Cert, konnectivityCert.Key, constant.KonnectivityServerUser)
+		return kubeConfig(c.K0sVars.KonnectivityKubeConfigPath, kubeConfigAPIUrl, caData, konnectivityCert.Cert, konnectivityCert.Key, constant.KonnectivityServerUser)
 	})
 
 	eg.Go(func() error {
@@ -135,7 +133,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			return err
 		}
 
-		return kubeConfig(filepath.Join(c.K0sVars.CertRootDir, "ccm.conf"), kubeConfigAPIUrl, c.CACert, ccmCert.Cert, ccmCert.Key, constant.ApiserverUser)
+		return kubeConfig(filepath.Join(c.K0sVars.CertRootDir, "ccm.conf"), kubeConfigAPIUrl, caData, ccmCert.Cert, ccmCert.Key, constant.ApiserverUser)
 	})
 
 	eg.Go(func() error {
@@ -151,7 +149,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			return err
 		}
 
-		return kubeConfig(filepath.Join(c.K0sVars.CertRootDir, "scheduler.conf"), kubeConfigAPIUrl, c.CACert, schedulerCert.Cert, schedulerCert.Key, constant.SchedulerUser)
+		return kubeConfig(filepath.Join(c.K0sVars.CertRootDir, "scheduler.conf"), kubeConfigAPIUrl, caData, schedulerCert.Cert, schedulerCert.Key, constant.SchedulerUser)
 	})
 
 	eg.Go(func() error {
@@ -262,7 +260,7 @@ func detectLocalIPs(ctx context.Context) ([]string, error) {
 	return localIPs, nil
 }
 
-func kubeConfig(dest, url, caCert, clientCert, clientKey, owner string) error {
+func kubeConfig(dest, url string, caData []byte, clientCert, clientKey, owner string) error {
 	// We always overwrite the kubeconfigs as the certs might be regenerated at startup
 	const (
 		clusterName = "local"
@@ -274,7 +272,7 @@ func kubeConfig(dest, url, caCert, clientCert, clientKey, owner string) error {
 		Clusters: map[string]*clientcmdapi.Cluster{clusterName: {
 			// The server URL is replaced in the "k0s kubeconfig admin" subcommand.
 			Server:                   url,
-			CertificateAuthorityData: []byte(caCert),
+			CertificateAuthorityData: caData,
 		}},
 		Contexts: map[string]*clientcmdapi.Context{contextName: {
 			Cluster:  clusterName,
