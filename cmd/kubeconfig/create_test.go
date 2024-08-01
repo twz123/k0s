@@ -24,7 +24,6 @@ import (
 
 	"github.com/k0sproject/k0s/cmd"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
-	"github.com/k0sproject/k0s/pkg/certificate"
 	"github.com/k0sproject/k0s/pkg/config"
 
 	"k8s.io/client-go/tools/clientcmd"
@@ -45,8 +44,7 @@ func TestKubeconfigCreate(t *testing.T) {
 
 	// Create the CA
 	require.NoError(t, os.MkdirAll(k0sVars.CertRootDir, 0755))
-	certManager := certificate.Manager{K0sVars: k0sVars}
-	require.NoError(t, certManager.EnsureCA("ca", t.Name()))
+	require.NoError(t, k0sVars.CertManager().EnsureCA("ca", t.Name()))
 
 	// Setup the kubeconfig command
 	configData, err := yaml.Marshal(cfg)

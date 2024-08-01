@@ -39,7 +39,6 @@ import (
 	"github.com/k0sproject/k0s/pkg/applier"
 	apclient "github.com/k0sproject/k0s/pkg/autopilot/client"
 	"github.com/k0sproject/k0s/pkg/build"
-	"github.com/k0sproject/k0s/pkg/certificate"
 	"github.com/k0sproject/k0s/pkg/component/controller"
 	"github.com/k0sproject/k0s/pkg/component/controller/clusterconfig"
 	"github.com/k0sproject/k0s/pkg/component/controller/leaderelector"
@@ -164,8 +163,6 @@ func (c *command) start(ctx context.Context) error {
 	// common factory to get the admin kube client that's needed in many components
 	adminClientFactory := kubernetes.NewAdminClientFactory(c.K0sVars.AdminKubeConfigPath)
 
-	certificateManager := certificate.Manager{K0sVars: c.K0sVars}
-
 	var joinClient *token.JoinClient
 
 	if (c.TokenArg != "" || c.TokenFile != "") && c.needToJoin() {
@@ -206,7 +203,7 @@ func (c *command) start(ctx context.Context) error {
 		}
 	case v1beta1.EtcdStorageType:
 		storageBackend = &controller.Etcd{
-			CertManager: certificateManager,
+			CertManager: *c.K0sVars.CertManager(),
 			Config:      nodeConfig.Spec.Storage.Etcd,
 			JoinClient:  joinClient,
 			K0sVars:     c.K0sVars,
@@ -346,7 +343,7 @@ func (c *command) start(ctx context.Context) error {
 	perfTimer.Checkpoint("starting-certificates-init")
 	certs := &Certificates{
 		ClusterSpec: nodeConfig.Spec,
-		CertManager: certificateManager,
+		CertManager: *c.K0sVars.CertManager(),
 		K0sVars:     c.K0sVars,
 	}
 	if err := certs.Init(ctx); err != nil {
