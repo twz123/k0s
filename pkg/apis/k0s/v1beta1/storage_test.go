@@ -85,6 +85,36 @@ func TestStorageSpec_IsJoinable(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "kine-jetstream",
+			storage: StorageSpec{
+				Type: "kine",
+				Kine: &KineConfig{
+					DataSource: "jetstream://",
+				},
+			},
+			want: true,
+		},
+		{
+			name: "kine-nats",
+			storage: StorageSpec{
+				Type: "kine",
+				Kine: &KineConfig{
+					DataSource: "nats://",
+				},
+			},
+			want: false,
+		},
+		{
+			name: "kine-nats-noembed",
+			storage: StorageSpec{
+				Type: "kine",
+				Kine: &KineConfig{
+					DataSource: "nats://?noEmbed",
+				},
+			},
+			want: true,
+		},
+		{
 			name: "kine-unknown",
 			storage: StorageSpec{
 				Type: "kine",
@@ -92,14 +122,22 @@ func TestStorageSpec_IsJoinable(t *testing.T) {
 					DataSource: "unknown://foobar",
 				},
 			},
+			want: true,
+		},
+		{
+			name: "kine-none",
+			storage: StorageSpec{
+				Type: "kine",
+				Kine: &KineConfig{
+					DataSource: "",
+				},
+			},
 			want: false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.storage.IsJoinable(); got != tt.want {
-				t.Errorf("StorageSpec.IsJoinable() = %v, want %v", got, tt.want)
-			}
+			assert.Equal(t, tt.want, tt.storage.IsJoinable())
 		})
 	}
 }
@@ -112,7 +150,7 @@ spec:
 `
 	c, err := ConfigFromString(yaml)
 	assert.NoError(t, err)
-	assert.Equal(t, "kine", c.Spec.Storage.Type)
+	assert.Equal(t, KineStorageType, c.Spec.Storage.Type)
 	assert.NotNil(t, c.Spec.Storage.Kine)
 
 	expectedPath := "/var/lib/k0s/db/state.db"
@@ -172,6 +210,12 @@ func (s *storageSuite) TestValidation() {
 				},
 			},
 		},
+		{
+			desc: "kine_is_valid",
+			spec: &StorageSpec{
+				Type: KineStorageType,
+			},
+		},
 	}
 
 	for _, tt := range validStorageSpecs {
@@ -185,6 +229,18 @@ func (s *storageSuite) TestValidation() {
 		spec           *StorageSpec
 		expectedErrMsg string
 	}{
+		{
+			desc:           "type_is_required",
+			spec:           &StorageSpec{},
+			expectedErrMsg: "type: Required value",
+		},
+		{
+			desc: "unknown_types_are_rejected",
+			spec: &StorageSpec{
+				Type: StorageType("bogus"),
+			},
+			expectedErrMsg: `type: Unsupported value: "bogus": supported values: "etcd", "kine"`,
+		},
 		{
 			desc: "external_cluster_endpoints_cannot_be_null",
 			spec: &StorageSpec{
