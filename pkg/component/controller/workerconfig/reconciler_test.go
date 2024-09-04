@@ -572,7 +572,7 @@ func TestReconciler_runReconcileLoop(t *testing.T) {
 		leaderElector: &leaderelector.Dummy{Leader: true},
 	}
 
-	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
+	ctx, cancel := context.WithCancelCause(context.TODO())
 
 	// Prepare update channel for two updates.
 	updates, firstDone, secondDone := make(chan updateFunc, 2), make(chan error, 1), make(chan error, 1)
@@ -581,7 +581,7 @@ func TestReconciler_runReconcileLoop(t *testing.T) {
 	updates <- func(s *snapshot) chan<- error { return firstDone }
 
 	// Put in the second update that'll cancel the context.
-	updates <- func(s *snapshot) chan<- error { cancel(); return secondDone }
+	updates <- func(s *snapshot) chan<- error { cancel(errStoppedConcurrently); return secondDone }
 
 	underTest.runReconcileLoop(ctx, updates, nil)
 
