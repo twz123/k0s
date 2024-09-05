@@ -48,10 +48,10 @@ type Status struct {
 	L                 *logrus.Entry
 	httpserver        http.Server
 	listener          net.Listener
-	CertManager       certManager
+	CertManager       CertManager
 }
 
-type certManager interface {
+type CertManager interface {
 	GetRestConfig(ctx context.Context) (*rest.Config, error)
 }
 

@@ -26,6 +26,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -58,9 +59,14 @@ import (
 	"github.com/k0sproject/k0s/pkg/token"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/rest"
 )
 
-type command config.CLIOptions
+type command struct {
+	*config.CLIOptions
+
+	certificateManager atomic.Pointer[worker.CertificateManager]
+}
 
 func NewControllerCmd() *cobra.Command {
 	var ignorePreFlightChecks bool
@@ -87,7 +93,7 @@ func NewControllerCmd() *cobra.Command {
 				return err
 			}
 
-			c := (*command)(opts)
+			c := command{CLIOptions: opts}
 
 			if len(args) > 0 {
 				c.TokenArg = args[0]
@@ -326,7 +332,7 @@ func (c *command) start(ctx context.Context) error {
 			ClusterConfig: nodeConfig,
 		},
 		Socket:      c.K0sVars.StatusSocketPath,
-		CertManager: worker.NewCertificateManager(c.K0sVars.KubeletAuthConfigPath),
+		CertManager: c,
 	})
 
 	if nodeConfig.Spec.Storage.Type == v1beta1.EtcdStorageType && !nodeConfig.Spec.Storage.Etcd.IsExternalClusterUsed() {
@@ -645,14 +651,29 @@ func (c *command) startWorker(ctx context.Context, profile string, nodeConfig *v
 	// Cast and make a copy of the controller command so it can use the same
 	// opts to start the worker. Needs to be a copy so the original token and
 	// possibly other args won't get messed up.
-	wc := workercmd.Command(*(*config.CLIOptions)(c))
+	wc := workercmd.Command(*c.CLIOptions)
 	wc.TokenArg = bootstrapConfig
 	wc.WorkerProfile = profile
 	wc.Labels = append(wc.Labels, fmt.Sprintf("%s=control-plane", constant.K0SNodeRoleLabel))
 	if !c.SingleNode && !c.NoTaints {
 		wc.Taints = append(wc.Taints, fmt.Sprintf("%s/master=:NoSchedule", constant.NodeRoleLabelNamespace))
 	}
-	return wc.Start(ctx)
+	return wc.Start(ctx, c)
+}
+
+// SetCertificateManager implements [worker.EmbeddingController].
+func (c *command) SetCertificateManager(certificateManager *worker.CertificateManager) {
+	c.certificateManager.Store(certificateManager)
+}
+
+// SetCertificateManager implements [status.CertManager].
+func (c *command) GetRestConfig(ctx context.Context) (*rest.Config, error) {
+	certificateManager := c.certificateManager.Load()
+	if certificateManager == nil {
+		return nil, errors.New("worker didn't provide any configuration yet")
+	}
+
+	return certificateManager.GetRestConfig(ctx)
 }
 
 // If we've got CA in place we assume the node has already joined previously
