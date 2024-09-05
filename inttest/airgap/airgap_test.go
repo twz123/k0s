@@ -41,6 +41,20 @@ type AirgapSuite struct {
 	common.BootlooseSuite
 }
 
+const network = "airgap"
+
+// SetupSuite creates the required network before starting footloose.
+func (s *AirgapSuite) SetupSuite() {
+	s.Require().NoError(s.CreateNetwork(network))
+	s.BootlooseSuite.SetupSuite()
+}
+
+// TearDownSuite tears down the network created after footloose has finished.
+func (s *AirgapSuite) TearDownSuite() {
+	s.BootlooseSuite.TearDownSuite()
+	s.Require().NoError(s.MaybeDestroyNetwork(network))
+}
+
 func (s *AirgapSuite) TestK0sGetsUp() {
 	ctx := s.Context()
 	err := (&common.Airgap{
@@ -101,8 +115,10 @@ func (s *AirgapSuite) TestK0sGetsUp() {
 func TestAirgapSuite(t *testing.T) {
 	s := AirgapSuite{
 		common.BootlooseSuite{
-			ControllerCount: 1,
-			WorkerCount:     1,
+			ControllerCount:    1,
+			WorkerCount:        1,
+			ControllerNetworks: []string{network},
+			WorkerNetworks:     []string{network},
 
 			AirgapImageBundleMountPoints: []string{"/var/lib/k0s/images/bundle.tar"},
 		},

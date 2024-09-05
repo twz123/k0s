@@ -35,6 +35,20 @@ type kubeletCertRotateSuite struct {
 	common.BootlooseSuite
 }
 
+const network = "kubeletcertrotatenet"
+
+// SetupSuite creates the required network before starting footloose.
+func (s *kubeletCertRotateSuite) SetupSuite() {
+	s.Require().NoError(s.CreateNetwork(network))
+	s.BootlooseSuite.SetupSuite()
+}
+
+// TearDownSuite tears down the network created after footloose has finished.
+func (s *kubeletCertRotateSuite) TearDownSuite() {
+	s.BootlooseSuite.TearDownSuite()
+	s.Require().NoError(s.MaybeDestroyNetwork(network))
+}
+
 type statusJSON struct {
 	WorkerToAPIConnectionStatus status.ProbeStatus
 }
@@ -175,6 +189,9 @@ func TestKubeletCertRotateSuite(t *testing.T) {
 			ControllerCount: 1,
 			WorkerCount:     1,
 			LaunchMode:      common.LaunchModeOpenRC,
+
+			ControllerNetworks: []string{network},
+			WorkerNetworks:     []string{network},
 		},
 	})
 }

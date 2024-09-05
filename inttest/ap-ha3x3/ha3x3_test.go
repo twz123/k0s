@@ -46,6 +46,20 @@ spec:
     externalAddress: %s
 `
 
+const network = "ha3x3net"
+
+// SetupSuite creates the required network before starting footloose.
+func (s *ha3x3Suite) SetupSuite() {
+	s.Require().NoError(s.CreateNetwork(network))
+	s.BootlooseSuite.SetupSuite()
+}
+
+// TearDownSuite tears down the network created after footloose has finished.
+func (s *ha3x3Suite) TearDownSuite() {
+	s.BootlooseSuite.TearDownSuite()
+	s.Require().NoError(s.MaybeDestroyNetwork(network))
+}
+
 // SetupTest prepares the controller and filesystem, getting it into a consistent
 // state which we can run tests against.
 func (s *ha3x3Suite) SetupTest() {
@@ -292,6 +306,9 @@ func TestHA3x3Suite(t *testing.T) {
 			WorkerCount:     3,
 			WithLB:          true,
 			LaunchMode:      common.LaunchModeOpenRC,
+
+			ControllerNetworks: []string{network},
+			WorkerNetworks:     []string{network},
 		},
 		k0sUpdateVersion,
 	})
