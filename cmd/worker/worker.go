@@ -32,6 +32,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/component/prober"
 	"github.com/k0sproject/k0s/pkg/component/status"
 	"github.com/k0sproject/k0s/pkg/component/worker"
+	"github.com/k0sproject/k0s/pkg/component/worker/client"
 	workerconfig "github.com/k0sproject/k0s/pkg/component/worker/config"
 	"github.com/k0sproject/k0s/pkg/component/worker/containerd"
 	"github.com/k0sproject/k0s/pkg/component/worker/nllb"
@@ -162,7 +163,7 @@ func (c *Command) Start(ctx context.Context) error {
 		DualStackEnabled:    workerConfig.DualStackEnabled,
 	})
 
-	certManager := worker.NewCertificateManager(kubeletKubeconfigPath)
+	certManager := client.NewCertificateManager(kubeletKubeconfigPath)
 
 	// if running inside a controller, status component is already running
 	if !c.SingleNode && !c.EnableWorker {

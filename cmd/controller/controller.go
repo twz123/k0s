@@ -49,7 +49,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/component/prober"
 	"github.com/k0sproject/k0s/pkg/component/status"
-	"github.com/k0sproject/k0s/pkg/component/worker"
+	workerclient "github.com/k0sproject/k0s/pkg/component/worker/client"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/k0scontext"
@@ -345,7 +345,7 @@ func (c *command) start(ctx context.Context) error {
 			ClusterConfig: nodeConfig,
 		},
 		Socket:      c.K0sVars.StatusSocketPath,
-		CertManager: worker.NewCertificateManager(c.K0sVars.KubeletAuthConfigPath),
+		CertManager: workerclient.NewCertificateManager(c.K0sVars.KubeletAuthConfigPath),
 	})
 
 	if nodeConfig.Spec.Storage.Type == v1beta1.EtcdStorageType && !nodeConfig.Spec.Storage.Etcd.IsExternalClusterUsed() {

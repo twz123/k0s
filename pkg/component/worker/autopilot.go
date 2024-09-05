@@ -26,6 +26,7 @@ import (
 	apcont "github.com/k0sproject/k0s/pkg/autopilot/controller"
 	aproot "github.com/k0sproject/k0s/pkg/autopilot/controller/root"
 	"github.com/k0sproject/k0s/pkg/component/manager"
+	"github.com/k0sproject/k0s/pkg/component/worker/client"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/sirupsen/logrus"
 
@@ -42,7 +43,7 @@ var _ manager.Component = (*Autopilot)(nil)
 
 type Autopilot struct {
 	K0sVars     *config.CfgVars
-	CertManager *CertificateManager
+	CertManager *client.CertificateManager
 }
 
 func (a *Autopilot) Init(ctx context.Context) error {
