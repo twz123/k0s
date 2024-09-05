@@ -42,7 +42,7 @@ import (
 	"time"
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
-	apclient "github.com/k0sproject/k0s/pkg/client/clientset"
+	k0sclientset "github.com/k0sproject/k0s/pkg/client/clientset"
 	etcdmemberclient "github.com/k0sproject/k0s/pkg/client/clientset/typed/etcd/v1beta1"
 	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/k0scontext"
@@ -890,12 +890,12 @@ func (s *BootlooseSuite) KubeClient(node string, k0sKubeconfigArgs ...string) (*
 }
 
 // AutopilotClient returns a client for accessing the autopilot schema
-func (s *BootlooseSuite) AutopilotClient(node string, k0sKubeconfigArgs ...string) (apclient.Interface, error) {
+func (s *BootlooseSuite) AutopilotClient(node string, k0sKubeconfigArgs ...string) (k0sclientset.Interface, error) {
 	cfg, err := s.GetKubeConfig(node, k0sKubeconfigArgs...)
 	if err != nil {
 		return nil, err
 	}
-	return apclient.NewForConfig(cfg)
+	return k0sclientset.NewForConfig(cfg)
 }
 
 // ExtensionsClient returns a client for accessing the extensions schema

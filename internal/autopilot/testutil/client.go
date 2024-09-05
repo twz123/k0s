@@ -15,8 +15,8 @@
 package testutil
 
 import (
-	apclient "github.com/k0sproject/k0s/pkg/client/clientset"
-	apclientfake "github.com/k0sproject/k0s/pkg/client/clientset/fake"
+	k0sclientset "github.com/k0sproject/k0s/pkg/client/clientset"
+	k0sclientsetfake "github.com/k0sproject/k0s/pkg/client/clientset/fake"
 	extclientfake "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	extclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 
@@ -60,14 +60,14 @@ func NewFakeClientFactory(opts ...FakeClientOpt) client.FactoryInterface {
 
 	return &fakeClientFactory{
 		client:           fake.NewSimpleClientset(config.kubeObjects...),
-		clientAutopilot:  apclientfake.NewSimpleClientset(config.autopilotObjects...),
+		clientK0s:        k0sclientsetfake.NewSimpleClientset(config.autopilotObjects...),
 		clientExtensions: extclientfake.NewSimpleClientset(config.extensionObjects...).ApiextensionsV1(),
 	}
 }
 
 type fakeClientFactory struct {
 	client           kubernetes.Interface
-	clientAutopilot  apclient.Interface
+	clientK0s        k0sclientset.Interface
 	clientExtensions extclient.ApiextensionsV1Interface
 }
 
@@ -77,8 +77,8 @@ func (f fakeClientFactory) GetClient() (kubernetes.Interface, error) {
 	return f.client, nil
 }
 
-func (f fakeClientFactory) GetAutopilotClient() (apclient.Interface, error) {
-	return f.clientAutopilot, nil
+func (f fakeClientFactory) GetK0sClient() (k0sclientset.Interface, error) {
+	return f.clientK0s, nil
 }
 
 func (f fakeClientFactory) GetExtensionClient() (extclient.ApiextensionsV1Interface, error) {

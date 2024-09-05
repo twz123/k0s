@@ -17,7 +17,7 @@ package client
 import (
 	"sync"
 
-	apclient "github.com/k0sproject/k0s/pkg/client/clientset"
+	k0sclientset "github.com/k0sproject/k0s/pkg/client/clientset"
 	extclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 
 	"k8s.io/client-go/kubernetes"
@@ -27,14 +27,14 @@ import (
 // FactoryInterface is a collection of kubernetes clientset interfaces.
 type FactoryInterface interface {
 	GetClient() (kubernetes.Interface, error)
-	GetAutopilotClient() (apclient.Interface, error)
+	GetK0sClient() (k0sclientset.Interface, error)
 	GetExtensionClient() (extclient.ApiextensionsV1Interface, error)
 	RESTConfig() *rest.Config
 }
 
 type clientFactory struct {
 	client           kubernetes.Interface
-	clientAutopilot  apclient.Interface
+	clientK0s        k0sclientset.Interface
 	clientExtensions extclient.ApiextensionsV1Interface
 	restConfig       *rest.Config
 
@@ -67,24 +67,24 @@ func (cf *clientFactory) GetClient() (kubernetes.Interface, error) {
 	return cf.client, nil
 }
 
-// GetAutopilotClient returns the clientset for autopilot
-func (cf *clientFactory) GetAutopilotClient() (apclient.Interface, error) {
+// GetK0sClient returns the clientset for k0s
+func (cf *clientFactory) GetK0sClient() (k0sclientset.Interface, error) {
 	cf.mutex.Lock()
 	defer cf.mutex.Unlock()
 	var err error
 
-	if cf.clientAutopilot != nil {
-		return cf.clientAutopilot, nil
+	if cf.clientK0s != nil {
+		return cf.clientK0s, nil
 	}
 
-	client, err := apclient.NewForConfig(cf.restConfig)
+	client, err := k0sclientset.NewForConfig(cf.restConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	cf.clientAutopilot = client
+	cf.clientK0s = client
 
-	return cf.clientAutopilot, nil
+	return cf.clientK0s, nil
 }
 
 // GetExtensionClient returns the clientset for kubernetes extensions
