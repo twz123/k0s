@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	k0sclientset "github.com/k0sproject/k0s/pkg/client/clientset"
+	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	extclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 
 	"k8s.io/client-go/kubernetes"
@@ -28,14 +29,15 @@ import (
 type FactoryInterface interface {
 	GetClient() (kubernetes.Interface, error)
 	GetK0sClient() (k0sclientset.Interface, error)
-	GetExtensionClient() (extclient.ApiextensionsV1Interface, error)
+	GetAPIExtensionsClient() (apiextensionsclientset.Interface, error)
+	GetExtensionClient() (extclient.ApiextensionsV1Interface, error) // Deprecated: Use [FactoryInterface.GetAPIExtensionsClient] instead.
 	RESTConfig() *rest.Config
 }
 
 type clientFactory struct {
 	client           kubernetes.Interface
 	clientK0s        k0sclientset.Interface
-	clientExtensions extclient.ApiextensionsV1Interface
+	clientExtensions apiextensionsclientset.Interface
 	restConfig       *rest.Config
 
 	mutex sync.Mutex
@@ -87,8 +89,8 @@ func (cf *clientFactory) GetK0sClient() (k0sclientset.Interface, error) {
 	return cf.clientK0s, nil
 }
 
-// GetExtensionClient returns the clientset for kubernetes extensions
-func (cf *clientFactory) GetExtensionClient() (extclient.ApiextensionsV1Interface, error) {
+// GetAPIExtensionsClient returns the clientset for API server extensions.
+func (cf *clientFactory) GetAPIExtensionsClient() (apiextensionsclientset.Interface, error) {
 	cf.mutex.Lock()
 	defer cf.mutex.Unlock()
 	var err error
@@ -97,14 +99,24 @@ func (cf *clientFactory) GetExtensionClient() (extclient.ApiextensionsV1Interfac
 		return cf.clientExtensions, nil
 	}
 
-	client, err := extclient.NewForConfig(cf.restConfig)
+	client, err := apiextensionsclientset.NewForConfig(cf.restConfig)
 	if err != nil {
 		return nil, err
 	}
 
 	cf.clientExtensions = client
 
-	return cf.clientExtensions, nil
+	return client, nil
+}
+
+// Deprecated: Use [clientFactory.GetAPIExtensionsClient] instead.
+func (cf *clientFactory) GetExtensionClient() (extclient.ApiextensionsV1Interface, error) {
+	client, err := cf.GetAPIExtensionsClient()
+	if err != nil {
+		return nil, err
+	}
+
+	return client.ApiextensionsV1(), nil
 }
 
 func (cf *clientFactory) RESTConfig() *rest.Config {

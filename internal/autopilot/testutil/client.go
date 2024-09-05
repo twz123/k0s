@@ -17,7 +17,8 @@ package testutil
 import (
 	k0sclientset "github.com/k0sproject/k0s/pkg/client/clientset"
 	k0sclientsetfake "github.com/k0sproject/k0s/pkg/client/clientset/fake"
-	extclientfake "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
+	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	apiextensionsclientsetfake "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	extclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 
 	"github.com/k0sproject/k0s/pkg/autopilot/client"
@@ -61,30 +62,35 @@ func NewFakeClientFactory(opts ...FakeClientOpt) client.FactoryInterface {
 	return &fakeClientFactory{
 		client:           fake.NewSimpleClientset(config.kubeObjects...),
 		clientK0s:        k0sclientsetfake.NewSimpleClientset(config.autopilotObjects...),
-		clientExtensions: extclientfake.NewSimpleClientset(config.extensionObjects...).ApiextensionsV1(),
+		clientExtensions: apiextensionsclientsetfake.NewSimpleClientset(config.extensionObjects...),
 	}
 }
 
 type fakeClientFactory struct {
 	client           kubernetes.Interface
 	clientK0s        k0sclientset.Interface
-	clientExtensions extclient.ApiextensionsV1Interface
+	clientExtensions apiextensionsclientset.Interface
 }
 
 var _ client.FactoryInterface = (*fakeClientFactory)(nil)
 
-func (f fakeClientFactory) GetClient() (kubernetes.Interface, error) {
+func (f *fakeClientFactory) GetClient() (kubernetes.Interface, error) {
 	return f.client, nil
 }
 
-func (f fakeClientFactory) GetK0sClient() (k0sclientset.Interface, error) {
+func (f *fakeClientFactory) GetK0sClient() (k0sclientset.Interface, error) {
 	return f.clientK0s, nil
 }
 
-func (f fakeClientFactory) GetExtensionClient() (extclient.ApiextensionsV1Interface, error) {
+func (f *fakeClientFactory) GetAPIExtensionsClient() (apiextensionsclientset.Interface, error) {
 	return f.clientExtensions, nil
 }
 
-func (f fakeClientFactory) RESTConfig() *rest.Config {
+// Deprecated: Use [fakeClientFactory.GetExtensionClient] instead.
+func (f *fakeClientFactory) GetExtensionClient() (extclient.ApiextensionsV1Interface, error) {
+	return f.clientExtensions.ApiextensionsV1(), nil
+}
+
+func (f *fakeClientFactory) RESTConfig() *rest.Config {
 	return nil
 }
