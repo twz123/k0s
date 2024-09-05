@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/k0sproject/k0s/internal/testutil/fakeclient"
+	autopilotclient "github.com/k0sproject/k0s/pkg/autopilot/client"
 	k0sclientset "github.com/k0sproject/k0s/pkg/client/clientset"
 	k0sfake "github.com/k0sproject/k0s/pkg/client/clientset/fake"
 	k0sscheme "github.com/k0sproject/k0s/pkg/client/clientset/scheme"
@@ -29,6 +30,9 @@ import (
 	"github.com/k0sproject/k0s/pkg/constant"
 	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
 
+	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	apiextensionsfake "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -44,7 +48,10 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-var _ kubeutil.ClientFactoryInterface = (*FakeClientFactory)(nil)
+var (
+	_ kubeutil.ClientFactoryInterface  = (*FakeClientFactory)(nil)
+	_ autopilotclient.FactoryInterface = (*FakeClientFactory)(nil)
+)
 
 // NewFakeClientFactory creates new client factory which uses internally only the kube fake client interface
 func NewFakeClientFactory(objects ...runtime.Object) *FakeClientFactory {
@@ -67,20 +74,23 @@ func NewFakeClientFactory(objects ...runtime.Object) *FakeClientFactory {
 	tracker := fakeclient.TypedObjectTrackerFrom(scheme, fakeDynamic)
 	kubeClients := fakeclient.NewClientset[kubernetesfake.Clientset](fakeDiscovery, tracker)
 	k0sClients := fakeclient.NewClientset[k0sfake.Clientset](fakeDiscovery, tracker)
+	extensionsClients := fakeclient.NewClientset[apiextensionsfake.Clientset](fakeDiscovery, tracker)
 
 	return &FakeClientFactory{
-		DynamicClient:   fakeDynamic,
-		Client:          kubeClients,
-		DiscoveryClient: memory.NewMemCacheClient(fakeDiscovery),
-		K0sClient:       k0sClients,
+		DynamicClient:    fakeDynamic,
+		Client:           kubeClients,
+		DiscoveryClient:  memory.NewMemCacheClient(fakeDiscovery),
+		K0sClient:        k0sClients,
+		ExtensionsClient: extensionsClients,
 	}
 }
 
 type FakeClientFactory struct {
-	DynamicClient   *dynamicfake.FakeDynamicClient
-	Client          kubernetes.Interface
-	DiscoveryClient discovery.CachedDiscoveryInterface
-	K0sClient       k0sclientset.Interface
+	DynamicClient    *dynamicfake.FakeDynamicClient
+	Client           kubernetes.Interface
+	DiscoveryClient  discovery.CachedDiscoveryInterface
+	K0sClient        k0sclientset.Interface
+	ExtensionsClient apiextensionsclientset.Interface
 }
 
 func (f *FakeClientFactory) GetClient() (kubernetes.Interface, error) {
@@ -102,6 +112,15 @@ func (f *FakeClientFactory) GetK0sClient() (k0sclientset.Interface, error) {
 // Deprecated: Use [FakeClientFactory.GetK0sClient] instead.
 func (f *FakeClientFactory) GetConfigClient() (k0sv1beta1.ClusterConfigInterface, error) {
 	return f.K0sClient.K0sV1beta1().ClusterConfigs(constant.ClusterConfigNamespace), nil
+}
+
+func (f *FakeClientFactory) GetAPIExtensionsClient() (apiextensionsclientset.Interface, error) {
+	return f.ExtensionsClient, nil
+}
+
+// Deprecated: Use [FakeClientFactory.GetAPIExtensionsClient] instead.
+func (f *FakeClientFactory) GetExtensionClient() (apiextensionsv1.ApiextensionsV1Interface, error) {
+	return f.ExtensionsClient.ApiextensionsV1(), nil
 }
 
 func (f FakeClientFactory) GetRESTConfig() (*rest.Config, error) {
