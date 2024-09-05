@@ -91,6 +91,6 @@ func (f *fakeClientFactory) GetExtensionClient() (extclient.ApiextensionsV1Inter
 	return f.clientExtensions.ApiextensionsV1(), nil
 }
 
-func (f *fakeClientFactory) RESTConfig() *rest.Config {
+func (f *fakeClientFactory) GetRESTConfig() *rest.Config {
 	return nil
 }
