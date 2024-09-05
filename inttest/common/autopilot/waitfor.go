@@ -20,7 +20,7 @@ import (
 
 	apv1beta2 "github.com/k0sproject/k0s/pkg/apis/autopilot/v1beta2"
 	appc "github.com/k0sproject/k0s/pkg/autopilot/controller/plans/core"
-	apclient "github.com/k0sproject/k0s/pkg/client/clientset"
+	k0sclientset "github.com/k0sproject/k0s/pkg/client/clientset"
 	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
 
 	"github.com/k0sproject/k0s/inttest/common"
@@ -32,7 +32,7 @@ import (
 )
 
 // WaitForPlanState waits for the Plan with the given name to reach the given state.
-func WaitForPlanState(ctx context.Context, client apclient.Interface, name string, state apv1beta2.PlanStateType) (plan *apv1beta2.Plan, err error) {
+func WaitForPlanState(ctx context.Context, client k0sclientset.Interface, name string, state apv1beta2.PlanStateType) (plan *apv1beta2.Plan, err error) {
 	err = watch.FromClient[*apv1beta2.PlanList, apv1beta2.Plan](client.AutopilotV1beta2().Plans()).
 		WithObjectName(name).
 		WithErrorCallback(common.RetryWatchErrors(logrus.Infof)).
