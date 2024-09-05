@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/k0sproject/k0s/internal/testutil/fakeclient"
+	autopilotclient "github.com/k0sproject/k0s/pkg/autopilot/client"
 	k0sclientset "github.com/k0sproject/k0s/pkg/client/clientset"
 	k0sfake "github.com/k0sproject/k0s/pkg/client/clientset/fake"
 	k0sscheme "github.com/k0sproject/k0s/pkg/client/clientset/scheme"
@@ -32,6 +33,7 @@ import (
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apiextensionsfake "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	apiextensionsscheme "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/scheme"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -47,7 +49,10 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-var _ kubeutil.ClientFactoryInterface = (*FakeClientFactory)(nil)
+var (
+	_ kubeutil.ClientFactoryInterface  = (*FakeClientFactory)(nil)
+	_ autopilotclient.FactoryInterface = (*FakeClientFactory)(nil)
+)
 
 // NewFakeClientFactory creates new client factory which uses internally only the kube fake client interface
 func NewFakeClientFactory(objects ...runtime.Object) *FakeClientFactory {
@@ -104,6 +109,11 @@ func (f *FakeClientFactory) GetDiscoveryClient() (discovery.CachedDiscoveryInter
 
 func (f *FakeClientFactory) GetAPIExtensionsClient() (apiextensionsclientset.Interface, error) {
 	return f.APIExtensionsClient, nil
+}
+
+// Deprecated: Use [FakeClientFactory.GetAPIExtensionsClient] instead.
+func (f *FakeClientFactory) GetExtensionClient() (apiextensionsv1.ApiextensionsV1Interface, error) {
+	return f.APIExtensionsClient.ApiextensionsV1(), nil
 }
 
 func (f *FakeClientFactory) GetK0sClient() (k0sclientset.Interface, error) {

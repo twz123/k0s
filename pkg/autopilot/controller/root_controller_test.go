@@ -21,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	aptu "github.com/k0sproject/k0s/internal/autopilot/testutil"
 	"github.com/k0sproject/k0s/internal/testutil"
 	apcli "github.com/k0sproject/k0s/pkg/autopilot/client"
 	aproot "github.com/k0sproject/k0s/pkg/autopilot/controller/root"
@@ -59,9 +58,9 @@ func (lw *fakeLeaseWatcher) StartWatcher(ctx context.Context, namespace string, 
 // This toggle should result in sub-controllers being shutdown and then restarted.
 func TestModeSwitch(t *testing.T) {
 	logger := logrus.New().WithField("app", "autopilot-test")
-	clientFactory := aptu.NewFakeClientFactory()
+	clientFactory := testutil.NewFakeClientFactory()
 
-	rootControllerInterface, err := NewRootController(aproot.RootConfig{}, logger, false, testutil.NewFakeClientFactory(), clientFactory)
+	rootControllerInterface, err := NewRootController(aproot.RootConfig{}, logger, false, clientFactory, clientFactory)
 	assert.NoError(t, err)
 
 	rootController, ok := rootControllerInterface.(*rootController)

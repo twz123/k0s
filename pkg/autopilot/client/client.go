@@ -31,7 +31,7 @@ type FactoryInterface interface {
 	GetK0sClient() (k0sclientset.Interface, error)
 	GetAPIExtensionsClient() (apiextensionsclientset.Interface, error)
 	GetExtensionClient() (extclient.ApiextensionsV1Interface, error) // Deprecated: Use [FactoryInterface.GetAPIExtensionsClient] instead.
-	GetRESTConfig() *rest.Config
+	GetRESTConfig() (*rest.Config, error)
 }
 
 type clientFactory struct {
@@ -119,6 +119,6 @@ func (cf *clientFactory) GetExtensionClient() (extclient.ApiextensionsV1Interfac
 	return client.ApiextensionsV1(), nil
 }
 
-func (cf *clientFactory) GetRESTConfig() *rest.Config {
-	return cf.restConfig
+func (cf *clientFactory) GetRESTConfig() (*rest.Config, error) {
+	return cf.restConfig, nil
 }
