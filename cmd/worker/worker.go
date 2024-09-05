@@ -45,6 +45,11 @@ import (
 
 type Command config.CLIOptions
 
+// Interface between an embedded worker and its embedding controller.
+type EmbeddingController interface {
+	SetCertificateManager(*client.CertificateManager)
+}
+
 func NewWorkerCmd() *cobra.Command {
 	var ignorePreFlightChecks bool
 
@@ -90,7 +95,7 @@ func NewWorkerCmd() *cobra.Command {
 			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 			defer cancel()
 
-			return c.Start(ctx)
+			return c.Start(ctx, nil)
 		},
 	}
 
@@ -102,7 +107,7 @@ func NewWorkerCmd() *cobra.Command {
 }
 
 // Start starts the worker components based on the given [config.CLIOptions].
-func (c *Command) Start(ctx context.Context) error {
+func (c *Command) Start(ctx context.Context, controller EmbeddingController) error {
 	if err := worker.BootstrapKubeletKubeconfig(ctx, c.K0sVars, &c.WorkerOptions); err != nil {
 		return err
 	}
@@ -166,7 +171,7 @@ func (c *Command) Start(ctx context.Context) error {
 	certManager := client.NewCertificateManager(kubeletKubeconfigPath)
 
 	// if running inside a controller, status component is already running
-	if !c.SingleNode && !c.EnableWorker {
+	if controller == nil {
 		componentManager.Add(ctx, &status.Status{
 			Prober: prober.DefaultProber,
 			StatusInformation: status.K0sStatus{
@@ -184,6 +189,8 @@ func (c *Command) Start(ctx context.Context) error {
 			CertManager: certManager,
 			Socket:      c.K0sVars.StatusSocketPath,
 		})
+	} else {
+		controller.SetCertificateManager(certManager)
 	}
 
 	componentManager.Add(ctx, &worker.Autopilot{

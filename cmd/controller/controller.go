@@ -27,10 +27,12 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/avast/retry-go"
+	cmdworker "github.com/k0sproject/k0s/cmd/worker"
 	workercmd "github.com/k0sproject/k0s/cmd/worker"
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
@@ -332,6 +334,8 @@ func (c *command) start(ctx context.Context) error {
 			),
 		)
 	}
+
+	var ec embeddingController
 	nodeComponents.Add(ctx, &status.Status{
 		Prober: prober.DefaultProber,
 		StatusInformation: status.K0sStatus{
@@ -345,7 +349,7 @@ func (c *command) start(ctx context.Context) error {
 			ClusterConfig: nodeConfig,
 		},
 		Socket:      c.K0sVars.StatusSocketPath,
-		CertManager: workerclient.NewCertificateManager(c.K0sVars.KubeletAuthConfigPath),
+		CertManager: &ec,
 	})
 
 	if nodeConfig.Spec.Storage.Type == v1beta1.EtcdStorageType && !nodeConfig.Spec.Storage.Etcd.IsExternalClusterUsed() {
@@ -606,7 +610,7 @@ func (c *command) start(ctx context.Context) error {
 
 	if c.EnableWorker {
 		perfTimer.Checkpoint("starting-worker")
-		if err := c.startWorker(ctx, c.WorkerProfile, nodeConfig); err != nil {
+		if err := c.startWorker(ctx, &ec, c.WorkerProfile, nodeConfig); err != nil {
 			logrus.WithError(err).Error("Failed to start controller worker")
 		} else {
 			perfTimer.Checkpoint("started-worker")
@@ -625,7 +629,7 @@ func (c *command) start(ctx context.Context) error {
 	return nil
 }
 
-func (c *command) startWorker(ctx context.Context, profile string, nodeConfig *v1beta1.ClusterConfig) error {
+func (c *command) startWorker(ctx context.Context, ec cmdworker.EmbeddingController, profile string, nodeConfig *v1beta1.ClusterConfig) error {
 	var bootstrapConfig string
 	if !file.Exists(c.K0sVars.KubeletAuthConfigPath) {
 		// wait for controller to start up
@@ -667,7 +671,26 @@ func (c *command) startWorker(ctx context.Context, profile string, nodeConfig *v
 		taint := fields.OneTermEqualSelector(key, ":NoSchedule")
 		wc.Taints = append(wc.Taints, taint.String())
 	}
-	return wc.Start(ctx)
+	return wc.Start(ctx, ec)
+}
+
+type embeddingController struct {
+	certificateManager atomic.Pointer[workerclient.CertificateManager]
+}
+
+// SetCertificateManager implements [cmdworker.EmbeddingController].
+func (c *embeddingController) SetCertificateManager(certificateManager *workerclient.CertificateManager) {
+	c.certificateManager.Store(certificateManager)
+}
+
+// GetRestConfig implements [status.CertManager].
+func (c *embeddingController) GetRestConfig(ctx context.Context) (*rest.Config, error) {
+	certificateManager := c.certificateManager.Load()
+	if certificateManager == nil {
+		return nil, errors.New("no certificate manager set")
+	}
+
+	return certificateManager.GetRestConfig(ctx)
 }
 
 // If we've got CA in place we assume the node has already joined previously
