@@ -28,14 +28,14 @@ import (
 	"time"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
-	"github.com/k0sproject/k0s/pkg/autopilot/client"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/component/prober"
-	"github.com/sirupsen/logrus"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
+
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 )
 
 type Stater interface {
@@ -46,13 +46,9 @@ type Status struct {
 	Prober            Stater
 	Socket            string
 	L                 *logrus.Entry
-	httpserver        http.Server
-	listener          net.Listener
-	CertManager       CertManager
-}
+	GetWorkerClient   func() (kubernetes.Interface, error)
 
-type CertManager interface {
-	GetRestConfig(ctx context.Context) (*rest.Config, error)
+	httpserver http.Server
 }
 
 var _ manager.Component = (*Status)(nil)
@@ -60,53 +56,57 @@ var _ manager.Component = (*Status)(nil)
 const defaultMaxEvents = 5
 
 // Init initializes component
-func (s *Status) Init(_ context.Context) error {
+func (s *Status) Init(ctx context.Context) error {
 	s.L = logrus.WithFields(logrus.Fields{"component": "status"})
-	mux := http.NewServeMux()
-	mux.Handle("/status", &statusHandler{Status: s})
-	mux.HandleFunc("/components", func(w http.ResponseWriter, r *http.Request) {
-		maxCount, err := strconv.ParseInt(r.URL.Query().Get("maxCount"), 10, 32)
-		if err != nil {
-			maxCount = defaultMaxEvents
-		}
-		w.Header().Set("Content-Type", "application/json")
-		if json.NewEncoder(w).Encode(s.Prober.State(int(maxCount))) != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-		}
-	})
-	var err error
-	s.httpserver = http.Server{
-		Handler: mux,
-	}
-	err = dir.Init(s.StatusInformation.K0sVars.RunDir, 0755)
-	if err != nil {
+
+	if err := dir.Init(s.StatusInformation.K0sVars.RunDir, 0755); err != nil {
 		return fmt.Errorf("failed to create %s: %w", s.Socket, err)
 	}
 
-	removeLeftovers(s.Socket)
-	s.listener, err = net.Listen("unix", s.Socket)
+	mux := http.NewServeMux()
+	mux.Handle("/status", http.HandlerFunc(s.serveStatus))
+	mux.HandleFunc("/components", http.HandlerFunc(s.serveComponents))
+	s.httpserver = http.Server{Handler: mux}
+
+	return s.removeLeftovers(ctx)
+}
+
+// removeLeftovers tries to remove leftover sockets that nothing is listening on
+func (s *Status) removeLeftovers(ctx context.Context) error {
+	// FIXME test
+
+	var d net.Dialer
+	conn, err := d.DialContext(ctx, "unix", s.Socket)
 	if err != nil {
-		s.L.Errorf("failed to create listener %s", err)
-		return err
+		if errors.Is(err, ctx.Err()) {
+			return err
+		}
+
+		if err := os.Remove(s.Socket); err != nil && !errors.Is(err, os.ErrNotExist) {
+			s.L.WithError(err).Warn("Failed to remove socket")
+		}
+
+		return nil
 	}
-	s.L.Infof("Listening address %s", s.Socket)
+
+	defer conn.Close()
+	s.L.WithError(err).Warn("Something is listening on the socket already")
 
 	return nil
 }
 
-// removeLeftovers tries to remove leftover sockets that nothing is listening on
-func removeLeftovers(socket string) {
-	_, err := net.Dial("unix", socket)
-	if err != nil {
-		_ = os.Remove(socket)
-	}
-}
-
 // Start runs the component
-func (s *Status) Start(_ context.Context) error {
+func (s *Status) Start(context.Context) error {
+	listener, err := net.Listen("unix", s.Socket)
+	if err != nil {
+		return fmt.Errorf("failed to create listener: %w", err)
+	}
+
+	s.L.Info("Listening on ", s.Socket)
+
 	go func() {
-		if err := s.httpserver.Serve(s.listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			s.L.Errorf("failed to start status server at %s: %s", s.Socket, err)
+		if err := s.httpserver.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			s.L.WithError(err).Error("Failed to serve")
 		}
 	}()
 	return nil
@@ -114,79 +114,96 @@ func (s *Status) Start(_ context.Context) error {
 
 // Stop stops status component and removes the unix socket
 func (s *Status) Stop() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
-	if err := s.httpserver.Shutdown(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		return err
-	}
-	// Unix socket doesn't need to be explicitly removed because it's hadled
+	// Unix socket doesn't need to be explicitly removed because it's handled
 	// by httpserver.Shutdown
-	return nil
+	return s.httpserver.Shutdown(ctx)
 }
 
-type statusHandler struct {
-	Status *Status
-	client kubernetes.Interface
+func (s *Status) serveStatus(w http.ResponseWriter, r *http.Request) {
+	status := s.StatusInformation
+	status.WorkerToAPIConnectionStatus = s.getWorkerStatus(r.Context())
+	s.sendJSON(w, &status)
 }
 
-// ServerHTTP implementation of handler interface
-func (sh *statusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	statusInfo := sh.getCurrentStatus(r.Context())
+func (s *Status) getWorkerStatus(ctx context.Context) *ProbeStatus {
+	if !s.StatusInformation.Workloads {
+		return nil
+	}
+
+	client, err := s.GetWorkerClient()
+	if err != nil {
+		return &ProbeStatus{Message: "failed to obtain worker client: " + err.Error()}
+	}
+
+	if _, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{}); err != nil {
+		return &ProbeStatus{Message: err.Error()}
+	}
+
+	return &ProbeStatus{Success: true}
+}
+
+func (s *Status) serveComponents(w http.ResponseWriter, r *http.Request) {
+	maxCount := defaultMaxEvents
+	if r.URL.Query().Has("maxCount") {
+		parsed, err := strconv.ParseUint(r.URL.Query().Get("maxCount"), 10, 8)
+		if err != nil {
+			s.sendError(w, err, &problem{Title: "Query parameter invalid: maxCount", Status: http.StatusBadRequest})
+			return
+		} else {
+			maxCount = int(parsed)
+		}
+	}
+
+	s.sendJSON(w, s.Prober.State(maxCount))
+}
+
+func (s *Status) sendJSON(w http.ResponseWriter, data any) {
+	body, err := json.Marshal(&data)
+	if err != nil {
+		s.sendError(w, err, &problem{Title: "Failed to marshal data", Status: http.StatusInternalServerError})
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if json.NewEncoder(w).Encode(statusInfo) != nil {
+	if _, err := w.Write(body); err != nil {
+		s.L.WithError(err).Debug("Failed to send body")
+	}
+}
+
+func (s *Status) sendError(w http.ResponseWriter, err error, p *problem) {
+	log := s.L
+
+	if p.Status >= http.StatusInternalServerError {
+		if uuid, uuidErr := uuid.NewRandom(); uuidErr != nil {
+			log.WithError(errors.Join(err, uuidErr)).Error(p.Title)
+		} else {
+			p.Instance = uuid.String()
+			log = log.WithField("instance", p.Instance)
+			log.Error(p.Title)
+		}
+	} else {
+		p.Detail = err.Error()
+	}
+
+	body, err := json.Marshal(*p)
+	if err != nil {
+		log.WithError(err).Error("Failed to marshal problem response")
 		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(p.Status)
+	if _, err := w.Write(body); err != nil {
+		log.WithError(err).Info("Failed to send body")
 	}
 }
 
-const (
-	defaultPollDuration = 1 * time.Second
-	defaultPollTimeout  = 5 * time.Minute
-)
-
-func (sh *statusHandler) getCurrentStatus(ctx context.Context) K0sStatus {
-	status := sh.Status.StatusInformation
-	if !status.Workloads {
-		return status
-	}
-
-	if sh.client == nil {
-		kubeClient, err := sh.buildWorkerSideKubeAPIClient(ctx)
-		if err != nil {
-			status.WorkerToAPIConnectionStatus.Message = fmt.Sprintf("failed to create kube-api client required for kube-api status reports, probably kubelet failed to init: %s", err.Error())
-			return status
-		}
-		sh.client = kubeClient
-	}
-	_, err := sh.client.CoreV1().Nodes().List(context.Background(), v1.ListOptions{})
-	if err != nil {
-		status.WorkerToAPIConnectionStatus.Message = err.Error()
-		return status
-	}
-	status.WorkerToAPIConnectionStatus.Success = true
-	return status
-}
-
-func (sh *statusHandler) buildWorkerSideKubeAPIClient(ctx context.Context) (kubernetes.Interface, error) {
-	var restConfig *rest.Config
-	var err error
-	timeout, cancel := context.WithTimeout(ctx, defaultPollTimeout)
-	defer cancel()
-	if err := wait.PollUntilWithContext(timeout, defaultPollDuration, func(ctx context.Context) (done bool, err error) {
-		if restConfig, err = sh.Status.CertManager.GetRestConfig(ctx); err != nil {
-			return false, nil
-		}
-		return true, nil
-	}); err != nil {
-		return nil, err
-	}
-	factory, err := client.NewClientFactory(restConfig)
-	if err != nil {
-		return nil, err
-	}
-	client, err := factory.GetClient()
-	if err != nil {
-		return nil, err
-	}
-	return client, nil
+type problem struct {
+	Title    string `json:"title,omitempty"`
+	Status   int    `json:"status,omitempty"`
+	Detail   string `json:"detail,omitempty"`
+	Instance string `json:"instance,omitempty"`
 }

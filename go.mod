@@ -25,6 +25,7 @@ require (
 	github.com/go-openapi/jsonpointer v0.21.0
 	github.com/go-playground/validator/v10 v10.22.0
 	github.com/google/go-cmp v0.6.0
+	github.com/google/uuid v1.6.0
 	github.com/k0sproject/bootloose v0.7.2
 	github.com/k0sproject/dig v0.2.0
 	github.com/k0sproject/version v0.6.0
@@ -158,7 +159,6 @@ require (
 	github.com/google/gnostic-models v0.6.8 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/gosuri/uitable v0.0.4 // indirect

@@ -20,29 +20,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	apcli "github.com/k0sproject/k0s/pkg/autopilot/client"
 	apcont "github.com/k0sproject/k0s/pkg/autopilot/controller"
 	aproot "github.com/k0sproject/k0s/pkg/autopilot/controller/root"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/config"
+	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
+
 	"github.com/sirupsen/logrus"
-
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/rest"
-)
-
-const (
-	defaultPollDuration = 5 * time.Second
-	defaultPollTimeout  = 5 * time.Minute
 )
 
 var _ manager.Component = (*Autopilot)(nil)
 
 type Autopilot struct {
-	K0sVars     *config.CfgVars
-	CertManager *CertificateManager
+	K0sVars           *config.CfgVars
+	KubeClientFactory kubeutil.ClientFactoryInterface
 }
 
 func (a *Autopilot) Init(ctx context.Context) error {
@@ -52,30 +45,13 @@ func (a *Autopilot) Init(ctx context.Context) error {
 func (a *Autopilot) Start(ctx context.Context) error {
 	log := logrus.WithFields(logrus.Fields{"component": "autopilot"})
 
-	// Wait 5 mins till we see kubelet auth config in place
-	timeout, cancel := context.WithTimeout(ctx, defaultPollTimeout)
-	defer cancel()
-
-	var restConfig *rest.Config
-	// wait.PollUntilWithContext passes it is own ctx argument as a ctx to the given function
-	// Poll until the kubelet config can be loaded successfully, as this is the access to the kube api
-	// needed by autopilot.
-	if err := wait.PollUntilWithContext(timeout, defaultPollDuration, func(ctx context.Context) (done bool, err error) {
-		log.Debugf("Attempting to load autopilot client config")
-		if restConfig, err = a.CertManager.GetRestConfig(ctx); err != nil {
-			log.WithError(err).Warnf("Failed to load autopilot client config, retrying in %v", defaultPollDuration)
-			return false, nil
-		}
-
-		return true, nil
-	}); err != nil {
-		return fmt.Errorf("unable to create autopilot client: %w", err)
+	// Get the client first to ensure the RESTConfig is available.
+	if _, err := a.KubeClientFactory.GetClient(); err != nil {
+		return err
 	}
-
-	// Without the config, there is nothing that we can do.
-
+	restConfig := a.KubeClientFactory.GetRESTConfig()
 	if restConfig == nil {
-		return errors.New("unable to create an autopilot client -- timed out")
+		return errors.New("no Kubernetes client configuration available")
 	}
 
 	autopilotClientFactory, err := apcli.NewClientFactory(restConfig)

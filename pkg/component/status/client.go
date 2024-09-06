@@ -39,7 +39,7 @@ type K0sStatus struct {
 	Workloads                   bool
 	SingleNode                  bool
 	Args                        []string
-	WorkerToAPIConnectionStatus ProbeStatus
+	WorkerToAPIConnectionStatus *ProbeStatus
 	ClusterConfig               *v1beta1.ClusterConfig
 	K0sVars                     *config.CfgVars
 }

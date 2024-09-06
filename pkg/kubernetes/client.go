@@ -43,8 +43,8 @@ type ClientFactoryInterface interface {
 	GetEtcdMemberClient() (etcdMemberClient.EtcdMemberInterface, error)
 }
 
-// NewAdminClientFactory creates a new factory that loads the admin kubeconfig based client
-func NewAdminClientFactory(kubeconfigPath string) ClientFactoryInterface {
+// NewClientFactory creates a new factory that loads the admin kubeconfig based client
+func NewClientFactory(kubeconfigPath string) ClientFactoryInterface {
 	return &ClientFactory{
 		configPath: kubeconfigPath,
 	}

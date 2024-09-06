@@ -30,7 +30,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/avast/retry-go"
 	workercmd "github.com/k0sproject/k0s/cmd/worker"
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
@@ -49,23 +48,25 @@ import (
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/component/prober"
 	"github.com/k0sproject/k0s/pkg/component/status"
-	"github.com/k0sproject/k0s/pkg/component/worker"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/k0scontext"
-	"github.com/k0sproject/k0s/pkg/kubernetes"
+	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/k0sproject/k0s/pkg/performance"
 	"github.com/k0sproject/k0s/pkg/telemetry"
 	"github.com/k0sproject/k0s/pkg/token"
+
+	"k8s.io/client-go/kubernetes"
+
+	"github.com/avast/retry-go"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"k8s.io/client-go/rest"
 )
 
 type command struct {
 	*config.CLIOptions
 
-	certificateManager atomic.Pointer[worker.CertificateManager]
+	workerClientFactory atomic.Pointer[kubeutil.ClientFactoryInterface]
 }
 
 func NewControllerCmd() *cobra.Command {
@@ -168,7 +169,7 @@ func (c *command) start(ctx context.Context) error {
 	}()
 
 	// common factory to get the admin kube client that's needed in many components
-	adminClientFactory := kubernetes.NewAdminClientFactory(c.K0sVars.AdminKubeConfigPath)
+	adminClientFactory := kubeutil.NewClientFactory(c.K0sVars.AdminKubeConfigPath)
 
 	certificateManager := certificate.Manager{K0sVars: c.K0sVars}
 
@@ -331,8 +332,14 @@ func (c *command) start(ctx context.Context) error {
 			K0sVars:       c.K0sVars,
 			ClusterConfig: nodeConfig,
 		},
-		Socket:      c.K0sVars.StatusSocketPath,
-		CertManager: c,
+		Socket: c.K0sVars.StatusSocketPath,
+		GetWorkerClient: func() (kubernetes.Interface, error) {
+			wcf := c.workerClientFactory.Load()
+			if wcf == nil {
+				return nil, fmt.Errorf("worker client factory not yet initialized")
+			}
+			return (*wcf).GetClient()
+		},
 	})
 
 	if nodeConfig.Spec.Storage.Type == v1beta1.EtcdStorageType && !nodeConfig.Spec.Storage.Etcd.IsExternalClusterUsed() {
@@ -661,19 +668,13 @@ func (c *command) startWorker(ctx context.Context, profile string, nodeConfig *v
 	return wc.Start(ctx, c)
 }
 
-// SetCertificateManager implements [worker.EmbeddingController].
-func (c *command) SetCertificateManager(certificateManager *worker.CertificateManager) {
-	c.certificateManager.Store(certificateManager)
-}
-
-// SetCertificateManager implements [status.CertManager].
-func (c *command) GetRestConfig(ctx context.Context) (*rest.Config, error) {
-	certificateManager := c.certificateManager.Load()
-	if certificateManager == nil {
-		return nil, errors.New("worker didn't provide any configuration yet")
+// SetWorkerClientFactory implements [worker.EmbeddingController].
+func (c *command) SetWorkerClientFactory(cf kubeutil.ClientFactoryInterface) {
+	if cf == nil {
+		c.workerClientFactory.Store(nil)
+	} else {
+		c.workerClientFactory.Store(&cf)
 	}
-
-	return certificateManager.GetRestConfig(ctx)
 }
 
 // If we've got CA in place we assume the node has already joined previously

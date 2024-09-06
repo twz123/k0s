@@ -46,7 +46,7 @@ type Command config.CLIOptions
 
 // Interface between an embedded worker and its embedding controller.
 type EmbeddingController interface {
-	SetCertificateManager(*worker.CertificateManager)
+	SetWorkerClientFactory(kubernetes.ClientFactoryInterface)
 }
 
 func NewWorkerCmd() *cobra.Command {
@@ -167,7 +167,7 @@ func (c *Command) Start(ctx context.Context, controller EmbeddingController) err
 		DualStackEnabled:    workerConfig.DualStackEnabled,
 	})
 
-	certManager := worker.NewCertificateManager(kubeletKubeconfigPath)
+	clients := kubernetes.NewClientFactory(kubeletKubeconfigPath)
 
 	// if running inside a controller, status component is already running
 	if controller == nil {
@@ -185,16 +185,16 @@ func (c *Command) Start(ctx context.Context, controller EmbeddingController) err
 				// todo: if it's needed, a worker side config client can be set up and used to load the config
 				ClusterConfig: nil,
 			},
-			CertManager: certManager,
-			Socket:      c.K0sVars.StatusSocketPath,
+			Socket:          c.K0sVars.StatusSocketPath,
+			GetWorkerClient: clients.GetClient,
 		})
 	} else {
-		controller.SetCertificateManager(certManager)
+		controller.SetWorkerClientFactory(clients)
 	}
 
 	componentManager.Add(ctx, &worker.Autopilot{
-		K0sVars:     c.K0sVars,
-		CertManager: certManager,
+		K0sVars:           c.K0sVars,
+		KubeClientFactory: clients,
 	})
 
 	// extract needed components
