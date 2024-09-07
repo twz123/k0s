@@ -25,6 +25,7 @@ import (
 	cfgClient "github.com/k0sproject/k0s/pkg/client/clientset/typed/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/constant"
 
+	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
@@ -38,6 +39,7 @@ type ClientFactoryInterface interface {
 	GetClient() (kubernetes.Interface, error)
 	GetDynamicClient() (dynamic.Interface, error)
 	GetDiscoveryClient() (discovery.CachedDiscoveryInterface, error)
+	GetAPIExtensionsClient() (apiextensionsclientset.Interface, error)
 	GetK0sClient() (k0sclientset.Interface, error)
 	GetConfigClient() (cfgClient.ClusterConfigInterface, error) // Deprecated: Use [ClientFactoryInterface.GetK0sClient] instead.
 	GetRESTConfig() *rest.Config
@@ -57,11 +59,12 @@ func NewAdminClientFactory(kubeconfigPath string) ClientFactoryInterface {
 type ClientFactory struct {
 	configPath string
 
-	client          kubernetes.Interface
-	dynamicClient   dynamic.Interface
-	discoveryClient discovery.CachedDiscoveryInterface
-	k0sClient       k0sclientset.Interface
-	restConfig      *rest.Config
+	client              kubernetes.Interface
+	dynamicClient       dynamic.Interface
+	discoveryClient     discovery.CachedDiscoveryInterface
+	apiExtensionsClient apiextensionsclientset.Interface
+	k0sClient           k0sclientset.Interface
+	restConfig          *rest.Config
 
 	mutex sync.Mutex
 }
@@ -150,6 +153,32 @@ func (c *ClientFactory) GetDiscoveryClient() (discovery.CachedDiscoveryInterface
 	c.discoveryClient = cachedDiscoveryClient
 
 	return c.discoveryClient, nil
+}
+
+func (c *ClientFactory) GetAPIExtensionsClient() (apiextensionsclientset.Interface, error) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	var err error
+
+	if c.restConfig == nil {
+		c.restConfig, err = clientcmd.BuildConfigFromFlags("", c.configPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load kubeconfig: %w", err)
+		}
+	}
+
+	if c.apiExtensionsClient != nil {
+		return c.apiExtensionsClient, nil
+	}
+
+	client, err := apiextensionsclientset.NewForConfig(c.restConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	c.apiExtensionsClient = client
+
+	return c.apiExtensionsClient, nil
 }
 
 func (c *ClientFactory) GetK0sClient() (k0sclientset.Interface, error) {
