@@ -19,7 +19,6 @@ package kubernetes
 import (
 	"sync"
 	"sync/atomic"
-	"unsafe"
 
 	k0sclientset "github.com/k0sproject/k0s/pkg/client/clientset"
 	etcdMemberClient "github.com/k0sproject/k0s/pkg/client/clientset/typed/etcd/v1beta1"
@@ -60,26 +59,24 @@ func NewAdminClientFactory(kubeconfigPath string) ClientFactoryInterface {
 type clientFactory struct {
 	configPath string
 
-	client              *kubernetes.Clientset
-	dynamicClient       *dynamic.DynamicClient
-	discoveryClient     *discovery.CachedDiscoveryInterface
-	apiExtensionsClient *apiextensionsclientset.Clientset
-	k0sClient           *k0sclientset.Clientset
-	restConfig          *rest.Config
-
-	mutex sync.Mutex
+	client              slot[kubernetes.Clientset]
+	dynamicClient       slot[dynamic.DynamicClient]
+	discoveryClient     slot[discovery.CachedDiscoveryInterface]
+	apiExtensionsClient slot[apiextensionsclientset.Clientset]
+	k0sClient           slot[k0sclientset.Clientset]
+	restConfig          slot[rest.Config]
 }
 
 func (c *clientFactory) GetClient() (kubernetes.Interface, error) {
-	return getOrCreateClient(c, &c.client, kubernetes.NewForConfig)
+	return getClient(c, &c.client, kubernetes.NewForConfig)
 }
 
 func (c *clientFactory) GetDynamicClient() (dynamic.Interface, error) {
-	return getOrCreateClient(c, &c.dynamicClient, dynamic.NewForConfig)
+	return getClient(c, &c.dynamicClient, dynamic.NewForConfig)
 }
 
 func (c *clientFactory) GetDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
-	client, err := getOrCreateClient(c, &c.discoveryClient, func(c *rest.Config) (*discovery.CachedDiscoveryInterface, error) {
+	client, err := getClient(c, &c.discoveryClient, func(c *rest.Config) (*discovery.CachedDiscoveryInterface, error) {
 		discoveryClient, err := discovery.NewDiscoveryClientForConfig(c)
 		if err != nil {
 			return nil, err
@@ -94,11 +91,11 @@ func (c *clientFactory) GetDiscoveryClient() (discovery.CachedDiscoveryInterface
 }
 
 func (c *clientFactory) GetAPIExtensionsClient() (apiextensionsclientset.Interface, error) {
-	return getOrCreateClient(c, &c.apiExtensionsClient, apiextensionsclientset.NewForConfig)
+	return getClient(c, &c.apiExtensionsClient, apiextensionsclientset.NewForConfig)
 }
 
 func (c *clientFactory) GetK0sClient() (k0sclientset.Interface, error) {
-	return getOrCreateClient(c, &c.k0sClient, k0sclientset.NewForConfig)
+	return getClient(c, &c.k0sClient, k0sclientset.NewForConfig)
 }
 
 // Deprecated: Use [clientFactory.GetK0sClient] instead.
@@ -122,7 +119,7 @@ func (c *clientFactory) GetEtcdMemberClient() (etcdMemberClient.EtcdMemberInterf
 }
 
 func (c *clientFactory) GetRESTConfig() (*rest.Config, error) {
-	config, err := getOrLoad(c, &c.restConfig, c.loadRESTConfig)
+	config, err := c.getRESTConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -130,61 +127,31 @@ func (c *clientFactory) GetRESTConfig() (*rest.Config, error) {
 	return rest.CopyConfig(config), nil
 }
 
-func (c *clientFactory) loadRESTConfig() (*rest.Config, error) {
-	config, err := ClientConfig(KubeconfigFromFile(c.configPath))
-	if err != nil {
-		return nil, err
-	}
-
-	// We're always running the client on the same host as the API, no need to compress
-	config.DisableCompression = true
-	// To mitigate stack applier bursts in startup
-	config.QPS = 40.0
-	config.Burst = 400.0
-
-	return config, nil
-}
-
-func getOrCreateClient[T any](cf *clientFactory, loaded **T, newForConfig func(*rest.Config) (*T, error)) (*T, error) {
-	return getOrLoad(cf, loaded, func() (*T, error) {
-		config, err := getOrLoadLocked(&cf.restConfig, cf.loadRESTConfig)
+func (c *clientFactory) getRESTConfig() (*rest.Config, error) {
+	return c.restConfig.get(func() (*rest.Config, error) {
+		config, err := ClientConfig(KubeconfigFromFile(c.configPath))
 		if err != nil {
 			return nil, err
 		}
-		return newForConfig(config)
+
+		// We're always running the client on the same host as the API, no need to compress
+		config.DisableCompression = true
+		// To mitigate stack applier bursts in startup
+		config.QPS = 40.0
+		config.Burst = 400.0
+
+		return config, nil
 	})
 }
 
-func getOrLoad[T any](cf *clientFactory, ptr **T, load func() (*T, error)) (*T, error) {
-	if loaded := loadPtr(ptr); loaded != nil {
-		return loaded, nil
-	}
-
-	cf.mutex.Lock()
-	defer cf.mutex.Unlock()
-	return getOrLoadLocked(ptr, load)
-}
-
-func getOrLoadLocked[T any](ptr **T, load func() (*T, error)) (*T, error) {
-	if loaded := *ptr; loaded != nil {
-		return loaded, nil
-	}
-
-	t, err := load()
-	if err == nil {
-		storePtr(ptr, t)
-	}
-	return t, err
-}
-
-func loadPtr[T any](ptr **T) *T {
-	p := (*unsafe.Pointer)(unsafe.Pointer(ptr))
-	return (*T)(atomic.LoadPointer(p))
-}
-
-func storePtr[T any](ptr **T, t *T) {
-	p := (*unsafe.Pointer)(unsafe.Pointer(ptr))
-	atomic.StorePointer(p, unsafe.Pointer(t))
+func getClient[T any](cf *clientFactory, client *slot[T], load func(*rest.Config) (*T, error)) (*T, error) {
+	return client.get(func() (*T, error) {
+		config, err := cf.getRESTConfig()
+		if err != nil {
+			return nil, err
+		}
+		return load(config)
+	})
 }
 
 // KubeconfigFromFile returns a [clientcmd.KubeconfigGetter] that tries to load
@@ -218,4 +185,31 @@ func NewClient(getter clientcmd.KubeconfigGetter) (kubernetes.Interface, error) 
 	}
 
 	return kubernetes.NewForConfig(config)
+}
+
+// Caches pointers to T that are loaded via some load func if that func doesn't
+// return an error.
+type slot[T any] struct {
+	atomic.Pointer[T]
+	sync.Mutex
+}
+
+func (s *slot[T]) get(load func() (*T, error)) (*T, error) {
+	if loaded := s.Load(); loaded != nil {
+		return loaded, nil
+	}
+
+	s.Lock()
+	defer s.Unlock()
+
+	if loaded := s.Load(); loaded != nil {
+		return loaded, nil
+	}
+
+	loaded, err := load()
+	if err == nil {
+		s.Store(loaded)
+	}
+
+	return loaded, err
 }
