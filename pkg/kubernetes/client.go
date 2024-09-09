@@ -48,15 +48,15 @@ type ClientFactoryInterface interface {
 
 // NewAdminClientFactory creates a new factory that loads the admin kubeconfig based client
 func NewAdminClientFactory(kubeconfigPath string) ClientFactoryInterface {
-	return &clientFactory{
+	return &ClientFactory{
 		configPath: kubeconfigPath,
 	}
 }
 
-// clientFactory implements a cached and lazy-loading clientFactory for all the different types of kube clients we use
+// ClientFactory implements a cached and lazy-loading ClientFactory for all the different types of kube clients we use
 // It's implemented as lazy-loading so we can create the factory itself before we have the api, etcd and other components up so we can pass
 // the factory itself to components needing kube clients and creation time.
-type clientFactory struct {
+type ClientFactory struct {
 	configPath string
 
 	client              atomic.Pointer[kubernetes.Clientset]
@@ -69,15 +69,15 @@ type clientFactory struct {
 	mutex sync.Mutex
 }
 
-func (c *clientFactory) GetClient() (kubernetes.Interface, error) {
+func (c *ClientFactory) GetClient() (kubernetes.Interface, error) {
 	return lazyLoadClient(c, &c.client, kubernetes.NewForConfig)
 }
 
-func (c *clientFactory) GetDynamicClient() (dynamic.Interface, error) {
+func (c *ClientFactory) GetDynamicClient() (dynamic.Interface, error) {
 	return lazyLoadClient(c, &c.dynamicClient, dynamic.NewForConfig)
 }
 
-func (c *clientFactory) GetDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
+func (c *ClientFactory) GetDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
 	client, err := lazyLoadClient(c, &c.discoveryClient, func(c *rest.Config) (*discovery.CachedDiscoveryInterface, error) {
 		discoveryClient, err := discovery.NewDiscoveryClientForConfig(c)
 		if err != nil {
@@ -92,16 +92,16 @@ func (c *clientFactory) GetDiscoveryClient() (discovery.CachedDiscoveryInterface
 	return *client, err
 }
 
-func (c *clientFactory) GetAPIExtensionsClient() (apiextensionsclientset.Interface, error) {
+func (c *ClientFactory) GetAPIExtensionsClient() (apiextensionsclientset.Interface, error) {
 	return lazyLoadClient(c, &c.apiExtensionsClient, apiextensionsclientset.NewForConfig)
 }
 
-func (c *clientFactory) GetK0sClient() (k0sclientset.Interface, error) {
+func (c *ClientFactory) GetK0sClient() (k0sclientset.Interface, error) {
 	return lazyLoadClient(c, &c.k0sClient, k0sclientset.NewForConfig)
 }
 
 // Deprecated: Use [clientFactory.GetK0sClient] instead.
-func (c *clientFactory) GetConfigClient() (cfgClient.ClusterConfigInterface, error) {
+func (c *ClientFactory) GetConfigClient() (cfgClient.ClusterConfigInterface, error) {
 	k0sClient, err := c.GetK0sClient()
 	if err != nil {
 		return nil, err
@@ -111,7 +111,7 @@ func (c *clientFactory) GetConfigClient() (cfgClient.ClusterConfigInterface, err
 }
 
 // Deprecated: Use [clientFactory.GetK0sClient] instead.
-func (c *clientFactory) GetEtcdMemberClient() (etcdMemberClient.EtcdMemberInterface, error) {
+func (c *ClientFactory) GetEtcdMemberClient() (etcdMemberClient.EtcdMemberInterface, error) {
 	k0sClient, err := c.GetK0sClient()
 	if err != nil {
 		return nil, err
@@ -120,11 +120,11 @@ func (c *clientFactory) GetEtcdMemberClient() (etcdMemberClient.EtcdMemberInterf
 	return k0sClient.EtcdV1beta1().EtcdMembers(), nil
 }
 
-func (c *clientFactory) GetRESTConfig() (*rest.Config, error) {
+func (c *ClientFactory) GetRESTConfig() (*rest.Config, error) {
 	return lazyLoad(c, &c.restConfig, c.loadRESTConfig)
 }
 
-func (c *clientFactory) loadRESTConfig() (*rest.Config, error) {
+func (c *ClientFactory) loadRESTConfig() (*rest.Config, error) {
 	config, err := ClientConfig(KubeconfigFromFile(c.configPath))
 	if err != nil {
 		return nil, err
@@ -139,7 +139,7 @@ func (c *clientFactory) loadRESTConfig() (*rest.Config, error) {
 	return config, nil
 }
 
-func lazyLoadClient[T any](cf *clientFactory, ptr *atomic.Pointer[T], load func(*rest.Config) (*T, error)) (*T, error) {
+func lazyLoadClient[T any](cf *ClientFactory, ptr *atomic.Pointer[T], load func(*rest.Config) (*T, error)) (*T, error) {
 	return lazyLoad(cf, ptr, func() (*T, error) {
 		config, err := lockedLazyLoad(&cf.restConfig, cf.loadRESTConfig)
 		if err != nil {
@@ -149,7 +149,7 @@ func lazyLoadClient[T any](cf *clientFactory, ptr *atomic.Pointer[T], load func(
 	})
 }
 
-func lazyLoad[T any](cf *clientFactory, ptr *atomic.Pointer[T], load func() (*T, error)) (*T, error) {
+func lazyLoad[T any](cf *ClientFactory, ptr *atomic.Pointer[T], load func() (*T, error)) (*T, error) {
 	if loaded := ptr.Load(); loaded != nil {
 		return loaded, nil
 	}
