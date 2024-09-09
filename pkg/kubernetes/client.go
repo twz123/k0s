@@ -46,18 +46,11 @@ type ClientFactoryInterface interface {
 	GetEtcdMemberClient() (etcdMemberClient.EtcdMemberInterface, error) // Deprecated: Use [ClientFactoryInterface.GetK0sClient] instead.
 }
 
-// NewAdminClientFactory creates a new factory that loads the admin kubeconfig based client
-func NewAdminClientFactory(kubeconfigPath string) ClientFactoryInterface {
-	return &ClientFactory{
-		configPath: kubeconfigPath,
-	}
-}
-
 // ClientFactory implements a cached and lazy-loading ClientFactory for all the different types of kube clients we use
 // It's implemented as lazy-loading so we can create the factory itself before we have the api, etcd and other components up so we can pass
 // the factory itself to components needing kube clients and creation time.
 type ClientFactory struct {
-	configPath string
+	LoadRESTConfig func() (*rest.Config, error)
 
 	client              atomic.Pointer[kubernetes.Clientset]
 	dynamicClient       atomic.Pointer[dynamic.DynamicClient]
@@ -121,27 +114,12 @@ func (c *ClientFactory) GetEtcdMemberClient() (etcdMemberClient.EtcdMemberInterf
 }
 
 func (c *ClientFactory) GetRESTConfig() (*rest.Config, error) {
-	return lazyLoad(c, &c.restConfig, c.loadRESTConfig)
-}
-
-func (c *ClientFactory) loadRESTConfig() (*rest.Config, error) {
-	config, err := ClientConfig(KubeconfigFromFile(c.configPath))
-	if err != nil {
-		return nil, err
-	}
-
-	// We're always running the client on the same host as the API, no need to compress
-	config.DisableCompression = true
-	// To mitigate stack applier bursts in startup
-	config.QPS = 40.0
-	config.Burst = 400.0
-
-	return config, nil
+	return lazyLoad(c, &c.restConfig, c.LoadRESTConfig)
 }
 
 func lazyLoadClient[T any](cf *ClientFactory, ptr *atomic.Pointer[T], load func(*rest.Config) (*T, error)) (*T, error) {
 	return lazyLoad(cf, ptr, func() (*T, error) {
-		config, err := lockedLazyLoad(&cf.restConfig, cf.loadRESTConfig)
+		config, err := lockedLazyLoad(&cf.restConfig, cf.LoadRESTConfig)
 		if err != nil {
 			return nil, err
 		}
