@@ -172,7 +172,11 @@ func (c *rootController) startSubControllerRoutine(ctx context.Context, logger *
 		managerOpts.Controller.SkipNameValidation = ptr.To(true)
 	}
 
-	mgr, err := cr.NewManager(c.autopilotClientFactory.RESTConfig(), managerOpts)
+	config, err := c.autopilotClientFactory.GetRESTConfig()
+	if err != nil {
+		return err
+	}
+	mgr, err := cr.NewManager(config, managerOpts)
 	if err != nil {
 		logger.WithError(err).Error("unable to start controller manager")
 		return err

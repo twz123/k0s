@@ -74,7 +74,11 @@ func (w *rootWorker) Run(ctx context.Context) error {
 	var mgr crman.Manager
 	if err := retry.Do(
 		func() (err error) {
-			mgr, err = cr.NewManager(w.clientFactory.RESTConfig(), managerOpts)
+			config, err := w.clientFactory.GetRESTConfig()
+			if err != nil {
+				return err
+			}
+			mgr, err = cr.NewManager(config, managerOpts)
 			return err
 		},
 		retry.Context(ctx),
