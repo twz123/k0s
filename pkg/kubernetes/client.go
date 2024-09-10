@@ -18,6 +18,7 @@ package kubernetes
 
 import (
 	"sync"
+	"sync/atomic"
 
 	k0sclientset "github.com/k0sproject/k0s/pkg/client/clientset"
 	etcdMemberClient "github.com/k0sproject/k0s/pkg/client/clientset/typed/etcd/v1beta1"
@@ -30,6 +31,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/utils/ptr"
 )
 
 // ClientFactoryInterface defines a factory interface to load a kube client
@@ -44,114 +46,47 @@ type ClientFactoryInterface interface {
 }
 
 // ClientFactory implements a cached and lazy-loading ClientFactory for all the different types of kube clients we use
-// It's imoplemented as lazy-loading so we can create the factory itself before we have the api, etcd and other components up so we can pass
+// It's implemented as lazy-loading so we can create the factory itself before we have the api, etcd and other components up so we can pass
 // the factory itself to components needing kube clients and creation time.
 type ClientFactory struct {
 	LoadRESTConfig func() (*rest.Config, error)
 
-	client          kubernetes.Interface
-	dynamicClient   dynamic.Interface
-	discoveryClient discovery.CachedDiscoveryInterface
-	k0sClient       k0sclientset.Interface
-	restConfig      *rest.Config
+	client          atomic.Pointer[kubernetes.Clientset]
+	dynamicClient   atomic.Pointer[dynamic.DynamicClient]
+	discoveryClient atomic.Pointer[discovery.CachedDiscoveryInterface]
+	k0sClient       atomic.Pointer[k0sclientset.Clientset]
+	restConfig      atomic.Pointer[rest.Config]
 
 	mutex sync.Mutex
 }
 
 func (c *ClientFactory) GetClient() (kubernetes.Interface, error) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	if c.client != nil {
-		return c.client, nil
-	}
-
-	config, err := c.getRESTConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	client, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, err
-	}
-
-	c.client = client
-
-	return client, nil
+	return lazyLoadClient(c, &c.client, kubernetes.NewForConfig)
 }
 
 func (c *ClientFactory) GetDynamicClient() (dynamic.Interface, error) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	if c.dynamicClient != nil {
-		return c.dynamicClient, nil
-	}
-
-	config, err := c.getRESTConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	client, err := dynamic.NewForConfig(config)
-	if err != nil {
-		return nil, err
-	}
-
-	c.dynamicClient = client
-
-	return client, nil
+	return lazyLoadClient(c, &c.dynamicClient, dynamic.NewForConfig)
 }
 
 func (c *ClientFactory) GetDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	if c.discoveryClient != nil {
-		return c.discoveryClient, nil
-	}
-
-	config, err := c.getRESTConfig()
+	client, err := lazyLoadClient(c, &c.discoveryClient, func(c *rest.Config) (*discovery.CachedDiscoveryInterface, error) {
+		client, err := discovery.NewDiscoveryClientForConfig(c)
+		if err != nil {
+			return nil, err
+		}
+		return ptr.To(memory.NewMemCacheClient(client)), nil
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	client, err := discovery.NewDiscoveryClientForConfig(config)
-	if err != nil {
-		return nil, err
-	}
-	cachedClient := memory.NewMemCacheClient(client)
-
-	c.discoveryClient = cachedClient
-
-	return cachedClient, nil
+	return *client, err
 }
 
 func (c *ClientFactory) GetK0sClient() (k0sclientset.Interface, error) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	if c.k0sClient != nil {
-		return c.k0sClient, nil
-	}
-
-	config, err := c.getRESTConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	client, err := k0sclientset.NewForConfig(config)
-	if err != nil {
-		return nil, err
-	}
-
-	c.k0sClient = client
-
-	return client, nil
+	return lazyLoadClient(c, &c.k0sClient, k0sclientset.NewForConfig)
 }
 
-// Deprecated: Use [ClientFactory.GetK0sClient] instead.
+// Deprecated: Use [clientFactory.GetK0sClient] instead.
 func (c *ClientFactory) GetConfigClient() (cfgClient.ClusterConfigInterface, error) {
 	k0sClient, err := c.GetK0sClient()
 	if err != nil {
@@ -161,7 +96,7 @@ func (c *ClientFactory) GetConfigClient() (cfgClient.ClusterConfigInterface, err
 	return k0sClient.K0sV1beta1().ClusterConfigs(constant.ClusterConfigNamespace), nil
 }
 
-// Deprecated: Use [ClientFactory.GetK0sClient] instead.
+// Deprecated: Use [clientFactory.GetK0sClient] instead.
 func (c *ClientFactory) GetEtcdMemberClient() (etcdMemberClient.EtcdMemberInterface, error) {
 	k0sClient, err := c.GetK0sClient()
 	if err != nil {
@@ -172,24 +107,41 @@ func (c *ClientFactory) GetEtcdMemberClient() (etcdMemberClient.EtcdMemberInterf
 }
 
 func (c *ClientFactory) GetRESTConfig() (*rest.Config, error) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	return c.getRESTConfig()
+	return lazyLoad(c, &c.restConfig, c.LoadRESTConfig)
 }
 
-func (c *ClientFactory) getRESTConfig() (*rest.Config, error) {
-	if c.restConfig != nil {
-		return c.restConfig, nil
+func lazyLoadClient[T any](cf *ClientFactory, ptr *atomic.Pointer[T], load func(*rest.Config) (*T, error)) (*T, error) {
+	return lazyLoad(cf, ptr, func() (*T, error) {
+		config, err := lockedLazyLoad(&cf.restConfig, cf.LoadRESTConfig)
+		if err != nil {
+			return nil, err
+		}
+		return load(config)
+	})
+}
+
+func lazyLoad[T any](cf *ClientFactory, ptr *atomic.Pointer[T], load func() (*T, error)) (*T, error) {
+	if loaded := ptr.Load(); loaded != nil {
+		return loaded, nil
 	}
 
-	config, err := c.LoadRESTConfig()
-	if err != nil {
-		return nil, err
+	cf.mutex.Lock()
+	defer cf.mutex.Unlock()
+
+	return lockedLazyLoad(ptr, load)
+}
+
+func lockedLazyLoad[T any](ptr *atomic.Pointer[T], load func() (*T, error)) (*T, error) {
+	if loaded := ptr.Load(); loaded != nil {
+		return loaded, nil
 	}
 
-	c.restConfig = config
+	loaded, err := load()
+	if err == nil {
+		ptr.Store(loaded)
+	}
 
-	return config, err
+	return loaded, err
 }
 
 // KubeconfigFromFile returns a [clientcmd.KubeconfigGetter] that tries to load
