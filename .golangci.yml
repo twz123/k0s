@@ -43,10 +43,13 @@ linters-settings:
         files:
           - "!$test"
           - "!**/internal/testutil/**"
+          - "!**/internal/autopilot/testutil/**"
           - "!**/inttest/**"
           - "!**/pkg/supervisor/pingpong*.go" # only used for testing
         deny:
           - pkg: github.com/k0sproject/k0s/internal/testutil
+            desc: Usage of test code outside of tests.
+          - pkg: github.com/k0sproject/k0s/internal/autopilot/testutil
             desc: Usage of test code outside of tests.
           - pkg: github.com/stretchr/testify
             desc: Usage of test code outside of tests.
