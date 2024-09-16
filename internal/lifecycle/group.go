@@ -25,8 +25,6 @@ import (
 )
 
 type Group struct {
-	// seq atomic.Uint32
-
 	mu   sync.Mutex
 	refs []any
 }
@@ -42,13 +40,8 @@ type Ref[T any] struct {
 }
 
 type node struct {
-	g *Group
-	// seq uint32
-
-	// mu    sync.Mutex
-	dependencies, dependents []*node
-
-	// rels relations
+	mu           *sync.Mutex
+	dependencies []*node
 }
 
 type result[T any] struct {
@@ -67,7 +60,7 @@ func Go[T any](g *Group, f ProviderFunc[T]) *Ref[T] {
 	done := make(chan struct{})
 
 	ref := Ref[T]{
-		node: node{g: g},
+		node: node{mu: &g.mu},
 		done: done,
 	}
 
@@ -96,7 +89,7 @@ func (g *Group) Do(ctx context.Context, f func(context.Context, *Slot)) {
 	defer cancel()
 
 	var slot Slot
-	slot.node.Store(&node{g: g})
+	slot.node.Store(&node{mu: &g.mu})
 	defer slot.node.Store(nil)
 	f(ctx, &slot)
 }
@@ -104,21 +97,21 @@ func (g *Group) Do(ctx context.Context, f func(context.Context, *Slot)) {
 func Get[T any](ctx context.Context, slot *Slot, ref *Ref[T]) (t T, err error) {
 	// FIXME Check all invariants between slot and ref here!
 
-	if ref.node.g == nil {
+	if ref.node.mu == nil {
 		return t, fmt.Errorf("invalid ref")
 	}
 
-	slotID := slot.node.Load()
-	if slotID == nil {
+	node := slot.node.Load()
+	if node == nil {
 		return t, fmt.Errorf("invalid slot")
 	}
 
-	if slotID.g != ref.node.g {
+	if node.mu != ref.node.mu {
 		return t, fmt.Errorf("slot and ref incompatible")
 	}
 
-	if !slotID.addDependency(&ref.node) {
-		return t, ErrCircular
+	if err := node.addDependency(&ref.node); err != nil {
+		return t, err
 	}
 
 	select {
@@ -130,24 +123,24 @@ func Get[T any](ctx context.Context, slot *Slot, ref *Ref[T]) (t T, err error) {
 	}
 }
 
-func (candidate *node) addDependency(dependency *node) bool {
-	candidate.g.mu.Lock()
-	defer candidate.g.mu.Unlock()
+func (n *node) addDependency(dependency *node) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
-	if dependency.dependsOn(candidate) {
-		return false
+	if dependency.dependsOn(n) {
+		return ErrCircular
 	}
 
-	candidate.dependencies = append(candidate.dependencies, dependency)
-	return true
+	n.dependencies = append(n.dependencies, dependency)
+	return nil
 }
 
-func (candidate *node) dependsOn(dependency *node) bool {
-	if candidate == dependency {
+func (n *node) dependsOn(dependency *node) bool {
+	if n == dependency {
 		return true
 	}
 
-	for _, candidtate := range candidate.dependencies {
+	for _, candidtate := range n.dependencies {
 		if candidtate.dependsOn(dependency) {
 			return true
 		}
