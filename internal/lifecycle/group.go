@@ -20,36 +20,35 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"sync"
 	"sync/atomic"
-
-	"github.com/sirupsen/logrus"
 )
 
 type Group struct {
-	seq atomic.Uint32
+	// seq atomic.Uint32
 
 	mu   sync.Mutex
 	refs []any
 }
 
 type Slot struct {
-	id atomic.Pointer[id]
+	node atomic.Pointer[node]
 }
 
 type Ref[T any] struct {
-	id   id
+	node node
 	done <-chan struct{}
 	val  atomic.Pointer[result[T]]
 }
 
-type id struct {
-	g   *Group
-	seq uint32
+type node struct {
+	g *Group
+	// seq uint32
 
-	mu   sync.Mutex
-	rels relations
+	// mu    sync.Mutex
+	dependencies, dependents []*node
+
+	// rels relations
 }
 
 type result[T any] struct {
@@ -68,7 +67,7 @@ func Go[T any](g *Group, f ProviderFunc[T]) *Ref[T] {
 	done := make(chan struct{})
 
 	ref := Ref[T]{
-		id:   id{g: g, seq: g.seq.Add(1)},
+		node: node{g: g},
 		done: done,
 	}
 
@@ -78,8 +77,8 @@ func Go[T any](g *Group, f ProviderFunc[T]) *Ref[T] {
 		defer cancel(r.err)
 
 		var slot Slot
-		slot.id.Store(&ref.id)
-		defer slot.id.Store(nil)
+		slot.node.Store(&ref.node)
+		defer slot.node.Store(nil)
 
 		r.t, r.stop, r.done, r.err = f(ctx, &slot)
 		ref.val.Store(&r)
@@ -97,39 +96,28 @@ func (g *Group) Do(ctx context.Context, f func(context.Context, *Slot)) {
 	defer cancel()
 
 	var slot Slot
-	slot.id.Store(&id{g: g, seq: g.seq.Add(1)})
-	defer slot.id.Store(nil)
+	slot.node.Store(&node{g: g})
+	defer slot.node.Store(nil)
 	f(ctx, &slot)
 }
 
 func Get[T any](ctx context.Context, slot *Slot, ref *Ref[T]) (t T, err error) {
 	// FIXME Check all invariants between slot and ref here!
 
-	if ref.id.g == nil {
+	if ref.node.g == nil {
 		return t, fmt.Errorf("invalid ref")
 	}
 
-	slotID := slot.id.Load()
+	slotID := slot.node.Load()
 	if slotID == nil {
 		return t, fmt.Errorf("invalid slot")
 	}
 
-	if slotID.g != ref.id.g {
+	if slotID.g != ref.node.g {
 		return t, fmt.Errorf("slot and ref incompatible")
 	}
 
-	// fast path
-	select {
-	case <-ctx.Done():
-		return t, context.Cause(ctx)
-	case <-ref.done:
-		p := ref.val.Load()
-		return p.t, p.err
-	default:
-		// fallback to slow path
-	}
-
-	if !ref.id.neededBy(slotID) {
+	if !slotID.addDependency(&ref.node) {
 		return t, ErrCircular
 	}
 
@@ -142,112 +130,28 @@ func Get[T any](ctx context.Context, slot *Slot, ref *Ref[T]) (t T, err error) {
 	}
 }
 
-func (needed *id) neededBy(depends *id) bool {
-	// lock smaller sequences first to have a well-defined lock order
-	if needed.seq < depends.seq {
-		needed.mu.Lock()
-		defer needed.mu.Unlock()
-		depends.mu.Lock()
-		defer depends.mu.Unlock()
-	} else if depends.seq < needed.seq {
-		depends.mu.Lock()
-		defer depends.mu.Unlock()
-		needed.mu.Lock()
-		defer needed.mu.Unlock()
-	} else {
+func (candidate *node) addDependency(dependency *node) bool {
+	candidate.g.mu.Lock()
+	defer candidate.g.mu.Unlock()
+
+	if dependency.dependsOn(candidate) {
 		return false
 	}
 
-	if !depends.rels.addDependsOn(needed.seq) {
-		return false
-	}
-	if !needed.rels.addNeededBy(depends.seq) {
-		return false
-	}
-
-	for seq, rel := range needed.rels {
-		if rel == dependsOn {
-			if seq == depends.seq {
-				return false
-			}
-			if !depends.rels.addDependsOn(seq) {
-				return false
-			}
-		}
-	}
-
-	for seq, rel := range depends.rels {
-		if rel == neededBy {
-			if seq == needed.seq {
-				return false
-			}
-			// FIXME is this right? It's not symmetric with the other for loop.
-			if !depends.rels.addNeededBy(seq) {
-				return false
-			}
-		}
-	}
-
-	logrus.Infof("slot %d %s", depends.seq, &depends.rels)
-
+	candidate.dependencies = append(candidate.dependencies, dependency)
 	return true
 }
 
-type relationType byte
-
-const (
-	dependsOn relationType = iota + 1
-	neededBy
-)
-
-type relations map[uint32]relationType
-
-func (r *relations) String() string {
-	var needed, depends []uint32
-
-	for seq, rel := range *r {
-		switch rel {
-		case neededBy:
-			needed = append(needed, seq)
-		case dependsOn:
-			depends = append(depends, seq)
-		}
-	}
-
-	slices.Sort(needed)
-	slices.Sort(depends)
-
-	return fmt.Sprintf("neededBy %v, depends on %v", needed, depends)
-}
-
-func (r *relations) addNeededBy(seq uint32) bool {
-	if rel := (*r)[seq]; rel == dependsOn {
-		return false
-	}
-
-	if *r == nil {
-		*r = relations{seq: neededBy}
+func (candidate *node) dependsOn(dependency *node) bool {
+	if candidate == dependency {
 		return true
 	}
 
-	(*r)[seq] = neededBy
-	return true
-}
-
-func (r *relations) isDependingOn(seq uint32) bool {
-	return (*r)[seq] == dependsOn
-}
-
-func (r *relations) addDependsOn(seq uint32) bool {
-	if rel := (*r)[seq]; rel == neededBy {
-		return false
+	for _, candidtate := range candidate.dependencies {
+		if candidtate.dependsOn(dependency) {
+			return true
+		}
 	}
 
-	if *r == nil {
-		*r = relations{seq: dependsOn}
-		return true
-	}
-
-	(*r)[seq] = dependsOn
-	return true
+	return false
 }
