@@ -20,66 +20,92 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"sync/atomic"
+
+	"k8s.io/utils/ptr"
 )
 
 type Group struct {
-	mu   sync.Mutex
-	refs []any
+	mu       sync.Mutex
+	nodes    []*lifecycleNode
+	shutdown bool
+
+	shutdownChan atomic.Pointer[<-chan struct{}]
 }
 
 type Slot struct {
-	node atomic.Pointer[node]
+	ptr atomic.Pointer[nodeRef]
 }
 
 type Ref[T any] struct {
-	node node
-	done <-chan struct{}
-	val  atomic.Pointer[result[T]]
+	nodeRef
+
+	started <-chan struct{}
+	t       T
+	err     error
 }
 
 type node struct {
-	mu           *sync.Mutex
-	dependencies []*node
+	dependencies *[]*node
 }
 
-type result[T any] struct {
-	t    T
-	stop chan<- struct{}
-	done <-chan struct{}
-	err  error
+type lifecycleNode struct {
+	dependencies []*node
+
+	cancelStart context.CancelCauseFunc
+	started     <-chan struct{}
+	stop        chan<- struct{}
+	done        <-chan struct{}
+}
+
+type nodeRef struct {
+	mu *sync.Mutex
+	node
 }
 
 var ErrCircular = errors.New("circular dependency")
+var ErrShutdown = errors.New("lifecycle group is shutting down")
 
 type ProviderFunc[T any] func(context.Context, *Slot) (t T, stop chan<- struct{}, done <-chan struct{}, err error)
 
 func Go[T any](g *Group, f ProviderFunc[T]) *Ref[T] {
 	ctx, cancel := context.WithCancelCause(context.Background())
-	done := make(chan struct{})
+	started := make(chan struct{})
+
+	thisNode := &lifecycleNode{
+		cancelStart: cancel,
+		started:     started,
+	}
+
+	g.mu.Lock()
+	if g.shutdown {
+		g.mu.Unlock()
+		close(started)
+		return &Ref[T]{
+			nodeRef: nodeRef{&g.mu, node{}},
+			err:     ErrShutdown,
+		}
+	}
+	g.nodes = append(g.nodes, thisNode)
+	g.mu.Unlock()
 
 	ref := Ref[T]{
-		node: node{mu: &g.mu},
-		done: done,
+		nodeRef: nodeRef{&g.mu, node{&thisNode.dependencies}},
+		started: started,
 	}
 
 	go func() {
-		var r result[T]
-		defer close(done)
-		defer cancel(r.err)
+		defer close(started)
+		defer cancel(ref.err)
 
 		var slot Slot
-		slot.node.Store(&ref.node)
-		defer slot.node.Store(nil)
+		slot.ptr.Store(&ref.nodeRef)
+		defer slot.ptr.Store(nil)
 
-		r.t, r.stop, r.done, r.err = f(ctx, &slot)
-		ref.val.Store(&r)
+		ref.t, thisNode.stop, thisNode.done, ref.err = f(ctx, &slot)
 	}()
-
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.refs = append(g.refs, &ref)
 
 	return &ref
 }
@@ -89,58 +115,177 @@ func (g *Group) Do(ctx context.Context, f func(context.Context, *Slot)) {
 	defer cancel()
 
 	var slot Slot
-	slot.node.Store(&node{mu: &g.mu})
-	defer slot.node.Store(nil)
+	slot.ptr.Store(&nodeRef{&g.mu, node{}})
+	defer slot.ptr.Store(nil)
 	f(ctx, &slot)
 }
 
-func Get[T any](ctx context.Context, slot *Slot, ref *Ref[T]) (t T, err error) {
-	// FIXME Check all invariants between slot and ref here!
+func (g *Group) Shutdown(ctx context.Context) error {
+	g.mu.Lock()
+	g.shutdown = true
+	g.mu.Unlock()
 
-	if ref.node.mu == nil {
-		return t, fmt.Errorf("invalid ref")
+	shutdownChan := make(chan struct{})
+	defer close(shutdownChan)
+
+	// FIXME is this a pattern that could be placed in some internal helper pkg?
+	for !g.shutdownChan.CompareAndSwap(nil, ptr.To[<-chan struct{}](shutdownChan)) {
+		shutdownChan := g.shutdownChan.Load()
+		if shutdownChan == nil {
+			select {
+			case <-ctx.Done():
+				return context.Cause(ctx)
+			default:
+				continue
+			}
+		}
+
+		select {
+		case <-(*shutdownChan):
+			continue
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		}
 	}
+	defer g.shutdownChan.Store(nil)
 
-	node := slot.node.Load()
-	if node == nil {
-		return t, fmt.Errorf("invalid slot")
-	}
+	doneNodes := make(map[*[]*node]struct{}, len(g.nodes))
 
-	if node.mu != ref.node.mu {
-		return t, fmt.Errorf("slot and ref incompatible")
-	}
+	for {
+		var selects []reflect.SelectCase
+		for _, node := range g.nodes {
+			if _, ok := doneNodes[&node.dependencies]; ok {
+				continue
+			}
 
-	if err := node.addDependency(&ref.node); err != nil {
-		return t, err
-	}
+			for _, dependency := range node.dependencies {
+				if _, ok := doneNodes[dependency.dependencies]; !ok {
+					continue
+				}
+			}
 
-	select {
-	case <-ctx.Done():
-		return t, context.Cause(ctx)
-	case <-ref.done:
-		p := ref.val.Load()
-		return p.t, p.err
+			if node.cancelStart != nil {
+				node.cancelStart(ErrShutdown)
+				node.cancelStart = nil
+			}
+
+			if node.started != nil {
+				select {
+				case <-node.started:
+					node.started = nil
+				default:
+					if len(selects) < 65535 {
+						selects = append(selects, reflect.SelectCase{
+							Dir:  reflect.SelectRecv,
+							Chan: reflect.ValueOf(node.started),
+						})
+					}
+					continue
+				}
+			}
+
+			if node.stop != nil {
+				close(node.stop)
+				node.stop = nil
+			}
+
+			if node.done != nil {
+				select {
+				case <-node.done:
+					node.done = nil
+				default:
+					if len(selects) < 65535 {
+						selects = append(selects, reflect.SelectCase{
+							Dir:  reflect.SelectRecv,
+							Chan: reflect.ValueOf(node.done),
+						})
+					}
+					continue
+				}
+			}
+
+			doneNodes[&node.dependencies] = struct{}{}
+		}
+
+		if len(selects) < 1 {
+			// FIXME sanity check. Can I somehow prove to myself that this is always the case?
+			if dn, n := len(doneNodes), len(g.nodes); dn != n {
+				panic(fmt.Sprintf("nothing to wait on, but only %d out of %d are done", dn, n))
+			}
+			return nil
+		}
+
+		selects = append(selects, reflect.SelectCase{
+			Dir:  reflect.SelectRecv,
+			Chan: reflect.ValueOf(ctx.Done()),
+		})
+
+		offset, _, _ := reflect.Select(selects)
+		if offset == len(selects)-1 {
+			return context.Cause(ctx)
+		}
+
+		node := g.nodes[offset]
+		if node.done != nil {
+			select {
+			case <-node.done:
+			default:
+				continue
+			}
+		}
+		doneNodes[&node.dependencies] = struct{}{}
 	}
 }
 
-func (n *node) addDependency(dependency *node) error {
+func Get[T any](ctx context.Context, slot *Slot, ref *Ref[T]) (t T, err error) {
+	if ref.mu == nil {
+		return t, fmt.Errorf("invalid ref")
+	}
+
+	slotRef := slot.ptr.Load()
+	if slotRef == nil {
+		return t, fmt.Errorf("invalid slot")
+	}
+
+	if slotRef.mu != ref.mu {
+		return t, fmt.Errorf("slot and ref incompatible")
+	}
+
+	if slotRef.dependencies != nil {
+		if err := slotRef.addDependency(&ref.nodeRef); err != nil {
+			return t, err
+		}
+	}
+
+	if ref.started != nil {
+		select {
+		case <-ctx.Done():
+			return t, context.Cause(ctx)
+		case <-ref.started:
+		}
+	}
+
+	return ref.t, ref.err
+}
+
+func (n *nodeRef) addDependency(dependency *nodeRef) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	if dependency.dependsOn(n) {
+	if dependency.node.dependsOn(&n.node) {
 		return ErrCircular
 	}
 
-	n.dependencies = append(n.dependencies, dependency)
+	*n.dependencies = append(*n.dependencies, &dependency.node)
 	return nil
 }
 
 func (n *node) dependsOn(dependency *node) bool {
-	if n == dependency {
+	if n.dependencies == dependency.dependencies {
 		return true
 	}
 
-	for _, candidtate := range n.dependencies {
+	for _, candidtate := range *n.dependencies {
 		if candidtate.dependsOn(dependency) {
 			return true
 		}

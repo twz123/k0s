@@ -19,6 +19,7 @@ package lifecycle_test
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,6 +27,63 @@ import (
 	"github.com/k0sproject/k0s/internal/testutil"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestGet_Combine(t *testing.T) {
+	var g lifecycle.Group
+
+	tens := lifecycle.Go(&g, func(ctx context.Context, s *lifecycle.Slot) (int, chan<- struct{}, <-chan struct{}, error) {
+		stop, done := make(chan struct{}), make(chan struct{})
+		go func() {
+			defer close(done)
+			<-stop
+		}()
+
+		return 4, stop, done, nil
+	})
+	ones := lifecycle.Go(&g, func(ctx context.Context, s *lifecycle.Slot) (int, chan<- struct{}, <-chan struct{}, error) {
+		stop, done := make(chan struct{}), make(chan struct{})
+		go func() {
+			defer close(done)
+			<-stop
+		}()
+
+		return 2, nil, nil, nil
+	})
+	answer := lifecycle.Go(&g, func(ctx context.Context, s *lifecycle.Slot) (int, chan<- struct{}, <-chan struct{}, error) {
+		tens, err := lifecycle.Get(ctx, s, tens)
+		if err != nil {
+			return 0, nil, nil, err
+		}
+		ones, err := lifecycle.Get(ctx, s, ones)
+		if err != nil {
+			return 0, nil, nil, err
+		}
+
+		return tens*10 + ones, nil, nil, nil
+	})
+
+	g.Do(context.TODO(), func(ctx context.Context, s *lifecycle.Slot) {
+		answer, err := lifecycle.Get(ctx, s, answer)
+		if assert.NoError(t, err) {
+			assert.Equal(t, 42, answer)
+		}
+	})
+
+	// Test brute force shutdown
+	var wg sync.WaitGroup
+	shutdown := make(chan struct{})
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-shutdown
+			g.Shutdown(context.TODO())
+		}()
+	}
+
+	close(shutdown)
+	wg.Wait()
+}
 
 func TestGet_RejectsBogusStuff(t *testing.T) {
 	var g lifecycle.Group
