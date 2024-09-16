@@ -19,69 +19,82 @@ package lifecycle_test
 import (
 	"context"
 	"fmt"
-	"math/rand/v2"
 	"testing"
 	"time"
 
 	"github.com/k0sproject/k0s/internal/lifecycle"
+	"github.com/k0sproject/k0s/internal/testutil"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGroup_LoopDetection(t *testing.T) {
+func TestGroup_SelfDependency(t *testing.T) {
 
-	var g lifecycle.Group
-
-	var delays []time.Duration
+	var underTest lifecycle.Group
 	provide := make(chan struct{})
 
 	var self *lifecycle.Ref[any]
-	self = lifecycle.Go(&g, func(ctx context.Context, slot *lifecycle.Slot) (any, chan<- struct{}, <-chan struct{}, error) {
+	self = lifecycle.Go(&underTest, func(ctx context.Context, slot *lifecycle.Slot) (any, chan<- struct{}, <-chan struct{}, error) {
 		<-provide
-		time.Sleep(delays[0])
 		if _, err := lifecycle.Get(ctx, slot, self); err != nil {
 			return nil, nil, nil, fmt.Errorf("self: %w", err)
 		}
 		return nil, nil, nil, nil
 	})
 
-	circle := make([]*lifecycle.Ref[any], 10)
-	for i := range circle {
-		i := i
-		j := i - 1
-		if i == 0 {
-			j = len(circle) - 1
-		}
-		circle[i] = lifecycle.Go(&g, func(ctx context.Context, slot *lifecycle.Slot) (any, chan<- struct{}, <-chan struct{}, error) {
-			<-provide
-			time.Sleep(delays[i+1])
-			if _, err := lifecycle.Get(ctx, slot, circle[j]); err != nil {
-				return nil, nil, nil, fmt.Errorf("%d awaits %d: %w", i, j, err)
-			}
-			return nil, nil, nil, nil
-		})
-	}
-
-	// todo nested deadlock....?
-
-	delays = make([]time.Duration, 12)
-	for i := range delays {
-		delays[i] = 0
-		delays[i] = time.Duration(i) * time.Millisecond
-	}
-	rand.Shuffle(len(delays), func(i, j int) {
-		delays[i], delays[j] = delays[j], delays[i]
-	})
 	close(provide)
 
-	g.Do(context.TODO(), func(ctx context.Context, slot *lifecycle.Slot) {
-		time.Sleep(delays[11])
+	underTest.Do(context.TODO(), func(ctx context.Context, slot *lifecycle.Slot) {
+		_, err := lifecycle.Get(ctx, slot, self)
+		assert.ErrorContains(t, err, "self: circular dependency")
+		assert.ErrorIs(t, err, lifecycle.ErrCircular)
+	})
+}
 
-		var err error
+func TestGroup_LoopDetection(t *testing.T) {
+	order := [...]int{0, 1, 2, 3, 4, 5}
+	testutil.Permute(order[:], func() bool {
+		t.Logf("Testing order: %v", order)
 
-		for i := range circle {
-			_, err = lifecycle.Get(ctx, slot, circle[i])
-			assert.ErrorContains(t, err, "i awaits j")
-			assert.ErrorIs(t, err, lifecycle.ErrCircular)
+		provide := make(chan struct{})
+		seq := make([]chan struct{}, len(order))
+		for i := range seq {
+			seq[i] = make(chan struct{})
 		}
+
+		var underTest lifecycle.Group
+
+		circle := make([]*lifecycle.Ref[any], len(order)-1)
+		for i := range circle {
+			order, i, j := order[i], i, (i+1)%len(circle)
+			circle[i] = lifecycle.Go(&underTest, func(ctx context.Context, slot *lifecycle.Slot) (any, chan<- struct{}, <-chan struct{}, error) {
+				<-provide
+				for i := 0; i < order; i++ {
+					<-seq[i]
+				}
+				time.AfterFunc(10*time.Microsecond, func() { close(seq[order]) })
+				if _, err := lifecycle.Get(ctx, slot, circle[j]); err != nil {
+					return nil, nil, nil, fmt.Errorf("(order %d) %d awaits %d: %w", order, i, j, err)
+				}
+				return nil, nil, nil, nil
+			})
+		}
+
+		close(provide)
+
+		underTest.Do(context.TODO(), func(ctx context.Context, slot *lifecycle.Slot) {
+			for i := 0; i < order[len(order)-1]; i++ {
+				<-seq[i]
+			}
+			close(seq[order[len(order)-1]])
+
+			for i := range circle {
+				order, i, j := order[i], i, (i+1)%len(circle)
+				_, err := lifecycle.Get(ctx, slot, circle[i])
+				assert.ErrorContains(t, err, fmt.Sprintf("(order %d) %d awaits %d: ", order, i, j))
+				assert.ErrorIs(t, err, lifecycle.ErrCircular)
+			}
+		})
+
+		return !t.Failed()
 	})
 }
