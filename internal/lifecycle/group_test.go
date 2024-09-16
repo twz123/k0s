@@ -27,13 +27,73 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGroup_SelfDependency(t *testing.T) {
+func TestGet_RejectsBogusStuff(t *testing.T) {
+	var g lifecycle.Group
+	var zeroSlot lifecycle.Slot
+	var zeroRef lifecycle.Ref[any]
 
-	var underTest lifecycle.Group
+	_, err := lifecycle.Get(context.TODO(), &zeroSlot, &zeroRef)
+	assert.ErrorContains(t, err, "invalid")
+
+	ref := lifecycle.Go(&g, func(ctx context.Context, slot *lifecycle.Slot) (any, chan<- struct{}, <-chan struct{}, error) {
+		return nil, nil, nil, nil
+	})
+
+	_, err = lifecycle.Get(context.TODO(), &zeroSlot, ref)
+	assert.ErrorContains(t, err, "invalid slot")
+
+	var disposedSlot *lifecycle.Slot
+	g.Do(context.TODO(), func(ctx context.Context, slot *lifecycle.Slot) {
+		disposedSlot = slot
+		_, err := lifecycle.Get(ctx, slot, &zeroRef)
+		assert.ErrorContains(t, err, "invalid ref")
+	})
+
+	_, err = lifecycle.Get(context.TODO(), disposedSlot, ref)
+	assert.ErrorContains(t, err, "invalid slot")
+
+	var other lifecycle.Group
+	other.Do(context.TODO(), func(ctx context.Context, slot *lifecycle.Slot) {
+		_, err := lifecycle.Get(ctx, slot, ref)
+		assert.ErrorContains(t, err, "slot and ref incompatible")
+	})
+}
+
+func TestGet_ContextCancellation(t *testing.T) {
+	var g lifecycle.Group
+
+	testCtx, cancelTest := context.WithCancelCause(context.TODO())
+
+	goroutineDone := make(chan struct{})
+	ref := lifecycle.Go(&g, func(ctx context.Context, slot *lifecycle.Slot) (any, chan<- struct{}, <-chan struct{}, error) {
+		defer close(goroutineDone)
+		<-testCtx.Done()
+
+		select {
+		case <-ctx.Done():
+			assert.Fail(t, "The goroutine's context is not independent of the outer context")
+		default:
+		}
+
+		return nil, nil, nil, nil
+	})
+
+	g.Do(testCtx, func(ctx context.Context, slot *lifecycle.Slot) {
+		time.AfterFunc(10*time.Microsecond, func() { cancelTest(assert.AnError) })
+		_, err := lifecycle.Get(ctx, slot, ref)
+		assert.ErrorIs(t, err, assert.AnError)
+	})
+
+	<-goroutineDone
+}
+
+func TestGet_SelfDependency(t *testing.T) {
+
+	var g lifecycle.Group
 	provide := make(chan struct{})
 
 	var self *lifecycle.Ref[any]
-	self = lifecycle.Go(&underTest, func(ctx context.Context, slot *lifecycle.Slot) (any, chan<- struct{}, <-chan struct{}, error) {
+	self = lifecycle.Go(&g, func(ctx context.Context, slot *lifecycle.Slot) (any, chan<- struct{}, <-chan struct{}, error) {
 		<-provide
 		if _, err := lifecycle.Get(ctx, slot, self); err != nil {
 			return nil, nil, nil, fmt.Errorf("self: %w", err)
@@ -43,14 +103,14 @@ func TestGroup_SelfDependency(t *testing.T) {
 
 	close(provide)
 
-	underTest.Do(context.TODO(), func(ctx context.Context, slot *lifecycle.Slot) {
+	g.Do(context.TODO(), func(ctx context.Context, slot *lifecycle.Slot) {
 		_, err := lifecycle.Get(ctx, slot, self)
 		assert.ErrorContains(t, err, "self: circular dependency")
 		assert.ErrorIs(t, err, lifecycle.ErrCircular)
 	})
 }
 
-func TestGroup_LoopDetection(t *testing.T) {
+func TestGet_LoopDetection(t *testing.T) {
 	order := [...]int{0, 1, 2, 3, 4, 5}
 	testutil.Permute(order[:], func() bool {
 		t.Logf("Testing order: %v", order)
@@ -61,12 +121,12 @@ func TestGroup_LoopDetection(t *testing.T) {
 			seq[i] = make(chan struct{})
 		}
 
-		var underTest lifecycle.Group
+		var g lifecycle.Group
 
 		circle := make([]*lifecycle.Ref[any], len(order)-1)
 		for i := range circle {
 			order, i, j := order[i], i, (i+1)%len(circle)
-			circle[i] = lifecycle.Go(&underTest, func(ctx context.Context, slot *lifecycle.Slot) (any, chan<- struct{}, <-chan struct{}, error) {
+			circle[i] = lifecycle.Go(&g, func(ctx context.Context, slot *lifecycle.Slot) (any, chan<- struct{}, <-chan struct{}, error) {
 				<-provide
 				for i := 0; i < order; i++ {
 					<-seq[i]
@@ -81,7 +141,7 @@ func TestGroup_LoopDetection(t *testing.T) {
 
 		close(provide)
 
-		underTest.Do(context.TODO(), func(ctx context.Context, slot *lifecycle.Slot) {
+		g.Do(context.TODO(), func(ctx context.Context, slot *lifecycle.Slot) {
 			for i := 0; i < order[len(order)-1]; i++ {
 				<-seq[i]
 			}
