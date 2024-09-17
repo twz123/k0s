@@ -33,7 +33,8 @@ func TestGroup_Shutdown(t *testing.T) {
 	var g lifecycle.Group
 	var stopped atomic.Uint32
 
-	ones := lifecycle.Go(&g, func(ctx context.Context, s *lifecycle.Slot) (int, chan<- struct{}, <-chan struct{}, error) {
+	ones := lifecycle.Go(&g, func(ctx context.Context, slot *lifecycle.Slot) (int, chan<- struct{}, <-chan struct{}, error) {
+		t.Log("Ones slot:", slot)
 		stop, done := make(chan struct{}), make(chan struct{})
 		go func() {
 			defer close(done)
@@ -43,10 +44,11 @@ func TestGroup_Shutdown(t *testing.T) {
 
 		return 2, stop, done, nil
 	})
-	t.Log("Ones:", ones)
+	t.Log("Ones ref:", ones)
 
-	tens := lifecycle.Go(&g, func(ctx context.Context, s *lifecycle.Slot) (int, chan<- struct{}, <-chan struct{}, error) {
-		ones, err := lifecycle.Get(ctx, s, ones)
+	tens := lifecycle.Go(&g, func(ctx context.Context, slot *lifecycle.Slot) (int, chan<- struct{}, <-chan struct{}, error) {
+		t.Log("Tens slot:", slot)
+		ones, err := lifecycle.Get(ctx, slot, ones)
 		if err != nil {
 			return 0, nil, nil, err
 		}
@@ -123,6 +125,7 @@ func TestGet_ContextCancellation(t *testing.T) {
 
 	testCtx, cancelTest := context.WithCancelCause(context.TODO())
 
+	getDone := make(chan struct{})
 	goroutineDone := make(chan struct{})
 	ref := lifecycle.Go(&g, func(ctx context.Context, slot *lifecycle.Slot) (any, chan<- struct{}, <-chan struct{}, error) {
 		defer close(goroutineDone)
@@ -134,11 +137,13 @@ func TestGet_ContextCancellation(t *testing.T) {
 		default:
 		}
 
+		<-getDone
 		return nil, nil, nil, nil
 	})
 
 	g.Do(testCtx, func(ctx context.Context, slot *lifecycle.Slot) {
-		time.AfterFunc(10*time.Microsecond, func() { cancelTest(assert.AnError) })
+		defer close(getDone)
+		time.AfterFunc(time.Microsecond, func() { cancelTest(assert.AnError) })
 		_, err := lifecycle.Get(ctx, slot, ref)
 		assert.ErrorIs(t, err, assert.AnError)
 	})
@@ -147,7 +152,6 @@ func TestGet_ContextCancellation(t *testing.T) {
 }
 
 func TestGet_SelfDependency(t *testing.T) {
-
 	var g lifecycle.Group
 	provide := make(chan struct{})
 

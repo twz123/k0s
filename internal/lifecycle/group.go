@@ -20,13 +20,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"sync"
 	"sync/atomic"
 
 	"k8s.io/utils/ptr"
-
-	"github.com/sirupsen/logrus"
 )
 
 type Group struct {
@@ -34,27 +33,28 @@ type Group struct {
 	nodes    []*lifecycleNode
 	shutdown bool
 
-	shutdownChan atomic.Pointer[<-chan struct{}]
+	shutdownLock atomic.Pointer[<-chan struct{}]
 }
 
 type Slot struct {
-	ptr atomic.Pointer[nodeRef]
+	ptr atomic.Pointer[groupNode]
 }
 
 type Ref[T any] struct {
-	nodeRef
+	groupNode
 
 	started <-chan struct{}
 	t       T
 	err     error
 }
 
-type node struct {
-	dependencies *[]*node
+type groupNode struct {
+	*Group
+	inner *node
 }
 
 type lifecycleNode struct {
-	dependencies []*node
+	inner node
 
 	cancelStart context.CancelCauseFunc
 	started     <-chan struct{}
@@ -62,12 +62,6 @@ type lifecycleNode struct {
 	done        <-chan struct{}
 }
 
-type nodeRef struct {
-	g *Group
-	node
-}
-
-var ErrCircular = errors.New("circular dependency")
 var ErrShutdown = errors.New("lifecycle group is shutting down")
 
 type ProviderFunc[T any] func(context.Context, *Slot) (t T, stop chan<- struct{}, done <-chan struct{}, err error)
@@ -86,16 +80,16 @@ func Go[T any](g *Group, f ProviderFunc[T]) *Ref[T] {
 		g.mu.Unlock()
 		close(started)
 		return &Ref[T]{
-			nodeRef: nodeRef{g, node{}},
-			err:     ErrShutdown,
+			groupNode: groupNode{g, nil},
+			err:       ErrShutdown,
 		}
 	}
 	g.nodes = append(g.nodes, thisNode)
 	g.mu.Unlock()
 
 	ref := Ref[T]{
-		nodeRef: nodeRef{g, node{&thisNode.dependencies}},
-		started: started,
+		groupNode: groupNode{g, &thisNode.inner},
+		started:   started,
 	}
 
 	go func() {
@@ -103,7 +97,7 @@ func Go[T any](g *Group, f ProviderFunc[T]) *Ref[T] {
 		defer cancel(ref.err)
 
 		var slot Slot
-		slot.ptr.Store(&ref.nodeRef)
+		slot.ptr.Store(&ref.groupNode)
 		defer slot.ptr.Store(nil)
 
 		ref.t, thisNode.stop, thisNode.done, ref.err = f(ctx, &slot)
@@ -117,7 +111,7 @@ func (g *Group) Do(ctx context.Context, f func(context.Context, *Slot)) {
 	defer cancel()
 
 	var slot Slot
-	slot.ptr.Store(&nodeRef{g, node{}})
+	slot.ptr.Store(&groupNode{g, nil})
 	defer slot.ptr.Store(nil)
 	f(ctx, &slot)
 }
@@ -127,15 +121,13 @@ func (g *Group) Shutdown(ctx context.Context) error {
 	g.shutdown = true
 	g.mu.Unlock()
 
-	shutdownChan := make(chan struct{})
-	defer close(shutdownChan)
-
-	log := logrus.WithField("lock", fmt.Sprintf("%p", &shutdownChan))
+	lock := make(chan struct{})
+	defer close(lock)
 
 	// FIXME is this a pattern that could be placed in some internal helper pkg?
-	for !g.shutdownChan.CompareAndSwap(nil, ptr.To[<-chan struct{}](shutdownChan)) {
-		shutdownChan := g.shutdownChan.Load()
-		if shutdownChan == nil {
+	for !g.shutdownLock.CompareAndSwap(nil, ptr.To[<-chan struct{}](lock)) {
+		shutdownLock := g.shutdownLock.Load()
+		if shutdownLock == nil {
 			select {
 			case <-ctx.Done():
 				return context.Cause(ctx)
@@ -145,84 +137,63 @@ func (g *Group) Shutdown(ctx context.Context) error {
 		}
 
 		select {
-		case <-(*shutdownChan):
+		case <-(*shutdownLock):
 			continue
 		case <-ctx.Done():
 			return context.Cause(ctx)
 		}
 	}
-	defer g.shutdownChan.Store(nil)
+	defer g.shutdownLock.Store(nil)
 
-	type shutdownNode struct {
-		*lifecycleNode
-		dependents []*lifecycleNode
+	if len(g.nodes) < 1 {
+		return nil
 	}
 
-	remainingNodes := make(map[*[]*node]*shutdownNode)
+	remainingNodes := make(map[*node]*lifecycleNode, len(g.nodes))
+	leaves := make(map[*node]*lifecycleNode)
 	for _, node := range g.nodes {
-		sn := remainingNodes[&node.dependencies]
-		if sn == nil {
-			sn = new(shutdownNode)
-			remainingNodes[&node.dependencies] = sn
-		}
-		if sn.lifecycleNode == nil {
-			sn.lifecycleNode = node
-		}
-
-		for _, dependency := range node.dependencies {
-			sn := remainingNodes[dependency.dependencies]
-			if sn == nil {
-				sn = new(shutdownNode)
-				remainingNodes[dependency.dependencies] = sn
-			}
-			sn.dependents = append(sn.dependents, node)
+		remainingNodes[&node.inner] = node
+		if !node.inner.hasRelations(dependent) {
+			leaves[&node.inner] = node
 		}
 	}
 
 	for {
-		var selectNodes []*shutdownNode
+		var selectNodes []*lifecycleNode
 		var selects []reflect.SelectCase
+		var newLeaves map[*node]*lifecycleNode
 
-		for _, node := range remainingNodes {
-			switch node.phase() {
+		for _, leaf := range leaves {
+			switch leaf.phase() {
 			case starting:
-				node.cancelStart(ErrShutdown)
+				leaf.cancelStart(ErrShutdown)
 				if len(selects) < 65535 {
-					selectNodes = append(selectNodes, node)
+					selectNodes = append(selectNodes, leaf)
 					selects = append(selects, reflect.SelectCase{
 						Dir:  reflect.SelectRecv,
-						Chan: reflect.ValueOf(node.started),
+						Chan: reflect.ValueOf(leaf.started),
 					})
 				}
 
 			case started:
-				var remainingDependents []*lifecycleNode
-				for _, dependent := range node.dependents {
-					if _, remaining := remainingNodes[&dependent.dependencies]; remaining {
-						remainingDependents = append(remainingDependents, dependent)
-					}
-				}
-				node.dependents = remainingDependents
-				if len(node.dependents) > 0 {
-					log.Info("Some dependents of ", node, " still running: ", node.dependents)
-					continue
-				}
-				if node.stop != nil {
-					log.Info("Stopping ", node)
-					close(node.stop)
-					node.stop = nil
+				if leaf.stop != nil {
+					close(leaf.stop)
+					leaf.stop = nil
 				}
 				if len(selects) < 65535 {
-					selectNodes = append(selectNodes, node)
+					selectNodes = append(selectNodes, leaf)
 					selects = append(selects, reflect.SelectCase{
 						Dir:  reflect.SelectRecv,
-						Chan: reflect.ValueOf(node.done),
+						Chan: reflect.ValueOf(leaf.done),
 					})
 				}
 
 			case done:
-				log.Info(node, done)
-				delete(remainingNodes, &node.dependencies)
+				delete(leaves, &leaf.inner)
+				delete(remainingNodes, &leaf.inner)
+				leaf.disposeLeaf(func(newLeaf *node) {
+					mapSet(&newLeaves, newLeaf, remainingNodes[newLeaf])
+				})
 			}
 		}
 
@@ -247,16 +218,19 @@ func (g *Group) Shutdown(ctx context.Context) error {
 		}
 
 		if selectedNode := selectNodes[index]; selectedNode.phase() == done {
-			log.Info(selectedNode, done)
-			delete(remainingNodes, &selectedNode.dependencies)
-		} else {
-			log.Info(selectedNode, " not yet done")
+			delete(leaves, &selectedNode.inner)
+			delete(remainingNodes, &selectedNode.inner)
+			selectedNode.disposeLeaf(func(newLeaf *node) {
+				mapSet(&newLeaves, newLeaf, remainingNodes[newLeaf])
+			})
 		}
+
+		maps.Copy(leaves, newLeaves)
 	}
 }
 
 func Get[T any](ctx context.Context, slot *Slot, ref *Ref[T]) (t T, err error) {
-	if ref.g == nil {
+	if ref.Group == nil {
 		return t, fmt.Errorf("invalid ref")
 	}
 
@@ -265,12 +239,12 @@ func Get[T any](ctx context.Context, slot *Slot, ref *Ref[T]) (t T, err error) {
 		return t, fmt.Errorf("invalid slot")
 	}
 
-	if slotRef.g != ref.g {
+	if slotRef.Group != ref.Group {
 		return t, fmt.Errorf("slot and ref incompatible")
 	}
 
-	if slotRef.dependencies != nil {
-		if err := slotRef.addDependency(&ref.node); err != nil {
+	if slotRef.inner != nil {
+		if err := slotRef.addDependency(ref.inner); err != nil {
 			return t, err
 		}
 	}
@@ -286,34 +260,15 @@ func Get[T any](ctx context.Context, slot *Slot, ref *Ref[T]) (t T, err error) {
 	return ref.t, ref.err
 }
 
-func (n *nodeRef) addDependency(dependency *node) error {
-	n.g.mu.Lock()
-	defer n.g.mu.Unlock()
+func (n *groupNode) addDependency(other *node) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
-	if n.g.shutdown {
+	if n.shutdown {
 		return ErrShutdown
 	}
 
-	if dependency.dependsOn(&n.node) {
-		return ErrCircular
-	}
-
-	*n.dependencies = append(*n.dependencies, dependency)
-	return nil
-}
-
-func (n *node) dependsOn(dependency *node) bool {
-	if n.dependencies == dependency.dependencies {
-		return true
-	}
-
-	for _, candidate := range *n.dependencies {
-		if candidate.dependsOn(dependency) {
-			return true
-		}
-	}
-
-	return false
+	return n.inner.add(dependency, other)
 }
 
 type lifecyclePhase int
@@ -323,19 +278,6 @@ const (
 	started
 	done
 )
-
-func (p lifecyclePhase) String() string {
-	switch p {
-	case starting:
-		return "starting"
-	case started:
-		return "started"
-	case done:
-		return "done"
-	default:
-		return fmt.Sprintf("%s(%d)", reflect.TypeOf(p), p)
-	}
-}
 
 func (n *lifecycleNode) phase() lifecyclePhase {
 	if n.started != nil {
@@ -357,26 +299,48 @@ func (n *lifecycleNode) phase() lifecyclePhase {
 	return done
 }
 
+func (n *lifecycleNode) disposeLeaf(consumeNewLeaf func(*node)) {
+	for related := range n.inner.edges {
+		delete(related.edges, &n.inner)
+		if !related.hasRelations(dependent) {
+			consumeNewLeaf(related)
+		}
+	}
+	n.inner.edges = nil
+	return
+}
+
+func (s *Slot) String() string {
+	if s == nil {
+		return "<nil>"
+	}
+
+	if node := s.ptr.Load(); node != nil {
+		return fmt.Sprintf("%s(%p)", reflect.TypeOf(s), node.inner)
+	}
+
+	return fmt.Sprintf("%s(invalid)", reflect.TypeOf(s))
+}
+
 func (r *Ref[T]) String() string {
+	// Having a Stringer implementation helps in
+	// avoiding data races during logging.
+
 	if r == nil {
 		return "<nil>"
 	}
 
-	return fmt.Sprintf("%s(%p)", reflect.TypeOf(r), r.dependencies)
-}
-
-func (n *node) String() string {
-	if n == nil {
-		return "<nil>"
+	if r.started != nil {
+		select {
+		case <-r.started:
+		default:
+			return fmt.Sprintf("%s(%p starting)", reflect.TypeOf(r), r.inner)
+		}
 	}
 
-	return fmt.Sprintf("%s(%p)", reflect.TypeOf(n), n.dependencies)
-}
-
-func (n *lifecycleNode) String() string {
-	if n == nil {
-		return "<nil>"
+	if r.err != nil {
+		return fmt.Sprintf("%s(%p %v)", reflect.TypeOf(r), r.inner, r.err)
+	} else {
+		return fmt.Sprintf("%s(%p %v)", reflect.TypeOf(r), r.inner, r.t)
 	}
-
-	return fmt.Sprintf("%s(%p)", reflect.TypeOf(n), &n.dependencies)
 }
