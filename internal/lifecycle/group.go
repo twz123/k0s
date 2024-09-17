@@ -25,6 +25,8 @@ import (
 	"sync/atomic"
 
 	"k8s.io/utils/ptr"
+
+	"github.com/sirupsen/logrus"
 )
 
 type Group struct {
@@ -61,7 +63,7 @@ type lifecycleNode struct {
 }
 
 type nodeRef struct {
-	mu *sync.Mutex
+	g *Group
 	node
 }
 
@@ -84,7 +86,7 @@ func Go[T any](g *Group, f ProviderFunc[T]) *Ref[T] {
 		g.mu.Unlock()
 		close(started)
 		return &Ref[T]{
-			nodeRef: nodeRef{&g.mu, node{}},
+			nodeRef: nodeRef{g, node{}},
 			err:     ErrShutdown,
 		}
 	}
@@ -92,7 +94,7 @@ func Go[T any](g *Group, f ProviderFunc[T]) *Ref[T] {
 	g.mu.Unlock()
 
 	ref := Ref[T]{
-		nodeRef: nodeRef{&g.mu, node{&thisNode.dependencies}},
+		nodeRef: nodeRef{g, node{&thisNode.dependencies}},
 		started: started,
 	}
 
@@ -115,7 +117,7 @@ func (g *Group) Do(ctx context.Context, f func(context.Context, *Slot)) {
 	defer cancel()
 
 	var slot Slot
-	slot.ptr.Store(&nodeRef{&g.mu, node{}})
+	slot.ptr.Store(&nodeRef{g, node{}})
 	defer slot.ptr.Store(nil)
 	f(ctx, &slot)
 }
@@ -127,6 +129,8 @@ func (g *Group) Shutdown(ctx context.Context) error {
 
 	shutdownChan := make(chan struct{})
 	defer close(shutdownChan)
+
+	log := logrus.WithField("lock", fmt.Sprintf("%p", &shutdownChan))
 
 	// FIXME is this a pattern that could be placed in some internal helper pkg?
 	for !g.shutdownChan.CompareAndSwap(nil, ptr.To[<-chan struct{}](shutdownChan)) {
@@ -149,69 +153,86 @@ func (g *Group) Shutdown(ctx context.Context) error {
 	}
 	defer g.shutdownChan.Store(nil)
 
-	doneNodes := make(map[*[]*node]struct{}, len(g.nodes))
+	type shutdownNode struct {
+		*lifecycleNode
+		dependents []*lifecycleNode
+	}
+
+	remainingNodes := make(map[*[]*node]*shutdownNode)
+	for _, node := range g.nodes {
+		sn := remainingNodes[&node.dependencies]
+		if sn == nil {
+			sn = new(shutdownNode)
+			remainingNodes[&node.dependencies] = sn
+		}
+		if sn.lifecycleNode == nil {
+			sn.lifecycleNode = node
+		}
+
+		for _, dependency := range node.dependencies {
+			sn := remainingNodes[dependency.dependencies]
+			if sn == nil {
+				sn = new(shutdownNode)
+				remainingNodes[dependency.dependencies] = sn
+			}
+			sn.dependents = append(sn.dependents, node)
+		}
+	}
 
 	for {
+		var selectNodes []*shutdownNode
 		var selects []reflect.SelectCase
-		for _, node := range g.nodes {
-			if _, ok := doneNodes[&node.dependencies]; ok {
-				continue
-			}
 
-			for _, dependency := range node.dependencies {
-				if _, ok := doneNodes[dependency.dependencies]; !ok {
-					continue
-				}
-			}
-
-			if node.cancelStart != nil {
+		for _, node := range remainingNodes {
+			switch node.phase() {
+			case starting:
 				node.cancelStart(ErrShutdown)
-				node.cancelStart = nil
-			}
+				if len(selects) < 65535 {
+					selectNodes = append(selectNodes, node)
+					selects = append(selects, reflect.SelectCase{
+						Dir:  reflect.SelectRecv,
+						Chan: reflect.ValueOf(node.started),
+					})
+				}
 
-			if node.started != nil {
-				select {
-				case <-node.started:
-					node.started = nil
-				default:
-					if len(selects) < 65535 {
-						selects = append(selects, reflect.SelectCase{
-							Dir:  reflect.SelectRecv,
-							Chan: reflect.ValueOf(node.started),
-						})
+			case started:
+				var remainingDependents []*lifecycleNode
+				for _, dependent := range node.dependents {
+					if _, remaining := remainingNodes[&dependent.dependencies]; remaining {
+						remainingDependents = append(remainingDependents, dependent)
 					}
+				}
+				node.dependents = remainingDependents
+				if len(node.dependents) > 0 {
+					log.Info("Some dependents of ", node, " still running: ", node.dependents)
 					continue
 				}
-			}
-
-			if node.stop != nil {
-				close(node.stop)
-				node.stop = nil
-			}
-
-			if node.done != nil {
-				select {
-				case <-node.done:
-					node.done = nil
-				default:
-					if len(selects) < 65535 {
-						selects = append(selects, reflect.SelectCase{
-							Dir:  reflect.SelectRecv,
-							Chan: reflect.ValueOf(node.done),
-						})
-					}
-					continue
+				if node.stop != nil {
+					log.Info("Stopping ", node)
+					close(node.stop)
+					node.stop = nil
 				}
-			}
+				if len(selects) < 65535 {
+					selectNodes = append(selectNodes, node)
+					selects = append(selects, reflect.SelectCase{
+						Dir:  reflect.SelectRecv,
+						Chan: reflect.ValueOf(node.done),
+					})
+				}
 
-			doneNodes[&node.dependencies] = struct{}{}
+			case done:
+				log.Info(node, done)
+				delete(remainingNodes, &node.dependencies)
+			}
 		}
 
 		if len(selects) < 1 {
 			// FIXME sanity check. Can I somehow prove to myself that this is always the case?
-			if dn, n := len(doneNodes), len(g.nodes); dn != n {
-				panic(fmt.Sprintf("nothing to wait on, but only %d out of %d are done", dn, n))
+			if n := len(remainingNodes); n > 0 {
+				panic(fmt.Sprintf("nothing to wait on, but %d are still pending", n))
 			}
+
+			g.nodes = nil
 			return nil
 		}
 
@@ -220,25 +241,22 @@ func (g *Group) Shutdown(ctx context.Context) error {
 			Chan: reflect.ValueOf(ctx.Done()),
 		})
 
-		offset, _, _ := reflect.Select(selects)
-		if offset == len(selects)-1 {
+		index, _, _ := reflect.Select(selects)
+		if index == len(selects)-1 {
 			return context.Cause(ctx)
 		}
 
-		node := g.nodes[offset]
-		if node.done != nil {
-			select {
-			case <-node.done:
-			default:
-				continue
-			}
+		if selectedNode := selectNodes[index]; selectedNode.phase() == done {
+			log.Info(selectedNode, done)
+			delete(remainingNodes, &selectedNode.dependencies)
+		} else {
+			log.Info(selectedNode, " not yet done")
 		}
-		doneNodes[&node.dependencies] = struct{}{}
 	}
 }
 
 func Get[T any](ctx context.Context, slot *Slot, ref *Ref[T]) (t T, err error) {
-	if ref.mu == nil {
+	if ref.g == nil {
 		return t, fmt.Errorf("invalid ref")
 	}
 
@@ -247,12 +265,12 @@ func Get[T any](ctx context.Context, slot *Slot, ref *Ref[T]) (t T, err error) {
 		return t, fmt.Errorf("invalid slot")
 	}
 
-	if slotRef.mu != ref.mu {
+	if slotRef.g != ref.g {
 		return t, fmt.Errorf("slot and ref incompatible")
 	}
 
 	if slotRef.dependencies != nil {
-		if err := slotRef.addDependency(&ref.nodeRef); err != nil {
+		if err := slotRef.addDependency(&ref.node); err != nil {
 			return t, err
 		}
 	}
@@ -268,15 +286,19 @@ func Get[T any](ctx context.Context, slot *Slot, ref *Ref[T]) (t T, err error) {
 	return ref.t, ref.err
 }
 
-func (n *nodeRef) addDependency(dependency *nodeRef) error {
-	n.mu.Lock()
-	defer n.mu.Unlock()
+func (n *nodeRef) addDependency(dependency *node) error {
+	n.g.mu.Lock()
+	defer n.g.mu.Unlock()
 
-	if dependency.node.dependsOn(&n.node) {
+	if n.g.shutdown {
+		return ErrShutdown
+	}
+
+	if dependency.dependsOn(&n.node) {
 		return ErrCircular
 	}
 
-	*n.dependencies = append(*n.dependencies, &dependency.node)
+	*n.dependencies = append(*n.dependencies, dependency)
 	return nil
 }
 
@@ -285,11 +307,76 @@ func (n *node) dependsOn(dependency *node) bool {
 		return true
 	}
 
-	for _, candidtate := range *n.dependencies {
-		if candidtate.dependsOn(dependency) {
+	for _, candidate := range *n.dependencies {
+		if candidate.dependsOn(dependency) {
 			return true
 		}
 	}
 
 	return false
+}
+
+type lifecyclePhase int
+
+const (
+	starting lifecyclePhase = iota
+	started
+	done
+)
+
+func (p lifecyclePhase) String() string {
+	switch p {
+	case starting:
+		return "starting"
+	case started:
+		return "started"
+	case done:
+		return "done"
+	default:
+		return fmt.Sprintf("%s(%d)", reflect.TypeOf(p), p)
+	}
+}
+
+func (n *lifecycleNode) phase() lifecyclePhase {
+	if n.started != nil {
+		select {
+		case <-n.started:
+		default:
+			return starting
+		}
+	}
+
+	if n.done != nil {
+		select {
+		case <-n.done:
+		default:
+			return started
+		}
+	}
+
+	return done
+}
+
+func (r *Ref[T]) String() string {
+	if r == nil {
+		return "<nil>"
+	}
+
+	return fmt.Sprintf("%s(%p)", reflect.TypeOf(r), r.dependencies)
+}
+
+func (n *node) String() string {
+	if n == nil {
+		return "<nil>"
+	}
+
+	return fmt.Sprintf("%s(%p)", reflect.TypeOf(n), n.dependencies)
+}
+
+func (n *lifecycleNode) String() string {
+	if n == nil {
+		return "<nil>"
+	}
+
+	return fmt.Sprintf("%s(%p)", reflect.TypeOf(n), &n.dependencies)
 }

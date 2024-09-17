@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,61 +29,61 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGet_Combine(t *testing.T) {
+func TestGroup_Shutdown(t *testing.T) {
 	var g lifecycle.Group
+	var stopped atomic.Uint32
 
-	tens := lifecycle.Go(&g, func(ctx context.Context, s *lifecycle.Slot) (int, chan<- struct{}, <-chan struct{}, error) {
-		stop, done := make(chan struct{}), make(chan struct{})
-		go func() {
-			defer close(done)
-			<-stop
-		}()
-
-		return 4, stop, done, nil
-	})
 	ones := lifecycle.Go(&g, func(ctx context.Context, s *lifecycle.Slot) (int, chan<- struct{}, <-chan struct{}, error) {
 		stop, done := make(chan struct{}), make(chan struct{})
 		go func() {
 			defer close(done)
 			<-stop
+			assert.True(t, stopped.CompareAndSwap(1, 2), "ones not stopped after tens")
 		}()
 
-		return 2, nil, nil, nil
+		return 2, stop, done, nil
 	})
-	answer := lifecycle.Go(&g, func(ctx context.Context, s *lifecycle.Slot) (int, chan<- struct{}, <-chan struct{}, error) {
-		tens, err := lifecycle.Get(ctx, s, tens)
-		if err != nil {
-			return 0, nil, nil, err
-		}
+	t.Log("Ones:", ones)
+
+	tens := lifecycle.Go(&g, func(ctx context.Context, s *lifecycle.Slot) (int, chan<- struct{}, <-chan struct{}, error) {
 		ones, err := lifecycle.Get(ctx, s, ones)
 		if err != nil {
 			return 0, nil, nil, err
 		}
 
-		return tens*10 + ones, nil, nil, nil
+		stop, done := make(chan struct{}), make(chan struct{})
+		go func() {
+			defer close(done)
+			<-stop
+			assert.True(t, stopped.CompareAndSwap(0, 1), "tens not stopped before ones")
+		}()
+
+		return 40 + ones, stop, done, nil
 	})
+	t.Log("Tens:", tens)
 
 	g.Do(context.TODO(), func(ctx context.Context, s *lifecycle.Slot) {
-		answer, err := lifecycle.Get(ctx, s, answer)
+		tens, err := lifecycle.Get(ctx, s, tens)
 		if assert.NoError(t, err) {
-			assert.Equal(t, 42, answer)
+			assert.Equal(t, 42, tens)
 		}
 	})
 
 	// Test brute force shutdown
-	var wg sync.WaitGroup
+	var shutdownGoroutines sync.WaitGroup
 	shutdown := make(chan struct{})
 	for i := 0; i < 100; i++ {
-		wg.Add(1)
+		shutdownGoroutines.Add(1)
 		go func() {
-			defer wg.Done()
+			defer shutdownGoroutines.Done()
 			<-shutdown
 			g.Shutdown(context.TODO())
 		}()
 	}
 
 	close(shutdown)
-	wg.Wait()
+	shutdownGoroutines.Wait()
+	assert.Equal(t, uint32(2), stopped.Load(), "Not all goroutines have been stopped in the right order")
 }
 
 func TestGet_RejectsBogusStuff(t *testing.T) {
@@ -171,8 +172,6 @@ func TestGet_SelfDependency(t *testing.T) {
 func TestGet_LoopDetection(t *testing.T) {
 	order := [...]int{0, 1, 2, 3, 4, 5}
 	testutil.Permute(order[:], func() bool {
-		t.Logf("Testing order: %v", order)
-
 		provide := make(chan struct{})
 		seq := make([]chan struct{}, len(order))
 		for i := range seq {
