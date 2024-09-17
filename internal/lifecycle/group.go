@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -161,7 +160,6 @@ func (g *Group) Shutdown(ctx context.Context) error {
 	for {
 		var selectNodes []*lifecycleNode
 		var selects []reflect.SelectCase
-		var newLeaves map[*node]*lifecycleNode
 
 		for _, leaf := range leaves {
 			switch leaf.phase() {
@@ -175,7 +173,7 @@ func (g *Group) Shutdown(ctx context.Context) error {
 					})
 				}
 
-			case started:
+			case started, done /* will be disposed when selected */ :
 				if leaf.stop != nil {
 					close(leaf.stop)
 					leaf.stop = nil
@@ -187,13 +185,6 @@ func (g *Group) Shutdown(ctx context.Context) error {
 						Chan: reflect.ValueOf(leaf.done),
 					})
 				}
-
-			case done:
-				delete(leaves, &leaf.inner)
-				delete(remainingNodes, &leaf.inner)
-				leaf.disposeLeaf(func(newLeaf *node) {
-					mapSet(&newLeaves, newLeaf, remainingNodes[newLeaf])
-				})
 			}
 		}
 
@@ -221,11 +212,9 @@ func (g *Group) Shutdown(ctx context.Context) error {
 			delete(leaves, &selectedNode.inner)
 			delete(remainingNodes, &selectedNode.inner)
 			selectedNode.disposeLeaf(func(newLeaf *node) {
-				mapSet(&newLeaves, newLeaf, remainingNodes[newLeaf])
+				leaves[newLeaf] = remainingNodes[newLeaf]
 			})
 		}
-
-		maps.Copy(leaves, newLeaves)
 	}
 }
 
