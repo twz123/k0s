@@ -15,13 +15,20 @@
 package download
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash"
+	"io"
+	"path/filepath"
+	"strings"
 
-	"github.com/cavaliergopher/grab/v3"
-	"github.com/k0sproject/k0s/pkg/build"
+	internalhttp "github.com/k0sproject/k0s/internal/http"
+	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/sirupsen/logrus"
 )
 
@@ -30,21 +37,23 @@ type Downloader interface {
 }
 
 type Config struct {
-	URL          string
+	URL string
+
+	// Hex-encoded hash, optionally prefixed with the algorithm and a colon.
+	// Defaults to SHA-256 if no algorithm prefix is found.
 	ExpectedHash string
-	Hasher       hash.Hash
-	DownloadDir  string
+
+	DownloadDir string
 }
 
 type downloader struct {
-	config       Config
-	logger       *logrus.Entry
-	httpResponse *grab.Response
+	config Config
+	logger logrus.FieldLogger
 }
 
 var _ Downloader = (*downloader)(nil)
 
-func NewDownloader(config Config, logger *logrus.Entry) Downloader {
+func NewDownloader(config Config, logger logrus.FieldLogger) Downloader {
 	return &downloader{
 		config: config,
 		logger: logger.WithField("component", "downloader"),
@@ -54,35 +63,51 @@ func NewDownloader(config Config, logger *logrus.Entry) Downloader {
 // Start begins the download process, starting the downloading functionality
 // on a separate goroutine. Cancelling the context will abort this operation
 // once started.
-func (d *downloader) Download(ctx context.Context) error {
-	// Setup the library for downloading HTTP content ..
-	dlreq, err := grab.NewRequest(d.config.DownloadDir, d.config.URL)
-
-	if err != nil {
-		return fmt.Errorf("invalid download request: %w", err)
-	}
-
-	// If we've been provided a hash and actual value to compare with, use it.
-	if d.config.Hasher != nil && d.config.ExpectedHash != "" {
-		expectedHash, err := hex.DecodeString(d.config.ExpectedHash)
-		if err != nil {
-			return fmt.Errorf("invalid update hash: %w", err)
+func (d *downloader) Download(ctx context.Context) (err error) {
+	// Create a hash instance based on the provided hashType.
+	// Defaults to SHA-256 if no hash type is given.
+	var hasher hash.Hash
+	encodedHash := d.config.ExpectedHash
+	if hashType, hashVal, typed := strings.Cut(encodedHash, ":"); typed {
+		encodedHash = hashVal
+		switch hashType {
+		case "sha256":
+			hasher = sha256.New()
+		case "sha512":
+			hasher = sha512.New()
+		default:
+			return fmt.Errorf("unsupported hash type: %q", hashType)
 		}
-
-		dlreq.SetChecksum(d.config.Hasher, expectedHash, true)
+	} else {
+		hasher = sha256.New()
+	}
+	expectedHash, err := hex.DecodeString(encodedHash)
+	if err != nil {
+		return fmt.Errorf("hash is not a hexadecimal encoded string: %w", err)
 	}
 
-	client := grab.NewClient()
-	// Set user agent to mitigate 403 errors from GitHub
-	// See https://github.com/cavaliergopher/grab/issues/104
-	client.UserAgent = fmt.Sprintf("k0s/%s", build.Version)
-	d.httpResponse = client.Do(dlreq)
-
-	select {
-	case <-d.httpResponse.Done:
-		return d.httpResponse.Err()
-
-	case <-ctx.Done():
-		return fmt.Errorf("download cancelled")
+	// Set up target file for download.
+	target, err := file.AtomicWithTarget(filepath.Join(d.config.DownloadDir, "download")).Open()
+	if err != nil {
+		return err
 	}
+	defer func() { err = errors.Join(err, target.Close()) }()
+
+	// Download from URL into target and take the hash.
+	var baseName string
+	if err = internalhttp.Download(ctx, d.config.URL, &baseName, io.MultiWriter(hasher, target)); err != nil {
+		return fmt.Errorf("download failed: %w", err)
+	}
+
+	// Check the downloaded hash and abort if it doesn't match.
+	if downloadedHash := hasher.Sum(nil); !bytes.Equal(expectedHash, downloadedHash) {
+		return fmt.Errorf("hash mismatch: expected %x, got %x", expectedHash, downloadedHash)
+	}
+
+	// All is well. Finish the download.
+	if err := target.FinishWithBaseName(baseName); err != nil {
+		return fmt.Errorf("failed to finish download: %w", err)
+	}
+
+	return nil
 }
