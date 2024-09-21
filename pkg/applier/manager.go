@@ -23,6 +23,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
@@ -31,7 +32,9 @@ import (
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
-	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
+
+	"k8s.io/client-go/dynamic"
 
 	"k8s.io/apimachinery/pkg/util/wait"
 
@@ -41,9 +44,9 @@ import (
 
 // Manager is the Component interface wrapper for Applier
 type Manager struct {
-	K0sVars           *config.CfgVars
-	IgnoredStacks     []string
-	KubeClientFactory kubeutil.ClientFactoryInterface
+	K0sVars       *config.CfgVars
+	IgnoredStacks []string
+	Clients       Clientsets
 
 	bundleDir string
 	stop      func(reason string)
@@ -188,7 +191,7 @@ func (m *Manager) createStack(ctx context.Context, stacks map[string]stack, name
 	ctx, cancel := context.WithCancelCause(ctx)
 	stopped := make(chan struct{})
 
-	stack := stack{cancel, stopped, NewStackApplier(name, m.KubeClientFactory)}
+	stack := stack{cancel, stopped, NewStackApplier(name, m.Clients)}
 	stacks[name] = stack
 
 	go func() {
@@ -225,4 +228,36 @@ func (m *Manager) removeStack(ctx context.Context, stacks map[string]stack, name
 	}
 
 	log.Info("Stack deleted successfully")
+}
+
+type BurstingClientsets struct {
+	kubernetes.ClientFactoryInterface
+
+	mu            sync.Mutex
+	dynamicClient *dynamic.DynamicClient
+}
+
+var _ Clientsets = (*BurstingClientsets)(nil)
+
+func (b *BurstingClientsets) GetDynamicClient() (dynamic.Interface, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	config, err := b.GetRESTConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	// To mitigate stack applier bursts in startup
+	config.QPS = 40.0
+	config.Burst = 400.0
+
+	client, err := dynamic.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	b.dynamicClient = client
+
+	return client, nil
 }

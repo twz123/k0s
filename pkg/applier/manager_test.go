@@ -54,9 +54,9 @@ func TestManager_AppliesStacks(t *testing.T) {
 	clients := testutil.NewFakeClientFactory()
 
 	underTest := applier.Manager{
-		K0sVars:           k0sVars,
-		KubeClientFactory: clients,
-		LeaderElector:     &leaderElector,
+		K0sVars:       k0sVars,
+		Clients:       clients,
+		LeaderElector: &leaderElector,
 	}
 
 	// A stack that exists on disk before the manager is started.
@@ -116,10 +116,10 @@ func TestManager_IgnoresStacks(t *testing.T) {
 	clients := testutil.NewFakeClientFactory()
 
 	underTest := applier.Manager{
-		K0sVars:           k0sVars,
-		IgnoredStacks:     []string{"ignored"},
-		KubeClientFactory: clients,
-		LeaderElector:     &leaderElector,
+		K0sVars:       k0sVars,
+		IgnoredStacks: []string{"ignored"},
+		Clients:       clients,
+		LeaderElector: &leaderElector,
 	}
 
 	ignored := filepath.Join(k0sVars.ManifestsDir, "ignored")
@@ -177,9 +177,9 @@ func TestManager(t *testing.T) {
 	le := new(mockLeaderElector)
 
 	manager := &applier.Manager{
-		K0sVars:           cfg,
-		KubeClientFactory: fakes,
-		LeaderElector:     le,
+		K0sVars:       cfg,
+		Clients:       fakes,
+		LeaderElector: le,
 	}
 
 	writeStack(t, dir, "testdata/manager_test/stack1")

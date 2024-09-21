@@ -36,6 +36,8 @@ const k0sConfig = `
 spec:
   storage:
     type: kine
+    kine:
+      dataSource: sqlite://file:/var/lib/k0s/db/state.db?mode=rwc&_journal=WAL&cache=shared&_busy_timeout=30000
   network:
     serviceCIDR: 10.152.184.0/24
     podCIDR: 10.3.0.0/16
