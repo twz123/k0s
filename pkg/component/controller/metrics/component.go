@@ -18,17 +18,12 @@ package metrics
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	_ "embed"
 	"errors"
 	"fmt"
-	"io"
 	"net"
-	"net/http"
 	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"sync/atomic"
 	"time"
@@ -37,6 +32,7 @@ import (
 	internalnet "github.com/k0sproject/k0s/internal/pkg/net"
 	"github.com/k0sproject/k0s/internal/pkg/templatewriter"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
+	"github.com/k0sproject/k0s/pkg/certificate"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
@@ -106,32 +102,40 @@ func (c *Component) Init(ctx context.Context) error {
 		c.log.WithError(err).Errorf("Falling back to %s as bind address", loopbackIP)
 	}
 
-	j, err := c.newKubernetesJob("https://" + net.JoinHostPort(c.loopbackIP.String(), "10259") + "/metrics")
+	j, err := c.newKubernetesJob(&url.URL{
+		Scheme: "https",
+		Host:   net.JoinHostPort(c.loopbackIP.String(), "10259"),
+		Path:   "/metrics",
+	})
 	if err != nil {
 		return err
 	}
 	c.jobs["kube-scheduler"] = j
 
-	j, err = c.newKubernetesJob("https://" + net.JoinHostPort(c.loopbackIP.String(), "10257") + "/metrics")
+	j, err = c.newKubernetesJob(&url.URL{
+		Scheme: "https",
+		Host:   net.JoinHostPort(c.loopbackIP.String(), "10257"),
+		Path:   "/metrics",
+	})
 	if err != nil {
 		return err
 	}
 	c.jobs["kube-controller-manager"] = j
 
 	if c.storageType == v1beta1.EtcdStorageType {
-		etcdJob, err := c.newEtcdJob()
+		job, err := c.newEtcdJob()
 		if err != nil {
 			return err
 		}
-		c.jobs["etcd"] = etcdJob
+		c.jobs["etcd"] = job
 	}
 
 	if c.storageType == v1beta1.KineStorageType {
-		kineJob, err := c.newKineJob()
+		job, err := c.newKineJob()
 		if err != nil {
 			return err
 		}
-		c.jobs["kine"] = kineJob
+		c.jobs["kine"] = job
 	}
 
 	return nil
@@ -180,80 +184,43 @@ func (c *Component) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterC
 	return nil
 }
 
-type job struct {
-	scrapeURL     string
-	scrapeClient  *http.Client
-	scrapeTimeout time.Duration
+func (c *Component) newEtcdJob() (Scraper, error) {
+	builder := HTTPScraperBuilder{URL: &url.URL{
+		Scheme: "https",
+		Host:   net.JoinHostPort(c.loopbackIP.String(), "2379"),
+		Path:   "/metrics",
+	}}
+
+	return builder.
+		WithTimeout(1 * time.Minute).
+		WithCA(c.namedCert("etcd/ca")).
+		WithCertificate(c.namedCert("apiserver-etcd-client")).
+		Build()
 }
 
-func (c *Component) newEtcdJob() (*job, error) {
-	rootCAs, err := c.loadRootCAs("etcd/ca")
-	if err != nil {
-		return nil, err
-	}
-	clientCerts, err := c.loadClientCerts("apiserver-etcd-client")
-	if err != nil {
-		return nil, err
-	}
+func (c *Component) newKineJob() (Scraper, error) {
+	builder := HTTPScraperBuilder{URL: &url.URL{
+		Scheme: "http",
+		Host:   net.JoinHostPort(c.loopbackIP.String(), "2380"),
+		Path:   "/metrics",
+	}}
 
-	return &job{
-		scrapeURL: "https://localhost:2379/metrics",
-		scrapeClient: newHttpClient(&tls.Config{
-			RootCAs:      rootCAs,
-			Certificates: clientCerts,
-		}),
-		scrapeTimeout: 1 * time.Minute,
-	}, nil
+	return builder.WithTimeout(1 * time.Minute).Build()
 }
 
-func (c *Component) newKineJob() (*job, error) {
-	return &job{
-		scrapeURL:     "http://localhost:2380/metrics",
-		scrapeClient:  newHttpClient(nil),
-		scrapeTimeout: 1 * time.Minute,
-	}, nil
+func (c *Component) newKubernetesJob(scrapeURL *url.URL) (Scraper, error) {
+	builder := HTTPScraperBuilder{URL: scrapeURL}
+	return builder.
+		WithTimeout(1 * time.Minute).
+		WithCertificate(c.namedCert("admin")).
+		Build()
 }
 
-func (c *Component) newKubernetesJob(scrapeURL string) (*job, error) {
-	rootCAs, err := c.loadRootCAs("ca")
-	if err != nil {
-		return nil, err
+func (c *Component) namedCert(name string) *certificate.Certificate {
+	return &certificate.Certificate{
+		CertPath: filepath.Join(c.K0sVars.CertRootDir, name+".crt"),
+		KeyPath:  filepath.Join(c.K0sVars.CertRootDir, name+".key"),
 	}
-	clientCerts, err := c.loadClientCerts("admin")
-	if err != nil {
-		return nil, err
-	}
-
-	return &job{
-		scrapeURL: scrapeURL,
-		scrapeClient: newHttpClient(&tls.Config{
-			RootCAs:      rootCAs,
-			Certificates: clientCerts,
-		}),
-		scrapeTimeout: 1 * time.Minute,
-	}, nil
-}
-
-func (c *Component) loadRootCAs(name string) (*x509.CertPool, error) {
-	rootCAs := x509.NewCertPool()
-	if rootCA, err := os.ReadFile(filepath.Join(c.K0sVars.CertRootDir, name+".crt")); err != nil {
-		return nil, fmt.Errorf("failed to load root TLS certificates: %w", err)
-	} else if ok := rootCAs.AppendCertsFromPEM(rootCA); !ok {
-		return nil, fmt.Errorf("failed to append root TLS certificates to pool")
-	}
-
-	return rootCAs, nil
-}
-
-func (c *Component) loadClientCerts(name string) ([]tls.Certificate, error) {
-	certFile := path.Join(c.K0sVars.CertRootDir, name+".crt")
-	keyFile := path.Join(c.K0sVars.CertRootDir, name+".key")
-	clientCert, err := tls.LoadX509KeyPair(certFile, keyFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load key pair: %w", err)
-	}
-
-	return []tls.Certificate{clientCert}, nil
 }
 
 func (c *Component) run(ctx context.Context, jobName string, s Scraper) {
@@ -291,63 +258,4 @@ func (c *Component) collectAndPush(ctx context.Context, jobName string, s Scrape
 	}
 
 	return nil
-}
-
-func (j *job) Scrape(ctx context.Context) (_ io.ReadCloser, err error) {
-	ctx, cancel := context.WithTimeout(ctx, j.scrapeTimeout)
-	defer func() {
-		if err != nil {
-			cancel()
-		}
-	}()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, j.scrapeURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("error creating %s request for %s: %w", http.MethodGet, j.scrapeURL, err)
-	}
-
-	if resp, err := j.scrapeClient.Do(req); err != nil {
-		return nil, err
-	} else if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return &cancelingReadCloser{resp.Body, cancel}, nil
-	} else {
-		resp.Body.Close()
-		return nil, &url.Error{
-			Op:  "Get",
-			URL: j.scrapeURL,
-			Err: fmt.Errorf("non-successful status code: %s", resp.Status),
-		}
-	}
-}
-
-func newHttpClient(tlsConfig *tls.Config) *http.Client {
-	if tlsConfig == nil {
-		tlsConfig = new(tls.Config)
-	}
-	tlsConfig.MinVersion = tls.VersionTLS12
-	tlsConfig.CipherSuites = constant.AllowedTLS12CipherSuiteIDs
-
-	return &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig:    tlsConfig,
-			DisableCompression: true,            // This is to be used on loopback connections.
-			MaxIdleConns:       1,               // There won't be any concurrent connections.
-			IdleConnTimeout:    1 * time.Minute, // The metrics scraper interval is 30 secs by default.
-		},
-		CheckRedirect: disallowRedirects,
-	}
-}
-
-func disallowRedirects(req *http.Request, via []*http.Request) error {
-	return fmt.Errorf("no redirects allowed: %s", req.URL)
-}
-
-type cancelingReadCloser struct {
-	io.ReadCloser
-	cancel context.CancelFunc
-}
-
-func (c *cancelingReadCloser) Close() error {
-	defer c.cancel()
-	return c.ReadCloser.Close()
 }

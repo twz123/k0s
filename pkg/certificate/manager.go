@@ -20,6 +20,7 @@ import (
 	"bufio"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -55,6 +56,25 @@ type Request struct {
 type Certificate struct {
 	CertPath string
 	KeyPath  string
+}
+
+func (c *Certificate) Load() (tls.Certificate, error) {
+	cert, err := tls.LoadX509KeyPair(c.CertPath, c.KeyPath)
+	if err != nil {
+		return cert, fmt.Errorf("failed to load key pair: %w", err)
+	}
+
+	return cert, nil
+}
+
+func (c *Certificate) AppendToPool(pool *x509.CertPool) error {
+	if certData, err := os.ReadFile(c.CertPath); err != nil {
+		return fmt.Errorf("failed to read certificate file: %w", err)
+	} else if ok := pool.AppendCertsFromPEM(certData); !ok {
+		return fmt.Errorf("failed to append certificate loaded from %s to pool: %w", c.CertPath, err)
+	}
+
+	return nil
 }
 
 // Manager is the certificate manager
