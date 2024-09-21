@@ -26,10 +26,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -45,12 +45,18 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type Clientsets interface {
+	GetDynamicClient() (dynamic.Interface, error)
+	GetDiscoveryClient() (discovery.CachedDiscoveryInterface, error)
+	GetAPIExtensionsClient() (apiextensionsclientset.Interface, error)
+}
+
 // Stack is a k8s resource bundle
 type Stack struct {
 	Name          string
 	Resources     []*unstructured.Unstructured
 	keepResources []string
-	Clients       kubernetes.ClientFactoryInterface
+	Clients       Clientsets
 
 	log *logrus.Entry
 }

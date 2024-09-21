@@ -21,8 +21,6 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/k0sproject/k0s/pkg/kubernetes"
-
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/cli-runtime/pkg/resource"
 
@@ -41,12 +39,12 @@ type Applier struct {
 	Name string
 	Dir  string
 
-	log           *logrus.Entry
-	clientFactory kubernetes.ClientFactoryInterface
+	log     *logrus.Entry
+	clients Clientsets
 }
 
 // NewApplier creates new Applier
-func NewApplier(dir string, kubeClientFactory kubernetes.ClientFactoryInterface) Applier {
+func NewApplier(dir string, clients Clientsets) Applier {
 	name := filepath.Base(dir)
 	log := logrus.WithFields(logrus.Fields{
 		"component": "applier",
@@ -54,10 +52,10 @@ func NewApplier(dir string, kubeClientFactory kubernetes.ClientFactoryInterface)
 	})
 
 	return Applier{
-		log:           log,
-		Dir:           dir,
-		Name:          name,
-		clientFactory: kubeClientFactory,
+		log:     log,
+		Dir:     dir,
+		Name:    name,
+		clients: clients,
 	}
 }
 
@@ -75,7 +73,7 @@ func (a *Applier) Apply(ctx context.Context) error {
 	stack := Stack{
 		Name:      a.Name,
 		Resources: resources,
-		Clients:   a.clientFactory,
+		Clients:   a.clients,
 	}
 	a.log.Debug("applying stack")
 	err = stack.Apply(ctx, true)
@@ -90,7 +88,7 @@ func (a *Applier) Apply(ctx context.Context) error {
 
 // Delete deletes the entire stack by applying it with empty set of resources
 func (a *Applier) Delete(ctx context.Context) error {
-	stack := Stack{Name: a.Name, Clients: a.clientFactory}
+	stack := Stack{Name: a.Name, Clients: a.clients}
 	logrus.Debugf("about to delete a stack %s with empty apply", a.Name)
 	return stack.Apply(ctx, true)
 }

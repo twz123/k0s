@@ -298,9 +298,12 @@ func (c *command) start(ctx context.Context) error {
 
 	if !slices.Contains(c.DisableComponents, constant.ApplierManagerComponentName) {
 		nodeComponents.Add(ctx, &applier.Manager{
-			K0sVars:           c.K0sVars,
-			KubeClientFactory: adminClientFactory,
-			LeaderElector:     leaderElector,
+			K0sVars: c.K0sVars,
+			// Clients: adminClientFactory,
+			Clients: &applier.BurstingClientsets{
+				ClientFactoryInterface: adminClientFactory,
+			},
+			LeaderElector: leaderElector,
 		})
 	}
 

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"sync"
 	"time"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
@@ -27,7 +28,9 @@ import (
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
-	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
+
+	"k8s.io/client-go/dynamic"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/sirupsen/logrus"
@@ -35,8 +38,8 @@ import (
 
 // Manager is the Component interface wrapper for Applier
 type Manager struct {
-	K0sVars           *config.CfgVars
-	KubeClientFactory kubeutil.ClientFactoryInterface
+	K0sVars *config.CfgVars
+	Clients Clientsets
 
 	// client               kubernetes.Interface
 	applier       Applier
@@ -65,7 +68,7 @@ func (m *Manager) Init(ctx context.Context) error {
 	m.stacks = make(map[string]stack)
 	m.bundlePath = m.K0sVars.ManifestsDir
 
-	m.applier = NewApplier(m.K0sVars.ManifestsDir, m.KubeClientFactory)
+	m.applier = NewApplier(m.K0sVars.ManifestsDir, m.Clients)
 
 	m.LeaderElector.AddAcquiredLeaseCallback(func() {
 		watcherCtx, cancel := context.WithCancel(ctx)
@@ -158,7 +161,7 @@ func (m *Manager) createStack(ctx context.Context, name string) {
 	}
 
 	stackCtx, cancelStack := context.WithCancel(ctx)
-	stack := stack{cancelStack, NewStackApplier(name, m.KubeClientFactory)}
+	stack := stack{cancelStack, NewStackApplier(name, m.Clients)}
 	m.stacks[name] = stack
 
 	go func() {
@@ -199,4 +202,36 @@ func (m *Manager) removeStack(ctx context.Context, name string) {
 	}
 
 	log.Info("Stack deleted successfully")
+}
+
+type BurstingClientsets struct {
+	kubernetes.ClientFactoryInterface
+
+	mu            sync.Mutex
+	dynamicClient *dynamic.DynamicClient
+}
+
+var _ Clientsets = (*BurstingClientsets)(nil)
+
+func (b *BurstingClientsets) GetDynamicClient() (dynamic.Interface, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	config, err := b.GetRESTConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	// To mitigate stack applier bursts in startup
+	config.QPS = 40.0
+	config.Burst = 400.0
+
+	client, err := dynamic.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	b.dynamicClient = client
+
+	return client, nil
 }
