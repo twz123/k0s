@@ -300,6 +300,7 @@ func (c *command) start(ctx context.Context) error {
 		nodeComponents.Add(ctx, &applier.Manager{
 			K0sVars:           c.K0sVars,
 			KubeClientFactory: adminClientFactory,
+			IgnoredStacks:     []string{controller.SystemRBACStackName},
 			LeaderElector:     leaderElector,
 		})
 	}
@@ -523,10 +524,6 @@ func (c *command) start(ctx context.Context) error {
 		clusterComponents.Add(ctx, reconciler)
 	}
 
-	if !slices.Contains(c.DisableComponents, constant.SystemRbacComponentName) {
-		clusterComponents.Add(ctx, controller.NewSystemRBAC(c.K0sVars.ManifestsDir))
-	}
-
 	if !slices.Contains(c.DisableComponents, constant.NodeRoleComponentName) {
 		clusterComponents.Add(ctx, controller.NewNodeRole(c.K0sVars, adminClientFactory))
 	}
@@ -555,6 +552,13 @@ func (c *command) start(ctx context.Context) error {
 			SingleNode:            c.SingleNode,
 			ServiceClusterIPRange: nodeConfig.Spec.Network.BuildServiceCIDR(nodeConfig.Spec.API.Address),
 			ExtraArgs:             c.KubeControllerManagerExtraArgs,
+		})
+	}
+
+	if !slices.Contains(c.DisableComponents, constant.SystemRBACComponentName) {
+		clusterComponents.Add(ctx, &controller.SystemRBAC{
+			ManifestsDir: c.K0sVars.ManifestsDir,
+			Clients:      adminClientFactory,
 		})
 	}
 

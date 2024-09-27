@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"slices"
 	"time"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
@@ -36,9 +37,9 @@ import (
 // Manager is the Component interface wrapper for Applier
 type Manager struct {
 	K0sVars           *config.CfgVars
+	IgnoredStacks     []string
 	KubeClientFactory kubeutil.ClientFactoryInterface
 
-	// client               kubernetes.Interface
 	applier       Applier
 	bundlePath    string
 	cancelWatcher context.CancelFunc
@@ -152,6 +153,10 @@ func (m *Manager) runWatchers(ctx context.Context) error {
 }
 
 func (m *Manager) createStack(ctx context.Context, name string) {
+	if slices.Contains(m.IgnoredStacks, name) {
+		return // Skip explicitly ignored stacks
+	}
+
 	// safeguard in case the fswatcher would trigger an event for an already existing stack
 	if _, ok := m.stacks[name]; ok {
 		return
