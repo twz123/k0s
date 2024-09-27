@@ -24,8 +24,11 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/k0sproject/k0s/pkg/k0scontext"
 	"k8s.io/utils/ptr"
 )
+
+// TODO: Think about the ordering of the symbols in this file.
 
 type Group struct {
 	mu       sync.Mutex
@@ -35,11 +38,48 @@ type Group struct {
 	shutdownLock atomic.Pointer[<-chan struct{}]
 }
 
-type Slot struct {
-	ptr atomic.Pointer[groupNode]
+var ErrShutdown = errors.New("lifecycle group is shutting down")
+
+// The handle to a task.
+type TaskHandle struct {
+	Stop chan<- struct{} // Will be closed to signal that this task should stop.
+	Done <-chan struct{} // Will be closed the task has stopped.
+}
+
+// A task that exposes some sort of interface to interact with it.
+type Task[I any] struct {
+	TaskHandle
+	Interface I // The task's interface.
+}
+
+// A task that doesn't have any interface to interact with.
+type Unit = Task[struct{}]
+
+// type Provider[T any] interface {
+// 	Provide() (T, error)
+// }
+
+// A Component can be started. It produces a task.  I represents the task's interface.
+type Component[I any] interface {
+	Start(context.Context) (*Task[I], error)
+}
+
+// Convenience function to create a task and let the compiler do the type inference.
+// The error will always be nil.
+func TaskOf[I any](stop chan<- struct{}, done <-chan struct{}, i I) (*Task[I], error) {
+	return &Task[I]{TaskHandle{stop, done}, i}, nil
+}
+
+type ComponentFunc[I any] func(context.Context) (*Task[I], error)
+
+func (f ComponentFunc[I]) Start(ctx context.Context) (*Task[I], error) {
+	return f(ctx)
 }
 
 type Ref[T any] struct {
+	// FIXME: Split this in some "untyped" ref
+	// and let the "typed ref" embed the untyped stuff.
+
 	groupNode
 
 	started <-chan struct{}
@@ -48,7 +88,7 @@ type Ref[T any] struct {
 }
 
 type groupNode struct {
-	*Group
+	g     *Group
 	inner *node
 }
 
@@ -57,19 +97,14 @@ type lifecycleNode struct {
 
 	cancelStart context.CancelCauseFunc
 	started     <-chan struct{}
-	stop        chan<- struct{}
-	done        <-chan struct{}
+	handle      TaskHandle // only valid after started closed
 }
 
-var ErrShutdown = errors.New("lifecycle group is shutting down")
-
-type ProviderFunc[T any] func(context.Context, *Slot) (t T, stop chan<- struct{}, done <-chan struct{}, err error)
-
-func Go[T any](g *Group, f ProviderFunc[T]) *Ref[T] {
+func Go[T any](g *Group, c Component[T]) *Ref[T] {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	started := make(chan struct{})
 
-	thisNode := &lifecycleNode{
+	node := &lifecycleNode{
 		cancelStart: cancel,
 		started:     started,
 	}
@@ -77,17 +112,13 @@ func Go[T any](g *Group, f ProviderFunc[T]) *Ref[T] {
 	g.mu.Lock()
 	if g.shutdown {
 		g.mu.Unlock()
-		close(started)
-		return &Ref[T]{
-			groupNode: groupNode{g, nil},
-			err:       ErrShutdown,
-		}
+		return &Ref[T]{groupNode: groupNode{g, nil}, err: ErrShutdown}
 	}
-	g.nodes = append(g.nodes, thisNode)
+	g.nodes = append(g.nodes, node)
 	g.mu.Unlock()
 
 	ref := Ref[T]{
-		groupNode: groupNode{g, &thisNode.inner},
+		groupNode: groupNode{g, &node.inner},
 		started:   started,
 	}
 
@@ -95,24 +126,76 @@ func Go[T any](g *Group, f ProviderFunc[T]) *Ref[T] {
 		defer close(started)
 		defer cancel(ref.err)
 
-		var slot Slot
-		slot.ptr.Store(&ref.groupNode)
-		defer slot.ptr.Store(nil)
+		var ptr atomic.Pointer[groupNode]
+		ptr.Store(&ref.groupNode)
+		defer ptr.Store(nil)
 
-		ref.t, thisNode.stop, thisNode.done, ref.err = f(ctx, &slot)
+		task, err := c.Start(k0scontext.WithValue(ctx, (*slotT)(&ptr)))
+		if err != nil {
+			ref.err = err
+		} else if task != nil {
+			ref.t, node.handle = task.Interface, task.TaskHandle
+		}
 	}()
 
 	return &ref
 }
 
-func (g *Group) Do(ctx context.Context, f func(context.Context, *Slot)) {
+func GoFunc[T any](g *Group, start ComponentFunc[T]) *Ref[T] {
+	return Go(g, start)
+}
+
+type slotT atomic.Pointer[groupNode]
+
+func (r *Ref[T]) Require(ctx context.Context) (t T, _ error) {
+	ptr := (*atomic.Pointer[groupNode])(k0scontext.Value[*slotT](ctx))
+
+	if ptr == nil {
+		return t, fmt.Errorf("cannot require here: context is not part of any lifecycle")
+	}
+
+	if r.g == nil {
+		return t, fmt.Errorf("invalid ref")
+	}
+
+	// FIXME what about nested stuff here????
+	// I.e. a nested component tries to lookup something from a parent.
+
+	node := ptr.Load()
+	if node == nil {
+		return t, fmt.Errorf("cannot require anymore: context's lifecycle scope has ended")
+	}
+
+	if node.g != r.g {
+		return t, fmt.Errorf("cannot require here: context is part of another lifecycle")
+	}
+
+	if node.inner != nil {
+		if err := node.addDependency(r.inner); err != nil {
+			return t, err
+		}
+	}
+
+	if r.started != nil {
+		select {
+		case <-ctx.Done():
+			return t, context.Cause(ctx)
+		case <-r.started:
+		}
+	}
+
+	return r.t, r.err
+}
+
+func (g *Group) Do(ctx context.Context, f func(context.Context)) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	var slot Slot
-	slot.ptr.Store(&groupNode{g, nil})
-	defer slot.ptr.Store(nil)
-	f(ctx, &slot)
+	var ptr atomic.Pointer[groupNode]
+	ptr.Store(&groupNode{g, nil})
+	defer ptr.Store(nil)
+
+	f(k0scontext.WithValue(ctx, (*slotT)(&ptr)))
 }
 
 func (g *Group) Shutdown(ctx context.Context) error {
@@ -174,15 +257,15 @@ func (g *Group) Shutdown(ctx context.Context) error {
 				}
 
 			case started, done /* will be disposed when selected */ :
-				if leaf.stop != nil {
-					close(leaf.stop)
-					leaf.stop = nil
+				if leaf.handle.Stop != nil {
+					close(leaf.handle.Stop)
+					leaf.handle.Stop = nil
 				}
 				if len(selects) < 65535 {
 					selectNodes = append(selectNodes, leaf)
 					selects = append(selects, reflect.SelectCase{
 						Dir:  reflect.SelectRecv,
-						Chan: reflect.ValueOf(leaf.done),
+						Chan: reflect.ValueOf(leaf.handle.Done),
 					})
 				}
 			}
@@ -218,42 +301,11 @@ func (g *Group) Shutdown(ctx context.Context) error {
 	}
 }
 
-func Get[T any](ctx context.Context, slot *Slot, ref *Ref[T]) (t T, err error) {
-	if ref.Group == nil {
-		return t, fmt.Errorf("invalid ref")
-	}
-
-	slotRef := slot.ptr.Load()
-	if slotRef == nil {
-		return t, fmt.Errorf("invalid slot")
-	}
-
-	if slotRef.Group != ref.Group {
-		return t, fmt.Errorf("slot and ref incompatible")
-	}
-
-	if slotRef.inner != nil {
-		if err := slotRef.addDependency(ref.inner); err != nil {
-			return t, err
-		}
-	}
-
-	if ref.started != nil {
-		select {
-		case <-ctx.Done():
-			return t, context.Cause(ctx)
-		case <-ref.started:
-		}
-	}
-
-	return ref.t, ref.err
-}
-
 func (n *groupNode) addDependency(other *node) error {
-	n.mu.Lock()
-	defer n.mu.Unlock()
+	n.g.mu.Lock()
+	defer n.g.mu.Unlock()
 
-	if n.shutdown {
+	if n.g.shutdown {
 		return ErrShutdown
 	}
 
@@ -277,9 +329,9 @@ func (n *lifecycleNode) phase() lifecyclePhase {
 		}
 	}
 
-	if n.done != nil {
+	if n.handle.Done != nil {
 		select {
-		case <-n.done:
+		case <-n.handle.Done:
 		default:
 			return started
 		}
@@ -297,18 +349,6 @@ func (n *lifecycleNode) disposeLeaf(consumeNewLeaf func(*node)) {
 	}
 	n.inner.edges = nil
 	return
-}
-
-func (s *Slot) String() string {
-	if s == nil {
-		return "<nil>"
-	}
-
-	if node := s.ptr.Load(); node != nil {
-		return fmt.Sprintf("%s(%p)", reflect.TypeOf(s), node.inner)
-	}
-
-	return fmt.Sprintf("%s(invalid)", reflect.TypeOf(s))
 }
 
 func (r *Ref[T]) String() string {
