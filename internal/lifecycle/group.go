@@ -31,10 +31,9 @@ import (
 // TODO: Think about the ordering of the symbols in this file.
 
 type Group struct {
-	mu       sync.Mutex
-	nodes    []*lifecycleNode
-	shutdown bool
-
+	mu           sync.Mutex
+	nodes        []*lifecycleNode
+	shutdownErr  error
 	shutdownLock atomic.Pointer[<-chan struct{}]
 }
 
@@ -59,7 +58,7 @@ type Unit = Task[struct{}]
 // 	Provide() (T, error)
 // }
 
-// A Component can be started. It produces a task.  I represents the task's interface.
+// A Component can be started. It produces a [Task]. I represents the task's interface.
 type Component[I any] interface {
 	Start(context.Context) (*Task[I], error)
 }
@@ -77,9 +76,6 @@ func (f ComponentFunc[I]) Start(ctx context.Context) (*Task[I], error) {
 }
 
 type Ref[T any] struct {
-	// FIXME: Split this in some "untyped" ref
-	// and let the "typed ref" embed the untyped stuff.
-
 	groupNode
 
 	started <-chan struct{}
@@ -110,9 +106,9 @@ func Go[T any](g *Group, c Component[T]) *Ref[T] {
 	}
 
 	g.mu.Lock()
-	if g.shutdown {
+	if err := g.shutdownErr; err != nil {
 		g.mu.Unlock()
-		return &Ref[T]{groupNode: groupNode{g, nil}, err: ErrShutdown}
+		return &Ref[T]{groupNode: groupNode{g, nil}, err: err}
 	}
 	g.nodes = append(g.nodes, node)
 	g.mu.Unlock()
@@ -123,18 +119,35 @@ func Go[T any](g *Group, c Component[T]) *Ref[T] {
 	}
 
 	go func() {
-		defer close(started)
-		defer cancel(ref.err)
+		func() {
+			defer func() { cancel(ref.err); close(started) }()
 
-		var ptr atomic.Pointer[groupNode]
-		ptr.Store(&ref.groupNode)
-		defer ptr.Store(nil)
+			var ptr atomic.Pointer[groupNode]
+			ptr.Store(&ref.groupNode)
+			defer ptr.Store(nil)
 
-		task, err := c.Start(k0scontext.WithValue(ctx, (*slotT)(&ptr)))
-		if err != nil {
-			ref.err = err
-		} else if task != nil {
-			ref.t, node.handle = task.Interface, task.TaskHandle
+			if task, err := c.Start(k0scontext.WithValue(ctx, (*slotT)(&ptr))); err != nil {
+				ref.err = err
+			} else if task != nil {
+				ref.t, node.handle = task.Interface, task.TaskHandle
+			}
+		}()
+
+		if ref.err == nil {
+			return
+		}
+
+		// FIXME add tests for the following stuff
+		// i.e. something that checks for an error containing "failed to start"
+		g.mu.Lock()
+		prevShutdownErr := g.shutdownErr
+		if prevShutdownErr == nil {
+			g.shutdownErr = fmt.Errorf("%w: failed to start: %w", ErrShutdown, ref.err)
+		}
+		g.mu.Unlock()
+
+		if prevShutdownErr == nil {
+			g.Shutdown(context.Background())
 		}
 	}()
 
@@ -199,8 +212,12 @@ func (g *Group) Do(ctx context.Context, f func(context.Context)) {
 }
 
 func (g *Group) Shutdown(ctx context.Context) error {
+	// TODO: Think about not using a context parameter, but pure channels.
+
 	g.mu.Lock()
-	g.shutdown = true
+	if g.shutdownErr == nil {
+		g.shutdownErr = ErrShutdown
+	}
 	g.mu.Unlock()
 
 	lock := make(chan struct{})
@@ -212,7 +229,7 @@ func (g *Group) Shutdown(ctx context.Context) error {
 		if shutdownLock == nil {
 			select {
 			case <-ctx.Done():
-				return context.Cause(ctx)
+				return context.Cause(ctx) // FIXME this needs test coverage
 			default:
 				continue
 			}
@@ -222,7 +239,7 @@ func (g *Group) Shutdown(ctx context.Context) error {
 		case <-(*shutdownLock):
 			continue
 		case <-ctx.Done():
-			return context.Cause(ctx)
+			return context.Cause(ctx) // FIXME this needs test coverage
 		}
 	}
 	defer g.shutdownLock.Store(nil)
@@ -240,45 +257,67 @@ func (g *Group) Shutdown(ctx context.Context) error {
 		}
 	}
 
+	dispose := func(leaf *lifecycleNode) {
+		delete(leaves, &leaf.inner)
+		delete(remainingNodes, &leaf.inner)
+		leaf.disposeLeaf(func(newLeaf *node) {
+			leaves[newLeaf] = remainingNodes[newLeaf]
+		})
+	}
+
+	// TODO: Check if we can rewrite it using channels
+
 	for {
-		var selectNodes []*lifecycleNode
+		var selectLeaves []*lifecycleNode
 		var selects []reflect.SelectCase
+		var doneLeaves []*lifecycleNode
 
 		for _, leaf := range leaves {
 			switch leaf.phase() {
 			case starting:
-				leaf.cancelStart(ErrShutdown)
+				leaf.cancelStart(g.shutdownErr)
 				if len(selects) < 65535 {
-					selectNodes = append(selectNodes, leaf)
+					selectLeaves = append(selectLeaves, leaf)
 					selects = append(selects, reflect.SelectCase{
 						Dir:  reflect.SelectRecv,
 						Chan: reflect.ValueOf(leaf.started),
 					})
 				}
 
-			case started, done /* will be disposed when selected */ :
+			case started:
 				if leaf.handle.Stop != nil {
 					close(leaf.handle.Stop)
 					leaf.handle.Stop = nil
 				}
 				if len(selects) < 65535 {
-					selectNodes = append(selectNodes, leaf)
+					selectLeaves = append(selectLeaves, leaf)
 					selects = append(selects, reflect.SelectCase{
 						Dir:  reflect.SelectRecv,
 						Chan: reflect.ValueOf(leaf.handle.Done),
 					})
 				}
+
+			case done:
+				doneLeaves = append(doneLeaves, leaf)
 			}
 		}
 
-		if len(selects) < 1 {
-			// FIXME sanity check. Can I somehow prove to myself that this is always the case?
-			if n := len(remainingNodes); n > 0 {
-				panic(fmt.Sprintf("nothing to wait on, but %d are still pending", n))
-			}
+		for _, doneLeaf := range doneLeaves {
+			dispose(doneLeaf)
+		}
 
+		// If there's no more remaining nodes, all the things are done.
+		if len(remainingNodes) < 1 {
 			g.nodes = nil
 			return nil
+		}
+
+		if len(selects) < 1 {
+			// Nothing to wait for. Start next round.
+			continue
+			// This usually happens if all the leaves are done, and their
+			// disposal produced new leaves which weren't part of the last
+			// iteration.
 		}
 
 		selects = append(selects, reflect.SelectCase{
@@ -291,12 +330,8 @@ func (g *Group) Shutdown(ctx context.Context) error {
 			return context.Cause(ctx)
 		}
 
-		if selectedNode := selectNodes[index]; selectedNode.phase() == done {
-			delete(leaves, &selectedNode.inner)
-			delete(remainingNodes, &selectedNode.inner)
-			selectedNode.disposeLeaf(func(newLeaf *node) {
-				leaves[newLeaf] = remainingNodes[newLeaf]
-			})
+		if selectedLeaf := selectLeaves[index]; selectedLeaf.phase() == done {
+			dispose(selectedLeaf)
 		}
 	}
 }
@@ -305,14 +340,14 @@ func (n *groupNode) addDependency(other *node) error {
 	n.g.mu.Lock()
 	defer n.g.mu.Unlock()
 
-	if n.g.shutdown {
-		return ErrShutdown
+	if n.g.shutdownErr != nil {
+		return n.g.shutdownErr
 	}
 
 	return n.inner.add(dependency, other)
 }
 
-type lifecyclePhase int
+type lifecyclePhase uint8
 
 const (
 	starting lifecyclePhase = iota

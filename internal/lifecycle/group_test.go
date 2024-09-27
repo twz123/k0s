@@ -44,7 +44,6 @@ func TestGroup_Shutdown(t *testing.T) {
 
 		return lifecycle.TaskOf(stop, done, 2)
 	})
-	assert.Regexp(t, `^\*lifecycle.Ref\[int\]\(0x[0-9a-f]+`, ones)
 
 	tens := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[int], error) {
 		ones, err := ones.Require(ctx)
@@ -61,7 +60,6 @@ func TestGroup_Shutdown(t *testing.T) {
 
 		return lifecycle.TaskOf(stop, done, 40+ones)
 	})
-	assert.Regexp(t, `^\*lifecycle.Ref\[int\]\(0x[0-9a-f]+`, tens)
 
 	g.Do(context.TODO(), func(ctx context.Context) {
 		tens, err := tens.Require(ctx)
@@ -86,9 +84,6 @@ func TestGroup_Shutdown(t *testing.T) {
 	shutdownGoroutines.Wait()
 	assert.Equal(t, uint32(2), stopped.Load(), "Not all goroutines have been stopped in the right order")
 
-	assert.Regexp(t, `^\*lifecycle.Ref\[int\]\(0x[0-9a-f]+ 2\)$`, ones)
-	assert.Regexp(t, `^\*lifecycle.Ref\[int\]\(0x[0-9a-f]+ 42\)$`, tens)
-
 	t.Run("no_start_after_shutdown", func(t *testing.T) {
 		lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
 			require.Fail(t, "u no call me once")
@@ -101,7 +96,55 @@ func TestGroup_Shutdown(t *testing.T) {
 	})
 }
 
-func TestGet_RejectsBogusStuff(t *testing.T) {
+func TestGroup_Shutdown_CancelResume(t *testing.T) {
+	var g lifecycle.Group
+
+	ctx, cancel := context.WithCancelCause(context.TODO())
+	t.Cleanup(func() { cancel(nil) })
+
+	proceed := make(chan struct{})
+	done := make(chan struct{})
+	first := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[int], error) {
+		<-ctx.Done()
+		cancel(assert.AnError)
+		close(proceed)
+		return lifecycle.TaskOf(nil, done, 0)
+	})
+	lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[int], error) {
+		first.Require(ctx)
+		<-proceed
+		close(done)
+		return nil, nil
+	})
+
+	assert.Same(t, assert.AnError, g.Shutdown(ctx))
+	assert.NoError(t, g.Shutdown(context.TODO()))
+}
+
+func TestRef_String(t *testing.T) {
+	var g lifecycle.Group
+
+	proceed := make(chan struct{})
+	okRef := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[int], error) {
+		<-proceed
+		return lifecycle.TaskOf(nil, nil, 42)
+	})
+	errRef := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[int], error) {
+		<-proceed
+		return nil, fmt.Errorf("this didn't work")
+	})
+
+	assert.Regexp(t, `^\*lifecycle.Ref\[int\]\(0x[0-9a-f]+ starting\)$`, okRef)
+	assert.Regexp(t, `^\*lifecycle.Ref\[int\]\(0x[0-9a-f]+ starting\)$`, errRef)
+
+	close(proceed)
+	require.NoError(t, g.Shutdown(context.TODO()))
+
+	assert.Regexp(t, `^\*lifecycle.Ref\[int\]\(0x[0-9a-f]+ 42\)$`, okRef)
+	assert.Regexp(t, `^\*lifecycle.Ref\[int\]\(0x[0-9a-f]+ this didn't work\)$`, errRef)
+}
+
+func TestRef_RejectsBogusStuff(t *testing.T) {
 	var g lifecycle.Group
 	var zeroRef lifecycle.Ref[any]
 

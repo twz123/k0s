@@ -20,7 +20,7 @@ import "errors"
 
 var ErrCircular = errors.New("circular dependency")
 
-type direction byte
+type direction uint8
 
 const (
 	unrelated direction = iota
@@ -68,7 +68,7 @@ func (n *node) relatesTo(other *node, visited map[*node]struct{}) bool {
 		return true
 	}
 
-	mapSetDefault(&visited, n)
+	mapSet(&visited, n, struct{}{})
 	for neighbor := range n.edges {
 		if _, visited := visited[neighbor]; visited {
 			continue
@@ -80,11 +80,6 @@ func (n *node) relatesTo(other *node, visited map[*node]struct{}) bool {
 	}
 
 	return false
-}
-
-func mapSetDefault[K comparable, V any](m *map[K]V, k K) {
-	var v V
-	mapSet(m, k, v)
 }
 
 func mapSet[K comparable, V any](m *map[K]V, k K, v V) {
