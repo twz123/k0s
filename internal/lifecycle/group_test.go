@@ -27,14 +27,14 @@ import (
 	"github.com/k0sproject/k0s/internal/lifecycle"
 	"github.com/k0sproject/k0s/internal/testutil"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGroup_Shutdown(t *testing.T) {
 	var g lifecycle.Group
 	var stopped atomic.Uint32
 
-	ones := lifecycle.Go(&g, func(ctx context.Context, slot *lifecycle.Slot) (int, chan<- struct{}, <-chan struct{}, error) {
-		t.Log("Ones slot:", slot)
+	ones := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[int], error) {
 		stop, done := make(chan struct{}), make(chan struct{})
 		go func() {
 			defer close(done)
@@ -42,15 +42,14 @@ func TestGroup_Shutdown(t *testing.T) {
 			assert.True(t, stopped.CompareAndSwap(1, 2), "ones not stopped after tens")
 		}()
 
-		return 2, stop, done, nil
+		return lifecycle.TaskOf(stop, done, 2)
 	})
-	t.Log("Ones ref:", ones)
+	assert.Regexp(t, `^\*lifecycle.Ref\[int\]\(0x[0-9a-f]+`, ones)
 
-	tens := lifecycle.Go(&g, func(ctx context.Context, slot *lifecycle.Slot) (int, chan<- struct{}, <-chan struct{}, error) {
-		t.Log("Tens slot:", slot)
-		ones, err := lifecycle.Get(ctx, slot, ones)
+	tens := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[int], error) {
+		ones, err := ones.Require(ctx)
 		if err != nil {
-			return 0, nil, nil, err
+			return nil, err
 		}
 
 		stop, done := make(chan struct{}), make(chan struct{})
@@ -60,12 +59,12 @@ func TestGroup_Shutdown(t *testing.T) {
 			assert.True(t, stopped.CompareAndSwap(0, 1), "tens not stopped before ones")
 		}()
 
-		return 40 + ones, stop, done, nil
+		return lifecycle.TaskOf(stop, done, 40+ones)
 	})
-	t.Log("Tens:", tens)
+	assert.Regexp(t, `^\*lifecycle.Ref\[int\]\(0x[0-9a-f]+`, tens)
 
-	g.Do(context.TODO(), func(ctx context.Context, s *lifecycle.Slot) {
-		tens, err := lifecycle.Get(ctx, s, tens)
+	g.Do(context.TODO(), func(ctx context.Context) {
+		tens, err := tens.Require(ctx)
 		if assert.NoError(t, err) {
 			assert.Equal(t, 42, tens)
 		}
@@ -86,38 +85,52 @@ func TestGroup_Shutdown(t *testing.T) {
 	close(shutdown)
 	shutdownGoroutines.Wait()
 	assert.Equal(t, uint32(2), stopped.Load(), "Not all goroutines have been stopped in the right order")
+
+	assert.Regexp(t, `^\*lifecycle.Ref\[int\]\(0x[0-9a-f]+ 2\)$`, ones)
+	assert.Regexp(t, `^\*lifecycle.Ref\[int\]\(0x[0-9a-f]+ 42\)$`, tens)
+
+	t.Run("no_start_after_shutdown", func(t *testing.T) {
+		lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+			require.Fail(t, "u no call me once")
+			return nil, nil
+		})
+		lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+			require.Fail(t, "u no call me twice")
+			return nil, nil
+		})
+	})
 }
 
 func TestGet_RejectsBogusStuff(t *testing.T) {
 	var g lifecycle.Group
-	var zeroSlot lifecycle.Slot
 	var zeroRef lifecycle.Ref[any]
 
-	_, err := lifecycle.Get(context.TODO(), &zeroSlot, &zeroRef)
-	assert.ErrorContains(t, err, "invalid")
+	deref, err := zeroRef.Require(context.TODO())
+	assert.Zero(t, deref)
+	assert.ErrorContains(t, err, "context is not part of any lifecycle")
 
-	ref := lifecycle.Go(&g, func(ctx context.Context, slot *lifecycle.Slot) (any, chan<- struct{}, <-chan struct{}, error) {
-		return nil, nil, nil, nil
+	var disposedCtx context.Context
+	ref := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[any], error) {
+		disposedCtx = ctx
+		return lifecycle.TaskOf(nil, nil, any("bogus"))
 	})
-
-	_, err = lifecycle.Get(context.TODO(), &zeroSlot, ref)
-	assert.ErrorContains(t, err, "invalid slot")
-
-	var disposedSlot *lifecycle.Slot
-	g.Do(context.TODO(), func(ctx context.Context, slot *lifecycle.Slot) {
-		disposedSlot = slot
-		_, err := lifecycle.Get(ctx, slot, &zeroRef)
-		assert.ErrorContains(t, err, "invalid ref")
-	})
-
-	_, err = lifecycle.Get(context.TODO(), disposedSlot, ref)
-	assert.ErrorContains(t, err, "invalid slot")
 
 	var other lifecycle.Group
-	other.Do(context.TODO(), func(ctx context.Context, slot *lifecycle.Slot) {
-		_, err := lifecycle.Get(ctx, slot, ref)
-		assert.ErrorContains(t, err, "slot and ref incompatible")
+	other.Do(context.TODO(), func(ctx context.Context) {
+		deref, err := ref.Require(ctx)
+		assert.Zero(t, deref)
+		assert.ErrorContains(t, err, "cannot require here: context is part of another lifecycle")
 	})
+
+	require.NoError(t, g.Shutdown(context.TODO()))
+
+	deref, err = ref.Require(disposedCtx)
+	assert.Zero(t, deref)
+	assert.ErrorContains(t, err, "context's lifecycle scope has ended")
+
+	deref, err = zeroRef.Require(disposedCtx)
+	assert.Zero(t, deref)
+	assert.ErrorContains(t, err, "invalid ref")
 }
 
 func TestGet_ContextCancellation(t *testing.T) {
@@ -127,7 +140,7 @@ func TestGet_ContextCancellation(t *testing.T) {
 
 	getDone := make(chan struct{})
 	goroutineDone := make(chan struct{})
-	ref := lifecycle.Go(&g, func(ctx context.Context, slot *lifecycle.Slot) (any, chan<- struct{}, <-chan struct{}, error) {
+	ref := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[any], error) {
 		defer close(goroutineDone)
 		<-testCtx.Done()
 
@@ -138,13 +151,14 @@ func TestGet_ContextCancellation(t *testing.T) {
 		}
 
 		<-getDone
-		return nil, nil, nil, nil
+		return lifecycle.TaskOf(nil, nil, any("bogus"))
 	})
 
-	g.Do(testCtx, func(ctx context.Context, slot *lifecycle.Slot) {
+	g.Do(testCtx, func(ctx context.Context) {
 		defer close(getDone)
 		time.AfterFunc(time.Microsecond, func() { cancelTest(assert.AnError) })
-		_, err := lifecycle.Get(ctx, slot, ref)
+		deref, err := ref.Require(ctx)
+		assert.Zero(t, deref)
 		assert.ErrorIs(t, err, assert.AnError)
 	})
 
@@ -156,18 +170,19 @@ func TestGet_SelfDependency(t *testing.T) {
 	provide := make(chan struct{})
 
 	var self *lifecycle.Ref[any]
-	self = lifecycle.Go(&g, func(ctx context.Context, slot *lifecycle.Slot) (any, chan<- struct{}, <-chan struct{}, error) {
+	self = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[any], error) {
 		<-provide
-		if _, err := lifecycle.Get(ctx, slot, self); err != nil {
-			return nil, nil, nil, fmt.Errorf("self: %w", err)
+		if _, err := self.Require(ctx); err != nil {
+			return &lifecycle.Task[any]{Interface: "bogus"}, fmt.Errorf("self: %w", err)
 		}
-		return nil, nil, nil, nil
+		return nil, nil
 	})
 
 	close(provide)
 
-	g.Do(context.TODO(), func(ctx context.Context, slot *lifecycle.Slot) {
-		_, err := lifecycle.Get(ctx, slot, self)
+	g.Do(context.TODO(), func(ctx context.Context) {
+		deref, err := self.Require(ctx)
+		assert.Zero(t, deref)
 		assert.ErrorContains(t, err, "self: circular dependency")
 		assert.ErrorIs(t, err, lifecycle.ErrCircular)
 	})
@@ -187,22 +202,24 @@ func TestGet_LoopDetection(t *testing.T) {
 		circle := make([]*lifecycle.Ref[any], len(order)-1)
 		for i := range circle {
 			order, i, j := order[i], i, (i+1)%len(circle)
-			circle[i] = lifecycle.Go(&g, func(ctx context.Context, slot *lifecycle.Slot) (any, chan<- struct{}, <-chan struct{}, error) {
+			circle[i] = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[any], error) {
 				<-provide
 				for i := 0; i < order; i++ {
 					<-seq[i]
 				}
+
+				msg := fmt.Sprintf("(order %d) %d awaits %d", order, i, j)
 				time.AfterFunc(10*time.Microsecond, func() { close(seq[order]) })
-				if _, err := lifecycle.Get(ctx, slot, circle[j]); err != nil {
-					return nil, nil, nil, fmt.Errorf("(order %d) %d awaits %d: %w", order, i, j, err)
+				if _, err := circle[j].Require(ctx); err != nil {
+					return nil, fmt.Errorf("%s: %w", msg, err)
 				}
-				return nil, nil, nil, nil
+				return lifecycle.TaskOf(nil, nil, any(msg))
 			})
 		}
 
 		close(provide)
 
-		g.Do(context.TODO(), func(ctx context.Context, slot *lifecycle.Slot) {
+		g.Do(context.TODO(), func(ctx context.Context) {
 			for i := 0; i < order[len(order)-1]; i++ {
 				<-seq[i]
 			}
@@ -210,7 +227,8 @@ func TestGet_LoopDetection(t *testing.T) {
 
 			for i := range circle {
 				order, i, j := order[i], i, (i+1)%len(circle)
-				_, err := lifecycle.Get(ctx, slot, circle[i])
+				deref, err := circle[i].Require(ctx)
+				assert.Zero(t, deref)
 				assert.ErrorContains(t, err, fmt.Sprintf("(order %d) %d awaits %d: ", order, i, j))
 				assert.ErrorIs(t, err, lifecycle.ErrCircular)
 			}
