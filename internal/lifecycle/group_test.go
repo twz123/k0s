@@ -176,7 +176,7 @@ func TestRef_RejectsBogusStuff(t *testing.T) {
 	assert.ErrorContains(t, err, "invalid ref")
 }
 
-func TestGet_ContextCancellation(t *testing.T) {
+func TestRef_Require_ContextCancellation(t *testing.T) {
 	var g lifecycle.Group
 
 	testCtx, cancelTest := context.WithCancelCause(context.TODO())
@@ -208,7 +208,7 @@ func TestGet_ContextCancellation(t *testing.T) {
 	<-goroutineDone
 }
 
-func TestGet_SelfDependency(t *testing.T) {
+func TestRef_Require_SelfDependency(t *testing.T) {
 	var g lifecycle.Group
 	provide := make(chan struct{})
 
@@ -231,7 +231,7 @@ func TestGet_SelfDependency(t *testing.T) {
 	})
 }
 
-func TestGet_LoopDetection(t *testing.T) {
+func TestRef_Require_LoopDetection(t *testing.T) {
 	order := [...]int{0, 1, 2, 3, 4, 5}
 	testutil.Permute(order[:], func() bool {
 		provide := make(chan struct{})
