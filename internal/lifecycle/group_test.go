@@ -110,13 +110,9 @@ func TestGroup_Shutdown(t *testing.T) {
 	shutdownGoroutines.Wait()
 	assert.Equal(t, uint32(2), stopped.Load(), "Not all goroutines have been stopped in the right order")
 
-	t.Run("no_start_after_shutdown", func(t *testing.T) {
+	assert.PanicsWithValue(t, lifecycle.ErrShutdown, func() {
 		lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
 			require.Fail(t, "u no call me once")
-			return nil, nil
-		})
-		lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
-			require.Fail(t, "u no call me twice")
 			return nil, nil
 		})
 	})
