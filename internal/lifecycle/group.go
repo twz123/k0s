@@ -111,7 +111,7 @@ func Go[T any](g *Group, c Component[T]) *Ref[T] {
 	if g.done != nil {
 		startErr := g.startErr
 		g.mu.Unlock()
-		return &Ref[T]{groupNode: groupNode{g, nil}, err: cmp.Or(startErr, ErrShutdown)}
+		panic(cmp.Or(startErr, ErrShutdown))
 	}
 	g.nodes = append(g.nodes, node)
 	g.mu.Unlock()
