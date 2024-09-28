@@ -30,6 +30,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGroup_AbortsWhenTasksFailToStart(t *testing.T) {
+	var g lifecycle.Group
+
+	startErr := fmt.Errorf("from start func")
+	lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+		return nil, startErr
+	})
+
+	completeErr := fmt.Errorf("from complete func")
+	err := g.Complete(context.TODO(), func(ctx context.Context) error {
+		<-ctx.Done() // the context should get cancelled by the above error
+
+		cause := context.Cause(ctx)
+		assert.ErrorContains(t, cause, "lifecycle group is shutting down: failed to start: from start func")
+		assert.ErrorIs(t, cause, lifecycle.ErrShutdown)
+		assert.ErrorIs(t, cause, startErr)
+
+		return completeErr
+	})
+
+	assert.Same(t, completeErr, err)
+}
+
 func TestGroup_Shutdown(t *testing.T) {
 	var g lifecycle.Group
 	var stopped atomic.Uint32
@@ -61,26 +84,29 @@ func TestGroup_Shutdown(t *testing.T) {
 		return lifecycle.TaskOf(stop, done, 40+ones)
 	})
 
-	g.Do(context.TODO(), func(ctx context.Context) {
+	var shutdownGoroutines sync.WaitGroup
+
+	assert.NoError(t, g.Complete(context.TODO(), func(ctx context.Context) error {
 		tens, err := tens.Require(ctx)
 		if assert.NoError(t, err) {
 			assert.Equal(t, 42, tens)
 		}
-	})
 
-	// Test brute force shutdown
-	var shutdownGoroutines sync.WaitGroup
-	shutdown := make(chan struct{})
-	for i := 0; i < 100; i++ {
-		shutdownGoroutines.Add(1)
-		go func() {
-			defer shutdownGoroutines.Done()
-			<-shutdown
-			g.Shutdown(context.TODO())
-		}()
-	}
+		// Test brute force shutdown
+		shutdown := make(chan struct{})
+		for i := 0; i < 100; i++ {
+			shutdownGoroutines.Add(1)
+			go func() {
+				defer shutdownGoroutines.Done()
+				<-shutdown
+				<-g.Shutdown()
+			}()
+		}
 
-	close(shutdown)
+		close(shutdown)
+		return nil
+	}))
+
 	shutdownGoroutines.Wait()
 	assert.Equal(t, uint32(2), stopped.Load(), "Not all goroutines have been stopped in the right order")
 
@@ -96,32 +122,9 @@ func TestGroup_Shutdown(t *testing.T) {
 	})
 }
 
-func TestGroup_Shutdown_CancelResume(t *testing.T) {
-	var g lifecycle.Group
-
-	ctx, cancel := context.WithCancelCause(context.TODO())
-	t.Cleanup(func() { cancel(nil) })
-
-	proceed := make(chan struct{})
-	done := make(chan struct{})
-	first := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[int], error) {
-		<-ctx.Done()
-		cancel(assert.AnError)
-		close(proceed)
-		return lifecycle.TaskOf(nil, done, 0)
-	})
-	lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[int], error) {
-		first.Require(ctx)
-		<-proceed
-		close(done)
-		return nil, nil
-	})
-
-	assert.Same(t, assert.AnError, g.Shutdown(ctx))
-	assert.NoError(t, g.Shutdown(context.TODO()))
-}
-
 func TestRef_String(t *testing.T) {
+	assert.Equal(t, "*lifecycle.Ref[int]<nil>", (*lifecycle.Ref[int])(nil).String())
+
 	var g lifecycle.Group
 
 	proceed := make(chan struct{})
@@ -138,7 +141,7 @@ func TestRef_String(t *testing.T) {
 	assert.Regexp(t, `^\*lifecycle.Ref\[int\]\(0x[0-9a-f]+ starting\)$`, errRef)
 
 	close(proceed)
-	require.NoError(t, g.Shutdown(context.TODO()))
+	<-g.Shutdown()
 
 	assert.Regexp(t, `^\*lifecycle.Ref\[int\]\(0x[0-9a-f]+ 42\)$`, okRef)
 	assert.Regexp(t, `^\*lifecycle.Ref\[int\]\(0x[0-9a-f]+ this didn't work\)$`, errRef)
@@ -159,13 +162,14 @@ func TestRef_RejectsBogusStuff(t *testing.T) {
 	})
 
 	var other lifecycle.Group
-	other.Do(context.TODO(), func(ctx context.Context) {
+	assert.NoError(t, other.Complete(context.TODO(), func(ctx context.Context) error {
 		deref, err := ref.Require(ctx)
 		assert.Zero(t, deref)
 		assert.ErrorContains(t, err, "cannot require here: context is part of another lifecycle")
-	})
+		return nil
+	}))
 
-	require.NoError(t, g.Shutdown(context.TODO()))
+	<-g.Shutdown()
 
 	deref, err = ref.Require(disposedCtx)
 	assert.Zero(t, deref)
@@ -197,13 +201,17 @@ func TestRef_Require_ContextCancellation(t *testing.T) {
 		return lifecycle.TaskOf(nil, nil, any("bogus"))
 	})
 
-	g.Do(testCtx, func(ctx context.Context) {
+	err := g.Complete(testCtx, func(ctx context.Context) error {
 		defer close(getDone)
 		time.AfterFunc(time.Microsecond, func() { cancelTest(assert.AnError) })
 		deref, err := ref.Require(ctx)
 		assert.Zero(t, deref)
-		assert.ErrorIs(t, err, assert.AnError)
+		assert.Same(t, assert.AnError, err)
+		return nil
 	})
+
+	assert.ErrorContains(t, err, "while waiting for lifecycle group to shutdown: ")
+	assert.ErrorIs(t, err, assert.AnError)
 
 	<-goroutineDone
 }
@@ -223,12 +231,17 @@ func TestRef_Require_SelfDependency(t *testing.T) {
 
 	close(provide)
 
-	g.Do(context.TODO(), func(ctx context.Context) {
+	err := g.Complete(context.TODO(), func(ctx context.Context) error {
 		deref, err := self.Require(ctx)
 		assert.Zero(t, deref)
-		assert.ErrorContains(t, err, "self: circular dependency")
+		assert.ErrorContains(t, err, "lifecycle group is shutting down: failed to start: self: circular dependency")
+		assert.ErrorIs(t, err, lifecycle.ErrShutdown)
 		assert.ErrorIs(t, err, lifecycle.ErrCircular)
+		return nil
 	})
+
+	assert.ErrorContains(t, err, "self: circular dependency")
+	assert.ErrorIs(t, err, lifecycle.ErrCircular)
 }
 
 func TestRef_Require_LoopDetection(t *testing.T) {
@@ -242,40 +255,47 @@ func TestRef_Require_LoopDetection(t *testing.T) {
 
 		var g lifecycle.Group
 
-		circle := make([]*lifecycle.Ref[any], len(order)-1)
+		circle := make([]*lifecycle.Ref[error], len(order)-1)
 		for i := range circle {
 			order, i, j := order[i], i, (i+1)%len(circle)
-			circle[i] = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[any], error) {
+			circle[i] = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[error], error) {
 				<-provide
 				for i := 0; i < order; i++ {
 					<-seq[i]
 				}
 
-				msg := fmt.Sprintf("(order %d) %d awaits %d", order, i, j)
 				time.AfterFunc(10*time.Microsecond, func() { close(seq[order]) })
-				if _, err := circle[j].Require(ctx); err != nil {
-					return nil, fmt.Errorf("%s: %w", msg, err)
+				_, err := circle[j].Require(ctx)
+				if err != nil {
+					err = fmt.Errorf("(order %d) %d awaits %d: %w", order, i, j, err)
 				}
-				return lifecycle.TaskOf(nil, nil, any(msg))
+				return lifecycle.TaskOf(nil, nil, err)
 			})
 		}
 
 		close(provide)
 
-		g.Do(context.TODO(), func(ctx context.Context) {
+		assert.NoError(t, g.Complete(context.TODO(), func(ctx context.Context) error {
 			for i := 0; i < order[len(order)-1]; i++ {
 				<-seq[i]
 			}
 			close(seq[order[len(order)-1]])
 
+			var foundErrs int
 			for i := range circle {
 				order, i, j := order[i], i, (i+1)%len(circle)
 				deref, err := circle[i].Require(ctx)
-				assert.Zero(t, deref)
-				assert.ErrorContains(t, err, fmt.Sprintf("(order %d) %d awaits %d: ", order, i, j))
-				assert.ErrorIs(t, err, lifecycle.ErrCircular)
+				assert.NoError(t, err)
+				if deref != nil {
+					foundErrs++
+					assert.ErrorContains(t, deref, fmt.Sprintf("(order %d) %d awaits %d: ", order, i, j))
+					assert.ErrorIs(t, deref, lifecycle.ErrCircular)
+				}
 			}
-		})
+
+			assert.Equal(t, 1, foundErrs)
+			return nil
+		}))
 
 		return !t.Failed()
 	})
