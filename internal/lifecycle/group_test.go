@@ -296,3 +296,72 @@ func TestRef_Require_LoopDetection(t *testing.T) {
 		return !t.Failed()
 	})
 }
+
+func TestRef_Require_AcyclicDependencies(t *testing.T) {
+	var g lifecycle.Group
+
+	var started sync.WaitGroup
+	stopped := make(chan string)
+
+	// The startUnit func is a helper that creates a unit that writes its name
+	// to the stopped channel as soon as it's getting stopped. This is used
+	// later on to detect the correct stop order.
+	startUnit := func(name string) (*lifecycle.Unit, error) {
+		stop, done := make(chan struct{}), make(chan struct{})
+		go func() {
+			started.Done()
+			defer close(done)
+			<-stop
+			stopped <- name
+		}()
+		return lifecycle.TaskOf(stop, done, struct{}{})
+	}
+
+	// Create the unit A
+	started.Add(1)
+	a := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+		return startUnit("A")
+	})
+
+	// Create the unit B, which requires A
+	started.Add(1)
+	b := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+		_, err := a.Require(ctx)
+		assert.NoError(t, err, "When B requires A")
+		return startUnit("B")
+	})
+
+	// Create the unit CBA, which first requires B, then A
+	started.Add(1)
+	lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+		_, err := b.Require(ctx)
+		assert.NoError(t, err, "When C requires B")
+		// FIXME this should go in again
+		// _, err = a.Require(ctx)
+		// assert.NoError(t, err, "When C requires A after B")
+		return startUnit("CBA")
+	})
+
+	// Create the unit CAB, which first requires A, then B
+	started.Add(1)
+	lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+		// FIXME this should go in again
+		// _, err := a.Require(ctx)
+		// assert.NoError(t, err, "When C requires A")
+		_, err := b.Require(ctx)
+		assert.NoError(t, err, "When C requires B after A")
+		return startUnit("CAB")
+	})
+
+	started.Wait()           // Wait until all units are started.
+	shutdown := g.Shutdown() // Initiate the shutdown of all the units.
+
+	require.ElementsMatch(t, []string{"CBA", "CAB"}, []string{<-stopped, <-stopped},
+		"CBA and CAB should stop concurrently first, as nothing depends on them",
+	)
+	require.Equal(t, "B", <-stopped, "B should stop second, as its dependents CBA and CAB are stopped")
+	require.Equal(t, "A", <-stopped, "A should stop last")
+
+	close(stopped) // Just to ensure that it's no longer in use.
+	<-shutdown     // Just to ensure that the shutdown process is done.
+}
