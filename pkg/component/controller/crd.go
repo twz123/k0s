@@ -69,8 +69,12 @@ func (c CRD) Init(_ context.Context) error {
 	return nil
 }
 
-// Run unpacks manifests from bindata
 func (c CRD) Start(context.Context) error {
+	return c.Unpack()
+}
+
+// Unpacks manifests from bindata
+func (c CRD) Unpack() error {
 	crds, err := fs.ReadDir(static.CRDs, c.assetsDir)
 	if err != nil {
 		return fmt.Errorf("can't unbundle CRD `%s` manifests: %w", c.bundle, err)
