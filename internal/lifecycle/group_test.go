@@ -264,6 +264,9 @@ func TestRef_Require_AfterStartFailed(t *testing.T) {
 		assert.ErrorIs(t, err, lifecycle.ErrShutdown)
 		assert.ErrorIs(t, err, assert.AnError)
 
+		_, err = fail.Require(ctx)
+		assert.Same(t, assert.AnError, err, "Expected to see the original error, even if group is shutting down")
+
 		return nil, nil
 	})
 
