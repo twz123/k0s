@@ -19,29 +19,14 @@ package lifecycle
 import (
 	"errors"
 	"fmt"
+	"slices"
 )
 
 var ErrSelfReferential = errors.New("self-referential")
 
-type direction uint8
-
-const (
-	dependency direction = 1
-	dependent  direction = 2
-)
-
 type node struct {
-	edges map[*node]direction
-}
-
-func (n *node) hasDependents() bool {
-	for _, edgeDir := range n.edges {
-		if edgeDir == dependent {
-			return true
-		}
-	}
-
-	return false
+	dependencies []*node
+	dependents   []*node
 }
 
 func (n *node) addDependency(other *node) (err error) {
@@ -49,9 +34,25 @@ func (n *node) addDependency(other *node) (err error) {
 		return selfRefErr{depth}
 	}
 
-	mapSet(&n.edges, other, dependency)
-	mapSet(&other.edges, n, dependent)
+	n.dependencies = append(n.dependencies, other)
+	other.dependents = append(other.dependents, n)
 	return nil
+}
+
+func (n *node) disposeLeaf(consumeNewLeaf func(*node)) {
+	for _, d := range n.dependencies {
+		if len(d.dependents) > 1 {
+			i := slices.Index(d.dependents, n)
+			d.dependents = slices.Delete(d.dependents, i, i+1)
+		} else { // only n can be left in the dependents list
+			d.dependents[0] = nil
+			d.dependents = nil
+			consumeNewLeaf(d)
+		}
+	}
+
+	clear(n.dependencies)
+	n.dependencies = nil
 }
 
 func (n *node) hasDependency(other *node, visited map[*node]struct{}) (exists bool, depth uint) {
@@ -59,19 +60,11 @@ func (n *node) hasDependency(other *node, visited map[*node]struct{}) (exists bo
 		return true, 0
 	}
 
-	if edgeDir, hasEdge := n.edges[other]; hasEdge {
-		if edgeDir == dependency {
+	for _, dependency := range n.dependencies {
+		if dependency == other {
 			return true, 1
 		}
-		return false, 1
-	}
-
-	for neighbor, edgeDir := range n.edges {
-		if edgeDir != dependency {
-			continue
-		}
-
-		if exists, depth := neighbor.hasDependency(other, visited); exists {
+		if exists, depth := dependency.hasDependency(other, visited); exists {
 			return true, depth + 1
 		}
 	}
