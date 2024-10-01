@@ -434,16 +434,6 @@ func (c *command) start(ctx context.Context) error {
 		))
 	}
 
-	if !slices.Contains(c.DisableComponents, constant.AutopilotComponentName) {
-		logrus.Debug("starting manifest saver")
-		manifestsSaver, err := controller.NewManifestsSaver("autopilot", c.K0sVars.DataDir)
-		if err != nil {
-			logrus.Warnf("failed to initialize reconcilers manifests saver: %s", err.Error())
-			return err
-		}
-		clusterComponents.Add(ctx, controller.NewCRD(manifestsSaver, "autopilot"))
-	}
-
 	if !slices.Contains(c.DisableComponents, constant.APIEndpointReconcilerComponentName) && nodeConfig.Spec.API.ExternalAddress != "" {
 		clusterComponents.Add(ctx, controller.NewEndpointReconciler(
 			nodeConfig,
@@ -565,12 +555,21 @@ func (c *command) start(ctx context.Context) error {
 		logrus.Info("Telemetry is disabled")
 	}
 
-	clusterComponents.Add(ctx, &controller.Autopilot{
-		K0sVars:            c.K0sVars,
-		KubeletExtraArgs:   c.KubeletExtraArgs,
-		AdminClientFactory: adminClientFactory,
-		EnableWorker:       c.EnableWorker,
-	})
+	if !slices.Contains(c.DisableComponents, constant.AutopilotComponentName) {
+		logrus.Debug("starting manifest saver")
+		manifestsSaver, err := controller.NewManifestsSaver("autopilot", c.K0sVars.DataDir)
+		if err != nil {
+			logrus.Warnf("failed to initialize reconcilers manifests saver: %s", err.Error())
+			return err
+		}
+		clusterComponents.Add(ctx, controller.NewCRD(manifestsSaver, "autopilot"))
+		clusterComponents.Add(ctx, &controller.Autopilot{
+			K0sVars:            c.K0sVars,
+			KubeletExtraArgs:   c.KubeletExtraArgs,
+			AdminClientFactory: adminClientFactory,
+			EnableWorker:       c.EnableWorker,
+		})
+	}
 
 	restConfig, err := adminClientFactory.GetRESTConfig()
 	if err != nil {
