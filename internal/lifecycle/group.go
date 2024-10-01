@@ -56,10 +56,6 @@ type Task[I any] struct {
 // A task that doesn't have any interface to interact with.
 type Unit = Task[struct{}]
 
-// type Provider[T any] interface {
-// 	Provide() (T, error)
-// }
-
 // A Component can be started. It produces a [Task]. I represents the task's interface.
 type Component[I any] interface {
 	Start(context.Context) (*Task[I], error)
@@ -149,20 +145,18 @@ func Go[T any](g *Group, c Component[T]) *Ref[T] {
 
 		err := fmt.Errorf("%w: failed to start: %w", ErrShutdown, ref.err)
 		g.mu.Lock()
+		defer g.mu.Unlock()
 		if g.startErr == nil {
 			g.startErr = err
 		}
 		if g.done == nil {
 			done := make(chan struct{})
 			g.done = done
-			g.inShutdown = true
-			g.mu.Unlock()
-			g.shutdown(done, g.startErr)
+			g.initiateShutdown(done, g.startErr)
 		} else {
 			if g.cancelCompletion != nil {
 				g.cancelCompletion(err)
 			}
-			g.mu.Unlock()
 		}
 	}()
 
@@ -233,10 +227,8 @@ func (g *Group) Complete(ctx context.Context, f func(ctx context.Context) error)
 	go func() {
 		<-beginShutdown
 		g.mu.Lock()
-		g.inShutdown = true
-		err := cmp.Or(g.startErr, ErrShutdown)
-		g.mu.Unlock()
-		g.shutdown(done, err)
+		defer g.mu.Unlock()
+		g.initiateShutdown(done, cmp.Or(g.startErr, ErrShutdown))
 	}()
 
 	var ptr ctxPtr
@@ -264,98 +256,70 @@ func (g *Group) Shutdown() <-chan struct{} {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	if g.done != nil {
-		return g.done
+	if g.done == nil {
+		done := make(chan struct{})
+		g.done = done
+		g.initiateShutdown(done, ErrShutdown)
 	}
 
-	done := make(chan struct{})
-	g.done = done
-	g.inShutdown = true
-	go g.shutdown(done, ErrShutdown)
-	return done
+	return g.done
 }
 
-func (g *Group) shutdown(ch chan<- struct{}, err error) {
-	defer close(ch)
+func (g *Group) initiateShutdown(done chan<- struct{}, err error) {
+	g.inShutdown = true
 
-	remainingNodes := make(map[*node]*lifecycleNode, len(g.nodes))
-	leaves := make(map[*node]*lifecycleNode)
+	numNodes := len(g.nodes)
+	if numNodes < 1 {
+		close(done)
+		return
+	}
+
+	s := nodeShutdown{done, err, &g.mu, make(map[*node]*lifecycleNode, numNodes)}
 	for _, node := range g.nodes {
-		remainingNodes[&node.inner] = node
+		s.remainingNodes[&node.inner] = node
 		if len(node.inner.dependents) < 1 {
-			leaves[&node.inner] = node
+			go s.disposeLeaf(node)
 		}
 	}
 
-	dispose := func(leaf *lifecycleNode) {
-		delete(leaves, &leaf.inner)
-		delete(remainingNodes, &leaf.inner)
-		g.mu.Lock()
-		defer g.mu.Unlock()
-		leaf.inner.disposeLeaf(func(newLeaf *node) {
-			leaves[newLeaf] = remainingNodes[newLeaf]
-		})
+	clear(g.nodes)
+	g.nodes = nil
+}
+
+type nodeShutdown struct {
+	done           chan<- struct{}
+	err            error
+	mu             *sync.Mutex
+	remainingNodes map[*node]*lifecycleNode
+}
+
+func (s *nodeShutdown) disposeLeaf(leaf *lifecycleNode) {
+	if leaf.started != nil {
+		leaf.cancelStart(s.err)
+		<-leaf.started
 	}
 
-	// TODO: Check if we can rewrite it using channels
+	if leaf.handle.Stop != nil {
+		close(leaf.handle.Stop)
+		leaf.handle.Stop = nil
+	}
 
-	for {
-		var selectLeaves []*lifecycleNode
-		var selects []reflect.SelectCase
-		var doneLeaves []*lifecycleNode
+	if leaf.handle.Done != nil {
+		<-leaf.handle.Done
+	}
 
-		for _, leaf := range leaves {
-			switch leaf.phase() {
-			case starting:
-				leaf.cancelStart(err)
-				if len(selects) < 65535 {
-					selectLeaves = append(selectLeaves, leaf)
-					selects = append(selects, reflect.SelectCase{
-						Dir:  reflect.SelectRecv,
-						Chan: reflect.ValueOf(leaf.started),
-					})
-				}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	leaf.inner.disposeLeaf(func(newLeaf *node) {
+		go s.disposeLeaf(s.remainingNodes[newLeaf])
+	})
 
-			case started:
-				if leaf.handle.Stop != nil {
-					close(leaf.handle.Stop)
-					leaf.handle.Stop = nil
-				}
-				if len(selects) < 65535 {
-					selectLeaves = append(selectLeaves, leaf)
-					selects = append(selects, reflect.SelectCase{
-						Dir:  reflect.SelectRecv,
-						Chan: reflect.ValueOf(leaf.handle.Done),
-					})
-				}
-
-			case done:
-				doneLeaves = append(doneLeaves, leaf)
-			}
-		}
-
-		for _, doneLeaf := range doneLeaves {
-			dispose(doneLeaf)
-		}
-
-		// If there's no more remaining nodes, all the things are done.
-		if len(remainingNodes) < 1 {
-			g.nodes = nil
-			return
-		}
-
-		if len(selects) < 1 {
-			// Nothing to wait for. Start next round.
-			continue
-			// This usually happens if all the leaves are done, and their
-			// disposal produced new leaves which weren't part of the last
-			// iteration.
-		}
-
-		index, _, _ := reflect.Select(selects)
-		if selectedLeaf := selectLeaves[index]; selectedLeaf.phase() == done {
-			dispose(selectedLeaf)
-		}
+	if len(s.remainingNodes) > 1 {
+		delete(s.remainingNodes, &leaf.inner)
+	} else {
+		clear(s.remainingNodes)
+		s.remainingNodes = nil
+		close(s.done)
 	}
 }
 
@@ -368,34 +332,6 @@ func (n *groupNode) addDependency(other *node) error {
 	}
 
 	return n.inner.addDependency(other)
-}
-
-type lifecyclePhase uint8
-
-const (
-	starting lifecyclePhase = iota
-	started
-	done
-)
-
-func (n *lifecycleNode) phase() lifecyclePhase {
-	if n.started != nil {
-		select {
-		case <-n.started:
-		default:
-			return starting
-		}
-	}
-
-	if n.handle.Done != nil {
-		select {
-		case <-n.handle.Done:
-		default:
-			return started
-		}
-	}
-
-	return done
 }
 
 func (r *Ref[T]) String() string {
