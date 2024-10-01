@@ -198,21 +198,27 @@ func (r *Ref[T]) Require(ctx context.Context) (t T, _ error) {
 		return t, fmt.Errorf("cannot require here: context is part of another lifecycle")
 	}
 
+	// short-circuit if the ref failed to start
+	select {
+	default:
+	case <-r.started:
+		if r.err != nil {
+			return r.t, r.err
+		}
+	}
+
 	if ctxNode.inner != nil {
 		if err := ctxNode.addDependency(r.inner); err != nil {
 			return t, err
 		}
 	}
 
-	if r.started != nil {
-		select {
-		case <-ctx.Done():
-			return t, context.Cause(ctx)
-		case <-r.started:
-		}
+	select {
+	case <-ctx.Done():
+		return t, context.Cause(ctx)
+	case <-r.started:
+		return r.t, r.err
 	}
-
-	return r.t, r.err
 }
 
 func (g *Group) Complete(ctx context.Context, f func(ctx context.Context) error) error {
@@ -347,12 +353,10 @@ func (r *Ref[T]) String() string {
 		return fmt.Sprintf("%s<nil>", reflect.TypeOf(r))
 	}
 
-	if r.started != nil {
-		select {
-		case <-r.started:
-		default:
-			return fmt.Sprintf("%s(%p starting)", reflect.TypeOf(r), r.inner)
-		}
+	select {
+	case <-r.started:
+	default:
+		return fmt.Sprintf("%s(%p starting)", reflect.TypeOf(r), r.inner)
 	}
 
 	if r.err != nil {
