@@ -32,6 +32,7 @@ import (
 
 	"github.com/avast/retry-go"
 	workercmd "github.com/k0sproject/k0s/cmd/worker"
+	"github.com/k0sproject/k0s/internal/lifecycle"
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	k0slog "github.com/k0sproject/k0s/internal/pkg/log"
@@ -139,8 +140,6 @@ func (c *command) start(ctx context.Context) error {
 	// Add the node config to the context so it can be used by components deep in the "stack"
 	ctx = context.WithValue(ctx, k0scontext.ContextNodeConfigKey, nodeConfig)
 
-	perfTimer.Checkpoint("directory-init")
-
 	// create directories early with the proper permissions
 	if err := dir.Init(c.K0sVars.DataDir, constant.DataDirMode); err != nil {
 		return err
@@ -205,31 +204,36 @@ func (c *command) start(ctx context.Context) error {
 	}
 	logrus.Infof("DNS address: %s", dnsAddress)
 
-	nodeComponents := manager.New(prober.DefaultProber)
-	clusterComponents := manager.New(prober.DefaultProber)
+	var nodeComponents lifecycle.Group // TODO prober
+	defer func() {
+		<-nodeComponents.Shutdown()
+		logrus.Info("All node components stopped")
+	}()
 
-	var storageBackend manager.Component
-	storageType := nodeConfig.Spec.Storage.Type
+	storageBackend := lifecycle.GoFunc(&nodeComponents, func(ctx context.Context) (*lifecycle.Task, error) {
+		var storageBackend manager.Component
+		storageType := nodeConfig.Spec.Storage.Type
 
-	switch storageType {
-	case v1beta1.KineStorageType:
-		storageBackend = &controller.Kine{
-			Config:  nodeConfig.Spec.Storage.Kine,
-			K0sVars: c.K0sVars,
+		switch storageType {
+		case v1beta1.KineStorageType:
+			storageBackend = &controller.Kine{
+				Config:  nodeConfig.Spec.Storage.Kine,
+				K0sVars: c.K0sVars,
+			}
+		case v1beta1.EtcdStorageType:
+			storageBackend = &controller.Etcd{
+				CertManager: certificateManager,
+				Config:      nodeConfig.Spec.Storage.Etcd,
+				JoinClient:  joinClient,
+				K0sVars:     c.K0sVars,
+				LogLevel:    c.LogLevels.Etcd,
+			}
+		default:
+			return nil, fmt.Errorf("invalid storage type: %s", nodeConfig.Spec.Storage.Type)
 		}
-	case v1beta1.EtcdStorageType:
-		storageBackend = &controller.Etcd{
-			CertManager: certificateManager,
-			Config:      nodeConfig.Spec.Storage.Etcd,
-			JoinClient:  joinClient,
-			K0sVars:     c.K0sVars,
-			LogLevel:    c.LogLevels.Etcd,
-		}
-	default:
-		return fmt.Errorf("invalid storage type: %s", nodeConfig.Spec.Storage.Type)
-	}
-	logrus.Infof("using storage backend %s", nodeConfig.Spec.Storage.Type)
-	nodeComponents.Add(ctx, storageBackend)
+		logrus.Infof("using storage backend %s", nodeConfig.Spec.Storage.Type)
+		return startComponent(ctx, storageBackend, struct{}{})
+	})
 
 	// Assume a single active controller during startup
 	numActiveControllers := value.NewLatest[uint](1)
@@ -239,113 +243,176 @@ func (c *command) start(ctx context.Context) error {
 			return errors.New("control plane load balancing cannot be used in a single-node cluster")
 		}
 
-		nodeComponents.Add(ctx, &controller.Keepalived{
+		goComponent(&nodeComponents, &controller.Keepalived{
 			K0sVars:         c.K0sVars,
 			Config:          cplb.Keepalived,
 			DetailedLogging: c.Debug,
 			LogConfig:       c.Debug,
 			KubeConfigPath:  c.K0sVars.AdminKubeConfigPath,
 			APIPort:         nodeConfig.Spec.API.Port,
-		})
+		}, struct{}{})
 	}
 
-	enableKonnectivity := !c.SingleNode && !slices.Contains(c.DisableComponents, constant.KonnectivityServerComponentName)
-	disableEndpointReconciler := !slices.Contains(c.DisableComponents, constant.APIEndpointReconcilerComponentName) &&
-		nodeConfig.Spec.API.ExternalAddress != ""
+	konnectivity := lifecycle.GoFunc(&nodeComponents, func(ctx context.Context) (*lifecycle.Unit[bool], error) {
+		if c.SingleNode {
+			return lifecycle.Done(false)
+		}
+		if slices.Contains(c.DisableComponents, constant.KonnectivityServerComponentName) {
+			return lifecycle.Done(false)
+		}
 
-	if enableKonnectivity {
-		nodeComponents.Add(ctx, &controller.Konnectivity{
+		return startComponent(ctx, &controller.Konnectivity{
 			K0sVars:      c.K0sVars,
 			LogLevel:     c.LogLevels.Konnectivity,
 			EventEmitter: prober.NewEventEmitter(),
 			ServerCount:  numActiveControllers.Peek,
-		})
-	}
-
-	nodeComponents.Add(ctx, &controller.APIServer{
-		ClusterConfig:             nodeConfig,
-		K0sVars:                   c.K0sVars,
-		LogLevel:                  c.LogLevels.KubeAPIServer,
-		Storage:                   storageBackend,
-		EnableKonnectivity:        enableKonnectivity,
-		DisableEndpointReconciler: disableEndpointReconciler,
+		}, true)
 	})
 
-	// common factory to get the admin kube client that's needed in many components
-	adminClientFactory := &kubernetes.ClientFactory{LoadRESTConfig: func() (*rest.Config, error) {
-		config, err := kubernetes.ClientConfig(kubernetes.KubeconfigFromFile(c.K0sVars.AdminKubeConfigPath))
+	disableEndpointReconciler := !slices.Contains(c.DisableComponents, constant.APIEndpointReconcilerComponentName) &&
+		nodeConfig.Spec.API.ExternalAddress != ""
+
+	// FIXME should provide kubeconfig path and client factory
+	apiServer := lifecycle.GoFunc(&nodeComponents, func(ctx context.Context) (*lifecycle.Unit[*kubernetes.ClientFactory], error) {
+		_, err := storageBackend.Require(ctx)
 		if err != nil {
 			return nil, err
 		}
 
-		// We're always running the client on the same host as the API, no need to compress
-		config.DisableCompression = true
-		// To mitigate stack applier bursts in startup
-		config.QPS = 40.0
-		config.Burst = 400.0
+		konnectivityEnabled, err := konnectivity.Require(ctx)
+		if err != nil {
+			return nil, err
+		}
 
-		return config, nil
-	}}
+		// common factory to get the admin kube client that's needed in many components
+		adminClientFactory := &kubernetes.ClientFactory{LoadRESTConfig: func() (*rest.Config, error) {
+			config, err := kubernetes.ClientConfig(kubernetes.KubeconfigFromFile(c.K0sVars.AdminKubeConfigPath))
+			if err != nil {
+				return nil, err
+			}
+
+			// We're always running the client on the same host as the API, no need to compress
+			config.DisableCompression = true
+			// To mitigate stack applier bursts in startup
+			config.QPS = 40.0
+			config.Burst = 400.0
+
+			return config, nil
+		}}
+
+		return startComponent(ctx, &controller.APIServer{
+			ClusterConfig:             nodeConfig,
+			K0sVars:                   c.K0sVars,
+			LogLevel:                  c.LogLevels.KubeAPIServer,
+			EnableKonnectivity:        konnectivityEnabled,
+			DisableEndpointReconciler: disableEndpointReconciler,
+		}, adminClientFactory)
+	})
 
 	if !c.SingleNode {
-		nodeComponents.Add(ctx, &controller.K0sControllersLeaseCounter{
-			InvocationID:          c.K0sVars.InvocationID,
-			ClusterConfig:         nodeConfig,
-			KubeClientFactory:     adminClientFactory,
-			UpdateControllerCount: numActiveControllers.Set,
+		lifecycle.GoFunc(&nodeComponents, func(ctx context.Context) (*lifecycle.Task, error) {
+			adminClientFactory, err := apiServer.Require(ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			return startComponent(ctx, &controller.K0sControllersLeaseCounter{
+				InvocationID:          c.K0sVars.InvocationID,
+				ClusterConfig:         nodeConfig,
+				KubeClientFactory:     adminClientFactory,
+				UpdateControllerCount: numActiveControllers.Set,
+			}, struct{}{})
 		})
 	}
 
-	var leaderElector interface {
-		leaderelector.Interface
-		manager.Component
-	}
-
+	var leaderElector *lifecycle.Ref[leaderelector.Interface]
 	// One leader elector per controller
 	if !c.SingleNode {
 		// The name used to be hardcoded in the component itself
 		// At some point we need to rename this.
-		leaderElector = leaderelector.NewLeasePool(c.K0sVars.InvocationID, adminClientFactory, "k0s-endpoint-reconciler")
-	} else {
-		leaderElector = &leaderelector.Dummy{Leader: true}
-	}
-	nodeComponents.Add(ctx, leaderElector)
+		leaderElector = lifecycle.GoFunc(&nodeComponents, func(ctx context.Context) (*lifecycle.Unit[leaderelector.Interface], error) {
+			adminClientFactory, err := apiServer.Require(ctx)
+			if err != nil {
+				return nil, err
+			}
 
+			leasePool := leaderelector.NewLeasePool(c.K0sVars.InvocationID, adminClientFactory, "k0s-endpoint-reconciler")
+			return startComponent[leaderelector.Interface](ctx, leasePool, leasePool)
+		})
+	} else {
+		// TODO find a way to provide constant refs.
+		dummy := leaderelector.Dummy{Leader: true}
+		leaderElector = goComponent[leaderelector.Interface](&nodeComponents, &dummy, &dummy)
+	}
+
+	var applierManager *lifecycle.Ref[string]
 	if !slices.Contains(c.DisableComponents, constant.ApplierManagerComponentName) {
-		nodeComponents.Add(ctx, &applier.Manager{
-			K0sVars:           c.K0sVars,
-			KubeClientFactory: adminClientFactory,
-			IgnoredStacks: []string{
-				controller.ClusterConfigStackName,
-			},
-			LeaderElector: leaderElector,
+		applierManager = lifecycle.GoFunc(&nodeComponents, func(ctx context.Context) (*lifecycle.Unit[string], error) {
+			adminClientFactory, err := apiServer.Require(ctx)
+			if err != nil {
+				return nil, err
+			}
+			leaderElector, err := leaderElector.Require(ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			return startComponent(ctx, &applier.Manager{
+				K0sVars:           c.K0sVars,
+				KubeClientFactory: adminClientFactory,
+				IgnoredStacks: []string{
+					controller.ClusterConfigStackName,
+				},
+				LeaderElector: leaderElector,
+			}, c.K0sVars.ManifestsDir)
 		})
 	}
 
 	if !c.SingleNode && !slices.Contains(c.DisableComponents, constant.ControlAPIComponentName) {
-		nodeComponents.Add(ctx, &controller.K0SControlAPI{
+		goComponent(&nodeComponents, &controller.K0SControlAPI{
 			ConfigPath: c.CfgFile,
 			K0sVars:    c.K0sVars,
-		})
+		}, struct{}{})
 	}
 
 	if !slices.Contains(c.DisableComponents, constant.CsrApproverComponentName) {
-		nodeComponents.Add(ctx, controller.NewCSRApprover(nodeConfig,
-			leaderElector,
-			adminClientFactory))
+		lifecycle.GoFunc(&nodeComponents, func(ctx context.Context) (*lifecycle.Task, error) {
+			adminClientFactory, err := apiServer.Require(ctx)
+			if err != nil {
+				return nil, err
+			}
+			leaderElector, err := leaderElector.Require(ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			return startComponent(ctx, controller.NewCSRApprover(nodeConfig,
+				leaderElector,
+				adminClientFactory), struct{}{})
+		})
 	}
 
 	if c.EnableK0sCloudProvider {
-		nodeComponents.Add(
-			ctx,
-			controller.NewK0sCloudProvider(
-				c.K0sVars.AdminKubeConfigPath,
-				c.K0sCloudProviderUpdateFrequency,
-				c.K0sCloudProviderPort,
-			),
-		)
+		lifecycle.GoFunc(&nodeComponents, func(ctx context.Context) (*lifecycle.Task, error) {
+			// FIXME requires admin kubeconfig path
+			_, err := apiServer.Require(ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			return startComponent(
+				ctx,
+				controller.NewK0sCloudProvider(
+					c.K0sVars.AdminKubeConfigPath,
+					c.K0sCloudProviderUpdateFrequency,
+					c.K0sCloudProviderPort,
+				),
+				struct{}{},
+			)
+		})
 	}
-	nodeComponents.Add(ctx, &status.Status{
+
+	goComponent(&nodeComponents, &status.Status{
 		Prober: prober.DefaultProber,
 		StatusInformation: status.K0sStatus{
 			Pid:           os.Getpid(),
@@ -359,88 +426,153 @@ func (c *command) start(ctx context.Context) error {
 		},
 		Socket:      c.K0sVars.StatusSocketPath,
 		CertManager: worker.NewCertificateManager(c.K0sVars.KubeletAuthConfigPath),
-	})
+	}, struct{}{})
 
 	if nodeConfig.Spec.Storage.Type == v1beta1.EtcdStorageType && !nodeConfig.Spec.Storage.Etcd.IsExternalClusterUsed() {
-		etcdReconciler, err := controller.NewEtcdMemberReconciler(adminClientFactory, c.K0sVars, nodeConfig.Spec.Storage.Etcd, leaderElector)
-		if err != nil {
-			return err
-		}
-		etcdCRDSaver, err := controller.NewManifestsSaver("etcd-member", c.K0sVars.DataDir)
-		if err != nil {
-			return fmt.Errorf("failed to initialize etcd-member manifests saver: %w", err)
-		}
-		clusterComponents.Add(ctx, controller.NewCRD(etcdCRDSaver, "etcd"))
-		nodeComponents.Add(ctx, etcdReconciler)
+		lifecycle.GoFunc(&nodeComponents, func(ctx context.Context) (*lifecycle.Task, error) {
+			clientFactory, err := apiServer.Require(ctx)
+			if err != nil {
+				return nil, err
+			}
+			leaderElector, err := leaderElector.Require(ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			// FIXME inline the stack application here.
+			etcdReconciler, err := controller.NewEtcdMemberReconciler(clientFactory, c.K0sVars, nodeConfig.Spec.Storage.Etcd, leaderElector)
+			if err != nil {
+				return nil, err
+			}
+
+			if applierManager != nil {
+				_, err := applierManager.Require(ctx)
+				etcdCRDSaver, err := controller.NewManifestsSaver("etcd-member", c.K0sVars.DataDir)
+				if err != nil {
+					return nil, fmt.Errorf("failed to initialize etcd-member manifests saver: %w", err)
+				}
+				if err := controller.NewCRD(etcdCRDSaver, "etcd").Unpack(); err != nil {
+					return nil, err
+				}
+			}
+			return startComponent(ctx, etcdReconciler, struct{}{})
+		})
 	}
 
-	perfTimer.Checkpoint("starting-node-component-init")
-	// init Node components
-	if err := nodeComponents.Init(ctx); err != nil {
-		return err
-	}
-	perfTimer.Checkpoint("finished-node-component-init")
+	perfTimer.Checkpoint("cluster-bootstrap")
 
-	perfTimer.Checkpoint("starting-node-components")
-
-	// Start components
-	err = nodeComponents.Start(ctx)
-	perfTimer.Checkpoint("finished-starting-node-components")
-	if err != nil {
-		return fmt.Errorf("failed to start controller node components: %w", err)
-	}
-	defer func() {
-		// Stop components
-		if err := nodeComponents.Stop(); err != nil {
-			logrus.WithError(err).Error("Failed to stop node components")
-		} else {
-			logrus.Info("All node components stopped")
-		}
-	}()
-
-	var configSource clusterconfig.ConfigSource
+	var configSource *lifecycle.Ref[clusterconfig.ConfigSource]
 	// For backwards compatibility, use file as config source by default
 	if c.EnableDynamicConfig {
-		clusterComponents.Add(ctx, controller.NewClusterConfigInitializer(
-			adminClientFactory,
-			leaderElector,
-			nodeConfig,
-		))
+		configSource = lifecycle.GoFunc(&nodeComponents, func(ctx context.Context) (*lifecycle.Unit[clusterconfig.ConfigSource], error) {
+			adminClientFactory, err := apiServer.Require(ctx)
+			if err != nil {
+				return nil, err
+			}
+			leaderElector, err := leaderElector.Require(ctx)
+			if err != nil {
+				return nil, err
+			}
 
-		configSource, err = clusterconfig.NewAPIConfigSource(adminClientFactory)
-		if err != nil {
-			return err
-		}
+			initializer := controller.NewClusterConfigInitializer(
+				adminClientFactory,
+				leaderElector,
+				nodeConfig,
+			)
+			if err := initializer.Run(ctx); err != nil {
+				return nil, err
+			}
+			apiConfigSource, err := clusterconfig.NewAPIConfigSource(adminClientFactory)
+			if err != nil {
+				return nil, err
+			}
+
+			stop, done := make(chan struct{}), make(chan struct{})
+			go func() {
+				defer close(done)
+				<-stop
+				apiConfigSource.Stop()
+			}()
+
+			return lifecycle.ServiceStarted(stop, done, apiConfigSource)
+		})
 	} else {
-		configSource = clusterconfig.NewStaticSource(nodeConfig)
+		// FIXME constant ref here!
+		configSource = lifecycle.GoFunc(&nodeComponents, func(ctx context.Context) (*lifecycle.Unit[clusterconfig.ConfigSource], error) {
+			return lifecycle.Done(clusterconfig.NewStaticSource(nodeConfig))
+		})
 	}
 
-	clusterComponents.Add(ctx, controller.NewClusterConfigReconciler(
-		clusterComponents,
-		adminClientFactory,
-		configSource,
-	))
+	// FIXME REALLY! needs cluster config reconciliation rebuild.
+	lifecycle.GoFunc(&nodeComponents, func(ctx context.Context) (*lifecycle.Task, error) {
+		adminClientFactory, err := apiServer.Require(ctx)
+		if err != nil {
+			return nil, err
+		}
+		configSource, err := configSource.Require(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		dummyComponents := manager.New(prober.DefaultProber)
+		return startComponent(ctx, controller.NewClusterConfigReconciler(
+			dummyComponents,
+			adminClientFactory,
+			configSource,
+		), struct{}{})
+	})
 
 	if !slices.Contains(c.DisableComponents, constant.HelmComponentName) {
-		helmSaver, err := controller.NewManifestsSaver("helm", c.K0sVars.DataDir)
-		if err != nil {
-			return fmt.Errorf("failed to initialize helm manifests saver: %w", err)
-		}
-		clusterComponents.Add(ctx, controller.NewCRD(helmSaver, "helm"))
-		clusterComponents.Add(ctx, controller.NewExtensionsController(
-			c.K0sVars,
-			adminClientFactory,
-			leaderElector,
-		))
+		lifecycle.GoFunc(&nodeComponents, func(ctx context.Context) (*lifecycle.Task, error) {
+			if applierManager != nil {
+				_, err := applierManager.Require(ctx)
+				if err != nil {
+					return nil, err
+				}
+				helmSaver, err := controller.NewManifestsSaver("helm", c.K0sVars.DataDir)
+				if err != nil {
+					return nil, fmt.Errorf("failed to initialize helm manifests saver: %w", err)
+				}
+				if err := controller.NewCRD(helmSaver, "helm").Unpack(); err != nil {
+					return nil, err
+				}
+			}
+
+			adminClientFactory, err := apiServer.Require(ctx)
+			if err != nil {
+				return nil, err
+			}
+			leaderElector, err := leaderElector.Require(ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			return startComponent(ctx, controller.NewExtensionsController(
+				c.K0sVars,
+				adminClientFactory,
+				leaderElector,
+			), struct{}{})
+		})
 	}
 
 	if !slices.Contains(c.DisableComponents, constant.APIEndpointReconcilerComponentName) && nodeConfig.Spec.API.ExternalAddress != "" {
-		clusterComponents.Add(ctx, controller.NewEndpointReconciler(
-			nodeConfig,
-			leaderElector,
-			adminClientFactory,
-			net.DefaultResolver,
-		))
+		lifecycle.GoFunc(&nodeComponents, func(ctx context.Context) (*lifecycle.Unit[T], error) {
+			adminClientFactory, err := apiServer.Require(ctx)
+			if err != nil {
+				return nil, err
+			}
+			leaderElector, err := leaderElector.Require(ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			return startComponent(ctx, controller.NewEndpointReconciler(
+				nodeConfig,
+				leaderElector,
+				adminClientFactory,
+				net.DefaultResolver,
+			), struct{}{})
+		})
 	}
 
 	if !slices.Contains(c.DisableComponents, constant.KubeProxyComponentName) {
@@ -739,4 +871,30 @@ func joinController(ctx context.Context, tokenArg string, certRootDir string) (*
 
 	logrus.Info("Got valid CA response, storing certificates")
 	return joinClient, writeCerts(caData, certRootDir)
+}
+
+func goComponent[T any](g *lifecycle.Group, c manager.Component, t T) *lifecycle.Ref[T] {
+	return lifecycle.GoFunc(g, func(ctx context.Context) (*lifecycle.Unit[T], error) {
+		return startComponent(ctx, c, t)
+	})
+}
+
+func startComponent[T any](ctx context.Context, c manager.Component, t T) (*lifecycle.Unit[T], error) {
+	if err := c.Init(ctx); err != nil {
+		return nil, err
+	}
+	if err := c.Start(ctx); err != nil {
+		return nil, err
+	}
+
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		<-stop
+		if err := c.Stop(); err != nil {
+			logrus.WithError(err).Errorf("Failed to stop component %T", c)
+		}
+	}()
+
+	return lifecycle.ServiceStarted(stop, done, t)
 }
