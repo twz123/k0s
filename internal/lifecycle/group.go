@@ -130,8 +130,6 @@ func Go[T any](g *Group, c Component[T]) *Ref[T] {
 	}
 
 	go func() {
-		defer close(started)
-
 		func() {
 			var ptr ctxPtr
 			ptr.Store(&ref.groupNode)
@@ -148,12 +146,15 @@ func Go[T any](g *Group, c Component[T]) *Ref[T] {
 		}()
 
 		if ref.err == nil {
+			close(started)
 			return
 		}
 
 		err := fmt.Errorf("%w: failed to start: %w", ErrShutdown, ref.err)
+
 		g.mu.Lock()
 		defer g.mu.Unlock()
+		close(started)
 		if g.startErr == nil {
 			g.startErr = err
 		}
@@ -161,10 +162,8 @@ func Go[T any](g *Group, c Component[T]) *Ref[T] {
 			done := make(chan struct{})
 			g.done = done
 			g.initiateShutdown(done, g.startErr)
-		} else {
-			if g.cancelCompletion != nil {
-				g.cancelCompletion(err)
-			}
+		} else if g.cancelCompletion != nil {
+			g.cancelCompletion(err)
 		}
 	}()
 
@@ -207,14 +206,40 @@ func (r *Ref[T]) Require(ctx context.Context) (t T, _ error) {
 		}
 	}
 
+	// Add the dependency if this context's node tracks its dependencies.
+	// No inner node indicates that it's a completion context.
 	if ctxNode.inner != nil {
-		if err := ctxNode.addDependency(r.inner); err != nil {
+		if shutdown, err := ctxNode.addDependency(r.inner); shutdown {
+			// The group is shutting down. If the referenced node's start method
+			// returned with an error, prefer to return that one instead of the
+			// shutdown error.
+			select {
+			default:
+			case <-r.started:
+				if r.err != nil {
+					return r.t, r.err
+				}
+			}
+
+			return t, cmp.Or(err, ErrShutdown)
+		} else if err != nil {
 			return t, err
 		}
 	}
 
 	select {
 	case <-ctx.Done():
+		// Check if the context raced with the the referenced node's start
+		// method. If that returned with an error, prefer to return that one
+		// instead of the context's error.
+		select {
+		default:
+		case <-r.started:
+			if r.err != nil {
+				return r.t, r.err
+			}
+		}
+
 		return t, context.Cause(ctx)
 	case <-r.started:
 		return r.t, r.err
@@ -334,15 +359,15 @@ func (s *nodeShutdown) disposeLeaf(leaf *lifecycleNode) {
 	}
 }
 
-func (n *groupNode) addDependency(other *node) error {
+func (n *groupNode) addDependency(other *node) (shutdown bool, err error) {
 	n.g.mu.Lock()
 	defer n.g.mu.Unlock()
 
 	if n.g.inShutdown {
-		return cmp.Or(n.g.startErr, ErrShutdown)
+		return true, n.g.startErr
 	}
 
-	return n.inner.addDependency(other)
+	return false, n.inner.addDependency(other)
 }
 
 func (r *Ref[T]) String() string {
