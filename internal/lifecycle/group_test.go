@@ -209,6 +209,69 @@ func TestRef_RejectsBogusStuff(t *testing.T) {
 	assert.ErrorContains(t, err, "invalid ref")
 }
 
+func TestRef_Require_AfterShutdown(t *testing.T) {
+	var g lifecycle.Group
+
+	ref := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
+		return nil, nil
+	})
+
+	okToRequire := make(chan struct{})
+	var requireDone atomic.Bool
+	lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit[int], error) {
+		defer requireDone.Store(true)
+		<-okToRequire
+		_, err := ref.Require(ctx)
+		assert.Same(t, lifecycle.ErrShutdown, err)
+		return nil, nil
+	})
+
+	shutdown := g.Shutdown()
+	close(okToRequire)
+	<-shutdown
+	assert.True(t, requireDone.Load())
+}
+
+func TestRef_Require_AfterStartFailed(t *testing.T) {
+	var g lifecycle.Group
+
+	ok := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
+		return nil, nil
+	})
+
+	okToFail := make(chan struct{})
+	fail := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
+		<-okToFail
+		return nil, assert.AnError
+	})
+
+	var requireDone atomic.Bool
+	okToShutdown := make(chan struct{})
+	lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit[int], error) {
+		defer requireDone.Store(true)
+
+		_, err := ok.Require(ctx)
+		assert.NoError(t, err)
+
+		close(okToFail)
+		_, err = fail.Require(ctx)
+		assert.Same(t, assert.AnError, err)
+
+		_, err = ok.Require(ctx)
+		close(okToShutdown)
+
+		assert.ErrorContains(t, err, "lifecycle group is shutting down: failed to start:")
+		assert.ErrorIs(t, err, lifecycle.ErrShutdown)
+		assert.ErrorIs(t, err, assert.AnError)
+
+		return nil, nil
+	})
+
+	<-okToShutdown
+	<-g.Shutdown()
+	assert.True(t, requireDone.Load())
+}
+
 func TestRef_Require_ContextCancellation(t *testing.T) {
 	var g lifecycle.Group
 
