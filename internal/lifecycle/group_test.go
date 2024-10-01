@@ -30,18 +30,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGroup_AbortsWhenTasksFailToStart(t *testing.T) {
-	t.Skip("FIXME Not working reliably yet")
+func TestGroup_AbortsWhenUnitsFailToStart(t *testing.T) {
 	var g lifecycle.Group
 
 	startErr := fmt.Errorf("from start func")
+	okToStart := make(chan struct{})
 	lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
+		<-okToStart // Ensure complete is called before start returns.
 		return nil, startErr
 	})
 
 	completeErr := fmt.Errorf("from complete func")
 	err := g.Complete(context.TODO(), func(ctx context.Context) error {
-		<-ctx.Done() // the context should get cancelled by the above error
+		close(okToStart)
+		<-ctx.Done() // the context should get cancelled by the start error
 
 		cause := context.Cause(ctx)
 		assert.ErrorContains(t, cause, "lifecycle group is shutting down: failed to start: from start func")
@@ -52,6 +54,36 @@ func TestGroup_AbortsWhenTasksFailToStart(t *testing.T) {
 	})
 
 	assert.Same(t, completeErr, err)
+}
+
+func TestGroup_AbortsEarlyWhenUnitsFailedToStart(t *testing.T) {
+	var g lifecycle.Group
+
+	startErr := fmt.Errorf("from start func")
+	okToStart := make(chan struct{})
+	start := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
+		<-okToStart // Ensure the intermediate func is called before start returns.
+		return nil, startErr
+	})
+
+	// Have some intermediate helper to ensure that start exits before complete is called.
+	okToComplete := make(chan struct{})
+	lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
+		close(okToStart)
+		_, _ = start.Require(ctx)
+		close(okToComplete)
+		return nil, nil
+	})
+
+	<-okToComplete
+	err := g.Complete(context.TODO(), func(ctx context.Context) error {
+		require.Fail(t, "This func shouldn't be called")
+		return assert.AnError
+	})
+
+	assert.ErrorContains(t, err, "lifecycle group is shutting down: failed to start: from start func")
+	assert.ErrorIs(t, err, lifecycle.ErrShutdown)
+	assert.ErrorIs(t, err, startErr)
 }
 
 func TestGroup_Shutdown(t *testing.T) {
@@ -305,10 +337,10 @@ func TestRef_Require_AcyclicDependencies(t *testing.T) {
 	var started sync.WaitGroup
 	stopped := make(chan string)
 
-	// The startUnit func is a helper that creates a unit that writes its name
+	// The startTask func is a helper that creates a unit that writes its name
 	// to the stopped channel as soon as it's getting stopped. This is used
 	// later on to detect the correct stop order.
-	startUnit := func(name string) (*lifecycle.Task, error) {
+	startTask := func(name string) (*lifecycle.Task, error) {
 		stop, done := make(chan struct{}), make(chan struct{})
 		go func() {
 			started.Done()
@@ -322,7 +354,7 @@ func TestRef_Require_AcyclicDependencies(t *testing.T) {
 	// Create the unit A
 	started.Add(1)
 	a := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
-		return startUnit("A")
+		return startTask("A")
 	})
 
 	// Create the unit B, which requires A
@@ -330,7 +362,7 @@ func TestRef_Require_AcyclicDependencies(t *testing.T) {
 	b := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
 		_, err := a.Require(ctx)
 		assert.NoError(t, err, "When B requires A")
-		return startUnit("B")
+		return startTask("B")
 	})
 
 	// Create the unit CBA, which first requires B, then A
@@ -340,7 +372,7 @@ func TestRef_Require_AcyclicDependencies(t *testing.T) {
 		assert.NoError(t, err, "When C requires B")
 		_, err = a.Require(ctx)
 		assert.NoError(t, err, "When C requires A after B")
-		return startUnit("CBA")
+		return startTask("CBA")
 	})
 
 	// Create the unit CAB, which first requires A, then B
@@ -350,7 +382,7 @@ func TestRef_Require_AcyclicDependencies(t *testing.T) {
 		assert.NoError(t, err, "When C requires A")
 		_, err = b.Require(ctx)
 		assert.NoError(t, err, "When C requires B after A")
-		return startUnit("CAB")
+		return startTask("CAB")
 	})
 
 	started.Wait()           // Wait until all units are started.
