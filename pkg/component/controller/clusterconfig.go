@@ -163,6 +163,10 @@ func (*ClusterConfigInitializer) Init(context.Context) error { return nil }
 
 // Start implements [manager.Component].
 func (i *ClusterConfigInitializer) Start(ctx context.Context) error {
+	return i.Run(ctx)
+}
+
+func (i *ClusterConfigInitializer) Run(ctx context.Context) error {
 	if err := i.ensureClusterConfigExistence(ctx); err != nil {
 		return fmt.Errorf("failed to ensure the existence of the cluster configuration: %w", err)
 	}
