@@ -282,7 +282,7 @@ func (g *Group) shutdown(ch chan<- struct{}, err error) {
 	leaves := make(map[*node]*lifecycleNode)
 	for _, node := range g.nodes {
 		remainingNodes[&node.inner] = node
-		if !node.inner.hasDependents() {
+		if len(node.inner.dependents) < 1 {
 			leaves[&node.inner] = node
 		}
 	}
@@ -292,7 +292,7 @@ func (g *Group) shutdown(ch chan<- struct{}, err error) {
 		delete(remainingNodes, &leaf.inner)
 		g.mu.Lock()
 		defer g.mu.Unlock()
-		leaf.disposeLeaf(func(newLeaf *node) {
+		leaf.inner.disposeLeaf(func(newLeaf *node) {
 			leaves[newLeaf] = remainingNodes[newLeaf]
 		})
 	}
@@ -396,17 +396,6 @@ func (n *lifecycleNode) phase() lifecyclePhase {
 	}
 
 	return done
-}
-
-func (n *lifecycleNode) disposeLeaf(consumeNewLeaf func(*node)) {
-	for related := range n.inner.edges {
-		delete(related.edges, &n.inner)
-		if !related.hasDependents() {
-			consumeNewLeaf(related)
-		}
-	}
-	n.inner.edges = nil
-	return
 }
 
 func (r *Ref[T]) String() string {
