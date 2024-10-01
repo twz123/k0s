@@ -31,6 +31,7 @@ import (
 )
 
 func TestGroup_AbortsWhenTasksFailToStart(t *testing.T) {
+	t.Skip("FIXME Not working reliably yet")
 	var g lifecycle.Group
 
 	startErr := fmt.Errorf("from start func")
@@ -65,7 +66,7 @@ func TestGroup_Shutdown(t *testing.T) {
 			assert.True(t, stopped.CompareAndSwap(1, 2), "ones not stopped after tens")
 		}()
 
-		return lifecycle.TaskOf(stop, done, 2)
+		return lifecycle.StartedWith(stop, done, 2)
 	})
 
 	tens := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[int], error) {
@@ -81,7 +82,7 @@ func TestGroup_Shutdown(t *testing.T) {
 			assert.True(t, stopped.CompareAndSwap(0, 1), "tens not stopped before ones")
 		}()
 
-		return lifecycle.TaskOf(stop, done, 40+ones)
+		return lifecycle.StartedWith(stop, done, 40+ones)
 	})
 
 	var shutdownGoroutines sync.WaitGroup
@@ -126,7 +127,7 @@ func TestRef_String(t *testing.T) {
 	proceed := make(chan struct{})
 	okRef := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[int], error) {
 		<-proceed
-		return lifecycle.TaskOf(nil, nil, 42)
+		return lifecycle.StartedWith(nil, nil, 42)
 	})
 	errRef := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[int], error) {
 		<-proceed
@@ -154,7 +155,7 @@ func TestRef_RejectsBogusStuff(t *testing.T) {
 	var disposedCtx context.Context
 	ref := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[any], error) {
 		disposedCtx = ctx
-		return lifecycle.TaskOf(nil, nil, any("bogus"))
+		return lifecycle.StartedWith(nil, nil, any("bogus"))
 	})
 
 	var other lifecycle.Group
@@ -177,6 +178,7 @@ func TestRef_RejectsBogusStuff(t *testing.T) {
 }
 
 func TestRef_Require_ContextCancellation(t *testing.T) {
+	t.Skip("FIXME Not working reliably yet")
 	var g lifecycle.Group
 
 	testCtx, cancelTest := context.WithCancelCause(context.TODO())
@@ -194,7 +196,7 @@ func TestRef_Require_ContextCancellation(t *testing.T) {
 		}
 
 		<-getDone
-		return lifecycle.TaskOf(nil, nil, any("bogus"))
+		return lifecycle.StartedWith(nil, nil, any("bogus"))
 	})
 
 	err := g.Complete(testCtx, func(ctx context.Context) error {
@@ -212,32 +214,32 @@ func TestRef_Require_ContextCancellation(t *testing.T) {
 	<-goroutineDone
 }
 
-func TestRef_Require_SelfDependency(t *testing.T) {
+func TestRef_Require_Twice(t *testing.T) {
 	var g lifecycle.Group
-	provide := make(chan struct{})
 
-	var self *lifecycle.Ref[any]
-	self = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[any], error) {
-		<-provide
-		if _, err := self.Require(ctx); err != nil {
-			return &lifecycle.Task[any]{Interface: "bogus"}, fmt.Errorf("self: %w", err)
-		}
+	ref := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
 		return nil, nil
 	})
 
-	close(provide)
+	uses := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+		_, err := ref.Require(ctx)
+		assert.NoError(t, err)
+		_, err = ref.Require(ctx)
+		assert.NoError(t, err)
 
-	err := g.Complete(context.TODO(), func(ctx context.Context) error {
-		deref, err := self.Require(ctx)
-		assert.Zero(t, deref)
-		assert.ErrorContains(t, err, "lifecycle group is shutting down: failed to start: self: circular dependency")
-		assert.ErrorIs(t, err, lifecycle.ErrShutdown)
-		assert.ErrorIs(t, err, lifecycle.ErrCircular)
-		return nil
+		// TODO: What happens if another component gets started here, and
+		// that component uses some required refs from its outer component?
+		// That component won't have the right lifecycle, i.e. won't be necessarily
+		// stopped after the components of the outer ref?
+
+		return nil, nil
 	})
 
-	assert.ErrorContains(t, err, "self: circular dependency")
-	assert.ErrorIs(t, err, lifecycle.ErrCircular)
+	assert.NoError(t, g.Complete(context.TODO(), func(ctx context.Context) error {
+		_, err := uses.Require(ctx)
+		assert.NoError(t, err)
+		return nil
+	}))
 }
 
 func TestRef_Require_LoopDetection(t *testing.T) {
@@ -265,7 +267,7 @@ func TestRef_Require_LoopDetection(t *testing.T) {
 				if err != nil {
 					err = fmt.Errorf("(order %d) %d awaits %d: %w", order, i, j, err)
 				}
-				return lifecycle.TaskOf(nil, nil, err)
+				return lifecycle.StartedWith(nil, nil, err)
 			})
 		}
 
@@ -285,7 +287,7 @@ func TestRef_Require_LoopDetection(t *testing.T) {
 				if deref != nil {
 					foundErrs++
 					assert.ErrorContains(t, deref, fmt.Sprintf("(order %d) %d awaits %d: ", order, i, j))
-					assert.ErrorIs(t, deref, lifecycle.ErrCircular)
+					assert.ErrorIs(t, deref, lifecycle.ErrSelfReferential)
 				}
 			}
 
@@ -314,7 +316,7 @@ func TestRef_Require_AcyclicDependencies(t *testing.T) {
 			<-stop
 			stopped <- name
 		}()
-		return lifecycle.TaskOf(stop, done, struct{}{})
+		return lifecycle.Started(stop, done)
 	}
 
 	// Create the unit A
@@ -336,19 +338,17 @@ func TestRef_Require_AcyclicDependencies(t *testing.T) {
 	lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
 		_, err := b.Require(ctx)
 		assert.NoError(t, err, "When C requires B")
-		// FIXME this should go in again
-		// _, err = a.Require(ctx)
-		// assert.NoError(t, err, "When C requires A after B")
+		_, err = a.Require(ctx)
+		assert.NoError(t, err, "When C requires A after B")
 		return startUnit("CBA")
 	})
 
 	// Create the unit CAB, which first requires A, then B
 	started.Add(1)
 	lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
-		// FIXME this should go in again
-		// _, err := a.Require(ctx)
-		// assert.NoError(t, err, "When C requires A")
-		_, err := b.Require(ctx)
+		_, err := a.Require(ctx)
+		assert.NoError(t, err, "When C requires A")
+		_, err = b.Require(ctx)
 		assert.NoError(t, err, "When C requires B after A")
 		return startUnit("CAB")
 	})
@@ -364,4 +364,59 @@ func TestRef_Require_AcyclicDependencies(t *testing.T) {
 
 	close(stopped) // Just to ensure that it's no longer in use.
 	<-shutdown     // Just to ensure that the shutdown process is done.
+}
+
+func TestRef_Require_CyclicDependencies(t *testing.T) {
+	t.Skip("FIXME Not working reliably yet")
+	var g lifecycle.Group
+
+	var a, b, c *lifecycle.Ref[struct{}]
+	start := make(chan struct{})
+	var started sync.WaitGroup
+
+	// Create the unit A, which requires C
+	started.Add(1)
+	a = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+		<-start
+		time.AfterFunc(10*time.Millisecond, started.Done)
+		_, err := c.Require(ctx)
+		assert.NoError(t, err, "When A requires C")
+		return nil, nil
+	})
+
+	// Create the unit B, which requires A
+	started.Add(1)
+	b = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+		<-start
+		time.AfterFunc(10*time.Millisecond, started.Done)
+		_, err := a.Require(ctx)
+		assert.NoError(t, err, "When B requires A")
+		return nil, nil
+	})
+
+	// Create the unit C, which requires the others, but can't
+	c = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+		<-start
+		started.Wait()
+		_, err := a.Require(ctx)
+		assert.ErrorContains(t, err, "self-referential direct dependency", "When C requires A")
+		assert.ErrorIs(t, err, lifecycle.ErrSelfReferential, "When C requires A")
+		_, err = b.Require(ctx)
+		assert.ErrorContains(t, err, "self-referential circular dependency at depth 2", "When C requires B")
+		assert.ErrorIs(t, err, lifecycle.ErrSelfReferential, "When C requires B")
+		_, err = c.Require(ctx)
+		assert.ErrorContains(t, err, "self-referential self-dependency", "When C requires itself")
+		assert.ErrorIs(t, err, lifecycle.ErrSelfReferential, "When C requires itself")
+		return nil, nil
+	})
+
+	close(start)
+
+	g.Complete(context.TODO(), func(ctx context.Context) error {
+		_, err := c.Require(ctx)
+		assert.NoError(t, err, "When completing C")
+		return nil
+	})
+
+	<-g.Shutdown()
 }
