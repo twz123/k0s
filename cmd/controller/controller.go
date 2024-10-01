@@ -139,8 +139,7 @@ func (c *command) start(ctx context.Context) error {
 	// Add the node config to the context so it can be used by components deep in the "stack"
 	ctx = context.WithValue(ctx, k0scontext.ContextNodeConfigKey, nodeConfig)
 
-	nodeComponents := manager.New(prober.DefaultProber)
-	clusterComponents := manager.New(prober.DefaultProber)
+	perfTimer.Checkpoint("directory-init")
 
 	// create directories early with the proper permissions
 	if err := dir.Init(c.K0sVars.DataDir, constant.DataDirMode); err != nil {
@@ -164,23 +163,18 @@ func (c *command) start(ctx context.Context) error {
 		}
 	}()
 
-	// common factory to get the admin kube client that's needed in many components
-	adminClientFactory := &kubernetes.ClientFactory{LoadRESTConfig: func() (*rest.Config, error) {
-		config, err := kubernetes.ClientConfig(kubernetes.KubeconfigFromFile(c.K0sVars.AdminKubeConfigPath))
-		if err != nil {
-			return nil, err
-		}
-
-		// We're always running the client on the same host as the API, no need to compress
-		config.DisableCompression = true
-		// To mitigate stack applier bursts in startup
-		config.QPS = 40.0
-		config.Burst = 400.0
-
-		return config, nil
-	}}
-
+	perfTimer.Checkpoint("certificates-init")
 	certificateManager := certificate.Manager{K0sVars: c.K0sVars}
+	certs := &Certificates{
+		ClusterSpec: nodeConfig.Spec,
+		CertManager: certificateManager,
+		K0sVars:     c.K0sVars,
+	}
+	if err := certs.Init(ctx); err != nil {
+		return err
+	}
+
+	perfTimer.Checkpoint("node-bootstrap")
 
 	var joinClient *token.JoinClient
 
@@ -210,6 +204,9 @@ func (c *command) start(ctx context.Context) error {
 		return err
 	}
 	logrus.Infof("DNS address: %s", dnsAddress)
+
+	nodeComponents := manager.New(prober.DefaultProber)
+	clusterComponents := manager.New(prober.DefaultProber)
 
 	var storageBackend manager.Component
 	storageType := nodeConfig.Spec.Storage.Type
@@ -273,6 +270,22 @@ func (c *command) start(ctx context.Context) error {
 		EnableKonnectivity:        enableKonnectivity,
 		DisableEndpointReconciler: disableEndpointReconciler,
 	})
+
+	// common factory to get the admin kube client that's needed in many components
+	adminClientFactory := &kubernetes.ClientFactory{LoadRESTConfig: func() (*rest.Config, error) {
+		config, err := kubernetes.ClientConfig(kubernetes.KubeconfigFromFile(c.K0sVars.AdminKubeConfigPath))
+		if err != nil {
+			return nil, err
+		}
+
+		// We're always running the client on the same host as the API, no need to compress
+		config.DisableCompression = true
+		// To mitigate stack applier bursts in startup
+		config.QPS = 40.0
+		config.Burst = 400.0
+
+		return config, nil
+	}}
 
 	if !c.SingleNode {
 		nodeComponents.Add(ctx, &controller.K0sControllersLeaseCounter{
@@ -359,16 +372,6 @@ func (c *command) start(ctx context.Context) error {
 		}
 		clusterComponents.Add(ctx, controller.NewCRD(etcdCRDSaver, "etcd"))
 		nodeComponents.Add(ctx, etcdReconciler)
-	}
-
-	perfTimer.Checkpoint("starting-certificates-init")
-	certs := &Certificates{
-		ClusterSpec: nodeConfig.Spec,
-		CertManager: certificateManager,
-		K0sVars:     c.K0sVars,
-	}
-	if err := certs.Init(ctx); err != nil {
-		return err
 	}
 
 	perfTimer.Checkpoint("starting-node-component-init")
