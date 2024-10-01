@@ -16,36 +16,27 @@ limitations under the License.
 
 package lifecycle
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
-var ErrCircular = errors.New("circular dependency")
+var ErrSelfReferential = errors.New("self-referential")
 
 type direction uint8
 
 const (
-	unrelated direction = iota
-	dependency
-	dependent
+	dependency direction = 1
+	dependent  direction = 2
 )
-
-func (d direction) inverse() direction {
-	switch d {
-	case dependency:
-		return dependent
-	case dependent:
-		return dependency
-	default:
-		return d
-	}
-}
 
 type node struct {
 	edges map[*node]direction
 }
 
-func (n *node) hasRelations(dir direction) bool {
+func (n *node) hasDependents() bool {
 	for _, edgeDir := range n.edges {
-		if edgeDir == dir {
+		if edgeDir == dependent {
 			return true
 		}
 	}
@@ -53,33 +44,61 @@ func (n *node) hasRelations(dir direction) bool {
 	return false
 }
 
-func (n *node) add(d direction, other *node) error {
-	if other.relatesTo(n, nil) {
-		return ErrCircular
+func (n *node) addDependency(other *node) (err error) {
+	if exists, depth := other.hasDependency(n, nil); exists {
+		return selfRefErr{depth}
 	}
 
-	mapSet(&n.edges, other, d)
-	mapSet(&other.edges, n, d.inverse())
+	mapSet(&n.edges, other, dependency)
+	mapSet(&other.edges, n, dependent)
 	return nil
 }
 
-func (n *node) relatesTo(other *node, visited map[*node]struct{}) bool {
+func (n *node) hasDependency(other *node, visited map[*node]struct{}) (exists bool, depth uint) {
 	if n == other {
-		return true
+		return true, 0
 	}
 
-	mapSet(&visited, n, struct{}{})
-	for neighbor := range n.edges {
-		if _, visited := visited[neighbor]; visited {
+	if edgeDir, hasEdge := n.edges[other]; hasEdge {
+		if edgeDir == dependency {
+			return true, 1
+		}
+		return false, 1
+	}
+
+	for neighbor, edgeDir := range n.edges {
+		if edgeDir != dependency {
 			continue
 		}
 
-		if neighbor.relatesTo(other, visited) {
-			return true
+		if exists, depth := neighbor.hasDependency(other, visited); exists {
+			return true, depth + 1
 		}
 	}
 
-	return false
+	return false, 0
+}
+
+type selfRefErr struct {
+	depth uint
+}
+
+func (e selfRefErr) Error() string {
+	switch e.depth {
+	case 0:
+		return fmt.Sprintf("%s self-dependency", ErrSelfReferential)
+	case 1:
+		return fmt.Sprintf("%s direct dependency", ErrSelfReferential)
+	default:
+		return fmt.Sprintf("%s circular dependency at depth %d", ErrSelfReferential, e.depth)
+	}
+}
+
+func (e selfRefErr) Is(target error) bool {
+	if target, ok := target.(selfRefErr); ok {
+		return e == target
+	}
+	return target == ErrSelfReferential
 }
 
 func mapSet[K comparable, V any](m *map[K]V, k K, v V) {
