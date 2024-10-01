@@ -41,34 +41,44 @@ type Group struct {
 
 var ErrShutdown = errors.New("lifecycle group is shutting down")
 
-// A service that is running and exposes some sort of interface to interact with.
-type Service[I any] struct {
-	stop  chan<- struct{} // Will be closed to signal that this task should stop.
-	done  <-chan struct{} // Will be closed the task has stopped.
-	iface I               // The service's interface.
+// A Component can be started. It produces a [Unit].
+type Component[T any] interface {
+	Start(context.Context) (*Unit[T], error)
 }
 
-// A service that doesn't have any interface to interact with.
-type Task = Service[struct{}]
-
-// A Component can be started. It produces a [Service]. I represents the task's interface.
-type Component[I any] interface {
-	Start(context.Context) (*Service[I], error)
+// A lifecycle unit as returned by [Component.Start].
+// Use [TaskStarted], [ServiceStarted] or [Done] to create units.
+type Unit[T any] struct {
+	stop    chan<- struct{}
+	done    <-chan struct{}
+	outcome T
 }
 
+// A unit without an outcome.
+type Task = Unit[struct{}]
+
+// Returns a non-running unit with the given outcome.
+// It won't participate in the lifecycle group's shutdown sequence.
+// The error will always be nil.
+func Done[T any](outcome T) (*Unit[T], error) {
+	return &Unit[T]{outcome: outcome}, nil
+}
+
+// Returns a running unit without an outcome.
+// The error will always be nil.
 func TaskStarted(stop chan<- struct{}, done <-chan struct{}) (*Task, error) {
 	return &Task{stop: stop, done: done}, nil
 }
 
-// Convenience function to create a task and let the compiler do the type inference.
+// Returns a running unit with the given outcome.
 // The error will always be nil.
-func ServiceStarted[I any](stop chan<- struct{}, done <-chan struct{}, i I) (*Service[I], error) {
-	return &Service[I]{stop, done, i}, nil
+func ServiceStarted[T any](stop chan<- struct{}, done <-chan struct{}, t T) (*Unit[T], error) {
+	return &Unit[T]{stop, done, t}, nil
 }
 
-type ComponentFunc[I any] func(context.Context) (*Service[I], error)
+type ComponentFunc[I any] func(context.Context) (*Unit[I], error)
 
-func (f ComponentFunc[I]) Start(ctx context.Context) (*Service[I], error) {
+func (f ComponentFunc[I]) Start(ctx context.Context) (*Unit[I], error) {
 	return f(ctx)
 }
 
@@ -133,7 +143,7 @@ func Go[T any](g *Group, c Component[T]) *Ref[T] {
 			if task, err := c.Start(k0scontext.WithValue(ctx, &ptr)); err != nil {
 				ref.err = err
 			} else if task != nil {
-				ref.t, node.stop, node.done = task.iface, task.stop, task.done
+				ref.t, node.stop, node.done = task.outcome, task.stop, task.done
 			}
 		}()
 
@@ -292,14 +302,11 @@ type nodeShutdown struct {
 }
 
 func (s *nodeShutdown) disposeLeaf(leaf *lifecycleNode) {
-	if leaf.started != nil {
-		leaf.cancelStart(s.err)
-		<-leaf.started
-	}
+	leaf.cancelStart(s.err)
+	<-leaf.started
 
 	if leaf.stop != nil {
 		close(leaf.stop)
-		leaf.stop = nil
 	}
 
 	if leaf.done != nil {
