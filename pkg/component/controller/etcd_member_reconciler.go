@@ -59,6 +59,8 @@ type EtcdMemberReconciler struct {
 	etcdConfig       *v1beta1.EtcdConfig
 	etcdMemberClient etcdmemberclient.EtcdMemberInterface
 	leaderElector    leaderelector.Interface
+	cancel           context.CancelFunc
+	done             <-chan struct{}
 }
 
 func (e *EtcdMemberReconciler) Init(_ context.Context) error {
@@ -74,8 +76,13 @@ func (e *EtcdMemberReconciler) Start(ctx context.Context) error {
 	}
 	e.etcdMemberClient = etcdMemberClient
 
+	done := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	e.cancel, e.done = cancel, done
+
 	// Run the watch in go routine so it keeps running till the context ends
 	go func() {
+		close(done)
 		err = e.waitForCRD(ctx)
 		if err != nil {
 			log.WithError(err).Errorf("didn't see EtcdMember CRD ready in time")
@@ -122,6 +129,8 @@ func (e *EtcdMemberReconciler) Start(ctx context.Context) error {
 }
 
 func (e *EtcdMemberReconciler) Stop() error {
+	e.cancel()
+	<-e.done
 	return nil
 }
 
