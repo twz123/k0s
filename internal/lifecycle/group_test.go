@@ -210,40 +210,44 @@ func TestRef_RejectsBogusStuff(t *testing.T) {
 }
 
 func TestRef_Require_ContextCancellation(t *testing.T) {
-	t.Skip("FIXME Not working reliably yet")
 	var g lifecycle.Group
 
 	testCtx, cancelTest := context.WithCancelCause(context.TODO())
 
-	getDone := make(chan struct{})
-	goroutineDone := make(chan struct{})
+	okToStart := make(chan struct{})
+	okToComplete := make(chan struct{})
+	okToReturn := make(chan struct{})
 	ref := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit[any], error) {
-		defer close(goroutineDone)
-		<-testCtx.Done()
+		<-okToStart
+		cancelTest(assert.AnError)
 
 		select {
 		case <-ctx.Done():
-			assert.Fail(t, "The goroutine's context is not independent of the outer context")
+			assert.Fail(t, "The goroutine's context is not independent of the outer context", "Cause: %v", context.Cause(ctx))
 		default:
 		}
 
-		<-getDone
-		return lifecycle.ServiceStarted(nil, nil, any("bogus"))
+		close(okToComplete)
+		<-okToReturn
+		return lifecycle.Done(any("bogus"))
 	})
 
 	err := g.Complete(testCtx, func(ctx context.Context) error {
-		defer close(getDone)
-		time.AfterFunc(time.Microsecond, func() { cancelTest(assert.AnError) })
+		close(okToStart)
+
 		deref, err := ref.Require(ctx)
 		assert.Zero(t, deref)
 		assert.Same(t, assert.AnError, err)
+
+		<-okToComplete
 		return nil
 	})
 
 	assert.ErrorContains(t, err, "while waiting for lifecycle group to shutdown: ")
 	assert.ErrorIs(t, err, assert.AnError)
 
-	<-goroutineDone
+	close(okToReturn)
+	<-g.Shutdown()
 }
 
 func TestRef_Require_Twice(t *testing.T) {
