@@ -58,7 +58,7 @@ func TestGroup_Shutdown(t *testing.T) {
 	var g lifecycle.Group
 	var stopped atomic.Uint32
 
-	ones := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Service[int], error) {
+	ones := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit[int], error) {
 		stop, done := make(chan struct{}), make(chan struct{})
 		go func() {
 			defer close(done)
@@ -69,7 +69,7 @@ func TestGroup_Shutdown(t *testing.T) {
 		return lifecycle.ServiceStarted(stop, done, 2)
 	})
 
-	tens := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Service[int], error) {
+	tens := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit[int], error) {
 		ones, err := ones.Require(ctx)
 		if err != nil {
 			return nil, err
@@ -125,11 +125,11 @@ func TestRef_String(t *testing.T) {
 	var g lifecycle.Group
 
 	proceed := make(chan struct{})
-	okRef := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Service[int], error) {
+	okRef := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit[int], error) {
 		<-proceed
 		return lifecycle.ServiceStarted(nil, nil, 42)
 	})
-	errRef := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Service[int], error) {
+	errRef := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit[int], error) {
 		<-proceed
 		return nil, fmt.Errorf("this didn't work")
 	})
@@ -153,7 +153,7 @@ func TestRef_RejectsBogusStuff(t *testing.T) {
 	assert.ErrorContains(t, err, "context is not part of any lifecycle")
 
 	var disposedCtx context.Context
-	ref := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Service[any], error) {
+	ref := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit[any], error) {
 		disposedCtx = ctx
 		return lifecycle.ServiceStarted(nil, nil, any("bogus"))
 	})
@@ -185,7 +185,7 @@ func TestRef_Require_ContextCancellation(t *testing.T) {
 
 	getDone := make(chan struct{})
 	goroutineDone := make(chan struct{})
-	ref := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Service[any], error) {
+	ref := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit[any], error) {
 		defer close(goroutineDone)
 		<-testCtx.Done()
 
@@ -256,7 +256,7 @@ func TestRef_Require_LoopDetection(t *testing.T) {
 		circle := make([]*lifecycle.Ref[error], len(order)-1)
 		for i := range circle {
 			order, i, j := order[i], i, (i+1)%len(circle)
-			circle[i] = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Service[error], error) {
+			circle[i] = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit[error], error) {
 				<-provide
 				for i := 0; i < order; i++ {
 					<-seq[i]
