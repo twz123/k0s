@@ -41,39 +41,34 @@ type Group struct {
 
 var ErrShutdown = errors.New("lifecycle group is shutting down")
 
-// The handle to a task.
-type TaskHandle struct {
-	Stop chan<- struct{} // Will be closed to signal that this task should stop.
-	Done <-chan struct{} // Will be closed the task has stopped.
+// A service that is running and exposes some sort of interface to interact with.
+type Service[I any] struct {
+	stop  chan<- struct{} // Will be closed to signal that this task should stop.
+	done  <-chan struct{} // Will be closed the task has stopped.
+	iface I               // The service's interface.
 }
 
-// A task that exposes some sort of interface to interact with it.
-type Task[I any] struct {
-	TaskHandle
-	Interface I // The task's interface.
-}
+// A service that doesn't have any interface to interact with.
+type Task = Service[struct{}]
 
-// A task that doesn't have any interface to interact with.
-type Unit = Task[struct{}]
-
-// A Component can be started. It produces a [Task]. I represents the task's interface.
+// A Component can be started. It produces a [Service]. I represents the task's interface.
 type Component[I any] interface {
-	Start(context.Context) (*Task[I], error)
+	Start(context.Context) (*Service[I], error)
 }
 
-func Started(stop chan<- struct{}, done <-chan struct{}) (*Task[struct{}], error) {
-	return &Task[struct{}]{TaskHandle{stop, done}, struct{}{}}, nil
+func TaskStarted(stop chan<- struct{}, done <-chan struct{}) (*Task, error) {
+	return &Task{stop: stop, done: done}, nil
 }
 
 // Convenience function to create a task and let the compiler do the type inference.
 // The error will always be nil.
-func StartedWith[I any](stop chan<- struct{}, done <-chan struct{}, i I) (*Task[I], error) {
-	return &Task[I]{TaskHandle{stop, done}, i}, nil
+func ServiceStarted[I any](stop chan<- struct{}, done <-chan struct{}, i I) (*Service[I], error) {
+	return &Service[I]{stop, done, i}, nil
 }
 
-type ComponentFunc[I any] func(context.Context) (*Task[I], error)
+type ComponentFunc[I any] func(context.Context) (*Service[I], error)
 
-func (f ComponentFunc[I]) Start(ctx context.Context) (*Task[I], error) {
+func (f ComponentFunc[I]) Start(ctx context.Context) (*Service[I], error) {
 	return f(ctx)
 }
 
@@ -95,7 +90,10 @@ type lifecycleNode struct {
 
 	cancelStart context.CancelCauseFunc
 	started     <-chan struct{}
-	handle      TaskHandle // only valid after started closed
+
+	// only valid when started
+	stop chan<- struct{}
+	done <-chan struct{}
 }
 
 func Go[T any](g *Group, c Component[T]) *Ref[T] {
@@ -135,7 +133,7 @@ func Go[T any](g *Group, c Component[T]) *Ref[T] {
 			if task, err := c.Start(k0scontext.WithValue(ctx, &ptr)); err != nil {
 				ref.err = err
 			} else if task != nil {
-				ref.t, node.handle = task.Interface, task.TaskHandle
+				ref.t, node.stop, node.done = task.iface, task.stop, task.done
 			}
 		}()
 
@@ -299,13 +297,13 @@ func (s *nodeShutdown) disposeLeaf(leaf *lifecycleNode) {
 		<-leaf.started
 	}
 
-	if leaf.handle.Stop != nil {
-		close(leaf.handle.Stop)
-		leaf.handle.Stop = nil
+	if leaf.stop != nil {
+		close(leaf.stop)
+		leaf.stop = nil
 	}
 
-	if leaf.handle.Done != nil {
-		<-leaf.handle.Done
+	if leaf.done != nil {
+		<-leaf.done
 	}
 
 	s.mu.Lock()
