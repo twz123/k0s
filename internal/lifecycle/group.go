@@ -65,9 +65,13 @@ type Component[I any] interface {
 	Start(context.Context) (*Task[I], error)
 }
 
+func Started(stop chan<- struct{}, done <-chan struct{}) (*Task[struct{}], error) {
+	return &Task[struct{}]{TaskHandle{stop, done}, struct{}{}}, nil
+}
+
 // Convenience function to create a task and let the compiler do the type inference.
 // The error will always be nil.
-func TaskOf[I any](stop chan<- struct{}, done <-chan struct{}, i I) (*Task[I], error) {
+func StartedWith[I any](stop chan<- struct{}, done <-chan struct{}, i I) (*Task[I], error) {
 	return &Task[I]{TaskHandle{stop, done}, i}, nil
 }
 
@@ -86,7 +90,7 @@ type Ref[T any] struct {
 }
 
 type groupNode struct {
-	g     *Group // TODO check if mu is enough
+	g     *Group
 	inner *node
 }
 
@@ -278,7 +282,7 @@ func (g *Group) shutdown(ch chan<- struct{}, err error) {
 	leaves := make(map[*node]*lifecycleNode)
 	for _, node := range g.nodes {
 		remainingNodes[&node.inner] = node
-		if !node.inner.hasRelations(dependent) {
+		if !node.inner.hasDependents() {
 			leaves[&node.inner] = node
 		}
 	}
@@ -363,7 +367,7 @@ func (n *groupNode) addDependency(other *node) error {
 		return cmp.Or(n.g.startErr, ErrShutdown)
 	}
 
-	return n.inner.add(dependency, other)
+	return n.inner.addDependency(other)
 }
 
 type lifecyclePhase uint8
@@ -397,7 +401,7 @@ func (n *lifecycleNode) phase() lifecyclePhase {
 func (n *lifecycleNode) disposeLeaf(consumeNewLeaf func(*node)) {
 	for related := range n.inner.edges {
 		delete(related.edges, &n.inner)
-		if !related.hasRelations(dependent) {
+		if !related.hasDependents() {
 			consumeNewLeaf(related)
 		}
 	}
