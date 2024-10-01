@@ -35,7 +35,7 @@ func TestGroup_AbortsWhenTasksFailToStart(t *testing.T) {
 	var g lifecycle.Group
 
 	startErr := fmt.Errorf("from start func")
-	lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+	lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
 		return nil, startErr
 	})
 
@@ -58,7 +58,7 @@ func TestGroup_Shutdown(t *testing.T) {
 	var g lifecycle.Group
 	var stopped atomic.Uint32
 
-	ones := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[int], error) {
+	ones := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Service[int], error) {
 		stop, done := make(chan struct{}), make(chan struct{})
 		go func() {
 			defer close(done)
@@ -66,10 +66,10 @@ func TestGroup_Shutdown(t *testing.T) {
 			assert.True(t, stopped.CompareAndSwap(1, 2), "ones not stopped after tens")
 		}()
 
-		return lifecycle.StartedWith(stop, done, 2)
+		return lifecycle.ServiceStarted(stop, done, 2)
 	})
 
-	tens := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[int], error) {
+	tens := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Service[int], error) {
 		ones, err := ones.Require(ctx)
 		if err != nil {
 			return nil, err
@@ -82,7 +82,7 @@ func TestGroup_Shutdown(t *testing.T) {
 			assert.True(t, stopped.CompareAndSwap(0, 1), "tens not stopped before ones")
 		}()
 
-		return lifecycle.StartedWith(stop, done, 40+ones)
+		return lifecycle.ServiceStarted(stop, done, 40+ones)
 	})
 
 	var shutdownGoroutines sync.WaitGroup
@@ -112,7 +112,7 @@ func TestGroup_Shutdown(t *testing.T) {
 	assert.Equal(t, uint32(2), stopped.Load(), "Not all goroutines have been stopped in the right order")
 
 	assert.PanicsWithValue(t, lifecycle.ErrShutdown, func() {
-		lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+		lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
 			require.Fail(t, "u no call me once")
 			return nil, nil
 		})
@@ -125,11 +125,11 @@ func TestRef_String(t *testing.T) {
 	var g lifecycle.Group
 
 	proceed := make(chan struct{})
-	okRef := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[int], error) {
+	okRef := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Service[int], error) {
 		<-proceed
-		return lifecycle.StartedWith(nil, nil, 42)
+		return lifecycle.ServiceStarted(nil, nil, 42)
 	})
-	errRef := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[int], error) {
+	errRef := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Service[int], error) {
 		<-proceed
 		return nil, fmt.Errorf("this didn't work")
 	})
@@ -153,9 +153,9 @@ func TestRef_RejectsBogusStuff(t *testing.T) {
 	assert.ErrorContains(t, err, "context is not part of any lifecycle")
 
 	var disposedCtx context.Context
-	ref := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[any], error) {
+	ref := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Service[any], error) {
 		disposedCtx = ctx
-		return lifecycle.StartedWith(nil, nil, any("bogus"))
+		return lifecycle.ServiceStarted(nil, nil, any("bogus"))
 	})
 
 	var other lifecycle.Group
@@ -185,7 +185,7 @@ func TestRef_Require_ContextCancellation(t *testing.T) {
 
 	getDone := make(chan struct{})
 	goroutineDone := make(chan struct{})
-	ref := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[any], error) {
+	ref := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Service[any], error) {
 		defer close(goroutineDone)
 		<-testCtx.Done()
 
@@ -196,7 +196,7 @@ func TestRef_Require_ContextCancellation(t *testing.T) {
 		}
 
 		<-getDone
-		return lifecycle.StartedWith(nil, nil, any("bogus"))
+		return lifecycle.ServiceStarted(nil, nil, any("bogus"))
 	})
 
 	err := g.Complete(testCtx, func(ctx context.Context) error {
@@ -217,11 +217,11 @@ func TestRef_Require_ContextCancellation(t *testing.T) {
 func TestRef_Require_Twice(t *testing.T) {
 	var g lifecycle.Group
 
-	ref := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+	ref := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
 		return nil, nil
 	})
 
-	uses := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+	uses := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
 		_, err := ref.Require(ctx)
 		assert.NoError(t, err)
 		_, err = ref.Require(ctx)
@@ -256,7 +256,7 @@ func TestRef_Require_LoopDetection(t *testing.T) {
 		circle := make([]*lifecycle.Ref[error], len(order)-1)
 		for i := range circle {
 			order, i, j := order[i], i, (i+1)%len(circle)
-			circle[i] = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task[error], error) {
+			circle[i] = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Service[error], error) {
 				<-provide
 				for i := 0; i < order; i++ {
 					<-seq[i]
@@ -267,7 +267,7 @@ func TestRef_Require_LoopDetection(t *testing.T) {
 				if err != nil {
 					err = fmt.Errorf("(order %d) %d awaits %d: %w", order, i, j, err)
 				}
-				return lifecycle.StartedWith(nil, nil, err)
+				return lifecycle.ServiceStarted(nil, nil, err)
 			})
 		}
 
@@ -308,7 +308,7 @@ func TestRef_Require_AcyclicDependencies(t *testing.T) {
 	// The startUnit func is a helper that creates a unit that writes its name
 	// to the stopped channel as soon as it's getting stopped. This is used
 	// later on to detect the correct stop order.
-	startUnit := func(name string) (*lifecycle.Unit, error) {
+	startUnit := func(name string) (*lifecycle.Task, error) {
 		stop, done := make(chan struct{}), make(chan struct{})
 		go func() {
 			started.Done()
@@ -316,18 +316,18 @@ func TestRef_Require_AcyclicDependencies(t *testing.T) {
 			<-stop
 			stopped <- name
 		}()
-		return lifecycle.Started(stop, done)
+		return lifecycle.TaskStarted(stop, done)
 	}
 
 	// Create the unit A
 	started.Add(1)
-	a := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+	a := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
 		return startUnit("A")
 	})
 
 	// Create the unit B, which requires A
 	started.Add(1)
-	b := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+	b := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
 		_, err := a.Require(ctx)
 		assert.NoError(t, err, "When B requires A")
 		return startUnit("B")
@@ -335,7 +335,7 @@ func TestRef_Require_AcyclicDependencies(t *testing.T) {
 
 	// Create the unit CBA, which first requires B, then A
 	started.Add(1)
-	lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+	lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
 		_, err := b.Require(ctx)
 		assert.NoError(t, err, "When C requires B")
 		_, err = a.Require(ctx)
@@ -345,7 +345,7 @@ func TestRef_Require_AcyclicDependencies(t *testing.T) {
 
 	// Create the unit CAB, which first requires A, then B
 	started.Add(1)
-	lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+	lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
 		_, err := a.Require(ctx)
 		assert.NoError(t, err, "When C requires A")
 		_, err = b.Require(ctx)
@@ -376,7 +376,7 @@ func TestRef_Require_CyclicDependencies(t *testing.T) {
 
 	// Create the unit A, which requires C
 	started.Add(1)
-	a = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+	a = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
 		<-start
 		time.AfterFunc(10*time.Millisecond, started.Done)
 		_, err := c.Require(ctx)
@@ -386,7 +386,7 @@ func TestRef_Require_CyclicDependencies(t *testing.T) {
 
 	// Create the unit B, which requires A
 	started.Add(1)
-	b = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+	b = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
 		<-start
 		time.AfterFunc(10*time.Millisecond, started.Done)
 		_, err := a.Require(ctx)
@@ -395,7 +395,7 @@ func TestRef_Require_CyclicDependencies(t *testing.T) {
 	})
 
 	// Create the unit C, which requires the others, but can't
-	c = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit, error) {
+	c = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
 		<-start
 		started.Wait()
 		_, err := a.Require(ctx)
