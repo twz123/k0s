@@ -180,9 +180,9 @@ func NewClusterConfigInitializer(kubeClientFactory kubeutil.ClientFactoryInterfa
 	}, nil
 }
 
-func (i *ClusterConfigInitializer) ensureClusterConfigExistence(ctx context.Context) error {
+func (i *ClusterConfigInitializer) ensureClusterConfigExistence(ctx context.Context) (err error) {
 	// We need to wait until the cluster configuration exists or we succeed in creating it.
-	return wait.PollUntilContextTimeout(ctx, 1*time.Second, 20*time.Second, true, func(ctx context.Context) (_ bool, err error) {
+	waitErr := wait.PollUntilContextTimeout(ctx, 1*time.Second, 20*time.Second, true, func(ctx context.Context) (bool, error) {
 		if i.leaderElector.IsLeader() {
 			err = i.createClusterConfig(ctx)
 			if err == nil {
@@ -205,6 +205,18 @@ func (i *ClusterConfigInitializer) ensureClusterConfigExistence(ctx context.Cont
 		i.log.WithError(err).Debug("Failed to ensure the existence of the cluster configuration")
 		return false, nil
 	})
+
+	if waitErr != nil {
+		waitErr = context.Cause(ctx)
+		if err != nil {
+			return fmt.Errorf("%w (%w)", context.Cause(ctx), err)
+		}
+
+		return waitErr
+	}
+
+	return nil
+
 }
 
 func (i *ClusterConfigInitializer) clusterConfigExists(ctx context.Context) error {
