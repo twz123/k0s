@@ -206,10 +206,10 @@ func TestRef_RejectsBogusStuff(t *testing.T) {
 	var zeroRef lifecycle.Ref[any]
 	deref, err = zeroRef.Require(disposedCtx)
 	assert.Zero(t, deref)
-	assert.ErrorContains(t, err, "invalid ref")
+	assert.ErrorContains(t, err, "zero ref")
 	deref, err = zeroRef.Require(context.TODO())
 	assert.Zero(t, deref)
-	assert.ErrorContains(t, err, "invalid ref")
+	assert.ErrorContains(t, err, "zero ref")
 }
 
 func TestRef_Require_AfterShutdown(t *testing.T) {

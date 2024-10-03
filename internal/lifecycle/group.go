@@ -173,7 +173,7 @@ func (g *Group) withNodeContext(ctx context.Context, n *node, f func(context.Con
 
 func (r *Ref[T]) Require(ctx context.Context) (t T, _ error) {
 	if r.g == nil {
-		return t, fmt.Errorf("invalid ref")
+		return t, fmt.Errorf("zero ref")
 	}
 	requiredNodePtr, ok := ctx.Value(&r.g.mu).(*atomic.Pointer[*node])
 	if !ok {
