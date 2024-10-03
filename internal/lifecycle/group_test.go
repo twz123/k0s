@@ -46,7 +46,7 @@ func TestGroup_AbortsWhenUnitsFailToStart(t *testing.T) {
 		<-ctx.Done() // the context should get cancelled by the start error
 
 		cause := context.Cause(ctx)
-		assert.ErrorContains(t, cause, "lifecycle group is shutting down: failed to start: from start func")
+		assert.ErrorContains(t, cause, "lifecycle shutdown: failed to start: from start func")
 		assert.ErrorIs(t, cause, lifecycle.ErrShutdown)
 		assert.ErrorIs(t, cause, startErr)
 
@@ -81,7 +81,7 @@ func TestGroup_AbortsEarlyWhenUnitsFailedToStart(t *testing.T) {
 		return assert.AnError
 	})
 
-	assert.ErrorContains(t, err, "lifecycle group is shutting down: failed to start: from start func")
+	assert.ErrorContains(t, err, "lifecycle shutdown: failed to start: from start func")
 	assert.ErrorIs(t, err, lifecycle.ErrShutdown)
 	assert.ErrorIs(t, err, startErr)
 }
@@ -178,11 +178,6 @@ func TestRef_String(t *testing.T) {
 
 func TestRef_RejectsBogusStuff(t *testing.T) {
 	var g lifecycle.Group
-	var zeroRef lifecycle.Ref[any]
-
-	deref, err := zeroRef.Require(context.TODO())
-	assert.Zero(t, deref)
-	assert.ErrorContains(t, err, "context is not part of any lifecycle")
 
 	var disposedCtx context.Context
 	ref := lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit[any], error) {
@@ -190,11 +185,15 @@ func TestRef_RejectsBogusStuff(t *testing.T) {
 		return lifecycle.ServiceStarted(nil, nil, any("bogus"))
 	})
 
+	deref, err := ref.Require(context.TODO())
+	assert.Zero(t, deref)
+	assert.ErrorContains(t, err, "cannot require here: ref is not part of the context's lifecycle")
+
 	var other lifecycle.Group
 	assert.NoError(t, other.Complete(context.TODO(), func(ctx context.Context) error {
 		deref, err := ref.Require(ctx)
 		assert.Zero(t, deref)
-		assert.ErrorContains(t, err, "cannot require here: context is part of another lifecycle")
+		assert.ErrorContains(t, err, "cannot require here: ref is not part of the context's lifecycle")
 		return nil
 	}))
 
@@ -202,9 +201,13 @@ func TestRef_RejectsBogusStuff(t *testing.T) {
 
 	deref, err = ref.Require(disposedCtx)
 	assert.Zero(t, deref)
-	assert.ErrorContains(t, err, "context's lifecycle scope has ended")
+	assert.ErrorContains(t, err, "cannot require anymore: context's lifecycle scope has ended")
 
+	var zeroRef lifecycle.Ref[any]
 	deref, err = zeroRef.Require(disposedCtx)
+	assert.Zero(t, deref)
+	assert.ErrorContains(t, err, "invalid ref")
+	deref, err = zeroRef.Require(context.TODO())
 	assert.Zero(t, deref)
 	assert.ErrorContains(t, err, "invalid ref")
 }
@@ -260,7 +263,7 @@ func TestRef_Require_AfterStartFailed(t *testing.T) {
 		_, err = ok.Require(ctx)
 		close(okToShutdown)
 
-		assert.ErrorContains(t, err, "lifecycle group is shutting down: failed to start:")
+		assert.ErrorContains(t, err, "lifecycle shutdown: failed to start:")
 		assert.ErrorIs(t, err, lifecycle.ErrShutdown)
 		assert.ErrorIs(t, err, assert.AnError)
 
