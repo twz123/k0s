@@ -25,7 +25,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/k0sproject/k0s/pkg/k0scontext"
+	"k8s.io/utils/ptr"
 )
 
 // TODO: Think about the ordering of the symbols in this file.
@@ -39,7 +39,7 @@ type Group struct {
 	inShutdown       bool
 }
 
-var ErrShutdown = errors.New("lifecycle group is shutting down")
+var ErrShutdown = errors.New("lifecycle shutdown")
 
 // A Component can be started. It produces a [Unit].
 type Component[T any] interface {
@@ -83,16 +83,11 @@ func (f ComponentFunc[I]) Start(ctx context.Context) (*Unit[I], error) {
 }
 
 type Ref[T any] struct {
-	groupNode
-
+	g       *Group
+	node    *node
 	started <-chan struct{}
 	t       T
 	err     error
-}
-
-type groupNode struct {
-	g     *Group
-	inner *node
 }
 
 type lifecycleNode struct {
@@ -125,25 +120,20 @@ func Go[T any](g *Group, c Component[T]) *Ref[T] {
 	g.mu.Unlock()
 
 	ref := Ref[T]{
-		groupNode: groupNode{g, &node.inner},
-		started:   started,
+		g:       g,
+		node:    &node.inner,
+		started: started,
 	}
 
 	go func() {
-		func() {
-			var ptr ctxPtr
-			ptr.Store(&ref.groupNode)
-			defer func() {
-				ptr.Store(nil)
-				cancel(ref.err)
-			}()
-
-			if task, err := c.Start(k0scontext.WithValue(ctx, &ptr)); err != nil {
+		g.withNodeContext(ctx, ref.node, func(ctx context.Context) {
+			defer cancel(ref.err)
+			if task, err := c.Start(ctx); err != nil {
 				ref.err = err
 			} else if task != nil {
 				ref.t, node.stop, node.done = task.outcome, task.stop, task.done
 			}
-		}()
+		})
 
 		if ref.err == nil {
 			close(started)
@@ -174,30 +164,27 @@ func GoFunc[T any](g *Group, start ComponentFunc[T]) *Ref[T] {
 	return Go(g, start)
 }
 
-// A pointer to a node, stored in a context.
-type ctxPtr = atomic.Pointer[groupNode]
+func (g *Group) withNodeContext(ctx context.Context, n *node, f func(context.Context)) {
+	var p atomic.Pointer[*node]
+	p.Store(ptr.To(n))
+	defer p.Store(nil)
+	f(context.WithValue(ctx, &g.mu, &p))
+}
 
 func (r *Ref[T]) Require(ctx context.Context) (t T, _ error) {
-	ptr := k0scontext.Value[*ctxPtr](ctx)
-
-	if ptr == nil {
-		return t, fmt.Errorf("cannot require here: context is not part of any lifecycle")
-	}
-
 	if r.g == nil {
 		return t, fmt.Errorf("invalid ref")
 	}
-
-	ctxNode := ptr.Load()
-	if ctxNode == nil {
+	requiredNodePtr, ok := ctx.Value(&r.g.mu).(*atomic.Pointer[*node])
+	if !ok {
+		return t, fmt.Errorf("cannot require here: ref is not part of the context's lifecycle")
+	}
+	requiredNode := requiredNodePtr.Load()
+	if requiredNode == nil {
 		return t, fmt.Errorf("cannot require anymore: context's lifecycle scope has ended")
 	}
 
-	if ctxNode.g != r.g {
-		return t, fmt.Errorf("cannot require here: context is part of another lifecycle")
-	}
-
-	// short-circuit if the ref failed to start
+	// Short-circuit if the ref failed to start.
 	select {
 	default:
 	case <-r.started:
@@ -206,10 +193,10 @@ func (r *Ref[T]) Require(ctx context.Context) (t T, _ error) {
 		}
 	}
 
-	// Add the dependency if this context's node tracks its dependencies.
-	// No inner node indicates that it's a completion context.
-	if ctxNode.inner != nil {
-		if shutdown, err := ctxNode.addDependency(r.inner); shutdown {
+	// Add the dependency if the required node tracks its dependencies.
+	// A nil required node indicates that it's a completion context.
+	if *requiredNode != nil {
+		if shutdown, err := r.g.addDependency(*requiredNode, r.node); shutdown {
 			// The group is shutting down. If the referenced node's start method
 			// returned with an error, prefer to return that one instead of the
 			// shutdown error.
@@ -261,21 +248,18 @@ func (g *Group) Complete(ctx context.Context, f func(ctx context.Context) error)
 	g.cancelCompletion = cancel
 	g.mu.Unlock()
 
-	beginShutdown := make(chan struct{})
-	defer close(beginShutdown)
-	go func() {
-		<-beginShutdown
-		g.mu.Lock()
-		defer g.mu.Unlock()
-		g.initiateShutdown(done, cmp.Or(g.startErr, ErrShutdown))
-	}()
+	var err error
+	g.withNodeContext(ctx, nil, func(ctx context.Context) {
+		defer func() {
+			go func() {
+				g.mu.Lock()
+				defer g.mu.Unlock()
+				g.initiateShutdown(done, cmp.Or(g.startErr, ErrShutdown))
+			}()
+		}()
 
-	var ptr ctxPtr
-	ptr.Store(&groupNode{g, nil})
-	defer ptr.Store(nil)
-
-	err := f(k0scontext.WithValue(ctx, &ptr))
-	beginShutdown <- struct{}{}
+		err = f(ctx)
+	})
 
 	select {
 	case <-done:
@@ -359,15 +343,15 @@ func (s *nodeShutdown) disposeLeaf(leaf *lifecycleNode) {
 	}
 }
 
-func (n *groupNode) addDependency(other *node) (shutdown bool, err error) {
-	n.g.mu.Lock()
-	defer n.g.mu.Unlock()
+func (g *Group) addDependency(dependent, dependency *node) (shutdown bool, err error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 
-	if n.g.inShutdown {
-		return true, n.g.startErr
+	if g.inShutdown {
+		return true, g.startErr
 	}
 
-	return false, n.inner.addDependency(other)
+	return false, dependent.addDependency(dependency)
 }
 
 func (r *Ref[T]) String() string {
@@ -381,12 +365,12 @@ func (r *Ref[T]) String() string {
 	select {
 	case <-r.started:
 	default:
-		return fmt.Sprintf("%s(%p starting)", reflect.TypeOf(r), r.inner)
+		return fmt.Sprintf("%s(%p starting)", reflect.TypeOf(r), r.node)
 	}
 
 	if r.err != nil {
-		return fmt.Sprintf("%s(%p %v)", reflect.TypeOf(r), r.inner, r.err)
+		return fmt.Sprintf("%s(%p %v)", reflect.TypeOf(r), r.node, r.err)
 	} else {
-		return fmt.Sprintf("%s(%p %v)", reflect.TypeOf(r), r.inner, r.t)
+		return fmt.Sprintf("%s(%p %v)", reflect.TypeOf(r), r.node, r.t)
 	}
 }
