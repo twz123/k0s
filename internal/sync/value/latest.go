@@ -107,3 +107,14 @@ type val[T any] struct {
 	inner T
 	ch    chan struct{}
 }
+
+type Fixed[T any] struct {
+	Inner T
+}
+
+// Returns the inner value and a nit channel.
+// This implements the same interface as [Latest], so that Fixed can be used in
+// lieu of a Latest value when the value itself never changes.
+func (f *Fixed[T]) Peek() (T, <-chan struct{}) {
+	return f.Inner, nil
+}
