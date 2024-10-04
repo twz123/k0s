@@ -390,7 +390,7 @@ func (c *command) start(ctx context.Context) error {
 		}
 	}()
 
-	var configSource clusterconfig.ConfigSource
+	var configSource clusterconfig.Source
 	// For backwards compatibility, use file as config source by default
 	if c.EnableDynamicConfig {
 		// The CRDs are only required if the config is stored in the cluster.
@@ -408,19 +408,16 @@ func (c *command) start(ctx context.Context) error {
 
 		clusterComponents.Add(ctx, initializer)
 
-		configSource, err = clusterconfig.NewAPIConfigSource(adminClientFactory)
+		apiConfigSource, err := clusterconfig.NewAPIConfigSource(adminClientFactory)
 		if err != nil {
 			return err
 		}
-	} else {
-		configSource = clusterconfig.NewStaticSource(nodeConfig)
-	}
 
-	clusterComponents.Add(ctx, controller.NewClusterConfigReconciler(
-		clusterComponents,
-		adminClientFactory,
-		configSource,
-	))
+		clusterComponents.Add(ctx, initializer)
+		configSource = apiConfigSource
+	} else {
+		configSource = (*clusterconfig.StaticSource)(nodeConfig)
+	}
 
 	if !slices.Contains(c.DisableComponents, constant.HelmComponentName) {
 		helmSaver, err := controller.NewManifestsSaver("helm", c.K0sVars.DataDir)
@@ -583,9 +580,13 @@ func (c *command) start(ctx context.Context) error {
 	}
 	clusterComponents.Add(ctx, controller.NewUpdateProber(apClientFactory, leaderElector))
 
-	// Add the config source as the last component, so that the reconciliation
-	// starts after all other components have been started.
-	clusterComponents.Add(ctx, configSource)
+	// Add the cluster config reconciler as the last component, so that the
+	// reconciliation starts after all other components have been started.
+	clusterComponents.Add(ctx, controller.NewClusterConfigReconciler(
+		clusterComponents,
+		adminClientFactory,
+		configSource,
+	))
 
 	perfTimer.Checkpoint("starting-cluster-components-init")
 	// init Cluster components
