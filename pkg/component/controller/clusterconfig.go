@@ -19,7 +19,6 @@ package controller
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -53,11 +52,11 @@ type ClusterConfigReconciler struct {
 
 	log          *logrus.Entry
 	reconciler   manager.Reconciler
-	configSource clusterconfig.ConfigSource
+	configSource clusterconfig.Source
 }
 
 // NewClusterConfigReconciler creates a new clusterConfig reconciler
-func NewClusterConfigReconciler(reconciler manager.Reconciler, kubeClientFactory kubernetes.ClientFactoryInterface, configSource clusterconfig.ConfigSource) *ClusterConfigReconciler {
+func NewClusterConfigReconciler(reconciler manager.Reconciler, kubeClientFactory kubernetes.ClientFactoryInterface, configSource clusterconfig.Source) *ClusterConfigReconciler {
 	return &ClusterConfigReconciler{
 		KubeClientFactory: kubeClientFactory,
 		log:               logrus.WithFields(logrus.Fields{"component": "clusterConfig-reconciler"}),
@@ -73,25 +72,18 @@ func (r *ClusterConfigReconciler) Start(ctx context.Context) error {
 		statusCtx := ctx
 		r.log.Debug("start listening changes from config source")
 		for {
+			cfg, expired := r.configSource.CurrentConfig()
+
+			err := r.reconciler.Reconcile(ctx, cfg)
+			r.reportStatus(statusCtx, cfg, err)
+			if err != nil {
+				r.log.WithError(err).Error("Failed to reconcile cluster configuration")
+			} else {
+				r.log.Debug("Successfully reconciled cluster configuration")
+			}
+
 			select {
-			case cfg, ok := <-r.configSource.ResultChan():
-				if !ok {
-					// Recv channel close, we can stop now
-					r.log.Debug("config source closed channel")
-					return
-				}
-				err := errors.Join(cfg.Validate()...)
-				if err != nil {
-					err = fmt.Errorf("failed to validate cluster configuration: %w", err)
-				} else {
-					err = r.reconciler.Reconcile(ctx, cfg)
-				}
-				r.reportStatus(statusCtx, cfg, err)
-				if err != nil {
-					r.log.WithError(err).Error("Failed to reconcile cluster configuration")
-				} else {
-					r.log.Debug("Successfully reconciled cluster configuration")
-				}
+			case <-expired:
 			case <-ctx.Done():
 				return
 			}
