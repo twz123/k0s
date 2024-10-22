@@ -36,6 +36,10 @@ const (
 
 type unixPID int
 
+func newProcHandle(pid int) (procHandle, error) {
+	return unixPID(pid), nil
+}
+
 // killPid tries to gracefully terminate a PID. If it's still running after
 // s.TimeoutStop the process will be terminated forcibly.
 func (s *Supervisor) killPid(ph procHandle) error {
@@ -102,7 +106,12 @@ func (s *Supervisor) maybeKillPidFile() error {
 		return fmt.Errorf("failed to parse pid file %s: %w", s.PidFile, err)
 	}
 
-	if err := s.killPid(unixPID(p)); err != nil {
+	ph, err := newProcHandle(p)
+	if err != nil {
+		return err
+	}
+
+	if err := s.killPid(ph); err != nil {
 		return fmt.Errorf("failed to kill process with PID %d: %w", p, err)
 	}
 
