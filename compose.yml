@@ -1,0 +1,30 @@
+services:
+  k0s:
+    image: k0s-test
+    container_name: k0s
+    hostname: k0s
+    read_only: true # k0s won't write any data outside the below paths
+    volumes: # this is where k0s stores its data
+      - /var/lib/k0s
+      - /var/log/pods
+    tmpfs:
+      - /run # this is where k0s stores runtime data
+    ports:
+      - 6443:6443 # publish the Kubernetes API server port
+    privileged: true # this is the easiest way to enable container-in-container workloads
+    network_mode: bridge # other modes are unsupported, see below
+    configs:
+      - source: k0s.yaml
+        target: /etc/k0s/k0s.yaml
+
+configs:
+  k0s.yaml:
+    content: |
+      apiVersion: k0s.k0sproject.io/v1beta1
+      kind: ClusterConfig
+      metadata:
+        name: k0s
+      spec:
+        storage:
+          type: kine
+      # Any additional configuration goes here ...
