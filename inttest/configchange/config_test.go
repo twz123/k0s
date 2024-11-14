@@ -66,6 +66,8 @@ spec:
 `
 
 func (s *ConfigSuite) TestK0sGetsUp() {
+	ctx := s.Context()
+
 	s.PutFile(s.ControllerNode(0), "/tmp/k0s.yaml", config)
 	s.NoError(s.InitController(0, "--enable-dynamic-config", "--config /tmp/k0s.yaml"))
 	s.NoError(s.RunWorkers("--profile limit-pods"))
@@ -79,17 +81,17 @@ func (s *ConfigSuite) TestK0sGetsUp() {
 	s.NoError(err)
 	// Check that the node capacity has only 20 pods
 	for i := range []int{0, 1} {
-		node, err := kc.CoreV1().Nodes().Get(s.Context(), s.WorkerNode(i), metav1.GetOptions{})
+		node, err := kc.CoreV1().Nodes().Get(ctx, s.WorkerNode(i), metav1.GetOptions{})
 		s.Require().NoError(err)
 		s.EqualValues(20, node.Status.Capacity.Pods().Value())
 	}
 
 	s.T().Log("waiting to see kube-router pods ready")
-	s.NoError(common.WaitForKubeRouterReady(s.Context(), kc), "kube-router did not start")
+	s.NoError(common.WaitForKubeRouterReady(ctx, kc), "kube-router did not start")
 
 	// Cluster is up-and-running, we can now start testing the config changes
 
-	s.NoError(s.clearConfigEvents(kc))
+	s.NoError(clearConfigEvents(ctx, kc))
 
 	cfgClient, err := s.getConfigClient()
 	s.Require().NoError(err)
@@ -99,13 +101,13 @@ func (s *ConfigSuite) TestK0sGetsUp() {
 	defer eventWatch.Stop()
 
 	s.Run("changing cni should fail", func() {
-		originalConfig, err := cfgClient.Get(s.Context(), "k0s", metav1.GetOptions{})
+		originalConfig, err := cfgClient.Get(ctx, "k0s", metav1.GetOptions{})
 		s.Require().NoError(err)
 		newConfig := originalConfig.DeepCopy()
 		newConfig.Spec.Network.Provider = constant.CNIProviderCalico
 		newConfig.Spec.Network.Calico = v1beta1.DefaultCalico()
 		newConfig.Spec.Network.KubeRouter = nil
-		_, err = cfgClient.Update(s.Context(), newConfig, metav1.UpdateOptions{})
+		_, err = cfgClient.Update(ctx, newConfig, metav1.UpdateOptions{})
 		s.Require().NoError(err)
 
 		// Check that we see proper event for failed reconcile
@@ -144,19 +146,19 @@ func (s *ConfigSuite) TestK0sGetsUp() {
 		newConfig.Spec.Network.KubeRouter.MTU = 1300
 
 		// Get the resource version for current kuberouter configmap
-		cml, err := kc.CoreV1().ConfigMaps("kube-system").List(s.Context(), metav1.ListOptions{
+		cml, err := kc.CoreV1().ConfigMaps("kube-system").List(ctx, metav1.ListOptions{
 			FieldSelector: fields.OneTermEqualSelector("metadata.name", "kube-router-cfg").String(),
 		})
 		s.Require().NoError(err)
 
 		// Get the resource version for the current ds
-		ds, err := kc.AppsV1().DaemonSets("kube-system").List(s.Context(), metav1.ListOptions{
+		ds, err := kc.AppsV1().DaemonSets("kube-system").List(ctx, metav1.ListOptions{
 			FieldSelector: fields.OneTermEqualSelector("metadata.name", "kube-router").String(),
 		})
 
 		s.Require().NoError(err)
 
-		_, err = cfgClient.Update(s.Context(), newConfig, metav1.UpdateOptions{})
+		_, err = cfgClient.Update(ctx, newConfig, metav1.UpdateOptions{})
 		s.Require().NoError(err)
 		if event, err := s.waitForReconcileEvent(eventWatch); s.NoError(err) {
 			s.Equal("Normal", event.Type)
@@ -166,13 +168,13 @@ func (s *ConfigSuite) TestK0sGetsUp() {
 		// Verify MTU setting have been propagated properly
 		// It takes a while to actually apply the changes through stack applier
 		// Start the watch only from last version so we only get changed cm(s) and not the original one
-		configMapWatch, err := kc.CoreV1().ConfigMaps("kube-system").Watch(s.Context(), metav1.ListOptions{
+		configMapWatch, err := kc.CoreV1().ConfigMaps("kube-system").Watch(ctx, metav1.ListOptions{
 			FieldSelector:   fields.OneTermEqualSelector("metadata.name", "kube-router-cfg").String(),
 			ResourceVersion: cml.ResourceVersion,
 		})
 		s.Require().NoError(err)
 
-		daemonSetWatchChannel, err := kc.AppsV1().DaemonSets("kube-system").Watch(s.Context(), metav1.ListOptions{
+		daemonSetWatchChannel, err := kc.AppsV1().DaemonSets("kube-system").Watch(ctx, metav1.ListOptions{
 			FieldSelector:   fields.OneTermEqualSelector("metadata.name", "kube-router").String(),
 			ResourceVersion: ds.ResourceVersion,
 		})
@@ -207,8 +209,8 @@ func (s *ConfigSuite) waitForReconcileEvent(eventWatch watch.Interface) (*corev1
 	}
 }
 
-func (s *ConfigSuite) clearConfigEvents(kc *kubernetes.Clientset) error {
-	return kc.CoreV1().Events("kube-system").DeleteCollection(s.Context(), metav1.DeleteOptions{}, metav1.ListOptions{FieldSelector: "involvedObject.name=k0s"})
+func clearConfigEvents(ctx context.Context, kc *kubernetes.Clientset) error {
+	return kc.CoreV1().Events("kube-system").DeleteCollection(ctx, metav1.DeleteOptions{}, metav1.ListOptions{FieldSelector: "involvedObject.name=k0s"})
 }
 
 // Get the ClusterConfig client from the controller node's kubeconfig.
