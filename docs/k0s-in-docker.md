@@ -79,7 +79,7 @@ For each required worker:
 1. Acquire a join token for the worker:
 
    ```sh
-   token=$(docker exec k0s `# or k0s-controller` k0s token create --role=worker)
+   token=$(docker exec k0s-controller k0s token create --role=worker)
    ```
 
 2. Run the container to create and join the new worker:
@@ -99,17 +99,34 @@ For each required worker:
    docker run -d --name k0s-worker1 --hostname k0s-worker1 \
      -v /var/lib/k0s -v /var/log/pods `# this is where k0s stores its data` \
      --tmpfs /run `# this is where k0s stores runtime data` \
-     -v /dev/kmsg:/dev/kmsg:ro --device-cgroup-rule='c 1:11 r' `# allow reading /dev/kmsg (check device type via "stat -c %Hr:%Lr /dev/kmsg")` \
+     --security-opt seccomp=unconfined \
+     -v /dev/kmsg:/dev/kmsg:ro --device-cgroup-rule='c 1:11 r' \
      --cap-add sys_admin --cap-add net_admin \
-     --cap-add sys_ptrace `# required: RunContainerError (figure out exact error)` \
-     --cap-add sys_resource `# runc create failed: unable to start container process: can't get final child's PID from pipe: EOF: unknown` \
-     --security-opt seccomp=unconfined `# required for runc to access the session keyring` \
+     --cap-add sys_ptrace \
+     --cap-add sys_resource \
      docker.io/k0sproject/k0s:v{{{extra.k8s_version}}}-k0s.0 \
      k0s worker "$token"
    ```
 
-   Note that, depending on your cluster configuration and workloads, more
-   permissions are required.
+  <!-- markdownlint-disable MD007 https://github.com/DavidAnson/markdownlint/issues/973 -->
+
+  - `-v /dev/kmsg:/dev/kmsg:ro --device-cgroup-rule='c 1:11 r'` allows reading
+    /dev/kmsg from inside the container
+    <!-- check device type via "check device type via `stat -c %Hr:%Lr /dev/kmsg` -->
+  - `--security-opt seccomp=unconfined` is required for runc to access the
+    session keyring
+
+  Capabilities explained:
+
+  - `CAP_SYS_ADMIN` is required for a multitude of administrative tasks, like
+    mounting and unmouning.
+  - `CAP_NET_ADMIN`
+  - `CAP_SYS_PTRACE`: RunContainerError (figure out exact error)
+  - `CAP_SYS_RESOURCE` # runc create failed: unable to start container process:
+    can't get final child's PID from pipe: EOF: unknown` \
+
+   Note that more privileges may be required depending on your cluster
+   configuration and workloads.
 
 Repeat these steps for each additional worker node needed. Ensure that workers can reach the controller on port 6443.
 

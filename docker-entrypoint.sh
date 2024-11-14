@@ -26,13 +26,13 @@ has_effective_capability() {
 
 # Checks if this process has CAP_NET_ADMIN.
 has_cap_net_admin() {
-  # CAP_NET_ADMIN is bit 12 (https://github.com/torvalds/linux/blob/v3.10/include/uapi/linux/capability.h#L188)
+  # CAP_NET_ADMIN is bit 12 (https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/include/uapi/linux/capability.h?h=v3.10#n188)
   has_effective_capability 12
 }
 
 # Checks if this process has CAP_SYS_ADMIN.
 has_cap_sys_admin() {
-  # CAP_SYS_ADMIN is bit 21 (https://github.com/torvalds/linux/blob/v3.10/include/uapi/linux/capability.h#L263)
+  # CAP_SYS_ADMIN is bit 21 (https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/include/uapi/linux/capability.h?h=v3.10#n263)
   has_effective_capability 21
 }
 
@@ -266,6 +266,8 @@ main() {
   enable_cgroupv2_nesting
   dns_fixup
   write_k0s_config
+
+  echo "$0: executing k0s" >&2
 
   exec env \
     -u K0S_IN_DOCKER_ROLE \
