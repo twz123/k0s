@@ -45,21 +45,26 @@ Explanation of command line arguments:
 - `--hostname k0s-controller` sets the hostname of the container to
   "k0s-controller".
 - `-v /var/lib/k0s -v /var/log/pods` creates two Docker volumes and mounts them
-  to `/var/lib/k0s` and `/var/log/pods` respecively inside the container,
+  to `/var/lib/k0s` and `/var/log/pods` respectively inside the container,
   ensuring that cluster data persists across container restarts.
-- `--tmpfs /run` FIXME
+- `--tmpfs /run` **TODO**
 - `--privileged` gives the container the elevated privileges that k0s needs to
-  function properly within Docker.
+  function properly within Docker. See the section about additional workers for
+  a more detailed discussion of privileges.
 - `-p 6443:6443` exposes the container's Kubernetes API server port 6443 to the
   host, allowing you to interact with the cluster externally.
 - `docker.io/k0sproject/k0s:v{{{ extra.k8s_version }}}-k0s.0` is the name of the
-  k0s Docker image to run.
-- `--` marks the end of the argument processing for the docker binary.
-- `k0s controller --enable-worker` is the actual command to run inside the
-  Docker container. It starts the k0s controller and enables a worker node
-  within the same container, creating a single node cluster.
+  k0s image to run.
 
-Alternatively, run a controller only:
+By default, the k0s image starts a k0s controller with worker components enabled
+within the same container, creating a cluster with a single
+controller-and-worker node using the following command:
+
+```Dockerfile
+{% include "../Dockerfile" start="# Start CMD" end="# End CMD" %}
+```
+
+Alternatively, a controller-only node can be run like this:
 
 ```sh
 docker run -d --name k0s-controller --hostname k0s-controller \
@@ -67,16 +72,18 @@ docker run -d --name k0s-controller --hostname k0s-controller \
   --tmpfs /run `# this is where k0s stores runtime data` \
   -p 6443:6443 `# publish the Kubernetes API server port` \
   docker.io/k0sproject/k0s:v{{{extra.k8s_version}}}-k0s.0 \
-  k0s controller
 ```
+
+Note the addition of `k0s controller` to override the image's default command.
+Also note that a controller-only node requires fewer privileges.
 
 ### 2. (Optional) Add additional workers
 
-You can attach multiple workers nodes into the cluster to then distribute your application containers to separate workers.
+You can add multiple worker nodes to the cluster and then distribute your
+application containers to separate workers.
 
-For each required worker:
-
-1. Acquire a join token for the worker:
+1. Acquire a [join token](k0s-multi-node.md#3-create-a-join-token) for the
+   worker:
 
    ```sh
    token=$(docker exec k0s-controller k0s token create --role=worker)
@@ -101,34 +108,59 @@ For each required worker:
      --tmpfs /run `# this is where k0s stores runtime data` \
      --security-opt seccomp=unconfined \
      -v /dev/kmsg:/dev/kmsg:ro --device-cgroup-rule='c 1:11 r' \
-     --cap-add sys_admin --cap-add net_admin \
+     --cap-add sys_admin \
+     --cap-add net_admin \
      --cap-add sys_ptrace \
      --cap-add sys_resource \
      docker.io/k0sproject/k0s:v{{{extra.k8s_version}}}-k0s.0 \
      k0s worker "$token"
    ```
 
-  <!-- markdownlint-disable MD007 https://github.com/DavidAnson/markdownlint/issues/973 -->
+   Notes on the security-related flags:
 
-  - `-v /dev/kmsg:/dev/kmsg:ro --device-cgroup-rule='c 1:11 r'` allows reading
-    /dev/kmsg from inside the container
-    <!-- check device type via "check device type via `stat -c %Hr:%Lr /dev/kmsg` -->
-  - `--security-opt seccomp=unconfined` is required for runc to access the
-    session keyring
+   - `--security-opt seccomp=unconfined` is required for `runc` to access the
+     [session keyring].
+   - `-v /dev/kmsg:/dev/kmsg:ro --device-cgroup-rule='c 1:11 r'` allows reading
+     of `/dev/kmsg` from inside the container. The kubelet's OOM watcher uses
+     this.
+     <!-- check device type via `stat -c %Hr:%Lr /dev/kmsg`. -->
+     <!--
+       Upstream reference: https://github.com/euank/go-kmsg-parser/blob/v2.0.0/kmsgparser/kmsgparser.go#L60
+       Also relevant: KubeletInUserNamespace feature gate (alpha since v1.22)
+       https://kubernetes.io/docs/tasks/administer-cluster/kubelet-in-userns/
+      -->
 
-  Capabilities explained:
+   Notes on [Linux capabilities]:
 
-  - `CAP_SYS_ADMIN` is required for a multitude of administrative tasks, like
-    mounting and unmouning.
-  - `CAP_NET_ADMIN`
-  - `CAP_SYS_PTRACE`: RunContainerError (figure out exact error)
-  - `CAP_SYS_RESOURCE` # runc create failed: unable to start container process:
-    can't get final child's PID from pipe: EOF: unknown` \
+   - `CAP_SYS_ADMIN` allows for a variety of administrative tasks, including
+     mounting file systems and managing namespaces, which are necessary for
+     creating and configuring nested containers.
+   - `CAP_NET_ADMIN` allows manipulation of network settings such as interfaces
+     and routes, allowing containers to create isolated or bridged networks, and
+     so on.
+   - `CAP_SYS_PTRACE` allows to inspect and modify processes, used to monitor
+     other containers in a nested environment.
+     <!--
+       Omitting this results in not being able to start containers
+       ("RunContainerError")
+     -->
+   - `CAP_SYS_RESOURCE` allows containers to override resource limits for things
+     like memory or file descriptors, used to manage and adjust resource
+     allocation in nested container environments.
+     <!--
+       Omitting this results in "runc create failed: unable to start container
+       process: can't get final child's PID from pipe: EOF: unknown"
+     -->
 
    Note that more privileges may be required depending on your cluster
    configuration and workloads.
 
-Repeat these steps for each additional worker node needed. Ensure that workers can reach the controller on port 6443.
+   Repeat these steps for each additional worker node. Ensure that the workers
+   can reach the controller on the [required ports].
+
+[session keyring]: https://www.man7.org/linux/man-pages/man7/session-keyring.7.html
+[Linux capabilities]: https://www.man7.org/linux/man-pages/man7/capabilities.7.html
+[required ports]: networking.md#controller-worker-communication
 
 ### 3. Access your cluster
 
@@ -185,36 +217,7 @@ cluster].
 As an alternative you can run k0s using Docker Compose:
 
 ```yaml
-services:
-  k0s:
-    image: k0s-test
-    container_name: k0s
-    hostname: k0s
-    read_only: true # k0s won't write any data outside the below paths
-    volumes: # this is where k0s stores its data
-      - /var/lib/k0s
-      - /var/log/pods
-    tmpfs:
-      - /run # this is where k0s stores runtime data
-    ports:
-      - 6443:6443 # publish the Kubernetes API server port
-    privileged: true # this is the easiest way to enable container-in-container workloads
-    network_mode: bridge # other modes are unsupported, see below
-    configs:
-      - source: k0s.yaml
-        target: /etc/k0s/k0s.yaml
-
-configs:
-  k0s.yaml:
-    content: |
-      apiVersion: k0s.k0sproject.io/v1beta1
-      kind: ClusterConfig
-      metadata:
-        name: k0s
-      spec:
-        storage:
-          type: kine
-      # Any additional configuration goes here ...
+{% include "compose.yaml" %}
 ```
 
 ## Known limitations
