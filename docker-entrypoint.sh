@@ -5,6 +5,47 @@
 
 set -euo pipefail
 
+usage() {
+  cat <<EOF
+Usage: $0 ARGS...
+
+The container entry point script for k0s. It sets the stage for k0s to work in
+a containerized environment. This includes possible cgroup and iptables rule
+customizations.
+
+Arguments:
+  help, -h, --help    Print this help message and exit
+
+Environment variables:
+  K0S_CONFIG
+    Optional configuration for k0s, written to /etc/k0s/config.yaml if set.
+
+  K0S_ENTRYPOINT_REMOUNT_CGROUP2FS
+    Set to 1 to force remounting of the cgroup2 filesystem in read-write mode.
+    Set to 0 to disable remounting.
+    The default is automatic detection.
+
+  K0S_ENTRYPOINT_ENABLE_CGROUPV2_NESTING
+    Set to 1 to always enable all available cgroup controllers for the root cgroup.
+    Set to 0 to disable cgroup nesting.
+    The default is automatic detection.
+
+  K0S_ENTRYPOINT_DNS_FIXUP
+    Set to 1 to apply DNS fixes required for the Docker embedded DNS setup.
+    Set to 0 to disable.
+    Default is automatic detection.
+
+  K0S_ENTRYPOINT_ROLE
+    Specifies the role for k0s. Can be 'worker', 'controller', or 'controller+worker'.
+    Default is to autodetect the role from the arguments.
+    Depending on the role, some of the above features will be disabled by default.
+
+  K0S_ENTRYPOINT_QUIET
+    Set to 1 to suppress printing status messages.
+
+EOF
+}
+
 # Get the effective process capabilities.
 get_effective_capabilities() {
   local key val
@@ -59,7 +100,7 @@ is_cgroupfs_rw() {
 
 # Remounts the cgroup2 file system in read-write mode, if necessary.
 remount_cgroup2fs() {
-  case "${K0S_IN_DOCKER_REMOUNT_CGROUP2FS-}" in
+  case "${K0S_ENTRYPOINT_REMOUNT_CGROUP2FS-}" in
   0) return ;; # disabled
   1) ;;        # enabled
   *)           # auto detect
@@ -68,11 +109,11 @@ remount_cgroup2fs() {
     fi
     has_cap_sys_admin || {
       if [ $? -eq 1 ]; then
-        echo "$0: won't remount /sys/fs/cgroup without CAP_SYS_ADMIN (disable with K0S_IN_DOCKER_REMOUNT_CGROUP2FS=0)" >&2
+        echo "$0: won't remount /sys/fs/cgroup without CAP_SYS_ADMIN (disable with K0S_ENTRYPOINT_REMOUNT_CGROUP2FS=0)" >&2
         return
       fi
 
-      echo "$0: failed to determine capabilities (disable with K0S_IN_DOCKER_REMOUNT_CGROUP2FS=0)" >&2
+      echo "$0: failed to determine capabilities (disable with K0S_ENTRYPOINT_REMOUNT_CGROUP2FS=0)" >&2
     }
     ;;
   esac
@@ -80,7 +121,7 @@ remount_cgroup2fs() {
   mount --make-rslave /
   mount -o remount,rw /sys/fs/cgroup
 
-  echo "$0: remounted /sys/fs/cgroup" >&2
+  [ "${K0S_ENTRYPOINT_QUIET-}" = '1' ] || echo "$0: remounted /sys/fs/cgroup" >&2
 }
 
 get_process_cgroupv2() {
@@ -98,7 +139,7 @@ get_process_cgroupv2() {
 
 # Enables all available controllers for the root cgroup.
 enable_cgroupv2_nesting() {
-  case "${K0S_IN_DOCKER_ENABLE_CGROUPV2_NESTING-}" in
+  case "${K0S_ENTRYPOINT_ENABLE_CGROUPV2_NESTING-}" in
   0) return ;;        # disabled
   1) local force=1 ;; # enabled
   *) local force=0 ;; # auto detect
@@ -108,14 +149,14 @@ enable_cgroupv2_nesting() {
 
   local cg
   cg="$(get_process_cgroupv2)" || {
-    echo "$0: failed to determine process cgroup (disable with K0S_IN_DOCKER_ENABLE_CGROUPV2_NESTING=0)" >&2
+    echo "$0: failed to determine process cgroup (disable with K0S_ENTRYPOINT_ENABLE_CGROUPV2_NESTING=0)" >&2
     return 1
   }
   local cg_path=/sys/fs/cgroup"$cg"
 
   local all_controllers
   read -r all_controllers <"$cg_path"/cgroup.controllers || {
-    echo "$0: failed to load available controllers for cgroup $cg (disable with K0S_IN_DOCKER_ENABLE_CGROUPV2_NESTING=0)" >&2
+    echo "$0: failed to load available controllers for cgroup $cg (disable with K0S_ENTRYPOINT_ENABLE_CGROUPV2_NESTING=0)" >&2
     return 1
   }
 
@@ -125,7 +166,7 @@ enable_cgroupv2_nesting() {
     [ "$all_controllers" != "$enabled_controllers" ] || return
 
     is_cgroupfs_rw || {
-      echo "$0: won't enable all available cgroup controllers for cgroup $cg as the cgroup2 file system is read-only (disable with K0S_IN_DOCKER_ENABLE_CGROUPV2_NESTING=0)" >&2
+      echo "$0: won't enable all available cgroup controllers for cgroup $cg as the cgroup2 file system is read-only (disable with K0S_ENTRYPOINT_ENABLE_CGROUPV2_NESTING=0)" >&2
       return
     }
   fi
@@ -144,22 +185,24 @@ enable_cgroupv2_nesting() {
   local controller
   for controller in $all_controllers; do set -- "$@" +"$controller"; done
   echo "$@" >/sys/fs/cgroup/cgroup.subtree_control
-  echo "$0: enabled all available controllers for cgroup $cg: $all_controllers" >&2
+  [ "${K0S_ENTRYPOINT_QUIET-}" = '1' ] || {
+    echo "$0: enabled all available controllers for cgroup $cg: $all_controllers" >&2
+  }
 }
 
 # DNS fixup adapted from kind.
 dns_fixup() {
-  case "${K0S_IN_DOCKER_DNS_FIXUP-}" in
+  case "${K0S_ENTRYPOINT_DNS_FIXUP-}" in
   0) return ;; # disabled
   1) ;;        # enabled
   *)           # auto detect
     has_cap_net_admin || {
       if [ $? -eq 1 ]; then
-        echo "$0: won't apply DNS fixes without CAP_NET_ADMIN (disable with K0S_IN_DOCKER_DNS_FIXUP=0)" >&2
+        echo "$0: won't apply DNS fixes without CAP_NET_ADMIN (disable with K0S_ENTRYPOINT_DNS_FIXUP=0)" >&2
         return
       fi
 
-      echo "$0: failed to determine capabilities (disable with K0S_IN_DOCKER_DNS_FIXUP=0)" >&2
+      echo "$0: failed to determine capabilities (disable with K0S_ENTRYPOINT_DNS_FIXUP=0)" >&2
     } ;;
   esac
 
@@ -217,8 +260,8 @@ write_k0s_config() {
 
 # Determines the k0s role from the given command line.
 k0s_role() {
-  [ -z "${K0S_IN_DOCKER_ROLE-}" ] || {
-    echo "$K0S_IN_DOCKER_ROLE"
+  [ -z "${K0S_ENTRYPOINT_ROLE-}" ] || {
+    echo "$K0S_ENTRYPOINT_ROLE"
     return
   }
 
@@ -249,16 +292,15 @@ k0s_role() {
 
 main() {
   case "$(k0s_role "$@")" in
-  worker | controller+worker) ;;
-  controller)
-    : "${K0S_IN_DOCKER_REMOUNT_CGROUP2FS:=0}"
-    : "${K0S_IN_DOCKER_ENABLE_CGROUPV2_NESTING:=0}"
-    : "${K0S_IN_DOCKER_DNS_FIXUP:=0}"
+  worker | controller+worker)
+    # Don't disable anything.
     ;;
-  *)
-    : "${K0S_IN_DOCKER_REMOUNT_CGROUP2FS:=0}"
-    : "${K0S_IN_DOCKER_ENABLE_CGROUPV2_NESTING:=0}"
-    : "${K0S_IN_DOCKER_DNS_FIXUP:=0}"
+
+  controller | *)
+    # Disable everything that's only required when running nested containers.
+    : "${K0S_ENTRYPOINT_REMOUNT_CGROUP2FS:=0}"
+    : "${K0S_ENTRYPOINT_ENABLE_CGROUPV2_NESTING:=0}"
+    : "${K0S_ENTRYPOINT_DNS_FIXUP:=0}"
     ;;
   esac
 
@@ -267,15 +309,19 @@ main() {
   dns_fixup
   write_k0s_config
 
-  echo "$0: executing k0s" >&2
+  [ "${K0S_ENTRYPOINT_QUIET-}" = '1' ] || echo "$0: executing ${1-}" >&2
 
   exec env \
-    -u K0S_IN_DOCKER_ROLE \
-    -u K0S_IN_DOCKER_REMOUNT_CGROUP2FS \
-    -u K0S_IN_DOCKER_ENABLE_CGROUPV2_NESTING \
-    -u K0S_IN_DOCKER_DNS_FIXUP \
+    -u K0S_ENTRYPOINT_QUIET \
+    -u K0S_ENTRYPOINT_ROLE \
+    -u K0S_ENTRYPOINT_REMOUNT_CGROUP2FS \
+    -u K0S_ENTRYPOINT_ENABLE_CGROUPV2_NESTING \
+    -u K0S_ENTRYPOINT_DNS_FIXUP \
     -u K0S_CONFIG \
-    "$@"
+    -- "$@"
 }
 
-main "$@"
+case "$*" in
+help | -h | --help) usage && exit 0 ;;
+*) main "$@" ;;
+esac
