@@ -1,18 +1,24 @@
 services:
-  k0s:
-    image: k0s-test
-    container_name: k0s
-    hostname: k0s
-    read_only: true # k0s won't write any data outside the below paths
-    volumes: # this is where k0s stores its data
-      - /var/lib/k0s
-      - /var/log/pods
-    tmpfs:
-      - /run # this is where k0s stores runtime data
+  k0s-controller:
+    image: docker.io/k0sproject/k0s:v{{{extra.k8s_version}}}-k0s.0
+    container_name: k0s-controller
+    hostname: k0s-controller
+    network_mode: bridge # other modes are unsupported
     ports:
       - 6443:6443 # publish the Kubernetes API server port
-    privileged: true # this is the easiest way to enable container-in-container workloads
-    network_mode: bridge # other modes are unsupported, see below
+    volumes:
+      - /var/lib/k0s # this is where k0s stores its data
+      - /var/log/pods # this is where k0s stores pod logs
+      - /dev/kmsg:/dev/kmsg:ro # required by kubelets OOM watcher
+    tmpfs:
+      - /run # this is where k0s stores runtime data
+    cap_add:
+     - sys_admin
+     - net_admin
+     - sys_ptrace
+     - sys_resource
+    device_cgroup_rules:
+      - c 1:11 r # required by kubelets OOM watcher
     configs:
       - source: k0s.yaml
         target: /etc/k0s/k0s.yaml

@@ -49,8 +49,9 @@ Explanation of command line arguments:
   ensuring that cluster data persists across container restarts.
 - `--tmpfs /run` **TODO**
 - `--privileged` gives the container the elevated privileges that k0s needs to
-  function properly within Docker. See the section about additional workers for
-  a more detailed discussion of privileges.
+  function properly within Docker. See the section on [adding additional
+  workers](#2-optional-add-additional-workers) for a more detailed discussion of
+  privileges.
 - `-p 6443:6443` exposes the container's Kubernetes API server port 6443 to the
   host, allowing you to interact with the cluster externally.
 - `docker.io/k0sproject/k0s:v{{{ extra.k8s_version }}}-k0s.0` is the name of the
@@ -68,10 +69,13 @@ Alternatively, a controller-only node can be run like this:
 
 ```sh
 docker run -d --name k0s-controller --hostname k0s-controller \
+  --read-only `# k0s won't write any data outside the below paths` \
   -v /var/lib/k0s `# this is where k0s stores its data` \
   --tmpfs /run `# this is where k0s stores runtime data` \
+  --tmpfs /tmp `# allow writing temporary files` \
   -p 6443:6443 `# publish the Kubernetes API server port` \
   docker.io/k0sproject/k0s:v{{{extra.k8s_version}}}-k0s.0 \
+  k0s controller
 ```
 
 Note the addition of `k0s controller` to override the image's default command.
@@ -100,7 +104,20 @@ application containers to separate workers.
      k0s worker $token
    ```
 
-   Alternatively, with fine-grained permissions:
+   Alternatively, with fine-grained privileges:
+   <!--
+     This setup is partly repeated in compose.yaml. So if things change here,
+     they should probably be reflected in compose.yaml as well.
+
+     Ideally, this example would show a setup with a read-only root file system.
+     Unfortunately, the entrypoint's DNS fixup needs to modify /etc/resolv.conf,
+     so this is not an option at this time. The entrypoint could perhaps try to
+     overmount /etc/resolv.conf, but that stunt is left for the future.
+     Additional paths that should then be added as tmpfs:
+     - /tmp
+     - /etc/cni/net.d
+     - /opt/cni/bin
+   -->
 
    ```sh
    docker run -d --name k0s-worker1 --hostname k0s-worker1 \
@@ -128,7 +145,7 @@ application containers to separate workers.
        Upstream reference: https://github.com/euank/go-kmsg-parser/blob/v2.0.0/kmsgparser/kmsgparser.go#L60
        Also relevant: KubeletInUserNamespace feature gate (alpha since v1.22)
        https://kubernetes.io/docs/tasks/administer-cluster/kubelet-in-userns/
-      -->
+     -->
 
    Notes on [Linux capabilities]:
 
@@ -155,8 +172,10 @@ application containers to separate workers.
    Note that more privileges may be required depending on your cluster
    configuration and workloads.
 
-   Repeat these steps for each additional worker node. Ensure that the workers
-   can reach the controller on the [required ports].
+   Repeat this step for each additional worker node and adjust the container and
+   host names accordingly. Make sure that the workers can reach the controller
+   on the [required ports]. If you are using Docker's default bridged network,
+   this should be the case.
 
 [session keyring]: https://www.man7.org/linux/man-pages/man7/session-keyring.7.html
 [Linux capabilities]: https://www.man7.org/linux/man-pages/man7/capabilities.7.html
@@ -216,6 +235,7 @@ cluster].
 
 As an alternative you can run k0s using Docker Compose:
 
+<!-- Kept in its own file to ease local testing. -->
 ```yaml
 {% include "compose.yaml" %}
 ```

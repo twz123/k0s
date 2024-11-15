@@ -118,7 +118,7 @@ remount_cgroup2fs() {
     ;;
   esac
 
-  mount --make-rslave /
+  mount --make-rslave / # don't propagate mount events to other namespaces
   mount -o remount,rw /sys/fs/cgroup
 
   [ "${K0S_ENTRYPOINT_QUIET-}" = '1' ] || echo "$0: remounted /sys/fs/cgroup" >&2
@@ -173,10 +173,10 @@ enable_cgroupv2_nesting() {
 
   # move all processes out of the root cgroup, otherwise the controllers can't be enabled
   if [ "$cg" = / ]; then
-    mkdir -p /sys/fs/cgroup/system.slice
+    mkdir -p /sys/fs/cgroup/entrypoint.scope
     local pid
     while read -r pid; do
-      echo "$pid" >/sys/fs/cgroup/system.slice/cgroup.procs
+      echo "$pid" >/sys/fs/cgroup/entrypoint.scope/cgroup.procs
     done </sys/fs/cgroup/cgroup.procs
   fi
 
