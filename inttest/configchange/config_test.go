@@ -96,6 +96,12 @@ func (s *ConfigSuite) TestK0sGetsUp() {
 	cfgClient, err := s.getConfigClient()
 	s.Require().NoError(err)
 
+	s.Run("should not incude images", func() {
+		config, err := cfgClient.Get(ctx, "k0s", metav1.GetOptions{})
+		s.Require().NoError(err)
+		s.Nil(config.Spec.Images)
+	})
+
 	eventWatch, err := kc.CoreV1().Events("kube-system").Watch(context.Background(), metav1.ListOptions{FieldSelector: "involvedObject.name=k0s"})
 	s.Require().NoError(err)
 	defer eventWatch.Stop()
