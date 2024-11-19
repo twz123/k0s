@@ -19,13 +19,13 @@ import (
 	"fmt"
 
 	apv1beta2 "github.com/k0sproject/k0s/pkg/apis/autopilot/v1beta2"
+	"github.com/k0sproject/k0s/pkg/autopilot/client"
 	apcomm "github.com/k0sproject/k0s/pkg/autopilot/common"
 	apconst "github.com/k0sproject/k0s/pkg/autopilot/constant"
 	apdel "github.com/k0sproject/k0s/pkg/autopilot/controller/delegate"
 	appagupdate "github.com/k0sproject/k0s/pkg/autopilot/controller/plans/cmdprovider/airgapupdate"
 	appk0supdate "github.com/k0sproject/k0s/pkg/autopilot/controller/plans/cmdprovider/k0supdate"
 	appc "github.com/k0sproject/k0s/pkg/autopilot/controller/plans/core"
-	"github.com/k0sproject/k0s/pkg/kubernetes"
 
 	"github.com/sirupsen/logrus"
 	cr "sigs.k8s.io/controller-runtime"
@@ -36,7 +36,7 @@ import (
 
 // RegisterControllers registers all of the autopilot controllers used by `plans`
 // to the controller-runtime manager when running in 'controller' mode.
-func RegisterControllers(ctx context.Context, logger *logrus.Entry, mgr crman.Manager, cf kubernetes.ClientFactoryInterface, leaderMode bool, controllerDelegateMap apdel.ControllerDelegateMap, excludeFromPlans []string) error {
+func RegisterControllers(ctx context.Context, logger *logrus.Entry, mgr crman.Manager, cf client.FactoryInterface, leaderMode bool, controllerDelegateMap apdel.ControllerDelegateMap, excludeFromPlans []string) error {
 	logger = logger.WithField("controller", "plans")
 
 	cmdProviders := []appc.PlanCommandProvider{

@@ -29,7 +29,6 @@ import (
 	aproot "github.com/k0sproject/k0s/pkg/autopilot/controller/root"
 	apsig "github.com/k0sproject/k0s/pkg/autopilot/controller/signal"
 	apupdate "github.com/k0sproject/k0s/pkg/autopilot/controller/updates"
-	"github.com/k0sproject/k0s/pkg/kubernetes"
 
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
@@ -49,10 +48,9 @@ type leaseWatcherCreatorFunc func(*logrus.Entry, apcli.FactoryInterface) (LeaseW
 type setupFunc func(ctx context.Context, cf apcli.FactoryInterface) error
 
 type rootController struct {
-	cfg                    aproot.RootConfig
-	log                    *logrus.Entry
-	kubeClientFactory      kubernetes.ClientFactoryInterface
-	autopilotClientFactory apcli.FactoryInterface
+	cfg           aproot.RootConfig
+	log           *logrus.Entry
+	clientFactory apcli.FactoryInterface
 
 	startSubHandler        subControllerStartFunc
 	startSubHandlerRoutine subControllerStartRoutineFunc
@@ -66,12 +64,11 @@ type rootController struct {
 var _ aproot.Root = (*rootController)(nil)
 
 // NewRootController builds a root for autopilot "controller" operations.
-func NewRootController(cfg aproot.RootConfig, logger *logrus.Entry, enableWorker bool, cf kubernetes.ClientFactoryInterface, acf apcli.FactoryInterface) (aproot.Root, error) {
+func NewRootController(cfg aproot.RootConfig, logger *logrus.Entry, enableWorker bool, cf apcli.FactoryInterface) (aproot.Root, error) {
 	c := &rootController{
-		cfg:                    cfg,
-		log:                    logger,
-		autopilotClientFactory: acf,
-		kubeClientFactory:      cf,
+		cfg:           cfg,
+		log:           logger,
+		clientFactory: cf,
 	}
 
 	// Default implementations that can be overridden for testing.
@@ -92,11 +89,11 @@ func (c *rootController) Run(ctx context.Context) error {
 	_ = cancel
 
 	// Create / initialize kubernetes objects as needed
-	if err := c.setupHandler(ctx, c.autopilotClientFactory); err != nil {
+	if err := c.setupHandler(ctx, c.clientFactory); err != nil {
 		return fmt.Errorf("setup controller failed to complete: %w", err)
 	}
 
-	leaseWatcher, err := c.leaseWatcherCreator(c.log, c.autopilotClientFactory)
+	leaseWatcher, err := c.leaseWatcherCreator(c.log, c.clientFactory)
 	if err != nil {
 		return fmt.Errorf("unable to setup lease watcher: %w", err)
 	}
@@ -172,7 +169,7 @@ func (c *rootController) startSubControllerRoutine(ctx context.Context, logger *
 		managerOpts.Controller.SkipNameValidation = ptr.To(true)
 	}
 
-	restConfig, err := c.autopilotClientFactory.GetRESTConfig()
+	restConfig, err := c.clientFactory.GetRESTConfig()
 	if err != nil {
 		return err
 	}
@@ -189,7 +186,7 @@ func (c *rootController) startSubControllerRoutine(ctx context.Context, logger *
 
 	leaderMode := event == LeaseAcquired
 
-	prober, err := NewReadyProber(logger, c.autopilotClientFactory, mgr.GetConfig(), 1*time.Minute)
+	prober, err := NewReadyProber(logger, c.clientFactory, mgr.GetConfig(), 1*time.Minute)
 	if err != nil {
 		logger.WithError(err).Error("unable to create controller prober")
 		return err
@@ -211,7 +208,7 @@ func (c *rootController) startSubControllerRoutine(ctx context.Context, logger *
 		)),
 	}
 
-	cl, err := c.autopilotClientFactory.GetClient()
+	cl, err := c.clientFactory.GetClient()
 	if err != nil {
 		return err
 	}
@@ -226,12 +223,12 @@ func (c *rootController) startSubControllerRoutine(ctx context.Context, logger *
 		return err
 	}
 
-	if err := applan.RegisterControllers(ctx, logger, mgr, c.kubeClientFactory, leaderMode, delegateMap, c.cfg.ExcludeFromPlans); err != nil {
+	if err := applan.RegisterControllers(ctx, logger, mgr, c.clientFactory, leaderMode, delegateMap, c.cfg.ExcludeFromPlans); err != nil {
 		logger.WithError(err).Error("unable to register 'plans' controllers")
 		return err
 	}
 
-	if err := apupdate.RegisterControllers(ctx, logger, mgr, c.autopilotClientFactory, leaderMode, clusterID); err != nil {
+	if err := apupdate.RegisterControllers(ctx, logger, mgr, c.clientFactory, leaderMode, clusterID); err != nil {
 		logger.WithError(err).Error("unable to register 'update' controllers")
 		return err
 	}

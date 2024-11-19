@@ -30,9 +30,9 @@ import (
 	"time"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
-	"github.com/k0sproject/k0s/pkg/autopilot/client"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/component/prober"
+	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -171,25 +171,17 @@ func (sh *statusHandler) getCurrentStatus(ctx context.Context) K0sStatus {
 }
 
 func (sh *statusHandler) buildWorkerSideKubeAPIClient(ctx context.Context) (kubernetes.Interface, error) {
-	var restConfig *rest.Config
-	var err error
-	timeout, cancel := context.WithTimeout(ctx, defaultPollTimeout)
-	defer cancel()
-	if err := wait.PollUntilWithContext(timeout, defaultPollDuration, func(ctx context.Context) (done bool, err error) {
-		if restConfig, err = sh.Status.CertManager.GetRestConfig(ctx); err != nil {
-			return false, nil
-		}
-		return true, nil
-	}); err != nil {
-		return nil, err
-	}
-	factory, err := client.NewClientFactory(restConfig)
-	if err != nil {
-		return nil, err
-	}
-	client, err := factory.GetClient()
-	if err != nil {
-		return nil, err
-	}
-	return client, nil
+	xo := kubeutil.ClientFactory{LoadRESTConfig: func() (restConfig *rest.Config, err error) {
+		timeout, cancel := context.WithTimeout(ctx, defaultPollTimeout)
+		defer cancel()
+		err = wait.PollUntilContextCancel(timeout, defaultPollDuration, true, func(ctx context.Context) (done bool, err error) {
+			if restConfig, err = sh.Status.CertManager.GetRestConfig(ctx); err != nil {
+				return false, nil
+			}
+			return true, nil
+		})
+		return
+	}}
+
+	return xo.GetClient()
 }

@@ -24,7 +24,7 @@ import (
 	"fmt"
 	"time"
 
-	apcli "github.com/k0sproject/k0s/pkg/autopilot/client"
+	"github.com/k0sproject/k0s/pkg/autopilot/client"
 	apcont "github.com/k0sproject/k0s/pkg/autopilot/controller"
 	aproot "github.com/k0sproject/k0s/pkg/autopilot/controller/root"
 	"github.com/k0sproject/k0s/pkg/component/manager"
@@ -43,8 +43,9 @@ const (
 var _ manager.Component = (*Autopilot)(nil)
 
 type Autopilot struct {
-	K0sVars     *config.CfgVars
-	CertManager *CertificateManager
+	K0sVars       *config.CfgVars
+	ClientFactory client.FactoryInterface
+	CertManager   *CertificateManager
 }
 
 func (a *Autopilot) Init(ctx context.Context) error {
@@ -80,11 +81,6 @@ func (a *Autopilot) Start(ctx context.Context) error {
 		return errors.New("unable to create an autopilot client -- timed out")
 	}
 
-	autopilotClientFactory, err := apcli.NewClientFactory(restConfig)
-	if err != nil {
-		return fmt.Errorf("creating autopilot client factory error: %w", err)
-	}
-
 	log.Info("Autopilot client factory created, booting up worker root controller")
 	autopilotRoot, err := apcont.NewRootWorker(aproot.RootConfig{
 		KubeConfig:          a.K0sVars.KubeletAuthConfigPath,
@@ -93,7 +89,7 @@ func (a *Autopilot) Start(ctx context.Context) error {
 		ManagerPort:         8899,
 		MetricsBindAddr:     "0",
 		HealthProbeBindAddr: "0",
-	}, log, autopilotClientFactory)
+	}, log, a.ClientFactory)
 	if err != nil {
 		return fmt.Errorf("failed to create autopilot worker: %w", err)
 	}

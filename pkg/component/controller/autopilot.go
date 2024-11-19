@@ -22,23 +22,22 @@ import (
 	"context"
 	"fmt"
 
-	apcli "github.com/k0sproject/k0s/pkg/autopilot/client"
+	"github.com/k0sproject/k0s/pkg/autopilot/client"
 	apcont "github.com/k0sproject/k0s/pkg/autopilot/controller"
 	aproot "github.com/k0sproject/k0s/pkg/autopilot/controller/root"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/config"
 
-	"github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/sirupsen/logrus"
 )
 
 var _ manager.Component = (*Autopilot)(nil)
 
 type Autopilot struct {
-	K0sVars            *config.CfgVars
-	KubeletExtraArgs   string
-	AdminClientFactory kubernetes.ClientFactoryInterface
-	EnableWorker       bool
+	K0sVars          *config.CfgVars
+	KubeletExtraArgs string
+	ClientFactory    client.FactoryInterface
+	EnableWorker     bool
 }
 
 func (a *Autopilot) Init(ctx context.Context) error {
@@ -47,15 +46,6 @@ func (a *Autopilot) Init(ctx context.Context) error {
 
 func (a *Autopilot) Start(ctx context.Context) error {
 	log := logrus.WithFields(logrus.Fields{"component": "autopilot"})
-
-	restConfig, err := a.AdminClientFactory.GetRESTConfig()
-	if err != nil {
-		return fmt.Errorf("creating autopilot client factory error: %w", err)
-	}
-	autopilotClientFactory, err := apcli.NewClientFactory(restConfig)
-	if err != nil {
-		return fmt.Errorf("creating autopilot client factory error: %w", err)
-	}
 
 	autopilotRoot, err := apcont.NewRootController(aproot.RootConfig{
 		InvocationID:        a.K0sVars.InvocationID,
@@ -66,7 +56,7 @@ func (a *Autopilot) Start(ctx context.Context) error {
 		ManagerPort:         8899,
 		MetricsBindAddr:     "0",
 		HealthProbeBindAddr: "0",
-	}, logrus.WithFields(logrus.Fields{"component": "autopilot"}), a.EnableWorker, a.AdminClientFactory, autopilotClientFactory)
+	}, logrus.WithFields(logrus.Fields{"component": "autopilot"}), a.EnableWorker, a.ClientFactory)
 	if err != nil {
 		return fmt.Errorf("failed to create autopilot controller: %w", err)
 	}

@@ -19,12 +19,14 @@ package kubernetes
 import (
 	"sync"
 
+	autopilotclient "github.com/k0sproject/k0s/pkg/autopilot/client"
 	k0sclientset "github.com/k0sproject/k0s/pkg/client/clientset"
 	etcdMemberClient "github.com/k0sproject/k0s/pkg/client/clientset/typed/etcd/v1beta1"
 	cfgClient "github.com/k0sproject/k0s/pkg/client/clientset/typed/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/constant"
 
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
@@ -60,6 +62,11 @@ type ClientFactory struct {
 
 	mutex sync.Mutex
 }
+
+var (
+	_ ClientFactoryInterface           = (*ClientFactory)(nil)
+	_ autopilotclient.FactoryInterface = (*ClientFactory)(nil)
+)
 
 func (c *ClientFactory) GetClient() (kubernetes.Interface, error) {
 	c.mutex.Lock()
@@ -195,6 +202,16 @@ func (c *ClientFactory) GetEtcdMemberClient() (etcdMemberClient.EtcdMemberInterf
 	}
 
 	return k0sClient.EtcdV1beta1().EtcdMembers(), nil
+}
+
+// Deprecated: Use [ClientFactory.GetAPIExtensionsClient] instead.
+func (c *ClientFactory) GetExtensionClient() (apiextensionsv1.ApiextensionsV1Interface, error) {
+	k0sClient, err := c.GetAPIExtensionsClient()
+	if err != nil {
+		return nil, err
+	}
+
+	return k0sClient.ApiextensionsV1(), nil
 }
 
 func (c *ClientFactory) GetRESTConfig() (*rest.Config, error) {
