@@ -18,7 +18,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/k0sproject/k0s/pkg/kubernetes"
+	"github.com/k0sproject/k0s/pkg/autopilot/client"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -28,7 +28,7 @@ import (
 	"golang.org/x/mod/semver"
 )
 
-func CanUpdate(ctx context.Context, log logrus.FieldLogger, clientFactory kubernetes.ClientFactoryInterface, newVersion string) error {
+func CanUpdate(ctx context.Context, log logrus.FieldLogger, clientFactory client.FactoryInterface, newVersion string) error {
 	discoveryClient, err := clientFactory.GetDiscoveryClient()
 	if err != nil {
 		return err
