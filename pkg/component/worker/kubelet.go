@@ -41,7 +41,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
 	kubeletv1beta1 "k8s.io/kubelet/config/v1beta1"
-	"k8s.io/utils/ptr"
 
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/yaml"
@@ -121,13 +120,15 @@ func (k *Kubelet) Start(ctx context.Context) error {
 	logrus.Info("Starting kubelet")
 	kubeletConfigPath := filepath.Join(k.K0sVars.DataDir, "kubelet-config.yaml")
 
+	// Maybe auto-detect? Should be k0s's cgroup if launching the embedded containerd.
+	// "--runtime-cgroups": "/system.slice/containerd.service",
+
 	args := stringmap.StringMap{
-		"--root-dir":        k.dataDir,
-		"--config":          kubeletConfigPath,
-		"--kubeconfig":      k.Kubeconfig,
-		"--v":               k.LogLevel,
-		"--runtime-cgroups": "/system.slice/containerd.service",
-		"--cert-dir":        filepath.Join(k.dataDir, "pki"),
+		"--root-dir":   k.dataDir,
+		"--config":     kubeletConfigPath,
+		"--kubeconfig": k.Kubeconfig,
+		"--v":          k.LogLevel,
+		"--cert-dir":   filepath.Join(k.dataDir, "pki"),
 	}
 
 	if len(k.Labels) > 0 {
@@ -230,13 +231,6 @@ func (k *Kubelet) writeKubeletConfig(path string) error {
 			taints = append(taints, parsedTaint)
 		}
 		config.RegisterWithTaints = taints
-	}
-
-	// cgroup related things (Linux only)
-	if runtime.GOOS == "linux" {
-		config.KubeReservedCgroup = "system.slice"
-		config.KubeletCgroups = "/system.slice/containerd.service"
-		config.CgroupsPerQOS = ptr.To(true)
 	}
 
 	configBytes, err := yaml.Marshal(config)

@@ -380,7 +380,6 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 		},
 
 		"worker-config-default-windows-1.31": func(expected *kubeletConfig) {
-			expected.CgroupsPerQOS = ptr.To(false)
 			expected.FeatureGates = map[string]bool{"kubelet-feature": true}
 		},
 

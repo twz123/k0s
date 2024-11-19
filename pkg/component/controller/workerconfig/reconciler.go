@@ -508,7 +508,6 @@ func (r *Reconciler) buildConfigMaps(snapshot *snapshot) ([]*corev1.ConfigMap, e
 	workerProfiles["default"] = workerProfile
 
 	workerProfile = r.buildProfile(snapshot)
-	workerProfile.KubeletConfiguration.CgroupsPerQOS = ptr.To(false)
 	workerProfiles["default-windows"] = workerProfile
 
 	for _, profile := range snapshot.profiles {
