@@ -1,3 +1,5 @@
+//go:build !windows
+
 /*
 Copyright 2023 k0s authors
 
@@ -18,23 +20,8 @@ package node
 
 import (
 	"context"
-	"fmt"
-
-	nodeutil "k8s.io/component-helpers/node/util"
 )
 
-// GetNodename returns the node name for the node taking OS, cloud provider and override into account
-func GetNodename(override string) (string, error) {
-	return getNodename(context.TODO(), override)
-}
-
-func getNodename(ctx context.Context, override string) (string, error) {
-	if override == "" {
-		override = defaultNodenameOverride(ctx)
-	}
-	nodeName, err := nodeutil.GetHostname(override)
-	if err != nil {
-		return "", fmt.Errorf("failed to determine node name: %w", err)
-	}
-	return nodeName, nil
+func defaultNodenameOverride(context.Context) string {
+	return "" // no default override
 }
