@@ -27,6 +27,8 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/containerd/cgroups/v3"
+	"github.com/containerd/cgroups/v3/cgroup2"
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/flags"
@@ -120,9 +122,6 @@ func (k *Kubelet) Start(ctx context.Context) error {
 	logrus.Info("Starting kubelet")
 	kubeletConfigPath := filepath.Join(k.K0sVars.DataDir, "kubelet-config.yaml")
 
-	// Maybe auto-detect? Should be k0s's cgroup if launching the embedded containerd.
-	// "--runtime-cgroups": "/system.slice/containerd.service",
-
 	args := stringmap.StringMap{
 		"--root-dir":   k.dataDir,
 		"--config":     kubeletConfigPath,
@@ -131,11 +130,30 @@ func (k *Kubelet) Start(ctx context.Context) error {
 		"--cert-dir":   filepath.Join(k.dataDir, "pki"),
 	}
 
+	extras := flags.Split(k.ExtraArgs)
+
+	// If k0s is running the embedded containerd, this will live in the same cgroup as k0s itself.
+	// Add that cgroup via --runtime-cgroups as a hint to kubelet.
+	if k.CRISocket == "" {
+		if _, exists := extras["--runtime-cgroups"]; !exists {
+			switch cgroups.Mode() {
+			case cgroups.Unified | cgroups.Hybrid:
+				k0sCgroup, err := cgroup2.NestedGroupPath("")
+				if err != nil {
+					logrus.WithError(err).Info("Won't add --runtime-cgroups flag to kubelet arguments")
+				} else {
+					args["--runtime-cgroups"] = k0sCgroup
+				}
+			default:
+				logrus.Debug("Won't add --runtime-cgroups flag to kubelet arguments")
+			}
+		}
+	}
+
 	if len(k.Labels) > 0 {
 		args["--node-labels"] = strings.Join(k.Labels, ",")
 	}
 
-	extras := flags.Split(k.ExtraArgs)
 	nodename, err := node.GetNodename(extras["--hostname-override"])
 	if err != nil {
 		return fmt.Errorf("failed to get nodename: %w", err)
@@ -220,6 +238,8 @@ func (k *Kubelet) writeKubeletConfig(path string) error {
 	config.ResolverConfig = determineKubeletResolvConfPath()
 	config.StaticPodURL = staticPodURL
 	config.ContainerRuntimeEndpoint = containerRuntimeEndpoint.String()
+
+	// TODO: Do something about cgroupsRoot ...
 
 	if len(k.Taints) > 0 {
 		var taints []corev1.Taint
