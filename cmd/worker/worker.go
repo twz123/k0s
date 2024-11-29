@@ -101,8 +101,13 @@ func NewWorkerCmd() *cobra.Command {
 	return cmd
 }
 
+type CgroupLayout interface {
+	NodeCgroup() string
+	PodsCgroup() string
+}
+
 // Start starts the worker components based on the given [config.CLIOptions].
-func (c *Command) Start(ctx context.Context) error {
+func (c *Command) Start(ctx context.Context, cgroupLayout CgroupLayout) error {
 	if err := worker.BootstrapKubeletKubeconfig(ctx, c.K0sVars, &c.WorkerOptions); err != nil {
 		return err
 	}
@@ -152,6 +157,8 @@ func (c *Command) Start(ctx context.Context) error {
 		IPTablesMode: c.WorkerOptions.IPTablesMode,
 		BinDir:       c.K0sVars.BinDir,
 	})
+
+	// FIXME figure out how to inject the config.
 
 	componentManager.Add(ctx,
 		&worker.Kubelet{

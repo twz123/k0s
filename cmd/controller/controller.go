@@ -42,6 +42,7 @@ import (
 	apclient "github.com/k0sproject/k0s/pkg/autopilot/client"
 	"github.com/k0sproject/k0s/pkg/build"
 	"github.com/k0sproject/k0s/pkg/certificate"
+	cgroup "github.com/k0sproject/k0s/pkg/component/cgroups"
 	"github.com/k0sproject/k0s/pkg/component/controller"
 	"github.com/k0sproject/k0s/pkg/component/controller/clusterconfig"
 	"github.com/k0sproject/k0s/pkg/component/controller/cplb"
@@ -135,6 +136,11 @@ func (c *command) start(ctx context.Context) error {
 
 	if errs := nodeConfig.Validate(); len(errs) > 0 {
 		return fmt.Errorf("invalid node config: %w", errors.Join(errs...))
+	}
+
+	cgroupLayout := cgroup.Layout{}
+	if err := cgroupLayout.Init(ctx); err != nil {
+		return err
 	}
 
 	// Add the node config to the context so it can be used by components deep in the "stack"

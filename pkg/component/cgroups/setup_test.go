@@ -11,7 +11,7 @@ import (
 
 func TestXxx(t *testing.T) {
 
-	setup := cgroups.Setup{}
+	setup := cgroups.Layout{}
 
 	err := setup.Init(context.TODO())
 	t.Error(err)

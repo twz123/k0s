@@ -18,30 +18,31 @@ package cgroups
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"math"
-	"os"
-
-	"github.com/k0sproject/k0s/pkg/component/manager"
+	"path/filepath"
+	"strings"
 
 	"github.com/containerd/cgroups/v3/cgroup2"
 	systemddbus "github.com/coreos/go-systemd/v22/dbus"
 	"github.com/opencontainers/runc/libcontainer/cgroups"
-	cgroupmanager "github.com/opencontainers/runc/libcontainer/cgroups/manager"
 	"github.com/opencontainers/runc/libcontainer/cgroups/systemd"
-	"github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/sirupsen/logrus"
 )
 
-type Setup struct {
-	root *Path
-	k0s  *Path
+type Layout struct {
+	nodeCgroup string
+	podsCgroup string
 }
 
-var _ manager.Component = (*Setup)(nil)
+func (s *Layout) NodeCgroup() string {
+	return s.nodeCgroup
+}
 
-func (s *Setup) Init(ctx context.Context) error {
+func (s *Layout) PodsCgroup() string {
+	return s.podsCgroup
+}
+
+func (s *Layout) Init(ctx context.Context) error {
 	log := logrus.WithField("component", "cgroups-setup")
 
 	// FIXME figure out what to do with legacy / hybrid modes.
@@ -50,113 +51,154 @@ func (s *Setup) Init(ctx context.Context) error {
 		return nil
 	}
 
-	// lccgroups.GetOwnCgroupPath()
-
-	var (
-		pid        uint32
-		cgroupPath string
-	)
-	if osPid := os.Getpid(); osPid > 0 && osPid <= math.MaxUint32 {
-		pid = uint32(osPid)
-		var err error
-		cgroupPath, err = cgroup2.PidGroupPath(osPid)
-		log.Debug("PidGroupPath: ", cgroupPath, " ", err)
-
+	if !systemd.IsRunningSystemd() {
+		log.Debug("Not using systemd integration, no systemd found")
+	} else if selfInfo, err := inspectSystemdUnit(ctx, log, ""); err != nil {
+		log.WithError(err).Warn("Skipping systemd integration")
+	} else if selfInfo.delegate {
+		log.Debugf(
+			"Not using systemd integration, cgroup delegation is turned on for %s backed by cgroup %s",
+			selfInfo.name, selfInfo.controlGroup,
+		)
+		return s.cgroupfsSetup(selfInfo.controlGroup)
 	} else {
-		return fmt.Errorf("invalid PID: %d", osPid)
+		return s.systemdSetup(ctx, log, selfInfo)
 	}
 
-	if systemd.IsRunningSystemd() {
-		conn, err := systemddbus.NewWithContext(ctx)
+	return s.cgroupfsSetup("")
+}
 
+type systemdUnitInfo struct {
+	name         string
+	slice        string
+	controlGroup string
+	delegate     bool
+}
+
+// Inspects the given unit by retrieving some of its properties. If unitName is
+// empty, the unit of this process is inspected.
+func inspectSystemdUnit(ctx context.Context, log logrus.FieldLogger, unitName string) (*systemdUnitInfo, error) {
+	// FIXME info logging should be debug, or completely removed.
+
+	conn, err := systemddbus.NewWithContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	if unitName == "" {
+		unitName, err = conn.GetUnitNameByPID(ctx, 0 /* this means "the caller's PID" */)
 		if err != nil {
-			log.WithError(err).Info("Not using systemd integration")
-			return err // FIXME
+			return nil, err
 		}
-		defer conn.Close()
-
-		sysState, err := conn.SystemStateContext(ctx)
-		if err != nil {
-			return err // FIXME
-		}
-		log.Info(sysState)
-
-		unitName, err := conn.GetUnitNameByPID(ctx, pid)
-		if err != nil {
-			return err // FIXME
-		}
-		log.Info("Unit name (PID): ", unitName)
-
-		unitName, err = conn.GetUnitNameByControlGroup(ctx, cgroupPath)
-		if err != nil {
-			return err // FIXME
-		}
-		log.Info("Unit name (cgroup path): ", unitName)
-
-		props, err := conn.GetAllPropertiesContext(ctx, unitName)
-		if err != nil {
-			return err // FIXME
-		}
-
-		sliceProp, ok := props["Slice"]
-		if !ok {
-			// FIXME
-			return fmt.Errorf("Unit has no Slice: %s", unitName)
-		}
-		sliceName, ok := sliceProp.(string)
-		if !ok {
-			// FIXME
-			return fmt.Errorf("expected Slice to be string, got %T: %v", sliceProp, sliceProp)
-		}
-		log.Info("Slice name: ", sliceName)
-
-		var delegate bool
-		delegateProp, ok := props["Delegate"]
-		if ok {
-			delegate, ok = delegateProp.(bool)
-			if !ok {
-				// FIXME
-				return fmt.Errorf("expected Delegate to be bool, got %T: %v", delegateProp, delegateProp)
-			}
-			log.Info("cgroup delegation: ", delegate)
-		}
-
-		// FIXME maybe use similar logic as in systemd's cg_path_get_user_slice.
-		// That seems to be used by GNOME VTE to find the cgroup parent.
-
-		// FIXME Figure out how tmux places its cgroups
-
-		if false && !delegate {
-			var path string
-
-			cgroupmanager.New(&configs.Cgroup{
-				Name:         unitName,
-				Parent:       "",
-				Path:         cgroupPath,
-				ScopePrefix:  "",
-				Resources:    &configs.Resources{},
-				Systemd:      true,
-				SystemdProps: []systemddbus.Property{},
-			})
-
-			_ /*mgr*/, err := systemd.NewUnifiedManager(&configs.Cgroup{
-				Name:         unitName,
-				Parent:       "",
-				Path:         cgroupPath,
-				ScopePrefix:  "",
-				Resources:    &configs.Resources{},
-				Systemd:      true,
-				SystemdProps: []systemddbus.Property{},
-			}, path /* ??? */)
-			if err != nil {
-				return err
-			}
-		}
-
-	} else {
-		return errors.New("FIXME no systemd")
+		log.Info("Unit name: ", unitName)
 	}
 
+	props, err := conn.GetAllPropertiesContext(ctx, unitName)
+	if err != nil {
+		return nil, err
+	}
+
+	controlGroup, err := castValue[string](props, "ControlGroup")
+	if err != nil {
+		return nil, err
+	}
+	log.Info("ControlGroup: ", controlGroup)
+
+	// This won't be present on slices.
+	var slice string
+	if _, kind := cutUnitKind(unitName); kind != "slice" {
+		slice, err = castValue[string](props, "Slice")
+		if err != nil {
+			return nil, err
+		}
+		log.Info("Slice: ", slice)
+	}
+
+	delegate, err := castValue[bool](props, "Delegate")
+	if err != nil {
+		return nil, err
+	}
+	log.Info("Delegate: ", delegate)
+
+	return &systemdUnitInfo{unitName, slice, controlGroup, delegate}, nil
+}
+
+func (s *Layout) systemdSetup(ctx context.Context, log logrus.FieldLogger, rootInfo *systemdUnitInfo) error {
+	// FIXME figure out if containerd/cgroups/v3 gets the job done just as well...
+	// Note: dbus retries on disconnect, management of systemd props, especially Wants/Slice.
+
+	// Construct a "root slice" name for k0s to place additional scopes by
+	// taking the root slice and adding a sub-slice with the root unit's name.
+	// Not that the root unit will always be a service or scope, as it's the
+	// unit of which this process is part of, and slices cannot contain
+	// processes.
+	// parentSlice := cmp.Or(rootInfo.slice, "system.slice")
+	// rootName := trimUnitKind(rootInfo.name) + ".slice"
+	// if !strings.HasPrefix(rootName, "k0s") {
+	// 	rootName = "k0s" + rootName
+	// }
+
+	// FIXME decide if the following things are hard errors, i.e. will stop k0s.
+
+	// FIXME need to deal with an existing slice here?
+
+	// This should contain the kube pods.
+	// rootMgr, err := cgroup2.NewSystemd(parentSlice, rootName, -1, nil)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to create %s: %w", rootName, err)
+	// }
+
+	// podsMgr, err := cgroup2.NewSystemd(rootSlice, "pods.slice", -1, nil)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to create pods.slice: %w", err)
+	// }
+
+	// nodeMgr.NewChild()
+
+	// // No need to deal with systemd here, as this cgroup already exists.
+	// rootMgr, err := cgroup2.Load(rootInfo.controlGroup)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to load cgroup %s: %w", rootInfo.controlGroup, err)
+	// }
+
+	// pids, err := rootMgr.Procs(false)
+
+	// pids, err = rootMgr.GetPids()
+	// if err != nil {
+	// 	return err
+	// }
+	// if len(pids) != 1 {
+	// 	// FIXME Maybe use the parent slice then?
+	// 	return fmt.Errorf("expected a single PID in %s: %v", rootInfo.name, pids)
+	// }
+
+	// nodeMgr, err := systemd.NewUnifiedManager(&configs.Cgroup{
+	// 	ScopePrefix: "k0s",
+	// 	Name:        "node",
+	// 	Parent:      rootInfo.name,
+	// 	Systemd:     true,
+	// }, "")
+
+	// cgroupmanager.New(&configs.Cgroup{
+	// 	Systemd: true,
+	// })
+	// if err != nil {
+	// 	return fmt.Errorf("failed to construct k0snode.scope beneath %s: %w", rootUnit, err)
+	// }
+
+	// FIXME what if this cgroup/scope already exists? Can we reuse it?
+
+	// if err := nodeMgr.Apply(pids[0]); err != nil {
+	// 	return fmt.Errorf("failed to move PID %d into k0snode.scope: %w", pids[0], err)
+	// }
+
+	// nodeInfo, err := inspectSystemdUnit(ctx, log, "k0snode.scope")
+	// if err != nil {
+	// 	return fmt.Errorf("failed to inspect k0snode.scope: %w", err)
+	// }
+
+	// log.Info("Moved into k0snode.scope: %+v", nodeInfo)
 	// rootGroup, err := cgroup2.Load(rootPath)
 	// if err != nil {
 	// 	return err
@@ -198,20 +240,75 @@ func (s *Setup) Init(ctx context.Context) error {
 	return nil
 }
 
-func (s *Setup) Start(context.Context) error { return nil }
-
-func (s *Setup) Stop() error {
-	if s.root == nil {
-		return nil
-	}
-
-	if s.k0s != nil {
-		// FIXME hmpf!
-		if err := s.k0s.mgr.(*cgroup2.Manager).MoveTo(s.root.mgr.(*cgroup2.Manager)); err != nil {
+func (s *Layout) cgroupfsSetup(controlGroup string) error {
+	if controlGroup == "" {
+		var err error
+		controlGroup, err = cgroup2.NestedGroupPath("")
+		if err != nil {
 			return err
 		}
-		return s.k0s.mgr.Delete()
 	}
 
+	rootMgr, err := cgroup2.Load(controlGroup)
+	if err != nil {
+		return fmt.Errorf("failed to load cgroup %s: %w", controlGroup, err)
+	}
+
+	pids, err := rootMgr.Procs(false)
+	if err != nil {
+		return fmt.Errorf("while loading cgroup procs for %s: %w", controlGroup, err)
+	}
+	if len(pids) != 1 {
+		return fmt.Errorf("expected cgroup %s to contain exactly one process: %v", controlGroup, pids)
+	}
+
+	nodeMgr, err := rootMgr.NewChild("k0snode", nil)
+	if err != nil {
+		return fmt.Errorf("failed to create k0snode cgroup: %w", err)
+	}
+
+	if err := rootMgr.MoveTo(nodeMgr); err != nil {
+		return fmt.Errorf("failed to move into node cgroup: %w", err)
+	}
+
+	if _, err = rootMgr.NewChild("k0spods", nil); err != nil {
+		return fmt.Errorf("failed to create k0spods cgroup: %w", err)
+	}
+
+	s.nodeCgroup = filepath.Join(controlGroup, "k0snode")
+	s.podsCgroup = filepath.Join(controlGroup, "k0spods")
 	return nil
+}
+
+func (s *Layout) Start(context.Context) error { return nil }
+func (s *Layout) Stop() error                 { return nil }
+
+func castValue[V any, K comparable](props map[K]any, key K) (v V, _ error) {
+	raw, ok := props[key]
+	if !ok {
+		return v, fmt.Errorf("no such key: %v", key)
+	}
+	v, ok = raw.(V)
+	if !ok {
+		return v, fmt.Errorf("expected %v to be %T, got %T: %v", key, v, raw, raw)
+	}
+	return v, nil
+}
+
+func trimUnitKind(unit string) string {
+	name, _ := cutUnitKind(unit)
+	return name
+}
+
+func cutUnitKind(unit string) (name, kind string) {
+	idx := strings.LastIndexByte(unit, '.')
+	if idx > 0 {
+		kind := unit[idx+1:]
+		switch kind {
+		case "service", "scope", "slice":
+			return unit[:idx], kind
+		}
+	}
+
+	return unit, ""
 }
