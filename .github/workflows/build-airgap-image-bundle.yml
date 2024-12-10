@@ -44,7 +44,7 @@ jobs:
       - name: "Cache :: Airgap image bundle :: Calculate cache key"
         id: cache-airgap-image-bundle-calc-key
         env:
-          HASH_VALUE: ${{ hashFiles('Makefile', 'airgap-images.txt', 'hack/image-bundler/*') }}
+          HASH_VALUE: ${{ hashFiles('Makefile', 'airgap-images.txt', 'cmd/airgap/*', 'pkg/airgap/*') }}
         run: |
           printf 'cache-key=build-airgap-image-bundle-%s-%s-%s\n' "$TARGET_OS" "$TARGET_ARCH" "$HASH_VALUE" >> "$GITHUB_OUTPUT"
 

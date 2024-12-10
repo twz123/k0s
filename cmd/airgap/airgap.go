@@ -17,6 +17,7 @@ limitations under the License.
 package airgap
 
 import (
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/k0sproject/k0s/pkg/config"
@@ -25,10 +26,12 @@ import (
 func NewAirgapCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "airgap",
-		Short: "Manage airgap setup",
+		Short: "Tooling for airgapped installations",
 	}
 
+	log := logrus.StandardLogger()
 	cmd.AddCommand(NewAirgapListImagesCmd())
+	cmd.AddCommand(NewAirgapBundleImagesCmd(log))
 	cmd.PersistentFlags().AddFlagSet(config.FileInputFlag())
 	cmd.PersistentFlags().AddFlagSet(config.GetPersistentFlagSet())
 	return cmd

@@ -17,6 +17,7 @@ limitations under the License.
 package airgap
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 
@@ -31,7 +32,7 @@ func NewAirgapListImagesCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:     "list-images",
-		Short:   "List image names and version needed for air-gap install",
+		Short:   "List image names and versions needed for airgapped installations",
 		Example: `k0s airgap list-images`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts, err := config.GetCmdOpts(cmd)
@@ -48,10 +49,11 @@ func NewAirgapListImagesCmd() *cobra.Command {
 				return fmt.Errorf("failed to get config: %w", err)
 			}
 
-			for _, uri := range airgap.GetImageURIs(clusterConfig.Spec, all) {
-				fmt.Fprintln(cmd.OutOrStdout(), uri)
+			out := bufio.NewWriter(cmd.OutOrStdout())
+			for image := range airgap.ImagesInSpec(clusterConfig.Spec, all) {
+				fmt.Fprintln(out, image.URI())
 			}
-			return nil
+			return out.Flush()
 		},
 	}
 	cmd.Flags().AddFlagSet(config.FileInputFlag())
