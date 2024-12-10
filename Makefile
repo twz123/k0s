@@ -222,7 +222,7 @@ lint-go: .k0sbuild.docker-image.k0s go.sum bindata
 .PHONY: lint
 lint: lint-copyright lint-go
 
-airgap-images.txt: k0s .k0sbuild.docker-image.k0s
+airgap-images.txt: build .k0sbuild.docker-image.k0s
 	$(GO_ENV) ./k0s airgap list-images --all > '$@'
 
 airgap-image-bundle-linux-amd64.tar: TARGET_PLATFORM := linux/amd64
@@ -230,15 +230,8 @@ airgap-image-bundle-linux-arm64.tar: TARGET_PLATFORM := linux/arm64
 airgap-image-bundle-linux-arm.tar:   TARGET_PLATFORM := linux/arm/v7
 airgap-image-bundle-linux-amd64.tar \
 airgap-image-bundle-linux-arm64.tar \
-airgap-image-bundle-linux-arm.tar: .k0sbuild.image-bundler.stamp airgap-images.txt
-	docker run --rm -i --privileged \
-	  -e TARGET_PLATFORM='$(TARGET_PLATFORM)' \
-	  '$(shell cat .k0sbuild.image-bundler.stamp)' < airgap-images.txt > '$@'
-
-.k0sbuild.image-bundler.stamp: hack/image-bundler/* embedded-bins/Makefile.variables
-	docker build --progress=plain --iidfile '$@' \
-	  --build-arg ALPINE_VERSION=$(alpine_patch_version) \
-	  -t k0sbuild.image-bundler -- hack/image-bundler
+airgap-image-bundle-linux-arm.tar: build airgap-images.txt
+	./k0s airgap -v bundle-images -o '$@' from-file airgap-images.txt
 
 .PHONY: $(smoketests)
 check-airgap check-ap-airgap: airgap-image-bundle-linux-$(HOST_ARCH).tar
@@ -269,9 +262,7 @@ clean-docker-image:
 	$(clean-iid-files)
 
 .PHONY: clean-airgap-image-bundles
-clean-airgap-image-bundles: IID_FILES = .k0sbuild.image-bundler.stamp
 clean-airgap-image-bundles:
-	$(clean-iid-files)
 	-rm airgap-images.txt
 	-rm airgap-image-bundle-linux-amd64.tar airgap-image-bundle-linux-arm64.tar airgap-image-bundle-linux-arm.tar
 

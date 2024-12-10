@@ -77,10 +77,11 @@ func (s *airgapSuite) SetupTest() {
 	ssh, err := s.SSH(ctx, s.WorkerNode(0))
 	s.Require().NoError(err)
 	defer ssh.Disconnect()
-	for _, i := range airgap.GetImageURIs(v1beta1.DefaultClusterSpec(), true) {
-		if strings.HasPrefix(i, constant.KubePauseContainerImage+":") {
+	for i := range airgap.ImagesInSpec(v1beta1.DefaultClusterSpec(), true) {
+		if i.Image == constant.KubePauseContainerImage {
 			continue // The pause image is pinned by containerd itself
 		}
+		i := i.URI()
 		output, err := ssh.ExecWithOutput(ctx, fmt.Sprintf(`k0s ctr i ls "name==%s"`, i))
 		if s.NoErrorf(err, "Failed to check %s", i) {
 			s.NotContains(output, "io.cri-containerd.pinned=pinned", "%s is already pinned", i)
@@ -195,7 +196,8 @@ spec:
 	ssh, err := s.SSH(ctx, s.WorkerNode(0))
 	s.Require().NoError(err)
 	defer ssh.Disconnect()
-	for _, i := range airgap.GetImageURIs(v1beta1.DefaultClusterSpec(), true) {
+	for i := range airgap.ImagesInSpec(v1beta1.DefaultClusterSpec(), true) {
+		i := i.URI()
 		output, err := ssh.ExecWithOutput(ctx, fmt.Sprintf(`k0s ctr i ls "name==%s"`, i))
 		if s.NoErrorf(err, "Failed to check %s", i) {
 			s.Contains(output, "io.cri-containerd.pinned=pinned", "%s is not pinned", i)
