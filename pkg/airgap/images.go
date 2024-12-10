@@ -17,43 +17,51 @@ limitations under the License.
 package airgap
 
 import (
+	"iter"
 	"runtime"
 
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/constant"
 )
 
-// GetImageURIs returns all image tags
-func GetImageURIs(spec *v1beta1.ClusterSpec, all bool) []string {
-	pauseImage := v1beta1.ImageSpec{
-		Image:   constant.KubePauseContainerImage,
-		Version: constant.KubePauseContainerImageVersion,
-	}
+// Yields all images in spec needed for airgapped installations.
+func ImagesInSpec(spec *v1beta1.ClusterSpec, all bool) iter.Seq[v1beta1.ImageSpec] {
+	return func(yield func(v1beta1.ImageSpec) bool) {
+		for _, i := range []*v1beta1.ImageSpec{
+			spec.Images.Calico.CNI,
+			spec.Images.Calico.KubeControllers,
+			spec.Images.Calico.Node,
+			spec.Images.CoreDNS,
+			spec.Images.Konnectivity,
+			spec.Images.KubeProxy,
+			spec.Images.KubeRouter.CNI,
+			spec.Images.KubeRouter.CNIInstaller,
+			spec.Images.MetricsServer,
+		} {
+			if i != nil && !yield(*i) {
+				return
+			}
+		}
 
-	imageURIs := []string{
-		spec.Images.Calico.CNI.URI(),
-		spec.Images.Calico.KubeControllers.URI(),
-		spec.Images.Calico.Node.URI(),
-		spec.Images.CoreDNS.URI(),
-		spec.Images.Konnectivity.URI(),
-		spec.Images.KubeProxy.URI(),
-		spec.Images.KubeRouter.CNI.URI(),
-		spec.Images.KubeRouter.CNIInstaller.URI(),
-		spec.Images.MetricsServer.URI(),
-		pauseImage.URI(),
-	}
+		if !yield(v1beta1.ImageSpec{
+			Image:   constant.KubePauseContainerImage,
+			Version: constant.KubePauseContainerImageVersion,
+		}) {
+			return
+		}
 
-	if spec.Network != nil {
-		nllb := spec.Network.NodeLocalLoadBalancing
-		if nllb != nil && (all || nllb.IsEnabled()) {
-			switch nllb.Type {
-			case v1beta1.NllbTypeEnvoyProxy:
-				if runtime.GOARCH != "arm" && nllb.EnvoyProxy != nil && nllb.EnvoyProxy.Image != nil {
-					imageURIs = append(imageURIs, nllb.EnvoyProxy.Image.URI())
+		if spec.Network != nil {
+			nllb := spec.Network.NodeLocalLoadBalancing
+			if nllb != nil && (all || nllb.IsEnabled()) {
+				switch nllb.Type {
+				case v1beta1.NllbTypeEnvoyProxy:
+					if runtime.GOARCH != "arm" && nllb.EnvoyProxy != nil && nllb.EnvoyProxy.Image != nil {
+						if !yield(*nllb.EnvoyProxy.Image) {
+							return
+						}
+					}
 				}
 			}
 		}
 	}
-
-	return imageURIs
 }

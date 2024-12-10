@@ -17,6 +17,7 @@ limitations under the License.
 package airgap
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 
@@ -48,10 +49,11 @@ func NewAirgapListImagesCmd() *cobra.Command {
 				return fmt.Errorf("failed to get config: %w", err)
 			}
 
-			for _, uri := range airgap.GetImageURIs(clusterConfig.Spec, all) {
-				fmt.Fprintln(cmd.OutOrStdout(), uri)
+			out := bufio.NewWriter(cmd.OutOrStdout())
+			for image := range airgap.ImagesInSpec(clusterConfig.Spec, all) {
+				fmt.Fprintln(out, image.URI())
 			}
-			return nil
+			return out.Flush()
 		},
 	}
 	cmd.Flags().AddFlagSet(config.FileInputFlag())
