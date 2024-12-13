@@ -12,9 +12,13 @@
         <meta name="author" content="Mirantis, Inc.">
       
       
-        <link rel="canonical" href="https://docs.k0sproject.io/head/cli/k0s_token_list/">
+        <link rel="canonical" href="https://docs.k0sproject.io/head/troubleshooting/logs/">
       
       
+        <link rel="prev" href="../FAQ/">
+      
+      
+        <link rel="next" href="../troubleshooting/">
       
       
       <link rel="icon" href="../../img/k0s_social.png">
@@ -22,7 +26,7 @@
     
     
       
-        <title>K0s token list - Documentation</title>
+        <title>Logs - Documentation</title>
       
     
     
@@ -83,7 +87,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#k0s-token-list" class="md-skip">
+        <a href="#logs" class="md-skip">
           Skip to content
         </a>
       
@@ -134,7 +138,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              K0s token list
+              Logs
             
           </span>
         </div>
@@ -1535,17 +1539,19 @@
       
   
   
+    
   
   
+  
     
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
         
           
           <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
@@ -1559,7 +1565,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             Troubleshooting
@@ -1573,7 +1579,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../troubleshooting/FAQ/" class="md-nav__link">
+      <a href="../FAQ/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1591,10 +1597,30 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../troubleshooting/logs/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    Logs
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   <span class="md-ellipsis">
@@ -1603,6 +1629,59 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#where-are-the-logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      Where are the logs?
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Where are the logs?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#systemd-based-setups" class="md-nav__link">
+    <span class="md-ellipsis">
+      systemd based setups
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#openrc-based-setups" class="md-nav__link">
+    <span class="md-ellipsis">
+      openRC based setups
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1615,7 +1694,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../troubleshooting/troubleshooting/" class="md-nav__link">
+      <a href="../troubleshooting/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1636,7 +1715,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../troubleshooting/support-dump/" class="md-nav__link">
+      <a href="../support-dump/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1657,7 +1736,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../troubleshooting/certificate-authorities/" class="md-nav__link">
+      <a href="../certificate-authorities/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1741,7 +1820,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../" class="md-nav__link">
+      <a href="../../cli/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1986,6 +2065,8 @@
   
   
   
+    
+  
   
     <label class="md-nav__title" for="__toc">
       <span class="md-nav__icon md-icon"></span>
@@ -1994,37 +2075,28 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#k0s-token-list" class="md-nav__link">
+  <a href="#where-are-the-logs" class="md-nav__link">
     <span class="md-ellipsis">
-      k0s token list
+      Where are the logs?
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="k0s token list">
+    <nav class="md-nav" aria-label="Where are the logs?">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
+  <a href="#systemd-based-setups" class="md-nav__link">
     <span class="md-ellipsis">
-      Examples
+      systemd based setups
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#options" class="md-nav__link">
+  <a href="#openrc-based-setups" class="md-nav__link">
     <span class="md-ellipsis">
-      Options
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#see-also" class="md-nav__link">
-    <span class="md-ellipsis">
-      SEE ALSO
+      openRC based setups
     </span>
   </a>
   
@@ -2050,28 +2122,17 @@
                   
 
 
-  <h1>K0s token list</h1>
-
-<h2 id="k0s-token-list">k0s token list<a class="headerlink" href="#k0s-token-list" title="Permanent link">#</a></h2>
-<p>List join tokens</p>
-<div class="highlight"><pre><span></span><code>k0s token list [flags]
+<h1 id="logs">Logs<a class="headerlink" href="#logs" title="Permanent link">#</a></h1>
+<p>k0s runs most of the Kubernetes and other system components as plain Linux child processes. As it acts as a watchdog for the child processes it also combines the logs for all such processes into its own log stream.</p>
+<p>k0s adds a "selector" to each components log stream so it is easier to distinguish logs from various components. For example the log stream from kubelet is enhanced with a selector <code>component=kubelet</code>:</p>
+<div class="highlight"><pre><span></span><code>Jul 08 08:46:25 worker-kppzr-lls2q k0s[1766]: time=&quot;2024-07-08 08:46:25&quot; level=info msg=&quot;I0708 08:46:25.876821    1814 operation_generator.go:721] \&quot;MountVolume.SetUp succeeded for volume \\\&quot;kube-api-access-7tfxw\\\&quot; (UniqueName: \\\&quot;kubernetes.io/projected/ca514728-a1de-4408-9be5-8b36ee896752-kube-api-access-7tfxw\\\&quot;) pod \\\&quot;node-shell-a16894ee-eb67-4865-8964-44ca5c87e18d\\\&quot; (UID: \\\&quot;ca514728-a1de-4408-9be5-8b36ee896752\\\&quot;) \&quot; pod=\&quot;kube-system/node-shell-a16894ee-eb67-4865-8964-44ca5c87e18d\&quot;&quot; component=kubelet stream=stderr
+Jul 08 08:46:26 worker-kppzr-lls2q k0s[1766]: time=&quot;2024-07-08 08:46:26&quot; level=info msg=&quot;I0708 08:46:26.112550    1814 kuberuntime_container_linux.go:167] \&quot;No swap cgroup controller present\&quot; swapBehavior=\&quot;\&quot; pod=\&quot;kube-system/node-shell-a16894ee-eb67-4865-8964-44ca5c87e18d\&quot; containerName=\&quot;shell\&quot;&quot; component=kubelet stream=stderr
 </code></pre></div>
-<h3 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">#</a></h3>
-<div class="highlight"><pre><span></span><code>k0s token list --role worker // list worker tokens
-</code></pre></div>
-<h3 id="options">Options<a class="headerlink" href="#options" title="Permanent link">#</a></h3>
-<div class="highlight"><pre><span></span><code>      --data-dir string        Data Directory for k0s. DO NOT CHANGE for an existing setup, things will break! (default &quot;/var/lib/k0s&quot;)
-  -d, --debug                  Debug logging (default: false)
-      --debugListenOn string   Http listenOn for Debug pprof handler (default &quot;:6060&quot;)
-  -h, --help                   help for list
-      --role string            Either worker, controller or empty for all roles
-      --status-socket string   Full file path to the socket file. (default: &lt;rundir&gt;/status.sock)
-  -v, --verbose                Verbose logging (default: false)
-</code></pre></div>
-<h3 id="see-also">SEE ALSO<a class="headerlink" href="#see-also" title="Permanent link">#</a></h3>
-<ul>
-<li><a href="../k0s_token/">k0s token</a>  - Manage join tokens</li>
-</ul>
+<h2 id="where-are-the-logs">Where are the logs?<a class="headerlink" href="#where-are-the-logs" title="Permanent link">#</a></h2>
+<h3 id="systemd-based-setups">systemd based setups<a class="headerlink" href="#systemd-based-setups" title="Permanent link">#</a></h3>
+<p>SystemD uses journal log system for all logs. This means that you can access k0s and all the sub-component logs using <code>journalctl</code>. For example if you are interested in kubelet logs, you can run something like <code>journalctl -u k0sworker | grep component=kubelet</code>.</p>
+<h3 id="openrc-based-setups">openRC based setups<a class="headerlink" href="#openrc-based-setups" title="Permanent link">#</a></h3>
+<p>openRC stores logs of services in <code>/var/log/k0sworker.log</code>. Again, if you're interested in specific component logs you cat run something like <code>grep component=kubelet /var/log/k0s.log</code>.</p>
 
 
 
