@@ -38,6 +38,12 @@ func (s *K0sSysinfoSpec) addHostSpecificProbes(p probes.Probes) {
 	linux.AssertProcessMaxFileDescriptors(65536)
 	linux.AssertAppArmor()
 
+	initSys := linux.AssertInitSystem()
+	systemd := initSys.AssertSystemd()
+	systemd.AssertVersion()
+	systemd.AssertSystemState("running")
+	systemd.AssertUnit()
+
 	if s.WorkerRoleEnabled {
 		probes.AssertExecutableInPath(linux, "modprobe")
 		probes.AssertExecutableInPath(linux, "mount")
