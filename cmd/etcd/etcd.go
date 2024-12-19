@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/k0sproject/k0s/cmd/internal"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/config"
 
@@ -31,7 +32,7 @@ func NewEtcdCmd() *cobra.Command {
 		Use:   "etcd",
 		Short: "Manage etcd cluster",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if err := config.CallParentPersistentPreRun(cmd, args); err != nil {
+			if err := internal.CallParentPersistentPreRun(cmd, args); err != nil {
 				return err
 			}
 

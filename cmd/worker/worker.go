@@ -25,6 +25,7 @@ import (
 	"runtime"
 	"syscall"
 
+	"github.com/k0sproject/k0s/cmd/internal"
 	k0slog "github.com/k0sproject/k0s/internal/pkg/log"
 	"github.com/k0sproject/k0s/internal/pkg/sysinfo"
 	"github.com/k0sproject/k0s/pkg/build"
@@ -61,7 +62,7 @@ func NewWorkerCmd() *cobra.Command {
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			logrus.SetOutput(cmd.OutOrStdout())
 			k0slog.SetInfoLevel()
-			return config.CallParentPersistentPreRun(cmd, args)
+			return internal.CallParentPersistentPreRun(cmd, args)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts, err := config.GetCmdOpts(cmd)

@@ -26,6 +26,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/k0sproject/k0s/cmd/internal"
 	"github.com/k0sproject/k0s/pkg/config"
 
 	"k8s.io/cli-runtime/pkg/genericclioptions"
@@ -126,7 +127,7 @@ func hookKubectlPluginHandler(kubectlCmd *cobra.Command) {
 		logs.InitLogs()
 		cobra.OnFinalize(logs.FlushLogs)
 
-		if err := config.CallParentPersistentPreRun(kubectlCmd, args); err != nil {
+		if err := internal.CallParentPersistentPreRun(kubectlCmd, args); err != nil {
 			return err
 		}
 
