@@ -32,16 +32,21 @@ func TestConfigurer_HandleImports(t *testing.T) {
 	t.Run("should merge configuration files containing CRI plugin configuration sections", func(t *testing.T) {
 		importsPath := t.TempDir()
 		criRuntimeConfig := `
-[plugins]
-  [plugins."io.containerd.grpc.v1.cri".containerd]
-    snapshotter = "zfs"
+[plugins."io.containerd.grpc.v1.cri".containerd]
+snapshotter = "zfs"
+
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+NoNewKeyring = true
 `
 		err := os.WriteFile(filepath.Join(importsPath, "foo.toml"), []byte(criRuntimeConfig), 0644)
 		require.NoError(t, err)
 		c := configurer{
-			loadPath:   filepath.Join(importsPath, "*.toml"),
-			pauseImage: "pause:42",
-			log:        logrus.New().WithField("test", t.Name()),
+			loadPath: filepath.Join(importsPath, "*.toml"),
+			log:      logrus.New().WithField("test", t.Name()),
+			options: criOptions{
+				sandboxContainerImage: "pause:42",
+				systemdIntegration:    true,
+			},
 		}
 		criConfig, err := c.handleImports()
 		assert.NoError(t, err)
@@ -65,6 +70,12 @@ func TestConfigurer_HandleImports(t *testing.T) {
 		assert.Equal(t, "pause:42", sandboxImage, "Custom pause image not found in CRI configuration")
 		snapshotter := criPluginConfig.GetPath([]string{"containerd", "snapshotter"})
 		assert.Equal(t, "zfs", snapshotter, "Overridden snapshotter not found in CRI configuration")
+		runcType := criPluginConfig.GetPath([]string{"containerd", "runtimes", "runc", "runtime_type"})
+		assert.Equal(t, "io.containerd.runc.v2", runcType, "runc default type not found in CRI configuration")
+		runcNoNewKeyring := criPluginConfig.GetPath([]string{"containerd", "runtimes", "runc", "options", "NoNewKeyring"})
+		assert.Equal(t, true, runcNoNewKeyring, "Overridden runc option not found in CRI configuration")
+		runcSystemdCgroup := criPluginConfig.GetPath([]string{"containerd", "runtimes", "runc", "options", "SystemdCgroup"})
+		assert.Equal(t, true, runcSystemdCgroup, "systemd runc option not found in CRI configuration")
 	})
 
 	t.Run("should have no imports if imports dir is empty", func(t *testing.T) {

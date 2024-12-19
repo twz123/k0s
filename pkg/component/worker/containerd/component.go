@@ -218,9 +218,11 @@ func (c *Component) setupConfig() error {
 	}
 
 	configurer := &configurer{
-		loadPath:   filepath.Join(c.importsPath, "*.toml"),
-		pauseImage: c.Profile.PauseImage.URI(),
-		log:        logrus.WithField("component", "containerd"),
+		loadPath: filepath.Join(c.importsPath, "*.toml"),
+		options: criOptions{
+			sandboxContainerImage: c.Profile.PauseImage.URI(),
+		},
+		log: logrus.WithField("component", "containerd"),
 	}
 
 	config, err := configurer.handleImports()

@@ -39,11 +39,15 @@ type resolvedConfig struct {
 	ImportPaths []string
 }
 
-type configurer struct {
-	loadPath   string
-	pauseImage string
+type criOptions struct {
+	sandboxContainerImage string
+	systemdIntegration    bool
+}
 
-	log *logrus.Entry
+type configurer struct {
+	loadPath string
+	options  criOptions
+	log      *logrus.Entry
 }
 
 // Resolves partial containerd configuration files from the import glob path. If
@@ -53,7 +57,7 @@ type configurer struct {
 func (c *configurer) handleImports() (*resolvedConfig, error) {
 	var importPaths []string
 
-	defaultConfig, err := generateDefaultCRIConfig(c.pauseImage)
+	defaultConfig, err := generateDefaultCRIConfig(&c.options)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate containerd default CRI config: %w", err)
 	}
@@ -104,10 +108,23 @@ func (c *configurer) handleImports() (*resolvedConfig, error) {
 // configuration, using the given image for sandbox containers. Uses the
 // containerd package to generate all the rest, so this will be in sync with
 // containerd's defaults for the CRI plugin.
-func generateDefaultCRIConfig(sandboxContainerImage string) ([]byte, error) {
+func generateDefaultCRIConfig(options *criOptions) ([]byte, error) {
 	criPluginConfig := criconfig.DefaultConfig()
 	// Set pause image
-	criPluginConfig.SandboxImage = sandboxContainerImage
+	criPluginConfig.SandboxImage = options.sandboxContainerImage
+
+	// Enable systemd cgroup integration if requested.
+	if options.systemdIntegration {
+		if criPluginConfig.Runtimes == nil {
+			criPluginConfig.Runtimes = make(map[string]criconfig.Runtime)
+		}
+		runc := criPluginConfig.Runtimes["runc"]
+		if runc.Options == nil {
+			runc.Options = make(map[string]any)
+		}
+		runc.Options["SystemdCgroup"] = true
+	}
+
 	if runtime.GOOS == "windows" {
 		// The default config for Windows uses %ProgramFiles%/containerd/cni/{bin,conf}.
 		// Maybe k0s can use the default in the future, so there's no need for this override.
