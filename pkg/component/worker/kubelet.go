@@ -132,12 +132,14 @@ func (k *Kubelet) Start(ctx context.Context) error {
 
 	logrus.Info("Starting kubelet")
 	args := stringmap.StringMap{
-		"--root-dir":        k.rootDir,
-		"--config":          k.configPath,
-		"--kubeconfig":      k.Kubeconfig,
-		"--v":               k.LogLevel,
-		"--runtime-cgroups": "/system.slice/containerd.service",
-		"--cert-dir":        filepath.Join(k.rootDir, "pki"),
+		"--root-dir":   k.rootDir,
+		"--config":     k.configPath,
+		"--kubeconfig": k.Kubeconfig,
+		"--v":          k.LogLevel,
+		"--cert-dir":   filepath.Join(k.rootDir, "pki"),
+
+		// Maybe auto-detect? Should be k0s's cgroup if launching the embedded containerd.
+		// "--runtime-cgroups": "/system.slice/containerd.service",
 	}
 
 	if len(k.Labels) > 0 {
