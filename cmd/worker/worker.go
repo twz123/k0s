@@ -90,7 +90,7 @@ func NewWorkerCmd() *cobra.Command {
 			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 			defer cancel()
 
-			return c.Start(ctx)
+			return c.Start(ctx, nil /* FIXME 🙈 */)
 		},
 	}
 
@@ -102,7 +102,7 @@ func NewWorkerCmd() *cobra.Command {
 }
 
 // Start starts the worker components based on the given [config.CLIOptions].
-func (c *Command) Start(ctx context.Context) error {
+func (c *Command) Start(ctx context.Context, cgroupLayout worker.CgroupLayout) error {
 	if err := worker.BootstrapKubeletKubeconfig(ctx, c.K0sVars, &c.WorkerOptions); err != nil {
 		return err
 	}
@@ -153,6 +153,8 @@ func (c *Command) Start(ctx context.Context) error {
 		BinDir:       c.K0sVars.BinDir,
 	})
 
+	// FIXME figure out how to inject the config.
+
 	componentManager.Add(ctx,
 		&worker.Kubelet{
 			CRISocket:           c.CriSocket,
@@ -160,6 +162,7 @@ func (c *Command) Start(ctx context.Context) error {
 			K0sVars:             c.K0sVars,
 			StaticPods:          staticPods,
 			Kubeconfig:          kubeletKubeconfigPath,
+			CgroupLayout:        cgroupLayout,
 			Configuration:       *workerConfig.KubeletConfiguration.DeepCopy(),
 			LogLevel:            c.LogLevels.Kubelet,
 			Labels:              c.Labels,

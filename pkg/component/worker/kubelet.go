@@ -47,12 +47,19 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+type CgroupLayout interface {
+	NodeCgroup() string
+	PodsCgroup() string
+	UseSystemd() bool
+}
+
 // Kubelet is the component implementation to manage kubelet
 type Kubelet struct {
 	CRISocket           string
 	EnableCloudProvider bool
 	K0sVars             *config.CfgVars
 	Kubeconfig          string
+	CgroupLayout        CgroupLayout
 	Configuration       kubeletv1beta1.KubeletConfiguration
 	StaticPods          StaticPods
 	LogLevel            string
@@ -142,11 +149,12 @@ func (k *Kubelet) Start(ctx context.Context) error {
 		// "--runtime-cgroups": "/system.slice/containerd.service",
 	}
 
+	extras := flags.Split(k.ExtraArgs)
+
 	if len(k.Labels) > 0 {
 		args["--node-labels"] = strings.Join(k.Labels, ",")
 	}
 
-	extras := flags.Split(k.ExtraArgs)
 	nodename, err := node.GetNodename(extras["--hostname-override"])
 	if err != nil {
 		return fmt.Errorf("failed to get nodename: %w", err)
@@ -172,11 +180,23 @@ func (k *Kubelet) Start(ctx context.Context) error {
 		args["--cert-dir"] = "C:\\var\\lib\\k0s\\kubelet_certs"
 	}
 
-	if k.CRISocket == "" && runtime.GOOS != "windows" {
-		// on windows this cli flag is not supported
-		// Still use this deprecated cAdvisor flag that the kubelet leaks until
-		// KEP 2371 lands. ("cAdvisor-less, CRI-full Container and Pod Stats")
-		args["--containerd"] = filepath.Join(k.K0sVars.RunDir, "containerd.sock")
+	// Additional tweaks when using embedded containerd.
+	if k.CRISocket == "" {
+		// When k0s uses a cgroup layout, then the managed containerd will live
+		// in the node cgroup. Add that as a hint to kubelet.
+		if k.CgroupLayout != nil {
+			if _, exists := extras["--runtime-cgroups"]; !exists {
+				args["--runtime-cgroups"] = k.CgroupLayout.NodeCgroup()
+			}
+
+			if runtime.GOOS != "windows" {
+				// on windows this cli flag is not supported
+				// Still use this deprecated cAdvisor flag that the kubelet
+				// leaks until KEP 2371 lands. ("cAdvisor-less, CRI-full
+				// Container and Pod Stats")
+				args["--containerd"] = filepath.Join(k.K0sVars.RunDir, "containerd.sock")
+			}
+		}
 	}
 
 	// We only support external providers
@@ -231,6 +251,20 @@ func (k *Kubelet) writeKubeletConfig() error {
 	config.ResolverConfig = determineKubeletResolvConfPath()
 	config.StaticPodURL = staticPodURL
 	config.ContainerRuntimeEndpoint = containerRuntimeEndpoint.String()
+
+	if k.CgroupLayout != nil {
+		if config.KubeletCgroups == "" {
+			config.KubeletCgroups = k.CgroupLayout.NodeCgroup()
+		}
+		if config.CgroupRoot == "" {
+			config.CgroupRoot = k.CgroupLayout.PodsCgroup()
+		}
+		if k.CgroupLayout.UseSystemd() {
+			config.CgroupDriver = "systemd"
+		}
+	}
+
+	// TODO: Do something about cgroupsRoot ...
 
 	if len(k.Taints) > 0 {
 		var taints []corev1.Taint

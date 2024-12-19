@@ -42,6 +42,7 @@ import (
 	apclient "github.com/k0sproject/k0s/pkg/autopilot/client"
 	"github.com/k0sproject/k0s/pkg/build"
 	"github.com/k0sproject/k0s/pkg/certificate"
+	"github.com/k0sproject/k0s/pkg/component/cgroup"
 	"github.com/k0sproject/k0s/pkg/component/controller"
 	"github.com/k0sproject/k0s/pkg/component/controller/clusterconfig"
 	"github.com/k0sproject/k0s/pkg/component/controller/cplb"
@@ -135,6 +136,11 @@ func (c *command) start(ctx context.Context) error {
 
 	if errs := nodeConfig.Validate(); len(errs) > 0 {
 		return fmt.Errorf("invalid node config: %w", errors.Join(errs...))
+	}
+
+	cgroupLayout := cgroup.Layout{}
+	if err := cgroupLayout.Init(ctx); err != nil {
+		return err
 	}
 
 	// Add the node config to the context so it can be used by components deep in the "stack"
@@ -670,7 +676,7 @@ func (c *command) startWorker(ctx context.Context, profile string, nodeConfig *v
 		taint := fields.OneTermEqualSelector(key, ":NoSchedule")
 		wc.Taints = append(wc.Taints, taint.String())
 	}
-	return wc.Start(ctx)
+	return wc.Start(ctx, nil /* FIXME 🙈 */)
 }
 
 // If we've got CA in place we assume the node has already joined previously
