@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/k0sproject/k0s/cmd/internal"
 	"github.com/k0sproject/k0s/pkg/cleanup"
 	"github.com/k0sproject/k0s/pkg/component/status"
 	"github.com/k0sproject/k0s/pkg/config"
@@ -31,25 +32,34 @@ import (
 type command config.CLIOptions
 
 func NewResetCmd() *cobra.Command {
+	var debugFlags internal.DebugFlags
+
 	cmd := &cobra.Command{
-		Use:   "reset",
-		Short: "Uninstall k0s. Must be run as root (or with sudo)",
+		Use:              "reset",
+		Short:            "Uninstall k0s. Must be run as root (or with sudo)",
+		PersistentPreRun: debugFlags.Run,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts, err := config.GetCmdOpts(cmd)
 			if err != nil {
 				return err
 			}
 			c := (*command)(opts)
-			return c.reset()
+			return c.reset(debugFlags.IsDebug())
 		},
 	}
-	cmd.PersistentFlags().AddFlagSet(config.GetPersistentFlagSet())
-	cmd.Flags().AddFlagSet(config.GetCriSocketFlag())
-	cmd.Flags().AddFlagSet(config.FileInputFlag())
+
+	pflags := cmd.PersistentFlags()
+	debugFlags.AddToFlagSet(pflags)
+	pflags.AddFlagSet(config.GetPersistentFlagSet())
+
+	flags := cmd.Flags()
+	flags.AddFlagSet(config.GetCriSocketFlag())
+	flags.AddFlagSet(config.FileInputFlag())
+
 	return cmd
 }
 
-func (c *command) reset() error {
+func (c *command) reset(debug bool) error {
 	if os.Geteuid() != 0 {
 		logrus.Fatal("this command must be run as root!")
 	}
@@ -68,7 +78,7 @@ func (c *command) reset() error {
 	}
 
 	// Get Cleanup Config
-	cfg, err := cleanup.NewConfig(c.Debug, c.K0sVars, c.WorkerOptions.CriSocket)
+	cfg, err := cleanup.NewConfig(debug, c.K0sVars, c.WorkerOptions.CriSocket)
 	if err != nil {
 		return fmt.Errorf("failed to configure cleanup: %w", err)
 	}

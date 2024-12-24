@@ -92,7 +92,6 @@ func etcdLeaveCmd() *cobra.Command {
 		Value: (*ipOrDNSName)(&peerAddressArg),
 	})
 
-	cmd.PersistentFlags().AddFlagSet(config.GetPersistentFlagSet())
 	return cmd
 }
 

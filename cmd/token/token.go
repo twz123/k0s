@@ -19,21 +19,28 @@ package token
 import (
 	"fmt"
 
+	"github.com/k0sproject/k0s/cmd/internal"
 	"github.com/k0sproject/k0s/pkg/token"
 
 	"github.com/spf13/cobra"
 )
 
 func NewTokenCmd() *cobra.Command {
+	var debugFlags internal.DebugFlags
+
 	cmd := &cobra.Command{
-		Use:   "token",
-		Short: "Manage join tokens",
+		Use:              "token",
+		Short:            "Manage join tokens",
+		PersistentPreRun: debugFlags.Run,
 	}
+
+	debugFlags.AddToFlagSet(cmd.PersistentFlags())
 
 	cmd.AddCommand(tokenCreateCmd())
 	cmd.AddCommand(tokenListCmd())
 	cmd.AddCommand(tokenInvalidateCmd())
 	cmd.AddCommand(preSharedCmd())
+
 	return cmd
 }
 

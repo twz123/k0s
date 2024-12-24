@@ -19,17 +19,25 @@ package airgap
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/k0sproject/k0s/cmd/internal"
 	"github.com/k0sproject/k0s/pkg/config"
 )
 
 func NewAirgapCmd() *cobra.Command {
+	var debugFlags internal.DebugFlags
+
 	cmd := &cobra.Command{
-		Use:   "airgap",
-		Short: "Manage airgap setup",
+		Use:              "airgap",
+		Short:            "Manage airgap setup",
+		PersistentPreRun: debugFlags.Run,
 	}
 
+	pflags := cmd.PersistentFlags()
+	debugFlags.AddToFlagSet(pflags)
+	pflags.AddFlagSet(config.FileInputFlag())
+	pflags.AddFlagSet(config.GetPersistentFlagSet())
+
 	cmd.AddCommand(NewAirgapListImagesCmd())
-	cmd.PersistentFlags().AddFlagSet(config.FileInputFlag())
-	cmd.PersistentFlags().AddFlagSet(config.GetPersistentFlagSet())
+
 	return cmd
 }

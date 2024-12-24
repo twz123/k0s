@@ -23,7 +23,6 @@ import (
 
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	k0sscheme "github.com/k0sproject/k0s/pkg/client/clientset/scheme"
-	"github.com/k0sproject/k0s/pkg/config"
 )
 
 func NewCreateCmd() *cobra.Command {
@@ -54,7 +53,8 @@ func NewCreateCmd() *cobra.Command {
 			return err
 		},
 	}
+
 	cmd.Flags().BoolVar(&includeImages, "include-images", false, "include the default images in the output")
-	cmd.PersistentFlags().AddFlagSet(config.GetPersistentFlagSet())
+
 	return cmd
 }

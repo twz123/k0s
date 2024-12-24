@@ -25,6 +25,8 @@ import (
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/config"
 
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+
 	"github.com/spf13/cobra"
 )
 
@@ -61,8 +63,8 @@ func NewValidateCmd() *cobra.Command {
 		},
 	}
 
-	cmd.PersistentFlags().AddFlagSet(config.GetPersistentFlagSet())
 	cmd.Flags().AddFlagSet(config.FileInputFlag())
-	_ = cmd.MarkFlagRequired("config")
+	utilruntime.Must(cmd.MarkFlagRequired("config"))
+
 	return cmd
 }

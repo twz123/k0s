@@ -28,7 +28,7 @@ import (
 )
 
 func etcdListCmd() *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "member-list",
 		Short: "List etcd cluster members (JSON encoded)",
 		Args:  cobra.NoArgs,
@@ -57,6 +57,4 @@ func etcdListCmd() *cobra.Command {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]interface{}{"members": members})
 		},
 	}
-	cmd.PersistentFlags().AddFlagSet(config.GetPersistentFlagSet())
-	return cmd
 }

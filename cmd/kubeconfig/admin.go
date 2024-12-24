@@ -31,7 +31,7 @@ import (
 )
 
 func kubeConfigAdminCmd() *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "admin",
 		Short: "Display Admin's Kubeconfig file",
 		Long:  "Print kubeconfig for the Admin user to stdout",
@@ -86,6 +86,4 @@ func kubeConfigAdminCmd() *cobra.Command {
 			return err
 		},
 	}
-	cmd.PersistentFlags().AddFlagSet(config.GetPersistentFlagSet())
-	return cmd
 }

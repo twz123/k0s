@@ -57,9 +57,6 @@ Flags:
       --cidr-range string                              HACK: cidr range for the windows worker node (default "10.96.0.0/12")
   -c, --config string                                  config file, use '-' to read the config from stdin (default `+defaultConfigPath+`)
       --cri-socket string                              container runtime socket to use, default to internal containerd. Format: [remote|docker]:[path-to-socket]
-      --data-dir string                                Data Directory for k0s. DO NOT CHANGE for an existing setup, things will break! (default `+defaultDataDir+`)
-  -d, --debug                                          Debug logging (default: false)
-      --debugListenOn string                           Http listenOn for Debug pprof handler (default ":6060")
       --disable-components strings                     disable components (valid items: applier-manager,autopilot,control-api,coredns,csr-approver,endpoint-reconciler,helm,konnectivity-server,kube-controller-manager,kube-proxy,kube-scheduler,metrics-server,network-provider,node-role,system-rbac,windows-node,worker-config)
       --enable-cloud-provider                          Whether or not to enable cloud provider support in kubelet
       --enable-dynamic-config                          enable cluster-wide dynamic config based on custom resource
@@ -77,13 +74,16 @@ Flags:
       --no-taints                                      disable default taints for controller node
       --profile string                                 worker profile to use on the node (default "default")
       --single                                         enable single node (implies --enable-worker, default false)
-      --status-socket string                           Full file path to the socket file. (default: <rundir>/status.sock)
       --taints strings                                 Node taints, list of key=value:effect strings
       --token-file string                              Path to the file containing join-token.
-  -v, --verbose                                        Verbose logging (default: false)
 
 Global Flags:
-  -e, --env stringArray   set environment variable
-      --force             force init script creation
+      --data-dir string        Data Directory for k0s. DO NOT CHANGE for an existing setup, things will break! (default `+defaultDataDir+`)
+  -d, --debug                  Debug logging (implies verbose logging)
+      --debugListenOn string   Http listenOn for Debug pprof handler (default ":6060")
+  -e, --env stringArray        set environment variable
+      --force                  force init script creation
+      --status-socket string   Full file path to the socket file. (default: <rundir>/status.sock)
+  -v, --verbose                Verbose logging
 `, out.String())
 }

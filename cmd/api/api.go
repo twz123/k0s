@@ -29,7 +29,7 @@ import (
 	"strings"
 	"time"
 
-	k0slog "github.com/k0sproject/k0s/internal/pkg/log"
+	"github.com/k0sproject/k0s/cmd/internal"
 	mw "github.com/k0sproject/k0s/internal/pkg/middleware"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/config"
@@ -50,14 +50,12 @@ type command struct {
 }
 
 func NewAPICmd() *cobra.Command {
+	var debugFlags internal.DebugFlags
+
 	cmd := &cobra.Command{
-		Use:   "api",
-		Short: "Run the controller API",
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			logrus.SetOutput(cmd.OutOrStdout())
-			k0slog.SetInfoLevel()
-			return config.CallParentPersistentPreRun(cmd, args)
-		},
+		Use:              "api",
+		Short:            "Run the controller API",
+		PersistentPreRun: debugFlags.Run,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts, err := config.GetCmdOpts(cmd)
 			if err != nil {
@@ -66,7 +64,11 @@ func NewAPICmd() *cobra.Command {
 			return (&command{CLIOptions: opts}).start()
 		},
 	}
-	cmd.PersistentFlags().AddFlagSet(config.GetPersistentFlagSet())
+
+	pflags := cmd.PersistentFlags()
+	debugFlags.LongRunning().AddToFlagSet(pflags)
+	pflags.AddFlagSet(config.GetPersistentFlagSet())
+
 	return cmd
 }
 

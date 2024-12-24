@@ -17,17 +17,24 @@ limitations under the License.
 package config
 
 import (
+	"github.com/k0sproject/k0s/cmd/internal"
 	"github.com/spf13/cobra"
 )
 
 func NewConfigCmd() *cobra.Command {
+	var debugFlags internal.DebugFlags
+
 	cmd := &cobra.Command{
-		Use:   "config",
-		Short: "Configuration related sub-commands",
+		Use:              "config",
+		Short:            "Configuration related sub-commands",
+		PersistentPreRun: debugFlags.Run,
 	}
 	cmd.AddCommand(NewCreateCmd())
 	cmd.AddCommand(NewEditCmd())
 	cmd.AddCommand(NewStatusCmd())
 	cmd.AddCommand(NewValidateCmd())
+
+	debugFlags.AddToFlagSet(cmd.PersistentFlags())
+
 	return cmd
 }

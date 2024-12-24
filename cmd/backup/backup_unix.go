@@ -25,6 +25,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/k0sproject/k0s/cmd/internal"
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/pkg/backup"
 	"github.com/k0sproject/k0s/pkg/component/status"
@@ -37,11 +38,15 @@ import (
 type command config.CLIOptions
 
 func NewBackupCmd() *cobra.Command {
-	var savePath string
+	var (
+		debugFlags internal.DebugFlags
+		savePath   string
+	)
 
 	cmd := &cobra.Command{
-		Use:   "backup",
-		Short: "Back-Up k0s configuration. Must be run as root (or with sudo)",
+		Use:              "backup",
+		Short:            "Back-Up k0s configuration. Must be run as root (or with sudo)",
+		PersistentPreRun: debugFlags.Run,
 		PreRun: func(cmd *cobra.Command, args []string) {
 			// ensure logs don't mess up output
 			logrus.SetOutput(cmd.ErrOrStderr())
@@ -62,8 +67,13 @@ func NewBackupCmd() *cobra.Command {
 			return c.backup(savePath, cmd.OutOrStdout())
 		},
 	}
+
+	pflags := cmd.PersistentFlags()
+	debugFlags.AddToFlagSet(pflags)
+	pflags.AddFlagSet(config.GetPersistentFlagSet())
+
 	cmd.Flags().StringVar(&savePath, "save-path", "", "destination directory path for backup assets, use '-' for stdout")
-	cmd.PersistentFlags().AddFlagSet(config.GetPersistentFlagSet())
+
 	return cmd
 }
 
