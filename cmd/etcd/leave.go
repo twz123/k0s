@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"strconv"
 
+	k0sv1beta1 "github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/etcd"
 
@@ -48,10 +49,16 @@ func etcdLeaveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if nodeConfig.Spec.Storage.Type != k0sv1beta1.EtcdStorageType {
+				return errors.New("wrong storage type: " + string(nodeConfig.Spec.Storage.Type))
+			}
 			ctx := cmd.Context()
 
 			peerAddress := nodeConfig.Spec.Storage.Etcd.PeerAddress
 			if peerAddressArg == "" {
+				if nodeConfig.Spec.Storage.Etcd.IsExternalClusterUsed() {
+					return errors.New("can't leave an external etcd cluster without specifying --peer-address")
+				}
 				if peerAddress == "" {
 					return errors.New("can't leave etcd cluster: this node doesn't have an etcd peer address, check the k0s configuration or use --peer-address")
 				}
