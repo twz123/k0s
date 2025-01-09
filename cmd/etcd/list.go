@@ -18,8 +18,10 @@ package etcd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
+	k0sv1beta1 "github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/etcd"
 
@@ -40,6 +42,10 @@ func etcdListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if nodeConfig.Spec.Storage.Type != k0sv1beta1.EtcdStorageType {
+				return errors.New("wrong storage type: " + string(nodeConfig.Spec.Storage.Type))
+			}
+
 			ctx := cmd.Context()
 			etcdClient, err := etcd.NewClient(opts.K0sVars.CertRootDir, opts.K0sVars.EtcdCertDir, nodeConfig.Spec.Storage.Etcd)
 			if err != nil {
