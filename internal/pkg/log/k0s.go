@@ -17,11 +17,16 @@ limitations under the License.
 package log
 
 import (
+	"flag"
+
 	"github.com/bombsimon/logrusr/v4"
 	cfssllog "github.com/cloudflare/cfssl/log"
 	"github.com/sirupsen/logrus"
+	"k8s.io/klog/v2"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+var klogVerbosity *klog.Level
 
 func InitLogging() {
 	customFormatter := new(logrus.TextFormatter)
@@ -32,20 +37,28 @@ func InitLogging() {
 	cfssllog.SetLogger((*cfsslAdapter)(logrus.WithField("component", "cfssl")))
 	crlog.SetLogger(logrusr.New(logrus.WithField("component", "controller-runtime")))
 
+	var klogFlags flag.FlagSet
+	klog.InitFlags(&klogFlags)
+	klogVerbosity = klogFlags.Lookup("v").Value.(*klog.Level)
+	klog.SetLogger(logrusr.New(logrus.WithField("klog-verbosity", klogVerbosity)))
+
 	SetWarnLevel()
 }
 
 func SetDebugLevel() {
 	logrus.SetLevel(logrus.DebugLevel)
 	cfssllog.Level = cfssllog.LevelDebug
+	klogVerbosity.Set("5")
 }
 
 func SetInfoLevel() {
 	logrus.SetLevel(logrus.InfoLevel)
 	cfssllog.Level = cfssllog.LevelInfo
+	klogVerbosity.Set("2")
 }
 
 func SetWarnLevel() {
 	logrus.SetLevel(logrus.WarnLevel)
 	cfssllog.Level = cfssllog.LevelWarning
+	klogVerbosity.Set("1")
 }

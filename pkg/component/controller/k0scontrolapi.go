@@ -48,15 +48,21 @@ func (m *K0SControlAPI) Start(_ context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	args := []string{
+		"api",
+		"--data-dir=" + m.K0sVars.DataDir,
+	}
+	if config.Debug {
+		args = append(args, "--debug")
+	}
+
 	m.supervisor = supervisor.Supervisor{
 		Name:    "k0s-control-api",
 		BinPath: selfExe,
 		RunDir:  m.K0sVars.RunDir,
 		DataDir: m.K0sVars.DataDir,
-		Args: []string{
-			"api",
-			"--data-dir=" + m.K0sVars.DataDir,
-		},
+		Args:    args,
 	}
 
 	return m.supervisor.Supervise()
