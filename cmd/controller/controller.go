@@ -28,7 +28,6 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
-	"slices"
 	"syscall"
 	"time"
 
@@ -255,7 +254,7 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions) er
 	})
 
 	enableK0sEndpointReconciler := nodeConfig.Spec.API.ExternalAddress != "" &&
-		!slices.Contains(flags.DisableComponents, constant.APIEndpointReconcilerComponentName)
+		!flags.IsComponentDisabled(constant.APIEndpointReconcilerComponentName)
 
 	if cplbCfg := nodeConfig.Spec.Network.ControlPlaneLoadBalancing; cplbCfg != nil && cplbCfg.Enabled {
 		if controllerMode == config.SingleNodeMode {
@@ -277,7 +276,7 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions) er
 		})
 	}
 
-	enableKonnectivity := controllerMode != config.SingleNodeMode && !slices.Contains(flags.DisableComponents, constant.KonnectivityServerComponentName)
+	enableKonnectivity := controllerMode != config.SingleNodeMode && !flags.IsComponentDisabled(constant.KonnectivityServerComponentName)
 
 	if enableKonnectivity {
 		nodeComponents.Add(ctx, &controller.Konnectivity{
@@ -323,7 +322,7 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions) er
 	}
 	nodeComponents.Add(ctx, leaderElector)
 
-	if !slices.Contains(flags.DisableComponents, constant.ApplierManagerComponentName) {
+	if !flags.IsComponentDisabled(constant.ApplierManagerComponentName) {
 		nodeComponents.Add(ctx, &applier.Manager{
 			K0sVars:           c.K0sVars,
 			KubeClientFactory: adminClientFactory,
@@ -334,14 +333,14 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions) er
 		})
 	}
 
-	if controllerMode != config.SingleNodeMode && !slices.Contains(flags.DisableComponents, constant.ControlAPIComponentName) {
+	if controllerMode != config.SingleNodeMode && !flags.IsComponentDisabled(constant.ControlAPIComponentName) {
 		nodeComponents.Add(ctx, &controller.K0SControlAPI{
 			ConfigPath: c.CfgFile,
 			K0sVars:    c.K0sVars,
 		})
 	}
 
-	if !slices.Contains(flags.DisableComponents, constant.CsrApproverComponentName) {
+	if !flags.IsComponentDisabled(constant.CsrApproverComponentName) {
 		nodeComponents.Add(ctx, controller.NewCSRApprover(nodeConfig,
 			leaderElector,
 			adminClientFactory))
@@ -443,7 +442,7 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions) er
 		configSource,
 	))
 
-	if !slices.Contains(flags.DisableComponents, constant.HelmComponentName) {
+	if !flags.IsComponentDisabled(constant.HelmComponentName) {
 		helmSaver, err := controller.NewManifestsSaver("helm", c.K0sVars.DataDir)
 		if err != nil {
 			return fmt.Errorf("failed to initialize helm manifests saver: %w", err)
@@ -456,7 +455,7 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions) er
 		))
 	}
 
-	if !slices.Contains(flags.DisableComponents, constant.AutopilotComponentName) {
+	if !flags.IsComponentDisabled(constant.AutopilotComponentName) {
 		logrus.Debug("starting manifest saver")
 		manifestsSaver, err := controller.NewManifestsSaver("autopilot", c.K0sVars.DataDir)
 		if err != nil {
@@ -475,11 +474,11 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions) er
 		))
 	}
 
-	if !slices.Contains(flags.DisableComponents, constant.KubeProxyComponentName) {
+	if !flags.IsComponentDisabled(constant.KubeProxyComponentName) {
 		clusterComponents.Add(ctx, controller.NewKubeProxy(c.K0sVars, nodeConfig))
 	}
 
-	if !slices.Contains(flags.DisableComponents, constant.CoreDNSComponentname) {
+	if !flags.IsComponentDisabled(constant.CoreDNSComponentname) {
 		coreDNS, err := controller.NewCoreDNS(c.K0sVars, adminClientFactory, nodeConfig)
 		if err != nil {
 			return fmt.Errorf("failed to create CoreDNS reconciler: %w", err)
@@ -487,7 +486,7 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions) er
 		clusterComponents.Add(ctx, coreDNS)
 	}
 
-	if !slices.Contains(flags.DisableComponents, constant.NetworkProviderComponentName) {
+	if !flags.IsComponentDisabled(constant.NetworkProviderComponentName) {
 		logrus.Infof("Creating network reconcilers")
 
 		calicoSaver, err := controller.NewManifestsSaver("calico", c.K0sVars.DataDir)
@@ -503,7 +502,7 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions) er
 			return fmt.Errorf("failed to create windows manifests saver: %w", err)
 		}
 		clusterComponents.Add(ctx, controller.NewCalico(c.K0sVars, calicoInitSaver, calicoSaver))
-		if !slices.Contains(flags.DisableComponents, constant.WindowsNodeComponentName) {
+		if !flags.IsComponentDisabled(constant.WindowsNodeComponentName) {
 			clusterComponents.Add(ctx, controller.NewWindowsStackComponent(c.K0sVars, adminClientFactory, windowsStackSaver))
 		}
 		kubeRouterSaver, err := controller.NewManifestsSaver("kuberouter", c.K0sVars.DataDir)
@@ -513,7 +512,7 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions) er
 		clusterComponents.Add(ctx, controller.NewKubeRouter(c.K0sVars, kubeRouterSaver))
 	}
 
-	if !slices.Contains(flags.DisableComponents, constant.MetricsServerComponentName) {
+	if !flags.IsComponentDisabled(constant.MetricsServerComponentName) {
 		clusterComponents.Add(ctx, controller.NewMetricServer(c.K0sVars, adminClientFactory))
 	}
 
@@ -529,7 +528,7 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions) er
 		clusterComponents.Add(ctx, metrics)
 	}
 
-	if !slices.Contains(flags.DisableComponents, constant.WorkerConfigComponentName) {
+	if !flags.IsComponentDisabled(constant.WorkerConfigComponentName) {
 		// Create new dedicated leasepool for worker config reconciler
 		leaseName := fmt.Sprintf("k0s-%s-%s", constant.WorkerConfigComponentName, constant.KubernetesMajorMinorVersion)
 		workerConfigLeasePool := leaderelector.NewLeasePool(c.K0sVars.InvocationID, adminClientFactory, leaseName)
@@ -542,11 +541,11 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions) er
 		clusterComponents.Add(ctx, reconciler)
 	}
 
-	if !slices.Contains(flags.DisableComponents, constant.SystemRbacComponentName) {
+	if !flags.IsComponentDisabled(constant.SystemRbacComponentName) {
 		clusterComponents.Add(ctx, controller.NewSystemRBAC(c.K0sVars.ManifestsDir))
 	}
 
-	if !slices.Contains(flags.DisableComponents, constant.NodeRoleComponentName) {
+	if !flags.IsComponentDisabled(constant.NodeRoleComponentName) {
 		clusterComponents.Add(ctx, controller.NewNodeRole(c.K0sVars, adminClientFactory))
 	}
 
@@ -559,7 +558,7 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions) er
 		})
 	}
 
-	if !slices.Contains(flags.DisableComponents, constant.KubeSchedulerComponentName) {
+	if !flags.IsComponentDisabled(constant.KubeSchedulerComponentName) {
 		clusterComponents.Add(ctx, &controller.Scheduler{
 			LogLevel:   c.LogLevels.KubeScheduler,
 			K0sVars:    c.K0sVars,
@@ -567,7 +566,7 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions) er
 		})
 	}
 
-	if !slices.Contains(flags.DisableComponents, constant.KubeControllerManagerComponentName) {
+	if !flags.IsComponentDisabled(constant.KubeControllerManagerComponentName) {
 		clusterComponents.Add(ctx, &controller.Manager{
 			LogLevel:              c.LogLevels.KubeControllerManager,
 			K0sVars:               c.K0sVars,

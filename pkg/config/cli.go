@@ -62,8 +62,7 @@ const (
 
 // Shared controller cli flags
 type ControllerOptions struct {
-	NoTaints          bool
-	DisableComponents []string
+	NoTaints bool
 
 	ClusterComponents               *manager.Manager
 	EnableK0sCloudProvider          bool
@@ -75,6 +74,7 @@ type ControllerOptions struct {
 	KubeControllerManagerExtraArgs  string
 
 	enableWorker, singleNode bool
+	disabledComponents       []string
 }
 
 // Shared worker cli flags
@@ -115,7 +115,7 @@ func (o *ControllerOptions) Mode() ControllerMode {
 func (o *ControllerOptions) Normalize() error {
 	// Normalize component names
 	var disabledComponents []string
-	for _, disabledComponent := range o.DisableComponents {
+	for _, disabledComponent := range o.disabledComponents {
 		if !slices.Contains(availableComponents, disabledComponent) {
 			return fmt.Errorf("unknown component %s", disabledComponent)
 		}
@@ -124,9 +124,13 @@ func (o *ControllerOptions) Normalize() error {
 			disabledComponents = append(disabledComponents, disabledComponent)
 		}
 	}
-	o.DisableComponents = disabledComponents
+	o.disabledComponents = disabledComponents
 
 	return nil
+}
+
+func (o *ControllerOptions) IsComponentDisabled(name string) bool {
+	return slices.Contains(o.disabledComponents, name)
 }
 
 type LogLevels = struct {
@@ -296,7 +300,7 @@ func GetControllerFlags(controllerOpts *ControllerOptions) *pflag.FlagSet {
 	flagset := &pflag.FlagSet{}
 
 	flagset.BoolVar(&controllerOpts.enableWorker, "enable-worker", false, "enable worker (default false)")
-	flagset.StringSliceVar(&controllerOpts.DisableComponents, "disable-components", []string{}, "disable components (valid items: "+strings.Join(availableComponents, ",")+")")
+	flagset.StringSliceVar(&controllerOpts.disabledComponents, "disable-components", []string{}, "disable components (valid items: "+strings.Join(availableComponents, ",")+")")
 	flagset.BoolVar(&controllerOpts.singleNode, "single", false, "enable single node (implies --enable-worker, default false)")
 	flagset.BoolVar(&controllerOpts.NoTaints, "no-taints", false, "disable default taints for controller node")
 	flagset.BoolVar(&controllerOpts.EnableK0sCloudProvider, "enable-k0s-cloud-provider", false, "enables the k0s-cloud-provider (default false)")

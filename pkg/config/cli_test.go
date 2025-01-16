@@ -38,7 +38,7 @@ func TestControllerOptions_Normalize(t *testing.T) {
 	t.Run("failsOnUnknownComponent", func(t *testing.T) {
 		disabled := []string{"i-dont-exist"}
 
-		underTest := ControllerOptions{DisableComponents: disabled}
+		underTest := ControllerOptions{disabledComponents: disabled}
 		err := underTest.Normalize()
 
 		assert.ErrorContains(t, err, "unknown component i-dont-exist")
@@ -48,11 +48,11 @@ func TestControllerOptions_Normalize(t *testing.T) {
 		disabled := []string{"helm", "kube-proxy", "coredns", "kube-proxy", "autopilot"}
 		expected := []string{"helm", "kube-proxy", "coredns", "autopilot"}
 
-		underTest := ControllerOptions{DisableComponents: disabled}
+		underTest := ControllerOptions{disabledComponents: disabled}
 		err := underTest.Normalize()
 
 		require.NoError(t, err)
-		assert.Equal(t, expected, underTest.DisableComponents)
+		assert.Equal(t, expected, underTest.disabledComponents)
 	})
 }
 
