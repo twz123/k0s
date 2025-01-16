@@ -17,7 +17,9 @@ limitations under the License.
 package config
 
 import (
+	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,6 +27,7 @@ import (
 )
 
 func TestAvailableComponents_SortedAndUnique(t *testing.T) {
+	availableComponents := availableComponents[:]
 	expected := slices.Clone(availableComponents)
 	slices.Sort(expected)
 
@@ -34,25 +37,63 @@ func TestAvailableComponents_SortedAndUnique(t *testing.T) {
 	assert.Equal(t, expected, availableComponents, "Available components contain duplicates")
 }
 
-func TestControllerOptions_Normalize(t *testing.T) {
+func TestControllerOptions_DisableComponents(t *testing.T) {
+	require.LessOrEqual(t,
+		uintptr(len(availableComponents)),
+		reflect.TypeFor[componentSetFlag]().Size()*8,
+		"Number of available components is exceeding bitset size",
+	)
+
 	t.Run("failsOnUnknownComponent", func(t *testing.T) {
-		disabled := []string{"i-dont-exist"}
+		flags := GetControllerFlags(&ControllerOptions{})
+		value := flags.Lookup("disable-components").Value
 
-		underTest := ControllerOptions{disabledComponents: disabled}
-		err := underTest.Normalize()
+		t.Run("single", func(t *testing.T) {
+			err := flags.Parse([]string{"--disable-components=bogus"})
+			assert.ErrorContains(t, err, `invalid argument "bogus" for "--disable-components" flag: unknown component`)
+			assert.Empty(t, value.String())
+		})
 
-		assert.ErrorContains(t, err, "unknown component i-dont-exist")
+		t.Run("withCommas", func(t *testing.T) {
+			err := flags.Parse([]string{"--disable-components=node-role,bogus,helm"})
+			assert.ErrorContains(t, err, `invalid argument "node-role,bogus,helm" for "--disable-components" flag: unknown component at index 1`)
+			assert.Empty(t, value.String())
+		})
 	})
 
 	t.Run("removesDuplicateComponents", func(t *testing.T) {
 		disabled := []string{"helm", "kube-proxy", "coredns", "kube-proxy", "autopilot"}
-		expected := []string{"helm", "kube-proxy", "coredns", "autopilot"}
+		expected := "autopilot,coredns,helm,kube-proxy"
 
-		underTest := ControllerOptions{disabledComponents: disabled}
-		err := underTest.Normalize()
+		for _, test := range []struct {
+			name string
+			args []string
+		}{
+			{"separate", (func() (args []string) {
+				for _, disabled := range disabled {
+					args = append(args, "--disable-components", disabled)
+				}
+				return
+			})()},
 
-		require.NoError(t, err)
-		assert.Equal(t, expected, underTest.disabledComponents)
+			{"withCommas", []string{"--disable-components", strings.Join(disabled, ",")}},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				var underTest ControllerOptions
+				flags := GetControllerFlags(&underTest)
+				value := flags.Lookup("disable-components").Value
+
+				err := flags.Parse(test.args)
+
+				assert.NoError(t, err)
+				assert.Equal(t, expected, value.String())
+				for _, disabled := range disabled {
+					assert.True(t, underTest.IsComponentDisabled(disabled))
+				}
+				assert.False(t, underTest.IsComponentDisabled("node-role"))
+				assert.False(t, underTest.IsComponentDisabled("bogus"))
+			})
+		}
 	})
 }
 

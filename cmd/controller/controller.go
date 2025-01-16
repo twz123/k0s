@@ -105,9 +105,6 @@ func NewControllerCmd() *cobra.Command {
 			if c.TokenArg != "" && c.TokenFile != "" {
 				return errors.New("you can only pass one token argument either as a CLI argument 'k0s controller [join-token]' or as a flag 'k0s controller --token-file [path]'")
 			}
-			if err := controllerFlags.Normalize(); err != nil {
-				return err
-			}
 
 			if err := (&sysinfo.K0sSysinfoSpec{
 				ControllerRoleEnabled: true,

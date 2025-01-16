@@ -17,7 +17,9 @@ limitations under the License.
 package config
 
 import (
+	"errors"
 	"fmt"
+	"math/bits"
 	"os"
 	"slices"
 	"strconv"
@@ -74,7 +76,7 @@ type ControllerOptions struct {
 	KubeControllerManagerExtraArgs  string
 
 	enableWorker, singleNode bool
-	disabledComponents       []string
+	disabledComponents       componentSetFlag
 }
 
 // Shared worker cli flags
@@ -112,25 +114,9 @@ func (o *ControllerOptions) Mode() ControllerMode {
 	}
 }
 
-func (o *ControllerOptions) Normalize() error {
-	// Normalize component names
-	var disabledComponents []string
-	for _, disabledComponent := range o.disabledComponents {
-		if !slices.Contains(availableComponents, disabledComponent) {
-			return fmt.Errorf("unknown component %s", disabledComponent)
-		}
-
-		if !slices.Contains(disabledComponents, disabledComponent) {
-			disabledComponents = append(disabledComponents, disabledComponent)
-		}
-	}
-	o.disabledComponents = disabledComponents
-
-	return nil
-}
-
 func (o *ControllerOptions) IsComponentDisabled(name string) bool {
-	return slices.Contains(o.disabledComponents, name)
+	idx, found := slices.BinarySearch(availableComponents[:], name)
+	return found && o.disabledComponents.isSet(idx)
 }
 
 type LogLevels = struct {
@@ -276,7 +262,7 @@ func GetWorkerFlags() *pflag.FlagSet {
 	return flagset
 }
 
-var availableComponents = []string{
+var availableComponents = [...]string{
 	constant.ApplierManagerComponentName,
 	constant.AutopilotComponentName,
 	constant.ControlAPIComponentName,
@@ -300,7 +286,7 @@ func GetControllerFlags(controllerOpts *ControllerOptions) *pflag.FlagSet {
 	flagset := &pflag.FlagSet{}
 
 	flagset.BoolVar(&controllerOpts.enableWorker, "enable-worker", false, "enable worker (default false)")
-	flagset.StringSliceVar(&controllerOpts.disabledComponents, "disable-components", []string{}, "disable components (valid items: "+strings.Join(availableComponents, ",")+")")
+	flagset.Var(&controllerOpts.disabledComponents, "disable-components", "disable components (valid items: "+strings.Join(availableComponents[:], ",")+")")
 	flagset.BoolVar(&controllerOpts.singleNode, "single", false, "enable single node (implies --enable-worker, default false)")
 	flagset.BoolVar(&controllerOpts.NoTaints, "no-taints", false, "disable default taints for controller node")
 	flagset.BoolVar(&controllerOpts.EnableK0sCloudProvider, "enable-k0s-cloud-provider", false, "enables the k0s-cloud-provider (default false)")
@@ -374,4 +360,53 @@ func CallParentPersistentPreRun(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+type componentSetFlag uint
+
+func (*componentSetFlag) Type() string {
+	// Needs to end with Slice, so that command completion works multiple times.
+	return "stringSlice"
+}
+
+func (f *componentSetFlag) Set(value string) error {
+	modified := *f
+	components := strings.Split(value, ",")
+	for pos, component := range components {
+		if idx, found := slices.BinarySearch(availableComponents[:], component); found {
+			modified = modified.set(idx)
+			continue
+		}
+
+		if len(components) > 1 {
+			return fmt.Errorf("unknown component at index %d", pos)
+		}
+
+		return errors.New("unknown component")
+	}
+
+	*f = modified
+	return nil
+}
+
+func (f *componentSetFlag) String() string {
+	var b strings.Builder
+	first := true
+	for rest := uint(*f); rest != 0; /* clear lowest bit: */ rest &= rest - 1 {
+		if first {
+			first = false
+		} else {
+			b.WriteByte(',')
+		}
+		b.WriteString(availableComponents[bits.TrailingZeros(rest)])
+	}
+	return b.String()
+}
+
+func (f componentSetFlag) isSet(bit int) bool {
+	return (f & (1 << bit)) != 0
+}
+
+func (f componentSetFlag) set(bit int) componentSetFlag {
+	return f | (1 << bit)
 }
