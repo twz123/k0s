@@ -25,9 +25,9 @@ import (
 	nodeutil "k8s.io/component-helpers/node/util"
 )
 
-func TestGetNodename(t *testing.T) {
+func TestGetNodeName(t *testing.T) {
 	t.Run("should_always_return_override_if_given", func(t *testing.T) {
-		name, err := GetNodename("override")
+		name, err := GetNodeName("override")
 		if assert.NoError(t, err) {
 			assert.Equal(t, "override", name)
 		}
@@ -38,7 +38,7 @@ func TestGetNodename(t *testing.T) {
 		require.NoError(t, err)
 
 		t.Run("should_call_kubernetes_hostname_helper_on_linux", func(t *testing.T) {
-			name, err := GetNodename("")
+			name, err := GetNodeName("")
 			if assert.NoError(t, err) {
 				assert.Equal(t, kubeHostname, name)
 			}

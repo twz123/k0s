@@ -29,7 +29,7 @@ import (
 	nodeutil "k8s.io/component-helpers/node/util"
 )
 
-func TestGetNodenameWindows(t *testing.T) {
+func TestGetNodeNameWindows(t *testing.T) {
 	kubeHostname, err := nodeutil.GetHostname("")
 	require.NoError(t, err)
 	baseURL := startFakeMetadataServer(t)

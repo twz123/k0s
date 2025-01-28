@@ -20,15 +20,16 @@ import (
 	"context"
 	"fmt"
 
+	apitypes "k8s.io/apimachinery/pkg/types"
 	nodeutil "k8s.io/component-helpers/node/util"
 )
 
-// GetNodename returns the node name for the node taking OS, cloud provider and override into account
-func GetNodename(override string) (string, error) {
+// GetNodeName returns the node name for the node taking OS, cloud provider and override into account
+func GetNodeName(override string) (apitypes.NodeName, error) {
 	return getNodename(context.TODO(), override)
 }
 
-func getNodename(ctx context.Context, override string) (string, error) {
+func getNodename(ctx context.Context, override string) (apitypes.NodeName, error) {
 	if override == "" {
 		var err error
 		override, err = defaultNodenameOverride(ctx)
@@ -40,5 +41,5 @@ func getNodename(ctx context.Context, override string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to determine node name: %w", err)
 	}
-	return nodeName, nil
+	return apitypes.NodeName(nodeName), nil
 }
