@@ -652,29 +652,8 @@ func (c *command) start(ctx context.Context) error {
 func (c *command) startWorker(ctx context.Context, nodeName apitypes.NodeName, kubeletExtraArgs stringmap.StringMap, profile string, nodeConfig *v1beta1.ClusterConfig) error {
 	var bootstrapConfig string
 	if !file.Exists(c.K0sVars.KubeletAuthConfigPath) {
-		// wait for controller to start up
-		err := retry.Do(func() error {
-			if !file.Exists(c.K0sVars.AdminKubeConfigPath) {
-				return fmt.Errorf("file does not exist: %s", c.K0sVars.AdminKubeConfigPath)
-			}
-			return nil
-		}, retry.Context(ctx))
-		if err != nil {
-			return err
-		}
-
-		err = retry.Do(func() error {
-			// five minutes here are coming from maximum theoretical duration of kubelet bootstrap process
-			// we use retry.Do with 10 attempts, back-off delay and delay duration 500 ms which gives us
-			// 225 seconds here
-			tokenAge := time.Second * 225
-			cfg, err := token.CreateKubeletBootstrapToken(ctx, nodeConfig.Spec.API, c.K0sVars, token.RoleWorker, tokenAge)
-			if err != nil {
-				return err
-			}
-			bootstrapConfig = cfg
-			return nil
-		}, retry.Context(ctx))
+		var err error
+		bootstrapConfig, err = createEmbeddedWorkerJoinToken(ctx, c.K0sVars, nodeConfig.Spec.API)
 		if err != nil {
 			return err
 		}
@@ -693,6 +672,37 @@ func (c *command) startWorker(ctx context.Context, nodeName apitypes.NodeName, k
 		wc.Taints = append(wc.Taints, taint.String())
 	}
 	return wc.Start(ctx, nodeName, kubeletExtraArgs)
+}
+
+func createEmbeddedWorkerJoinToken(ctx context.Context, k0sVars *config.CfgVars, apiSpec *v1beta1.APISpec) (string, error) {
+	var bootstrapConfig string
+	// wait for controller to start up
+	err := retry.Do(func() error {
+		if !file.Exists(k0sVars.AdminKubeConfigPath) {
+			return fmt.Errorf("file does not exist: %s", k0sVars.AdminKubeConfigPath)
+		}
+		return nil
+	}, retry.Context(ctx))
+	if err != nil {
+		return "", err
+	}
+
+	err = retry.Do(func() error {
+		// five minutes here are coming from maximum theoretical duration of kubelet bootstrap process
+		// we use retry.Do with 10 attempts, back-off delay and delay duration 500 ms which gives us
+		// 225 seconds here
+		tokenAge := time.Second * 225
+		cfg, err := token.CreateKubeletBootstrapToken(ctx, apiSpec, k0sVars, token.RoleWorker, tokenAge)
+		if err != nil {
+			return err
+		}
+		bootstrapConfig = cfg
+		return nil
+	}, retry.Context(ctx))
+	if err != nil {
+		return "", err
+	}
+	return bootstrapConfig, nil
 }
 
 // If we've got an etcd data directory in place for embedded etcd, or a ca for
