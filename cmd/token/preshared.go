@@ -33,7 +33,7 @@ import (
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/pkg/config"
-	"github.com/k0sproject/k0s/pkg/token"
+	token "github.com/k0sproject/k0s/pkg/join"
 
 	"github.com/spf13/cobra"
 )

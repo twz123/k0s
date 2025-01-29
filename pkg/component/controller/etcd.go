@@ -41,8 +41,8 @@ import (
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/etcd"
+	token "github.com/k0sproject/k0s/pkg/join"
 	"github.com/k0sproject/k0s/pkg/supervisor"
-	"github.com/k0sproject/k0s/pkg/token"
 )
 
 // Etcd implement the component interface to run etcd

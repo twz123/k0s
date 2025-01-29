@@ -30,7 +30,7 @@ import (
 	"time"
 
 	"github.com/k0sproject/k0s/inttest/common"
-	"github.com/k0sproject/k0s/pkg/token"
+	token "github.com/k0sproject/k0s/pkg/join"
 
 	"github.com/stretchr/testify/suite"
 )

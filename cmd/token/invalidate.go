@@ -20,7 +20,7 @@ import (
 	"fmt"
 
 	"github.com/k0sproject/k0s/pkg/config"
-	"github.com/k0sproject/k0s/pkg/token"
+	token "github.com/k0sproject/k0s/pkg/join"
 
 	"github.com/spf13/cobra"
 )
