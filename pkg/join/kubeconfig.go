@@ -103,6 +103,14 @@ func ToKubeconfig(t *Token) clientcmdapi.Config {
 	return t.kubeconfig
 }
 
+// Some source for a join token.
+//
+// Can be virtually anything: A static token, a backing file,
+// an environment variable lookup, an interactive command line prompt, ...
+type TokenSource interface {
+	ReadToken(context.Context) (*Token, error)
+}
+
 // CreateKubeletBootstrapToken creates a new k0s bootstrap token.
 func CreateKubeletBootstrapToken(ctx context.Context, api *v1beta1.APISpec, k0sVars *config.CfgVars, role string, expiry time.Duration) (*Token, error) {
 	userName, joinURL, err := loadUserAndJoinURL(api, role)

@@ -80,8 +80,6 @@ type WorkerOptions struct {
 	KubeletExtraArgs string
 	Labels           []string
 	Taints           []string
-	TokenFile        string
-	TokenArg         string
 	WorkerProfile    string
 	IPTablesMode     string
 	DisableIPTables  bool
@@ -236,7 +234,6 @@ func GetWorkerFlags() *pflag.FlagSet {
 	flagset.StringVar(&workerOpts.WorkerProfile, "profile", "default", "worker profile to use on the node")
 	flagset.StringVar(&workerOpts.CIDRRange, "cidr-range", "10.96.0.0/12", "HACK: cidr range for the windows worker node")
 	flagset.BoolVar(&workerOpts.CloudProvider, "enable-cloud-provider", false, "Whether or not to enable cloud provider support in kubelet")
-	flagset.StringVar(&workerOpts.TokenFile, "token-file", "", "Path to the file containing join-token.")
 	flagset.VarP((*logLevelsFlag)(&workerOpts.LogLevels), "logging", "l", "Logging Levels for the different components")
 	flagset.StringSliceVarP(&workerOpts.Labels, "labels", "", []string{}, "Node labels, list of key=value pairs")
 	flagset.StringSliceVarP(&workerOpts.Taints, "taints", "", []string{}, "Node taints, list of key=value:effect strings")

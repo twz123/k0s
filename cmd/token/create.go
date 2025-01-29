@@ -97,7 +97,7 @@ k0s token create --role worker --expiry 10m  //sets expiration time to 10 minute
 
 			encoded, err := join.EncodeToken(bootstrapToken)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to encode join token: %w", err)
 			}
 
 			fmt.Fprintln(cmd.OutOrStdout(), encoded)

@@ -25,6 +25,7 @@ import (
 	"runtime"
 	"syscall"
 
+	"github.com/k0sproject/k0s/cmd/internal"
 	"github.com/k0sproject/k0s/internal/pkg/flags"
 	internallog "github.com/k0sproject/k0s/internal/pkg/log"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
@@ -49,7 +50,10 @@ import (
 type Command config.CLIOptions
 
 func NewWorkerCmd() *cobra.Command {
-	var ignorePreFlightChecks bool
+	var (
+		tokenFlags            internal.TokenFlags
+		ignorePreFlightChecks bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "worker [join-token]",
@@ -74,12 +78,10 @@ func NewWorkerCmd() *cobra.Command {
 			}
 
 			c := (*Command)(opts)
-			if len(args) > 0 {
-				c.TokenArg = args[0]
-			}
 
-			if c.TokenArg != "" && c.TokenFile != "" {
-				return errors.New("you can only pass one token argument either as a CLI argument 'k0s worker [token]' or as a flag 'k0s worker --token-file [path]'")
+			tokenSource, err := tokenFlags.GetSource(args)
+			if err != nil {
+				return err
 			}
 
 			nodeName, kubeletExtraArgs, err := GetNodeName(&c.WorkerOptions)
@@ -99,12 +101,13 @@ func NewWorkerCmd() *cobra.Command {
 			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 			defer cancel()
 
-			return c.Start(ctx, nodeName, kubeletExtraArgs)
+			return c.Start(ctx, nodeName, kubeletExtraArgs, tokenSource)
 		},
 	}
 
 	flags := cmd.Flags()
 	flags.AddFlagSet(config.GetPersistentFlagSet())
+	tokenFlags.AddToFlagSet(flags)
 	flags.AddFlagSet(config.GetWorkerFlags())
 	flags.BoolVar(&ignorePreFlightChecks, "ignore-pre-flight-checks", false, "continue even if pre-flight checks fail")
 
@@ -132,8 +135,8 @@ func GetNodeName(opts *config.WorkerOptions) (apitypes.NodeName, stringmap.Strin
 }
 
 // Start starts the worker components based on the given [config.CLIOptions].
-func (c *Command) Start(ctx context.Context, nodeName apitypes.NodeName, kubeletExtraArgs stringmap.StringMap) error {
-	if err := worker.BootstrapKubeletKubeconfig(ctx, c.K0sVars, nodeName, &c.WorkerOptions); err != nil {
+func (c *Command) Start(ctx context.Context, nodeName apitypes.NodeName, kubeletExtraArgs stringmap.StringMap, tokenSource worker.TokenSource) error {
+	if err := worker.BootstrapKubeletKubeconfig(ctx, c.K0sVars, nodeName, tokenSource); err != nil {
 		return err
 	}
 

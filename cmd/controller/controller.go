@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go"
+	"github.com/k0sproject/k0s/cmd/internal"
 	workercmd "github.com/k0sproject/k0s/cmd/worker"
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
@@ -72,7 +73,10 @@ import (
 type command config.CLIOptions
 
 func NewControllerCmd() *cobra.Command {
-	var ignorePreFlightChecks bool
+	var (
+		tokenFlags            internal.TokenFlags
+		ignorePreFlightChecks bool
+	)
 
 	cmd := &cobra.Command{
 		Use:     "controller [join-token]",
@@ -99,12 +103,11 @@ func NewControllerCmd() *cobra.Command {
 
 			c := (*command)(opts)
 
-			if len(args) > 0 {
-				c.TokenArg = args[0]
+			tokenSource, err := tokenFlags.GetSource(args)
+			if err != nil {
+				return err
 			}
-			if c.TokenArg != "" && c.TokenFile != "" {
-				return errors.New("you can only pass one token argument either as a CLI argument 'k0s controller [join-token]' or as a flag 'k0s controller --token-file [path]'")
-			}
+
 			if err := c.ControllerOptions.Normalize(); err != nil {
 				return err
 			}
@@ -119,12 +122,13 @@ func NewControllerCmd() *cobra.Command {
 
 			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 			defer cancel()
-			return c.start(ctx)
+			return c.start(ctx, tokenSource)
 		},
 	}
 
 	flags := cmd.Flags()
 	flags.AddFlagSet(config.GetPersistentFlagSet())
+	tokenFlags.AddToFlagSet(flags)
 	flags.AddFlagSet(config.GetControllerFlags())
 	flags.AddFlagSet(config.GetWorkerFlags())
 	flags.BoolVar(&ignorePreFlightChecks, "ignore-pre-flight-checks", false, "continue even if pre-flight checks fail")
@@ -132,7 +136,7 @@ func NewControllerCmd() *cobra.Command {
 	return cmd
 }
 
-func (c *command) start(ctx context.Context) error {
+func (c *command) start(ctx context.Context, tokenSource join.TokenSource) error {
 	perfTimer := performance.NewTimer("controller-start").Buffer().Start()
 
 	nodeConfig, err := c.K0sVars.NodeConfig()
@@ -192,21 +196,10 @@ func (c *command) start(ctx context.Context) error {
 
 	var joinClient *join.Client
 
-	if (c.TokenArg != "" || c.TokenFile != "") && c.needToJoin(nodeConfig) {
-		var tokenData string
-		if c.TokenArg != "" {
-			tokenData = c.TokenArg
-		} else {
-			data, err := os.ReadFile(c.TokenFile)
-			if err != nil {
-				return fmt.Errorf("read token file %q: %w", c.TokenFile, err)
-			}
-			tokenData = string(data)
-		}
-
-		token, err := join.DecodeToken(tokenData)
+	if tokenSource != nil && c.needToJoin(nodeConfig) {
+		token, err := tokenSource.ReadToken(ctx)
 		if err != nil {
-			return fmt.Errorf("failed to decode join token: %w", err)
+			return fmt.Errorf("failed to read join token: %w", err)
 		}
 
 		joinClient, err = joinController(ctx, token, c.K0sVars.CertRootDir)
@@ -656,23 +649,11 @@ func (c *command) start(ctx context.Context) error {
 }
 
 func (c *command) startWorker(ctx context.Context, nodeName apitypes.NodeName, kubeletExtraArgs stringmap.StringMap, profile string, nodeConfig *v1beta1.ClusterConfig) error {
-	var bootstrapConfig string
-	if !file.Exists(c.K0sVars.KubeletAuthConfigPath) {
-		token, err := createEmbeddedWorkerJoinToken(ctx, c.K0sVars, nodeConfig.Spec.API)
-		if err != nil {
-			return err
-		}
-
-		bootstrapConfig, err = join.EncodeToken(token)
-		if err != nil {
-			return err
-		}
-	}
 	// Cast and make a copy of the controller command so it can use the same
 	// opts to start the worker. Needs to be a copy so the original token and
 	// possibly other args won't get messed up.
 	wc := workercmd.Command(*(*config.CLIOptions)(c))
-	wc.TokenArg = bootstrapConfig
+	tokenSource := embeddedWorkerTokenSource{c.K0sVars, nodeConfig.Spec.API}
 	wc.WorkerProfile = profile
 	wc.Labels = append(wc.Labels, fields.OneTermEqualSelector(constant.K0SNodeRoleLabel, "control-plane").String())
 	wc.DisableIPTables = true
@@ -681,15 +662,21 @@ func (c *command) startWorker(ctx context.Context, nodeName apitypes.NodeName, k
 		taint := fields.OneTermEqualSelector(key, ":NoSchedule")
 		wc.Taints = append(wc.Taints, taint.String())
 	}
-	return wc.Start(ctx, nodeName, kubeletExtraArgs)
+	return wc.Start(ctx, nodeName, kubeletExtraArgs, &tokenSource)
 }
 
-func createEmbeddedWorkerJoinToken(ctx context.Context, k0sVars *config.CfgVars, apiSpec *v1beta1.APISpec) (*join.Token, error) {
+type embeddedWorkerTokenSource struct {
+	k0sVars *config.CfgVars
+	api     *v1beta1.APISpec
+}
+
+func (s *embeddedWorkerTokenSource) ReadToken(ctx context.Context) (*join.Token, error) {
 	var bootstrapConfig *join.Token
+
 	// wait for controller to start up
 	err := retry.Do(func() error {
-		if !file.Exists(k0sVars.AdminKubeConfigPath) {
-			return fmt.Errorf("file does not exist: %s", k0sVars.AdminKubeConfigPath)
+		if !file.Exists(s.k0sVars.AdminKubeConfigPath) {
+			return fmt.Errorf("file does not exist: %s", s.k0sVars.AdminKubeConfigPath)
 		}
 		return nil
 	}, retry.Context(ctx))
@@ -702,7 +689,7 @@ func createEmbeddedWorkerJoinToken(ctx context.Context, k0sVars *config.CfgVars,
 		// we use retry.Do with 10 attempts, back-off delay and delay duration 500 ms which gives us
 		// 225 seconds here
 		tokenAge := time.Second * 225
-		cfg, err := join.CreateKubeletBootstrapToken(ctx, apiSpec, k0sVars, join.RoleWorker, tokenAge)
+		cfg, err := join.CreateKubeletBootstrapToken(ctx, s.api, s.k0sVars, join.RoleWorker, tokenAge)
 		if err != nil {
 			return err
 		}

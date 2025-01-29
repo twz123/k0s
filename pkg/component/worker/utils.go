@@ -43,7 +43,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func BootstrapKubeletKubeconfig(ctx context.Context, k0sVars *config.CfgVars, nodeName apitypes.NodeName, workerOpts *config.WorkerOptions) error {
+func BootstrapKubeletKubeconfig(ctx context.Context, k0sVars *config.CfgVars, nodeName apitypes.NodeName, tokenSource join.TokenSource) error {
 	bootstrapKubeconfigPath := filepath.Join(k0sVars.DataDir, "kubelet-bootstrap.conf")
 
 	// When using `k0s install` along with a join token, that join token
@@ -70,34 +70,11 @@ func BootstrapKubeletKubeconfig(ctx context.Context, k0sVars *config.CfgVars, no
 
 	// 3: A join token has been given.
 	// Bootstrap the kubelet kubeconfig via the embedded bootstrap config.
-	case workerOpts.TokenArg != "" || workerOpts.TokenFile != "":
-		var tokenData string
-		if workerOpts.TokenArg != "" {
-			tokenData = workerOpts.TokenArg
-		} else {
-			var problem string
-			data, err := os.ReadFile(workerOpts.TokenFile)
-			if errors.Is(err, os.ErrNotExist) {
-				problem = "not found"
-			} else if err != nil {
-				return fmt.Errorf("failed to read token file: %w", err)
-			} else if len(data) == 0 {
-				problem = "is empty"
-			}
-			if problem != "" {
-				return fmt.Errorf("token file %q %s"+
-					`: obtain a new token via "k0s token create ..." and store it in the file`+
-					` or reinstall this node via "k0s install --force ..." or "k0sctl apply --force ..."`,
-					workerOpts.TokenFile, problem)
-			}
-
-			tokenData = string(data)
-		}
-
+	case tokenSource != nil:
 		// Join token given, so use that.
-		kubeconfig, err := join.DecodeToken(tokenData)
+		kubeconfig, err := tokenSource.ReadToken(ctx)
 		if err != nil {
-			return fmt.Errorf("failed to decode join token: %w", err)
+			return fmt.Errorf("failed to read join token: %w", err)
 		}
 
 		bootstrapKubeconfig = ptr.To(join.ToKubeconfig(kubeconfig))
@@ -155,7 +132,7 @@ func BootstrapKubeletKubeconfig(ctx context.Context, k0sVars *config.CfgVars, no
 				k0sVars.KubeletAuthConfigPath,
 				bootstrapKubeconfigPath,
 				certDir,
-				apitypes.NodeName(nodeName),
+				nodeName,
 			)
 		},
 		retry.Context(ctx),
