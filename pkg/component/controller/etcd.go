@@ -41,7 +41,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/etcd"
-	token "github.com/k0sproject/k0s/pkg/join"
+	"github.com/k0sproject/k0s/pkg/join"
 	"github.com/k0sproject/k0s/pkg/supervisor"
 )
 
@@ -49,7 +49,7 @@ import (
 type Etcd struct {
 	CertManager certificate.Manager
 	Config      *v1beta1.EtcdConfig
-	JoinClient  *token.JoinClient
+	JoinClient  *join.JoinClient
 	K0sVars     *config.CfgVars
 	LogLevel    string
 

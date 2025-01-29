@@ -25,7 +25,7 @@ import (
 
 	"github.com/k0sproject/k0s/pkg/component/status"
 	"github.com/k0sproject/k0s/pkg/config"
-	token "github.com/k0sproject/k0s/pkg/join"
+	"github.com/k0sproject/k0s/pkg/join"
 
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/retry"
@@ -88,7 +88,7 @@ k0s token create --role worker --expiry 10m  //sets expiration time to 10 minute
 					return err
 				}
 
-				bootstrapToken, err = token.CreateKubeletBootstrapToken(cmd.Context(), nodeConfig.Spec.API, opts.K0sVars, createTokenRole, expiry)
+				bootstrapToken, err = join.CreateKubeletBootstrapToken(cmd.Context(), nodeConfig.Spec.API, opts.K0sVars, createTokenRole, expiry)
 				return err
 			})
 			if err != nil {
@@ -112,7 +112,7 @@ func ensureTokenCreationAcceptable(createTokenRole string, statusInfo *status.K0
 	if statusInfo.SingleNode {
 		return errors.New("refusing to create token: cannot join into a single node cluster")
 	}
-	if createTokenRole == token.RoleController && !statusInfo.ClusterConfig.Spec.Storage.IsJoinable() {
+	if createTokenRole == join.RoleController && !statusInfo.ClusterConfig.Spec.Storage.IsJoinable() {
 		return errors.New("refusing to create token: cannot join controller into current storage")
 	}
 

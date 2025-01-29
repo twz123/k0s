@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package token_test
+package join_test
 
 import (
 	"bytes"
@@ -29,7 +29,7 @@ import (
 	"testing"
 
 	k0sv1beta1 "github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
-	token "github.com/k0sproject/k0s/pkg/join"
+	"github.com/k0sproject/k0s/pkg/join"
 
 	bootstraptokenv1 "k8s.io/kubernetes/cmd/kubeadm/app/apis/bootstraptoken/v1"
 
@@ -50,12 +50,12 @@ func TestJoinClient_GetCA(t *testing.T) {
 	})
 
 	joinURL.Path = "/some/sub/path"
-	kubeconfig, err := token.GenerateKubeconfig(joinURL.String(), certData, t.Name(), &bootstraptokenv1.BootstrapTokenString{ID: "the-id", Secret: "the-secret"})
+	kubeconfig, err := join.GenerateKubeconfig(joinURL.String(), certData, t.Name(), &bootstraptokenv1.BootstrapTokenString{ID: "the-id", Secret: "the-secret"})
 	require.NoError(t, err)
-	tok, err := token.JoinEncode(bytes.NewReader(kubeconfig))
+	tok, err := join.JoinEncode(bytes.NewReader(kubeconfig))
 	require.NoError(t, err)
 
-	underTest, err := token.JoinClientFromToken(tok)
+	underTest, err := join.JoinClientFromToken(tok)
 	require.NoError(t, err)
 
 	response, err := underTest.GetCA(context.TODO())
@@ -85,12 +85,12 @@ func TestJoinClient_JoinEtcd(t *testing.T) {
 	})
 
 	joinURL.Path = "/some/sub/path"
-	kubeconfig, err := token.GenerateKubeconfig(joinURL.String(), certData, t.Name(), &bootstraptokenv1.BootstrapTokenString{ID: "the-id", Secret: "the-secret"})
+	kubeconfig, err := join.GenerateKubeconfig(joinURL.String(), certData, t.Name(), &bootstraptokenv1.BootstrapTokenString{ID: "the-id", Secret: "the-secret"})
 	require.NoError(t, err)
-	tok, err := token.JoinEncode(bytes.NewReader(kubeconfig))
+	tok, err := join.JoinEncode(bytes.NewReader(kubeconfig))
 	require.NoError(t, err)
 
-	underTest, err := token.JoinClientFromToken(tok)
+	underTest, err := join.JoinClientFromToken(tok)
 	require.NoError(t, err)
 
 	response, err := underTest.JoinEtcd(context.TODO(), k0sv1beta1.EtcdRequest{
@@ -106,13 +106,13 @@ func TestJoinClient_Cancellation(t *testing.T) {
 
 	for _, test := range []struct {
 		name          string
-		funcUnderTest func(context.Context, *token.JoinClient) error
+		funcUnderTest func(context.Context, *join.JoinClient) error
 	}{
-		{"GetCA", func(ctx context.Context, c *token.JoinClient) error {
+		{"GetCA", func(ctx context.Context, c *join.JoinClient) error {
 			_, err := c.GetCA(ctx)
 			return err
 		}},
-		{"JoinEtcd", func(ctx context.Context, c *token.JoinClient) error {
+		{"JoinEtcd", func(ctx context.Context, c *join.JoinClient) error {
 			_, err := c.JoinEtcd(ctx, k0sv1beta1.EtcdRequest{})
 			return err
 		}},
@@ -126,12 +126,12 @@ func TestJoinClient_Cancellation(t *testing.T) {
 				<-req.Context().Done()              // block forever
 			})
 
-			kubeconfig, err := token.GenerateKubeconfig(joinURL.String(), certData, "", &bootstraptokenv1.BootstrapTokenString{})
+			kubeconfig, err := join.GenerateKubeconfig(joinURL.String(), certData, "", &bootstraptokenv1.BootstrapTokenString{})
 			require.NoError(t, err)
-			tok, err := token.JoinEncode(bytes.NewReader(kubeconfig))
+			tok, err := join.JoinEncode(bytes.NewReader(kubeconfig))
 			require.NoError(t, err)
 
-			underTest, err := token.JoinClientFromToken(tok)
+			underTest, err := join.JoinClientFromToken(tok)
 			require.NoError(t, err)
 
 			err = test.funcUnderTest(clientContext, underTest)

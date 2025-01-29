@@ -30,7 +30,7 @@ import (
 	"time"
 
 	"github.com/k0sproject/k0s/inttest/common"
-	token "github.com/k0sproject/k0s/pkg/join"
+	"github.com/k0sproject/k0s/pkg/join"
 
 	"github.com/stretchr/testify/suite"
 )
@@ -110,7 +110,7 @@ func (s *CPLBUserSpaceSuite) TestK0sGetsUp() {
 	}
 
 	// Create a worker join token
-	workerJoinToken, err := s.GetJoinToken(token.RoleWorker)
+	workerJoinToken, err := s.GetJoinToken(join.RoleWorker)
 	s.Require().NoError(err)
 
 	// Start the workers using the join token

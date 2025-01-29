@@ -20,7 +20,7 @@ import (
 	"fmt"
 
 	"github.com/k0sproject/k0s/pkg/config"
-	token "github.com/k0sproject/k0s/pkg/join"
+	"github.com/k0sproject/k0s/pkg/join"
 
 	"github.com/spf13/cobra"
 )
@@ -36,7 +36,7 @@ func tokenInvalidateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			manager, err := token.NewManager(opts.K0sVars.AdminKubeConfigPath)
+			manager, err := join.NewManager(opts.K0sVars.AdminKubeConfigPath)
 			if err != nil {
 				return err
 			}

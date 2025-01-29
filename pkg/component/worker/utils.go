@@ -31,7 +31,7 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
-	token "github.com/k0sproject/k0s/pkg/join"
+	"github.com/k0sproject/k0s/pkg/join"
 
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
@@ -94,7 +94,7 @@ func BootstrapKubeletKubeconfig(ctx context.Context, k0sVars *config.CfgVars, no
 		}
 
 		// Join token given, so use that.
-		kubeconfig, err := token.DecodeJoinToken(tokenData)
+		kubeconfig, err := join.DecodeJoinToken(tokenData)
 		if err != nil {
 			return fmt.Errorf("failed to decode join token: %w", err)
 		}
@@ -138,7 +138,7 @@ func BootstrapKubeletKubeconfig(ctx context.Context, k0sVars *config.CfgVars, no
 		}
 	}
 
-	if tokenType := token.GetTokenType(bootstrapKubeconfig); tokenType != "kubelet-bootstrap" {
+	if tokenType := join.GetTokenType(bootstrapKubeconfig); tokenType != "kubelet-bootstrap" {
 		return fmt.Errorf("wrong token type %s, expected type: kubelet-bootstrap", tokenType)
 	}
 

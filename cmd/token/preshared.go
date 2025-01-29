@@ -33,7 +33,7 @@ import (
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/pkg/config"
-	token "github.com/k0sproject/k0s/pkg/join"
+	"github.com/k0sproject/k0s/pkg/join"
 
 	"github.com/spf13/cobra"
 )
@@ -92,7 +92,7 @@ func preSharedCmd() *cobra.Command {
 }
 
 func createSecret(role string, validity time.Duration, outDir string) (*bootstraptokenv1.BootstrapTokenString, error) {
-	secret, token, err := token.RandomBootstrapSecret(role, validity)
+	secret, token, err := join.RandomBootstrapSecret(role, validity)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate bootstrap secret: %w", err)
 	}
@@ -127,12 +127,12 @@ func createKubeConfig(tok *bootstraptokenv1.BootstrapTokenString, role, joinURL,
 	default:
 		return fmt.Errorf("unknown role: %s", role)
 	}
-	kubeconfig, err := token.GenerateKubeconfig(joinURL, caCert, userName, tok)
+	kubeconfig, err := join.GenerateKubeconfig(joinURL, caCert, userName, tok)
 	if err != nil {
 		return fmt.Errorf("error generating kubeconfig: %w", err)
 	}
 
-	encodedToken, err := token.JoinEncode(bytes.NewReader(kubeconfig))
+	encodedToken, err := join.JoinEncode(bytes.NewReader(kubeconfig))
 	if err != nil {
 		return fmt.Errorf("error encoding token: %w", err)
 	}

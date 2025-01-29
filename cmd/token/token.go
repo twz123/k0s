@@ -19,7 +19,7 @@ package token
 import (
 	"fmt"
 
-	token "github.com/k0sproject/k0s/pkg/join"
+	"github.com/k0sproject/k0s/pkg/join"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -42,8 +42,8 @@ func NewTokenCmd() *cobra.Command {
 }
 
 func checkTokenRole(tokenRole string) error {
-	if tokenRole != token.RoleController && tokenRole != token.RoleWorker {
-		return fmt.Errorf("unsupported role %q; supported roles are %q and %q", tokenRole, token.RoleController, token.RoleWorker)
+	if tokenRole != join.RoleController && tokenRole != join.RoleWorker {
+		return fmt.Errorf("unsupported role %q; supported roles are %q and %q", tokenRole, join.RoleController, join.RoleWorker)
 	}
 	return nil
 }

@@ -57,7 +57,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/component/worker"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
-	token "github.com/k0sproject/k0s/pkg/join"
+	"github.com/k0sproject/k0s/pkg/join"
 	"github.com/k0sproject/k0s/pkg/k0scontext"
 	"github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/k0sproject/k0s/pkg/performance"
@@ -190,7 +190,7 @@ func (c *command) start(ctx context.Context) error {
 
 	certificateManager := certificate.Manager{K0sVars: c.K0sVars}
 
-	var joinClient *token.JoinClient
+	var joinClient *join.JoinClient
 
 	if (c.TokenArg != "" || c.TokenFile != "") && c.needToJoin(nodeConfig) {
 		var tokenData string
@@ -692,7 +692,7 @@ func createEmbeddedWorkerJoinToken(ctx context.Context, k0sVars *config.CfgVars,
 		// we use retry.Do with 10 attempts, back-off delay and delay duration 500 ms which gives us
 		// 225 seconds here
 		tokenAge := time.Second * 225
-		cfg, err := token.CreateKubeletBootstrapToken(ctx, apiSpec, k0sVars, token.RoleWorker, tokenAge)
+		cfg, err := join.CreateKubeletBootstrapToken(ctx, apiSpec, k0sVars, join.RoleWorker, tokenAge)
 		if err != nil {
 			return err
 		}
@@ -741,8 +741,8 @@ func writeCerts(caData v1beta1.CaResponse, certRootDir string) error {
 	return nil
 }
 
-func joinController(ctx context.Context, tokenArg string, certRootDir string) (*token.JoinClient, error) {
-	joinClient, err := token.JoinClientFromToken(tokenArg)
+func joinController(ctx context.Context, tokenArg string, certRootDir string) (*join.JoinClient, error) {
+	joinClient, err := join.JoinClientFromToken(tokenArg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create join client: %w", err)
 	}
