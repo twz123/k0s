@@ -190,7 +190,7 @@ func (c *command) start(ctx context.Context) error {
 
 	certificateManager := certificate.Manager{K0sVars: c.K0sVars}
 
-	var joinClient *join.JoinClient
+	var joinClient *join.Client
 
 	if (c.TokenArg != "" || c.TokenFile != "") && c.needToJoin(nodeConfig) {
 		var tokenData string
@@ -741,14 +741,14 @@ func writeCerts(caData v1beta1.CaResponse, certRootDir string) error {
 	return nil
 }
 
-func joinController(ctx context.Context, tokenArg string, certRootDir string) (*join.JoinClient, error) {
-	joinClient, err := join.JoinClientFromToken(tokenArg)
+func joinController(ctx context.Context, tokenArg string, certRootDir string) (*join.Client, error) {
+	joinClient, err := join.ClientFromToken(tokenArg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create join client: %w", err)
 	}
 
-	if joinClient.JoinTokenType() != "controller-bootstrap" {
-		return nil, fmt.Errorf("wrong token type %s, expected type: controller-bootstrap", joinClient.JoinTokenType())
+	if joinClient.TokenType() != "controller-bootstrap" {
+		return nil, fmt.Errorf("wrong token type %s, expected type: controller-bootstrap", joinClient.TokenType())
 	}
 
 	logrus.Info("Joining existing cluster via ", joinClient.Address())

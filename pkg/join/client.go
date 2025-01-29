@@ -31,15 +31,15 @@ import (
 	"k8s.io/client-go/tools/clientcmd/api"
 )
 
-// JoinClient is the client we can use to call k0s join APIs
-type JoinClient struct {
-	joinTokenType string
-	joinAddress   string
-	restClient    *rest.RESTClient
+// Client is the client we can use to call k0s join APIs
+type Client struct {
+	tokenType  string
+	address    string
+	restClient *rest.RESTClient
 }
 
-// JoinClientFromToken creates a new join api client from a token
-func JoinClientFromToken(encodedToken string) (*JoinClient, error) {
+// ClientFromToken creates a new join api client from a token
+func ClientFromToken(encodedToken string) (*Client, error) {
 	tokenBytes, err := DecodeJoinToken(encodedToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode token: %w", err)
@@ -61,26 +61,26 @@ func JoinClientFromToken(encodedToken string) (*JoinClient, error) {
 		return nil, err
 	}
 
-	return &JoinClient{
-		joinAddress:   restConfig.Host,
-		joinTokenType: GetTokenType(kubeconfig),
-		restClient:    restClient,
+	return &Client{
+		address:    restConfig.Host,
+		tokenType:  GetTokenType(kubeconfig),
+		restClient: restClient,
 	}, nil
 }
 
-func (j *JoinClient) Address() string {
-	return j.joinAddress
+func (c *Client) Address() string {
+	return c.address
 }
 
-func (j *JoinClient) JoinTokenType() string {
-	return j.joinTokenType
+func (c *Client) TokenType() string {
+	return c.tokenType
 }
 
 // GetCA calls the CA sync API
-func (j *JoinClient) GetCA(ctx context.Context) (v1beta1.CaResponse, error) {
+func (c *Client) GetCA(ctx context.Context) (v1beta1.CaResponse, error) {
 	var caData v1beta1.CaResponse
 
-	b, err := j.restClient.Get().AbsPath("v1beta1", "ca").Do(ctx).Raw()
+	b, err := c.restClient.Get().AbsPath("v1beta1", "ca").Do(ctx).Raw()
 	if err == nil {
 		err = json.Unmarshal(b, &caData)
 	}
@@ -89,7 +89,7 @@ func (j *JoinClient) GetCA(ctx context.Context) (v1beta1.CaResponse, error) {
 }
 
 // JoinEtcd calls the etcd join API
-func (j *JoinClient) JoinEtcd(ctx context.Context, etcdRequest v1beta1.EtcdRequest) (v1beta1.EtcdResponse, error) {
+func (c *Client) JoinEtcd(ctx context.Context, etcdRequest v1beta1.EtcdRequest) (v1beta1.EtcdResponse, error) {
 	var etcdResponse v1beta1.EtcdResponse
 
 	buf := new(bytes.Buffer)
@@ -97,7 +97,7 @@ func (j *JoinClient) JoinEtcd(ctx context.Context, etcdRequest v1beta1.EtcdReque
 		return etcdResponse, err
 	}
 
-	b, err := j.restClient.Post().AbsPath("v1beta1", "etcd", "members").Body(buf).Do(ctx).Raw()
+	b, err := c.restClient.Post().AbsPath("v1beta1", "etcd", "members").Body(buf).Do(ctx).Raw()
 	if err == nil {
 		err = json.Unmarshal(b, &etcdResponse)
 	}

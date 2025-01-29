@@ -49,7 +49,7 @@ import (
 type Etcd struct {
 	CertManager certificate.Manager
 	Config      *v1beta1.EtcdConfig
-	JoinClient  *join.JoinClient
+	JoinClient  *join.Client
 	K0sVars     *config.CfgVars
 	LogLevel    string
 

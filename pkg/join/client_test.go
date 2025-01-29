@@ -39,7 +39,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestJoinClient_GetCA(t *testing.T) {
+func TestClient_GetCA(t *testing.T) {
 	t.Parallel()
 
 	joinURL, certData := startFakeJoinServer(t, func(res http.ResponseWriter, req *http.Request) {
@@ -55,7 +55,7 @@ func TestJoinClient_GetCA(t *testing.T) {
 	tok, err := join.JoinEncode(bytes.NewReader(kubeconfig))
 	require.NoError(t, err)
 
-	underTest, err := join.JoinClientFromToken(tok)
+	underTest, err := join.ClientFromToken(tok)
 	require.NoError(t, err)
 
 	response, err := underTest.GetCA(context.TODO())
@@ -63,7 +63,7 @@ func TestJoinClient_GetCA(t *testing.T) {
 	assert.Zero(t, response)
 }
 
-func TestJoinClient_JoinEtcd(t *testing.T) {
+func TestClient_JoinEtcd(t *testing.T) {
 	t.Parallel()
 
 	joinURL, certData := startFakeJoinServer(t, func(res http.ResponseWriter, req *http.Request) {
@@ -90,7 +90,7 @@ func TestJoinClient_JoinEtcd(t *testing.T) {
 	tok, err := join.JoinEncode(bytes.NewReader(kubeconfig))
 	require.NoError(t, err)
 
-	underTest, err := join.JoinClientFromToken(tok)
+	underTest, err := join.ClientFromToken(tok)
 	require.NoError(t, err)
 
 	response, err := underTest.JoinEtcd(context.TODO(), k0sv1beta1.EtcdRequest{
@@ -101,18 +101,18 @@ func TestJoinClient_JoinEtcd(t *testing.T) {
 	assert.Zero(t, response)
 }
 
-func TestJoinClient_Cancellation(t *testing.T) {
+func TestClient_Cancellation(t *testing.T) {
 	t.Parallel()
 
 	for _, test := range []struct {
 		name          string
-		funcUnderTest func(context.Context, *join.JoinClient) error
+		funcUnderTest func(context.Context, *join.Client) error
 	}{
-		{"GetCA", func(ctx context.Context, c *join.JoinClient) error {
+		{"GetCA", func(ctx context.Context, c *join.Client) error {
 			_, err := c.GetCA(ctx)
 			return err
 		}},
-		{"JoinEtcd", func(ctx context.Context, c *join.JoinClient) error {
+		{"JoinEtcd", func(ctx context.Context, c *join.Client) error {
 			_, err := c.JoinEtcd(ctx, k0sv1beta1.EtcdRequest{})
 			return err
 		}},
@@ -131,7 +131,7 @@ func TestJoinClient_Cancellation(t *testing.T) {
 			tok, err := join.JoinEncode(bytes.NewReader(kubeconfig))
 			require.NoError(t, err)
 
-			underTest, err := join.JoinClientFromToken(tok)
+			underTest, err := join.ClientFromToken(tok)
 			require.NoError(t, err)
 
 			err = test.funcUnderTest(clientContext, underTest)
