@@ -103,7 +103,7 @@ func loadCACert(k0sVars *config.CfgVars) ([]byte, error) {
 }
 
 func loadToken(ctx context.Context, k0sVars *config.CfgVars, role string, expiry time.Duration) (*bootstraptokenv1.BootstrapTokenString, error) {
-	manager, err := NewManager(k0sVars.AdminKubeConfigPath)
+	manager, err := NewTokenManager(k0sVars.AdminKubeConfigPath)
 	if err != nil {
 		return nil, err
 	}

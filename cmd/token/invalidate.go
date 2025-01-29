@@ -36,7 +36,7 @@ func tokenInvalidateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			manager, err := join.NewManager(opts.K0sVars.AdminKubeConfigPath)
+			manager, err := join.NewTokenManager(opts.K0sVars.AdminKubeConfigPath)
 			if err != nil {
 				return err
 			}

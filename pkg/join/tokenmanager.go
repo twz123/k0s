@@ -36,37 +36,37 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type Token struct {
+type TokenMeta struct {
 	ID     string
 	Role   string
 	Expiry string
 }
 
-func (t Token) ToArray() []string {
-	return []string{t.ID, t.Role, t.Expiry}
+func (m TokenMeta) ToArray() []string {
+	return []string{m.ID, m.Role, m.Expiry}
 }
 
-// NewManager creates a new token manager using given kubeconfig
-func NewManager(kubeconfig string) (*Manager, error) {
+// NewTokenManager creates a new token manager using given kubeconfig
+func NewTokenManager(kubeconfig string) (*TokenManager, error) {
 	logrus.Debugf("loading kubeconfig from: %s", kubeconfig)
 	client, err := k8sutil.NewClientFromFile(kubeconfig)
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{
+	return &TokenManager{
 		client: client,
 	}, nil
 }
 
-// NewManagerForClient creates a new token manager using given client
-func NewManagerForClient(client kubernetes.Interface) (*Manager, error) {
-	return &Manager{
+// NewTokenManagerForClient creates a new token manager using given client
+func NewTokenManagerForClient(client kubernetes.Interface) (*TokenManager, error) {
+	return &TokenManager{
 		client: client,
 	}, nil
 }
 
-// Manager is responsible to manage the join tokens in kube API as secrets in kube-system namespace
-type Manager struct {
+// TokenManager is responsible to manage the join tokens in kube API as secrets in kube-system namespace
+type TokenManager struct {
 	client kubernetes.Interface
 }
 
@@ -105,7 +105,7 @@ func RandomBootstrapSecret(role string, ttl time.Duration) (*corev1.Secret, *boo
 }
 
 // Create creates a new bootstrap token
-func (m *Manager) Create(ctx context.Context, valid time.Duration, role string) (*bootstraptokenv1.BootstrapTokenString, error) {
+func (m *TokenManager) Create(ctx context.Context, valid time.Duration, role string) (*bootstraptokenv1.BootstrapTokenString, error) {
 	secret, token, err := RandomBootstrapSecret(role, valid)
 	if err != nil {
 		return nil, err
@@ -120,7 +120,7 @@ func (m *Manager) Create(ctx context.Context, valid time.Duration, role string) 
 }
 
 // List returns all the join tokens.
-func (m *Manager) List(ctx context.Context) (tokens []Token, _ error) {
+func (m *TokenManager) List(ctx context.Context) (tokens []TokenMeta, _ error) {
 	secrets, err := m.client.CoreV1().Secrets(metav1.NamespaceSystem).List(ctx, metav1.ListOptions{
 		FieldSelector: fields.OneTermEqualSelector("type", string(corev1.SecretTypeBootstrapToken)).String(),
 	})
@@ -134,7 +134,7 @@ func (m *Manager) List(ctx context.Context) (tokens []Token, _ error) {
 			continue // ignore invalid tokens
 		}
 
-		token := Token{ID: parsed.Token.ID}
+		token := TokenMeta{ID: parsed.Token.ID}
 
 		if slices.Contains(parsed.Usages, "controller-join") {
 			token.Role = "controller"
@@ -155,7 +155,7 @@ func (m *Manager) List(ctx context.Context) (tokens []Token, _ error) {
 	return tokens, nil
 }
 
-func (m *Manager) Remove(ctx context.Context, tokenID string) error {
+func (m *TokenManager) Remove(ctx context.Context, tokenID string) error {
 	err := m.client.CoreV1().Secrets(metav1.NamespaceSystem).Delete(ctx, tokenutil.BootstrapTokenSecretName(tokenID), metav1.DeleteOptions{})
 	if apierrors.IsNotFound(err) {
 		return nil
