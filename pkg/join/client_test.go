@@ -17,7 +17,6 @@ limitations under the License.
 package join_test
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -50,12 +49,13 @@ func TestClient_GetCA(t *testing.T) {
 	})
 
 	joinURL.Path = "/some/sub/path"
-	kubeconfig, err := join.GenerateKubeconfig(joinURL.String(), certData, t.Name(), &bootstraptokenv1.BootstrapTokenString{ID: "the-id", Secret: "the-secret"})
-	require.NoError(t, err)
-	tok, err := join.JoinEncode(bytes.NewReader(kubeconfig))
+	kubeconfig := join.GenerateKubeconfig(joinURL.String(), certData, t.Name(), &bootstraptokenv1.BootstrapTokenString{ID: "the-id", Secret: "the-secret"})
+	tok, err := join.EncodeToken(kubeconfig)
 	require.NoError(t, err)
 
-	underTest, err := join.ClientFromToken(tok)
+	decoded, err := join.DecodeToken(tok)
+	require.NoError(t, err)
+	underTest, err := join.ClientFromToken(decoded)
 	require.NoError(t, err)
 
 	response, err := underTest.GetCA(context.TODO())
@@ -85,12 +85,13 @@ func TestClient_JoinEtcd(t *testing.T) {
 	})
 
 	joinURL.Path = "/some/sub/path"
-	kubeconfig, err := join.GenerateKubeconfig(joinURL.String(), certData, t.Name(), &bootstraptokenv1.BootstrapTokenString{ID: "the-id", Secret: "the-secret"})
-	require.NoError(t, err)
-	tok, err := join.JoinEncode(bytes.NewReader(kubeconfig))
+	kubeconfig := join.GenerateKubeconfig(joinURL.String(), certData, t.Name(), &bootstraptokenv1.BootstrapTokenString{ID: "the-id", Secret: "the-secret"})
+	tok, err := join.EncodeToken(kubeconfig)
 	require.NoError(t, err)
 
-	underTest, err := join.ClientFromToken(tok)
+	decoded, err := join.DecodeToken(tok)
+	require.NoError(t, err)
+	underTest, err := join.ClientFromToken(decoded)
 	require.NoError(t, err)
 
 	response, err := underTest.JoinEtcd(context.TODO(), k0sv1beta1.EtcdRequest{
@@ -126,12 +127,13 @@ func TestClient_Cancellation(t *testing.T) {
 				<-req.Context().Done()              // block forever
 			})
 
-			kubeconfig, err := join.GenerateKubeconfig(joinURL.String(), certData, "", &bootstraptokenv1.BootstrapTokenString{})
-			require.NoError(t, err)
-			tok, err := join.JoinEncode(bytes.NewReader(kubeconfig))
+			kubeconfig := join.GenerateKubeconfig(joinURL.String(), certData, "", &bootstraptokenv1.BootstrapTokenString{})
+			tok, err := join.EncodeToken(kubeconfig)
 			require.NoError(t, err)
 
-			underTest, err := join.ClientFromToken(tok)
+			decoded, err := join.DecodeToken(tok)
+			require.NoError(t, err)
+			underTest, err := join.ClientFromToken(decoded)
 			require.NoError(t, err)
 
 			err = test.funcUnderTest(clientContext, underTest)

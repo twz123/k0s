@@ -17,11 +17,14 @@ limitations under the License.
 package join
 
 import (
-	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
@@ -37,34 +40,92 @@ const (
 	RoleWorker     = "worker"
 )
 
-// CreateKubeletBootstrapToken creates a new k0s bootstrap token.
-func CreateKubeletBootstrapToken(ctx context.Context, api *v1beta1.APISpec, k0sVars *config.CfgVars, role string, expiry time.Duration) (string, error) {
-	userName, joinURL, err := loadUserAndJoinURL(api, role)
+// A join token is a kubeconfig.
+type Token struct {
+	kubeconfig clientcmdapi.Config
+}
+
+func (t *Token) Type() string {
+	for _, kubeContext := range t.kubeconfig.Contexts {
+		return kubeContext.AuthInfo
+	}
+
+	return ""
+}
+
+func EncodeToken(t *Token) (string, error) {
+	kubeconfig, err := clientcmd.Write(t.kubeconfig)
 	if err != nil {
 		return "", err
+	}
+
+	var encoded strings.Builder
+	b64 := base64.NewEncoder(base64.StdEncoding, &encoded)
+	gz, err := gzip.NewWriterLevel(b64, gzip.BestCompression)
+	if err != nil {
+		return "", err
+	}
+
+	if _, err := gz.Write(kubeconfig); err != nil {
+		return "", err
+	}
+	if err := gz.Close(); err != nil {
+		return "", err
+	}
+	if err := b64.Close(); err != nil {
+		return "", err
+	}
+
+	return encoded.String(), nil
+}
+
+func DecodeToken(encoded string) (*Token, error) {
+	b64 := base64.NewDecoder(base64.StdEncoding, strings.NewReader(encoded))
+	gz, err := gzip.NewReader(b64)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := io.ReadAll(gz)
+	if err != nil {
+		return nil, err
+	}
+
+	kubeconfig, err := clientcmd.Load(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+
+	return &Token{*kubeconfig}, nil
+}
+
+func ToKubeconfig(t *Token) clientcmdapi.Config {
+	return t.kubeconfig
+}
+
+// CreateKubeletBootstrapToken creates a new k0s bootstrap token.
+func CreateKubeletBootstrapToken(ctx context.Context, api *v1beta1.APISpec, k0sVars *config.CfgVars, role string, expiry time.Duration) (*Token, error) {
+	userName, joinURL, err := loadUserAndJoinURL(api, role)
+	if err != nil {
+		return nil, err
 	}
 
 	caCert, err := loadCACert(k0sVars)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	token, err := loadToken(ctx, k0sVars, role, expiry)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	kubeconfig, err := GenerateKubeconfig(joinURL, caCert, userName, token)
-	if err != nil {
-		return "", err
-	}
-
-	return JoinEncode(bytes.NewReader(kubeconfig))
+	return GenerateKubeconfig(joinURL, caCert, userName, token), nil
 }
 
-func GenerateKubeconfig(joinURL string, caCert []byte, userName string, token *bootstraptokenv1.BootstrapTokenString) ([]byte, error) {
+func GenerateKubeconfig(joinURL string, caCert []byte, userName string, token *bootstraptokenv1.BootstrapTokenString) *Token {
 	const k0sContextName = "k0s"
-	kubeconfig, err := clientcmd.Write(clientcmdapi.Config{
+	return &Token{clientcmdapi.Config{
 		Clusters: map[string]*clientcmdapi.Cluster{k0sContextName: {
 			Server:                   joinURL,
 			CertificateAuthorityData: caCert,
@@ -77,8 +138,7 @@ func GenerateKubeconfig(joinURL string, caCert []byte, userName string, token *b
 		AuthInfos: map[string]*clientcmdapi.AuthInfo{userName: {
 			Token: token.String(),
 		}},
-	})
-	return kubeconfig, err
+	}}
 }
 
 func loadUserAndJoinURL(api *v1beta1.APISpec, role string) (string, string, error) {

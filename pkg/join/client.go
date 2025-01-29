@@ -20,14 +20,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/kubernetes"
 
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/clientcmd/api"
 )
 
@@ -39,18 +37,8 @@ type Client struct {
 }
 
 // ClientFromToken creates a new join api client from a token
-func ClientFromToken(encodedToken string) (*Client, error) {
-	tokenBytes, err := DecodeJoinToken(encodedToken)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode token: %w", err)
-	}
-
-	kubeconfig, err := clientcmd.Load(tokenBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	restConfig, err := kubernetes.ClientConfig(func() (*api.Config, error) { return kubeconfig, nil })
+func ClientFromToken(token *Token) (*Client, error) {
+	restConfig, err := kubernetes.ClientConfig(func() (*api.Config, error) { return &token.kubeconfig, nil })
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +51,7 @@ func ClientFromToken(encodedToken string) (*Client, error) {
 
 	return &Client{
 		address:    restConfig.Host,
-		tokenType:  GetTokenType(kubeconfig),
+		tokenType:  token.Type(),
 		restClient: restClient,
 	}, nil
 }

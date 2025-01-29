@@ -37,6 +37,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/kubernetes/pkg/kubelet/certificate/bootstrap"
+	"k8s.io/utils/ptr"
 
 	"github.com/avast/retry-go"
 	"github.com/sirupsen/logrus"
@@ -94,20 +95,16 @@ func BootstrapKubeletKubeconfig(ctx context.Context, k0sVars *config.CfgVars, no
 		}
 
 		// Join token given, so use that.
-		kubeconfig, err := join.DecodeJoinToken(tokenData)
+		kubeconfig, err := join.DecodeToken(tokenData)
 		if err != nil {
 			return fmt.Errorf("failed to decode join token: %w", err)
 		}
 
-		// Load the bootstrap kubeconfig to validate it.
-		bootstrapKubeconfig, err = clientcmd.Load(kubeconfig)
-		if err != nil {
-			return fmt.Errorf("failed to parse kubelet bootstrap kubeconfig from join token: %w", err)
-		}
+		bootstrapKubeconfig = ptr.To(join.ToKubeconfig(kubeconfig))
 
 		// Write the kubelet bootstrap kubeconfig to a temporary file, as the
 		// kubelet bootstrap API only accepts files.
-		bootstrapKubeconfigPath, err = writeKubeletBootstrapKubeconfig(kubeconfig)
+		bootstrapKubeconfigPath, err = writeKubeletBootstrapKubeconfig(bootstrapKubeconfig)
 		if err != nil {
 			return fmt.Errorf("failed to write kubelet bootstrap kubeconfig: %w", err)
 		}
@@ -138,9 +135,11 @@ func BootstrapKubeletKubeconfig(ctx context.Context, k0sVars *config.CfgVars, no
 		}
 	}
 
-	if tokenType := join.GetTokenType(bootstrapKubeconfig); tokenType != "kubelet-bootstrap" {
-		return fmt.Errorf("wrong token type %s, expected type: kubelet-bootstrap", tokenType)
-	}
+	// FIXME remove? (replace by 403 checks?)
+
+	// if tokenType := join.GetTokenType(bootstrapKubeconfig); tokenType != "kubelet-bootstrap" {
+	// 	return fmt.Errorf("wrong token type %s, expected type: kubelet-bootstrap", tokenType)
+	// }
 
 	certDir := filepath.Join(k0sVars.KubeletRootDir, "pki")
 	if err := dir.Init(certDir, constant.DataDirMode); err != nil {
@@ -173,7 +172,12 @@ func BootstrapKubeletKubeconfig(ctx context.Context, k0sVars *config.CfgVars, no
 	return nil
 }
 
-func writeKubeletBootstrapKubeconfig(kubeconfig []byte) (string, error) {
+func writeKubeletBootstrapKubeconfig(kubeconfig *clientcmdapi.Config) (string, error) {
+	data, err := clientcmd.Write(*kubeconfig)
+	if err != nil {
+		return "", err
+	}
+
 	dir := os.Getenv("XDG_RUNTIME_DIR")
 	if dir == "" && runtime.GOOS != "windows" {
 		dir = "/run"
@@ -184,7 +188,7 @@ func writeKubeletBootstrapKubeconfig(kubeconfig []byte) (string, error) {
 		return "", err
 	}
 
-	_, writeErr := bootstrapFile.Write(kubeconfig)
+	_, writeErr := bootstrapFile.Write(data)
 	closeErr := bootstrapFile.Close()
 
 	if writeErr != nil || closeErr != nil {

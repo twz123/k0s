@@ -18,7 +18,6 @@ package token
 
 import (
 	"bufio"
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -127,12 +126,9 @@ func createKubeConfig(tok *bootstraptokenv1.BootstrapTokenString, role, joinURL,
 	default:
 		return fmt.Errorf("unknown role: %s", role)
 	}
-	kubeconfig, err := join.GenerateKubeconfig(joinURL, caCert, userName, tok)
-	if err != nil {
-		return fmt.Errorf("error generating kubeconfig: %w", err)
-	}
+	kubeconfig := join.GenerateKubeconfig(joinURL, caCert, userName, tok)
 
-	encodedToken, err := join.JoinEncode(bytes.NewReader(kubeconfig))
+	encodedToken, err := join.EncodeToken(kubeconfig)
 	if err != nil {
 		return fmt.Errorf("error encoding token: %w", err)
 	}

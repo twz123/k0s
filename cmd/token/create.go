@@ -66,7 +66,7 @@ k0s token create --role worker --expiry 10m  //sets expiration time to 10 minute
 				return err
 			}
 
-			var bootstrapToken string
+			var bootstrapToken *join.Token
 			// we will retry every second for two minutes and then error
 			err = retry.OnError(wait.Backoff{
 				Steps:    120,
@@ -94,7 +94,13 @@ k0s token create --role worker --expiry 10m  //sets expiration time to 10 minute
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), bootstrapToken)
+
+			encoded, err := join.EncodeToken(bootstrapToken)
+			if err != nil {
+				return err
+			}
+
+			fmt.Fprintln(cmd.OutOrStdout(), encoded)
 			return nil
 		},
 	}

@@ -203,7 +203,13 @@ func (c *command) start(ctx context.Context) error {
 			}
 			tokenData = string(data)
 		}
-		joinClient, err = joinController(ctx, tokenData, c.K0sVars.CertRootDir)
+
+		token, err := join.DecodeToken(tokenData)
+		if err != nil {
+			return fmt.Errorf("failed to decode join token: %w", err)
+		}
+
+		joinClient, err = joinController(ctx, token, c.K0sVars.CertRootDir)
 		if err != nil {
 			return fmt.Errorf("failed to join controller: %w", err)
 		}
@@ -652,8 +658,12 @@ func (c *command) start(ctx context.Context) error {
 func (c *command) startWorker(ctx context.Context, nodeName apitypes.NodeName, kubeletExtraArgs stringmap.StringMap, profile string, nodeConfig *v1beta1.ClusterConfig) error {
 	var bootstrapConfig string
 	if !file.Exists(c.K0sVars.KubeletAuthConfigPath) {
-		var err error
-		bootstrapConfig, err = createEmbeddedWorkerJoinToken(ctx, c.K0sVars, nodeConfig.Spec.API)
+		token, err := createEmbeddedWorkerJoinToken(ctx, c.K0sVars, nodeConfig.Spec.API)
+		if err != nil {
+			return err
+		}
+
+		bootstrapConfig, err = join.EncodeToken(token)
 		if err != nil {
 			return err
 		}
@@ -674,8 +684,8 @@ func (c *command) startWorker(ctx context.Context, nodeName apitypes.NodeName, k
 	return wc.Start(ctx, nodeName, kubeletExtraArgs)
 }
 
-func createEmbeddedWorkerJoinToken(ctx context.Context, k0sVars *config.CfgVars, apiSpec *v1beta1.APISpec) (string, error) {
-	var bootstrapConfig string
+func createEmbeddedWorkerJoinToken(ctx context.Context, k0sVars *config.CfgVars, apiSpec *v1beta1.APISpec) (*join.Token, error) {
+	var bootstrapConfig *join.Token
 	// wait for controller to start up
 	err := retry.Do(func() error {
 		if !file.Exists(k0sVars.AdminKubeConfigPath) {
@@ -684,7 +694,7 @@ func createEmbeddedWorkerJoinToken(ctx context.Context, k0sVars *config.CfgVars,
 		return nil
 	}, retry.Context(ctx))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	err = retry.Do(func() error {
@@ -700,7 +710,7 @@ func createEmbeddedWorkerJoinToken(ctx context.Context, k0sVars *config.CfgVars,
 		return nil
 	}, retry.Context(ctx))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	return bootstrapConfig, nil
 }
@@ -741,8 +751,8 @@ func writeCerts(caData v1beta1.CaResponse, certRootDir string) error {
 	return nil
 }
 
-func joinController(ctx context.Context, tokenArg string, certRootDir string) (*join.Client, error) {
-	joinClient, err := join.ClientFromToken(tokenArg)
+func joinController(ctx context.Context, token *join.Token, certRootDir string) (*join.Client, error) {
+	joinClient, err := join.ClientFromToken(token)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create join client: %w", err)
 	}
