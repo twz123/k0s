@@ -19,14 +19,10 @@ package config
 import (
 	"fmt"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/constant"
-	"github.com/k0sproject/k0s/pkg/k0scloudprovider"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -52,31 +48,6 @@ type CLIOptions struct {
 	Verbose       bool
 }
 
-type ControllerMode uint8
-
-const (
-	ControllerOnlyMode ControllerMode = iota
-	ControllerPlusWorkerMode
-	SingleNodeMode
-)
-
-// Shared controller cli flags
-type ControllerOptions struct {
-	NoTaints          bool
-	DisableComponents []string
-
-	ClusterComponents               *manager.Manager
-	EnableK0sCloudProvider          bool
-	K0sCloudProviderPort            int
-	K0sCloudProviderUpdateFrequency time.Duration
-	NodeComponents                  *manager.Manager
-	EnableDynamicConfig             bool
-	EnableMetricsScraper            bool
-	KubeControllerManagerExtraArgs  string
-
-	enableWorker, singleNode bool
-}
-
 // Shared worker cli flags
 type WorkerOptions struct {
 	CIDRRange        string
@@ -90,43 +61,6 @@ type WorkerOptions struct {
 	TokenArg         string
 	WorkerProfile    string
 	IPTablesMode     string
-}
-
-func (m ControllerMode) WorkloadsEnabled() bool {
-	switch m {
-	case ControllerPlusWorkerMode, SingleNodeMode:
-		return true
-	default:
-		return false
-	}
-}
-
-func (o *ControllerOptions) Mode() ControllerMode {
-	switch {
-	case o.singleNode:
-		return SingleNodeMode
-	case o.enableWorker:
-		return ControllerPlusWorkerMode
-	default:
-		return ControllerOnlyMode
-	}
-}
-
-func (o *ControllerOptions) Normalize() error {
-	// Normalize component names
-	var disabledComponents []string
-	for _, disabledComponent := range o.DisableComponents {
-		if !slices.Contains(availableComponents, disabledComponent) {
-			return fmt.Errorf("unknown component %s", disabledComponent)
-		}
-
-		if !slices.Contains(disabledComponents, disabledComponent) {
-			disabledComponents = append(disabledComponents, disabledComponent)
-		}
-	}
-	o.DisableComponents = disabledComponents
-
-	return nil
 }
 
 type LogLevels = struct {
@@ -272,42 +206,6 @@ func GetWorkerFlags() *pflag.FlagSet {
 	return flagset
 }
 
-var availableComponents = []string{
-	constant.ApplierManagerComponentName,
-	constant.AutopilotComponentName,
-	constant.ControlAPIComponentName,
-	constant.CoreDNSComponentname,
-	constant.CsrApproverComponentName,
-	constant.APIEndpointReconcilerComponentName,
-	constant.HelmComponentName,
-	constant.KonnectivityServerComponentName,
-	constant.KubeControllerManagerComponentName,
-	constant.KubeProxyComponentName,
-	constant.KubeSchedulerComponentName,
-	constant.MetricsServerComponentName,
-	constant.NetworkProviderComponentName,
-	constant.NodeRoleComponentName,
-	constant.SystemRBACComponentName,
-	constant.WindowsNodeComponentName,
-	constant.WorkerConfigComponentName,
-}
-
-func GetControllerFlags(controllerOpts *ControllerOptions) *pflag.FlagSet {
-	flagset := &pflag.FlagSet{}
-
-	flagset.BoolVar(&controllerOpts.enableWorker, "enable-worker", false, "enable worker (default false)")
-	flagset.StringSliceVar(&controllerOpts.DisableComponents, "disable-components", []string{}, "disable components (valid items: "+strings.Join(availableComponents, ",")+")")
-	flagset.BoolVar(&controllerOpts.singleNode, "single", false, "enable single node (implies --enable-worker, default false)")
-	flagset.BoolVar(&controllerOpts.NoTaints, "no-taints", false, "disable default taints for controller node")
-	flagset.BoolVar(&controllerOpts.EnableK0sCloudProvider, "enable-k0s-cloud-provider", false, "enables the k0s-cloud-provider (default false)")
-	flagset.DurationVar(&controllerOpts.K0sCloudProviderUpdateFrequency, "k0s-cloud-provider-update-frequency", 2*time.Minute, "the frequency of k0s-cloud-provider node updates")
-	flagset.IntVar(&controllerOpts.K0sCloudProviderPort, "k0s-cloud-provider-port", k0scloudprovider.DefaultBindPort, "the port that k0s-cloud-provider binds on")
-	flagset.BoolVar(&controllerOpts.EnableDynamicConfig, "enable-dynamic-config", false, "enable cluster-wide dynamic config based on custom resource")
-	flagset.BoolVar(&controllerOpts.EnableMetricsScraper, "enable-metrics-scraper", false, "enable scraping metrics from the controller components (kube-scheduler, kube-controller-manager)")
-	flagset.StringVar(&controllerOpts.KubeControllerManagerExtraArgs, "kube-controller-manager-extra-args", "", "extra args for kube-controller-manager")
-	return flagset
-}
-
 // The config flag used to be a persistent, joint flag to all commands
 // now only a few commands use it. This function helps to share the flag with multiple commands without needing to define
 // it in multiple places
@@ -332,7 +230,6 @@ func GetCmdOpts(cobraCmd command) (*CLIOptions, error) {
 
 	return &CLIOptions{
 		WorkerOptions: workerOpts,
-
 		CfgFile:       CfgFile,
 		Debug:         Debug,
 		Verbose:       Verbose,

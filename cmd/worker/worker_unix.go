@@ -24,7 +24,6 @@ import (
 
 	"github.com/k0sproject/k0s/pkg/build"
 	"github.com/k0sproject/k0s/pkg/component/manager"
-	"github.com/k0sproject/k0s/pkg/component/prober"
 	"github.com/k0sproject/k0s/pkg/component/status"
 	"github.com/k0sproject/k0s/pkg/component/worker"
 	"github.com/k0sproject/k0s/pkg/config"
@@ -34,7 +33,6 @@ func addPlatformSpecificComponents(ctx context.Context, m *manager.Manager, k0sV
 	// if running inside a controller, status component is already running
 	if controller == nil {
 		m.Add(ctx, &status.Status{
-			Prober: prober.DefaultProber,
 			StatusInformation: status.K0sStatus{
 				Pid:        os.Getpid(),
 				Role:       "worker",
