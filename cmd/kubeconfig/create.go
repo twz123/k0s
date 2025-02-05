@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/k0sproject/k0s/cmd/internal"
 	"github.com/k0sproject/k0s/internal/pkg/users"
 	"github.com/k0sproject/k0s/pkg/certificate"
 	"github.com/k0sproject/k0s/pkg/config"
@@ -32,7 +33,10 @@ import (
 )
 
 func kubeconfigCreateCmd() *cobra.Command {
-	var groups string
+	var (
+		configFlag internal.ConfigFlag
+		groups     string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "create username",
@@ -56,7 +60,7 @@ Note: A certificate once signed cannot be revoked for a particular user`,
 			if err != nil {
 				return err
 			}
-			nodeConfig, err := opts.K0sVars.NodeConfig()
+			nodeConfig, err := opts.K0sVars.NodeConfig(configFlag.Loader())
 			if err != nil {
 				return err
 			}
@@ -74,7 +78,7 @@ Note: A certificate once signed cannot be revoked for a particular user`,
 
 	flags := cmd.Flags()
 	flags.AddFlagSet(config.GetPersistentFlagSet())
-	flags.AddFlagSet(config.FileInputFlag())
+	configFlag.WithStdin(cmd.InOrStdin).AddToFlagSet(flags)
 	flags.StringVar(&groups, "groups", "", "Specify groups")
 
 	return cmd

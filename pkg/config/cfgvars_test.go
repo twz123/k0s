@@ -19,6 +19,7 @@ package config
 import (
 	"bytes"
 	"io"
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -64,7 +65,6 @@ func TestWithCommand(t *testing.T) {
 		values: map[string]any{
 			"data-dir":              "/path/to/data",
 			"kubelet-root-dir":      "/path/to/kubelet",
-			"config":                "/path/to/config",
 			"status-socket":         "/path/to/socket",
 			"enable-dynamic-config": true,
 		},
@@ -87,7 +87,6 @@ func TestWithCommand(t *testing.T) {
 	assert.Same(t, in, c.stdin)
 	assert.Equal(t, "/path/to/data", c.DataDir)
 	assert.Equal(t, dir, c.KubeletRootDir)
-	assert.Equal(t, "/path/to/config", c.StartupConfigPath)
 	assert.Equal(t, "/path/to/socket", c.StatusSocketPath)
 	assert.True(t, c.EnableDynamicConfig)
 }
@@ -195,13 +194,11 @@ func TestNewCfgVars_KubeletRootDir(t *testing.T) {
 }
 
 func TestNodeConfig_Default(t *testing.T) {
-	oldDefaultPath := defaultConfigPath
-	defer func() { defaultConfigPath = oldDefaultPath }()
-	defaultConfigPath = "/tmp/k0s.yaml.nonexistent"
+	c := &CfgVars{}
 
-	c := &CfgVars{StartupConfigPath: defaultConfigPath}
-
-	nodeConfig, err := c.NodeConfig()
+	nodeConfig, err := c.NodeConfig(configDataReaderFunc(func(stdin io.Reader) ([]byte, error) {
+		return nil, os.ErrNotExist
+	}))
 
 	assert.NoError(t, err)
 	assert.NotNil(t, nodeConfig)
@@ -209,23 +206,27 @@ func TestNodeConfig_Default(t *testing.T) {
 }
 
 func TestNodeConfig_Stdin(t *testing.T) {
-	oldDefaultPath := defaultConfigPath
-	defer func() { defaultConfigPath = oldDefaultPath }()
-	defaultConfigPath = "/tmp/k0s.yaml.nonexistent"
-
 	fakeCmd := &FakeCommand{
-		stdin:   bytes.NewReader([]byte(`spec: {network: {provider: calico}}`)),
-		flagSet: &FakeFlagSet{values: map[string]any{"config": "-"}},
+		stdin: bytes.NewReader([]byte(`spec: {network: {provider: calico}}`)),
 	}
+	stdinReader := configDataReaderFunc(func(stdin io.Reader) ([]byte, error) {
+		return io.ReadAll(stdin)
+	})
 
 	underTest, err := NewCfgVars(fakeCmd)
 	require.NoError(t, err)
 
-	nodeConfig, err := underTest.NodeConfig()
+	nodeConfig, err := underTest.NodeConfig(stdinReader)
 	assert.NoError(t, err)
 	assert.Equal(t, "calico", nodeConfig.Spec.Network.Provider)
 
-	nodeConfig, err = underTest.NodeConfig()
+	nodeConfig, err = underTest.NodeConfig(stdinReader)
 	assert.ErrorContains(t, err, "stdin already grabbed")
 	assert.Nil(t, nodeConfig)
+}
+
+type configDataReaderFunc func(stdin io.Reader) ([]byte, error)
+
+func (f configDataReaderFunc) Read(stdin io.Reader) ([]byte, error) {
+	return f(stdin)
 }

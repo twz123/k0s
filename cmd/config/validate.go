@@ -19,9 +19,8 @@ package config
 import (
 	"errors"
 	"fmt"
-	"io"
-	"os"
 
+	"github.com/k0sproject/k0s/cmd/internal"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/config"
 
@@ -30,27 +29,18 @@ import (
 )
 
 func NewValidateCmd() *cobra.Command {
+	var configFlag internal.ConfigFlag
+
 	cmd := &cobra.Command{
 		Use:   "validate",
 		Short: "Validate k0s configuration",
 		Long: `Example:
    k0s config validate --config path_to_config.yaml`,
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) (err error) {
-			var bytes []byte
-
-			// config.CfgFile is the global value holder for --config flag, set by cobra/pflag
-			switch config.CfgFile {
-			case "-":
-				if bytes, err = io.ReadAll(cmd.InOrStdin()); err != nil {
-					return fmt.Errorf("failed to read configuration from standard input: %w", err)
-				}
-			case "":
-				return errors.New("--config can't be empty")
-			default:
-				if bytes, err = os.ReadFile(config.CfgFile); err != nil {
-					return fmt.Errorf("failed to read configuration file: %w", err)
-				}
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			bytes, err := configFlag.Loader()()
+			if err != nil {
+				return fmt.Errorf("failed to read configuration: %w", err)
 			}
 
 			cfg, err := v1beta1.ConfigFromBytes(bytes)
@@ -68,8 +58,8 @@ func NewValidateCmd() *cobra.Command {
 		f.Deprecated = "it has no effect and will be removed in a future release"
 		cmd.PersistentFlags().AddFlag(f)
 	})
-	flags.AddFlagSet(config.FileInputFlag())
-	_ = cmd.MarkFlagRequired("config")
+
+	configFlag.WithStdin(cmd.InOrStdin).Required().AddToFlagSet(flags)
 
 	return cmd
 }

@@ -19,7 +19,6 @@ package config
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -53,15 +52,12 @@ type CfgVars struct {
 	DefaultStorageType         v1beta1.StorageType // Default backend storage
 	RuntimeConfigPath          string              // A static copy of the config loaded at startup
 	StatusSocketPath           string              // The unix socket path for k0s status API
-	StartupConfigPath          string              // The path to the config file used at startup
 	EnableDynamicConfig        bool                // EnableDynamicConfig enables dynamic config
 
 	// Helm config
 	HelmHome             string
 	HelmRepositoryCache  string
 	HelmRepositoryConfig string
-
-	stdin io.Reader
 }
 
 type CfgVarOption func(*CfgVars)
@@ -74,8 +70,6 @@ type command interface {
 
 func WithCommand(cmd command) CfgVarOption {
 	return func(c *CfgVars) {
-		c.stdin = cmd.InOrStdin()
-
 		flags := cmd.Flags()
 
 		if f, err := flags.GetString("data-dir"); err == nil && f != "" {
@@ -86,10 +80,6 @@ func WithCommand(cmd command) CfgVarOption {
 			if f, err := filepath.Abs(f); err == nil {
 				c.KubeletRootDir = f
 			}
-		}
-
-		if f, err := flags.GetString("config"); err == nil && f != "" {
-			c.StartupConfigPath = f
 		}
 
 		if f, err := flags.GetString("status-socket"); err == nil && f != "" {
@@ -183,14 +173,11 @@ func NewCfgVars(cobraCmd command, dirs ...string) (*CfgVars, error) {
 		KonnectivityKubeConfigPath: filepath.Join(certDir, "konnectivity.conf"),
 		RuntimeConfigPath:          filepath.Join(runDir, "k0s.yaml"),
 		StatusSocketPath:           filepath.Join(runDir, "status.sock"),
-		StartupConfigPath:          constant.K0sConfigPathDefault,
 
 		// Helm Config
 		HelmHome:             helmHome,
 		HelmRepositoryCache:  filepath.Join(helmHome, "cache"),
 		HelmRepositoryConfig: filepath.Join(helmHome, "repositories.yaml"),
-
-		stdin: os.Stdin,
 	}
 
 	if cobraCmd != nil {
@@ -202,11 +189,9 @@ func NewCfgVars(cobraCmd command, dirs ...string) (*CfgVars, error) {
 
 var defaultConfigPath = constant.K0sConfigPathDefault
 
-func (c *CfgVars) NodeConfig() (*v1beta1.ClusterConfig, error) {
-	if c.StartupConfigPath == "" {
-		return nil, errors.New("config path is not set")
-	}
+type ConfigDataLoaderFunc func() ([]byte, error)
 
+func (c *CfgVars) NodeConfig(loadConfig ConfigDataLoaderFunc) (*v1beta1.ClusterConfig, error) {
 	nodeConfig := v1beta1.DefaultClusterConfig()
 
 	// Optionally override the default storage (used for single node clusters)
@@ -217,34 +202,13 @@ func (c *CfgVars) NodeConfig() (*v1beta1.ClusterConfig, error) {
 		}
 	}
 
-	if c.StartupConfigPath == "-" {
-		configReader := c.stdin
-		c.stdin = nil
-		if configReader == nil {
-			return nil, errors.New("stdin already grabbed")
-		}
-
-		bytes, err := io.ReadAll(configReader)
+	if loadConfig != nil {
+		configData, err := loadConfig()
 		if err != nil {
 			return nil, err
 		}
 
-		nodeConfig, err = nodeConfig.MergedWithYAML(bytes)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		cfgContent, err := os.ReadFile(c.StartupConfigPath)
-		if err != nil {
-			if c.StartupConfigPath == defaultConfigPath && errors.Is(err, os.ErrNotExist) {
-				// The default configuration file doesn't exist; continue with the defaults.
-				return nodeConfig, nil
-			}
-
-			return nil, err
-		}
-
-		return nodeConfig.MergedWithYAML(cfgContent)
+		nodeConfig, err = v1beta1.ConfigFromBytes(configData)
 	}
 
 	if nodeConfig.Spec.Storage.Type == v1beta1.KineStorageType && nodeConfig.Spec.Storage.Kine == nil {

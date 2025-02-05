@@ -29,6 +29,7 @@ import (
 func NewAirgapListImagesCmd() *cobra.Command {
 	var (
 		debugFlags internal.DebugFlags
+		configFlag internal.ConfigFlag
 		all        bool
 	)
 
@@ -44,7 +45,7 @@ func NewAirgapListImagesCmd() *cobra.Command {
 				return err
 			}
 
-			clusterConfig, err := opts.K0sVars.NodeConfig()
+			clusterConfig, err := opts.K0sVars.NodeConfig(configFlag.Loader())
 			if err != nil {
 				return fmt.Errorf("failed to get config: %w", err)
 			}
@@ -63,7 +64,7 @@ func NewAirgapListImagesCmd() *cobra.Command {
 
 	flags := cmd.Flags()
 	flags.AddFlagSet(config.GetPersistentFlagSet())
-	flags.AddFlagSet(config.FileInputFlag())
+	configFlag.WithStdin(cmd.InOrStdin).AddToFlagSet(flags)
 	flags.BoolVar(&all, "all", false, "include all images, even if they are not used in the current configuration")
 
 	return cmd

@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/k0sproject/k0s/cmd/internal"
 	"github.com/k0sproject/k0s/pkg/component/status"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/token"
@@ -35,6 +36,7 @@ import (
 
 func tokenCreateCmd() *cobra.Command {
 	var (
+		configFlag      internal.ConfigFlag
 		createTokenRole string
 		tokenExpiry     string
 		waitCreate      bool
@@ -61,7 +63,7 @@ k0s token create --role worker --expiry 10m  //sets expiration time to 10 minute
 				return err
 			}
 
-			nodeConfig, err := opts.K0sVars.NodeConfig()
+			nodeConfig, err := opts.K0sVars.NodeConfig(configFlag.Loader())
 			if err != nil {
 				return err
 			}
@@ -101,6 +103,7 @@ k0s token create --role worker --expiry 10m  //sets expiration time to 10 minute
 
 	flags := cmd.Flags()
 	flags.AddFlagSet(config.GetPersistentFlagSet())
+	configFlag.WithStdin(cmd.InOrStdin).AddToFlagSet(flags)
 	flags.StringVar(&tokenExpiry, "expiry", "0s", "Expiration time of the token. Format 1.5h, 2h45m or 300ms.")
 	flags.StringVar(&createTokenRole, "role", "worker", "Either worker or controller")
 	flags.BoolVar(&waitCreate, "wait", false, "wait forever (default false)")

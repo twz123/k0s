@@ -24,6 +24,7 @@ import (
 	"os"
 	"testing/iotest"
 
+	"github.com/k0sproject/k0s/cmd/internal"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/install"
 
@@ -31,6 +32,8 @@ import (
 )
 
 func installControllerCmd(installFlags *installFlags) *cobra.Command {
+	var configFlag internal.ConfigFlag
+
 	cmd := &cobra.Command{
 		Use:     "controller",
 		Short:   "Install k0s controller on a brand-new system. Must be run as root (or with sudo)",
@@ -53,7 +56,7 @@ With the controller subcommand you can setup a single node cluster by running:
 				return fmt.Errorf("failed to initialize configuration variables: %w", err)
 			}
 
-			nodeConfig, err := k0sVars.NodeConfig()
+			nodeConfig, err := k0sVars.NodeConfig(configFlag.Loader())
 			if err != nil {
 				return fmt.Errorf("failed to load node config: %w", err)
 			}
@@ -84,9 +87,9 @@ With the controller subcommand you can setup a single node cluster by running:
 
 	flags := cmd.Flags()
 	flags.AddFlagSet(config.GetPersistentFlagSet())
+	configFlag.WithStdin(cmd.InOrStdin).AddToFlagSet(flags)
 	flags.AddFlagSet(config.GetControllerFlags(&config.ControllerOptions{}))
 	flags.AddFlagSet(config.GetWorkerFlags())
-	flags.AddFlagSet(config.FileInputFlag())
 
 	return cmd
 }

@@ -30,7 +30,6 @@ import (
 )
 
 var (
-	CfgFile    string
 	K0sVars    CfgVars
 	workerOpts WorkerOptions
 )
@@ -39,7 +38,6 @@ var (
 // different k0s sub-commands
 type CLIOptions struct {
 	WorkerOptions
-	CfgFile string
 	K0sVars *CfgVars
 }
 
@@ -294,17 +292,6 @@ func GetControllerFlags(controllerOpts *ControllerOptions) *pflag.FlagSet {
 	return flagset
 }
 
-// The config flag used to be a persistent, joint flag to all commands
-// now only a few commands use it. This function helps to share the flag with multiple commands without needing to define
-// it in multiple places
-func FileInputFlag() *pflag.FlagSet {
-	flagset := &pflag.FlagSet{}
-	descString := fmt.Sprintf("config file, use '-' to read the config from stdin (default %q)", constant.K0sConfigPathDefault)
-	flagset.StringVarP(&CfgFile, "config", "c", "", descString)
-
-	return flagset
-}
-
 func GetCmdOpts(cobraCmd command) (*CLIOptions, error) {
 	k0sVars, err := NewCfgVars(cobraCmd)
 	if err != nil {
@@ -316,10 +303,5 @@ func GetCmdOpts(cobraCmd command) (*CLIOptions, error) {
 		k0sVars = rtc.K0sVars
 	}
 
-	return &CLIOptions{
-		WorkerOptions: workerOpts,
-
-		CfgFile: CfgFile,
-		K0sVars: k0sVars,
-	}, nil
+	return &CLIOptions{workerOpts, k0sVars}, nil
 }

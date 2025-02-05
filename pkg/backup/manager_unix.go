@@ -43,11 +43,6 @@ type Manager struct {
 
 // RunBackup backups cluster
 func (bm *Manager) RunBackup(nodeSpec *v1beta1.ClusterSpec, vars *config.CfgVars, savePathDir string, out io.Writer) error {
-	_, err := vars.NodeConfig()
-	if err != nil {
-		return err
-	}
-
 	bm.discoverSteps(vars.StartupConfigPath, nodeSpec, vars, "backup", "", out)
 	defer os.RemoveAll(bm.tmpDir)
 	assets := make([]string, 0, len(bm.steps))

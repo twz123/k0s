@@ -24,6 +24,7 @@ import (
 	"os"
 
 	"github.com/k0sproject/k0s/cmd/internal"
+	k0sv1beta1 "github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/cleanup"
 	"github.com/k0sproject/k0s/pkg/component/status"
 	"github.com/k0sproject/k0s/pkg/config"
@@ -35,7 +36,10 @@ import (
 type command config.CLIOptions
 
 func NewResetCmd() *cobra.Command {
-	var debugFlags internal.DebugFlags
+	var (
+		debugFlags internal.DebugFlags
+		configFlag internal.ConfigFlag
+	)
 
 	cmd := &cobra.Command{
 		Use:              "reset",
@@ -47,8 +51,13 @@ func NewResetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			nodeConfig, err := opts.K0sVars.NodeConfig(configFlag.Loader())
+			if err != nil {
+				return err
+			}
+
 			c := (*command)(opts)
-			return c.reset(debugFlags.IsDebug())
+			return c.reset(nodeConfig, debugFlags.IsDebug())
 		},
 	}
 
@@ -57,13 +66,13 @@ func NewResetCmd() *cobra.Command {
 	flags := cmd.Flags()
 	flags.AddFlagSet(config.GetPersistentFlagSet())
 	flags.AddFlagSet(config.GetCriSocketFlag())
-	flags.AddFlagSet(config.FileInputFlag())
+	configFlag.WithStdin(cmd.InOrStdin).AddToFlagSet(flags)
 	flags.String("kubelet-root-dir", "", "Kubelet root directory for k0s")
 
 	return cmd
 }
 
-func (c *command) reset(debug bool) error {
+func (c *command) reset(nodeConfig *k0sv1beta1.ClusterConfig, debug bool) error {
 	if os.Geteuid() != 0 {
 		return errors.New("this command must be run as root")
 	}
@@ -73,16 +82,12 @@ func (c *command) reset(debug bool) error {
 		return errors.New("k0s seems to be running, please stop k0s before reset")
 	}
 
-	nodeCfg, err := c.K0sVars.NodeConfig()
-	if err != nil {
-		return err
-	}
-	if nodeCfg.Spec.Storage.Kine != nil && nodeCfg.Spec.Storage.Kine.DataSource != "" {
+	if nodeConfig.Spec.Storage.Kine != nil && nodeConfig.Spec.Storage.Kine.DataSource != "" {
 		logrus.Warn("Kine dataSource is configured. k0s will not reset the data source if it points to an external database. If you plan to continue using the data source, you should reset it to avoid conflicts.")
 	}
 
 	// Get Cleanup Config
-	cfg, err := cleanup.NewConfig(debug, c.K0sVars, nodeCfg.Spec.Install.SystemUsers, c.CriSocket)
+	cfg, err := cleanup.NewConfig(debug, c.K0sVars, nodeConfig.Spec.Install.SystemUsers, c.CriSocket)
 	if err != nil {
 		return fmt.Errorf("failed to configure cleanup: %w", err)
 	}
