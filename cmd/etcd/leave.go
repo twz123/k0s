@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"strconv"
 
+	"github.com/k0sproject/k0s/cmd/internal"
 	k0sv1beta1 "github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/etcd"
@@ -34,7 +35,10 @@ import (
 )
 
 func etcdLeaveCmd() *cobra.Command {
-	var peerAddressArg string
+	var (
+		configFlag     internal.ConfigFlag
+		peerAddressArg string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "leave",
@@ -45,7 +49,7 @@ func etcdLeaveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			nodeConfig, err := opts.K0sVars.NodeConfig()
+			nodeConfig, err := opts.K0sVars.NodeConfig(configFlag.Loader())
 			if err != nil {
 				return err
 			}
@@ -95,6 +99,7 @@ func etcdLeaveCmd() *cobra.Command {
 
 	flags := cmd.Flags()
 	flags.AddFlagSet(config.GetPersistentFlagSet())
+	configFlag.WithStdin(cmd.InOrStdin).AddToFlagSet(flags)
 	flags.AddFlag(&pflag.Flag{
 		Name:  "peer-address",
 		Usage: "etcd peer address to remove (default <this node's peer address>)",

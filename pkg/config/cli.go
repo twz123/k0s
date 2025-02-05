@@ -30,7 +30,6 @@ import (
 )
 
 var (
-	CfgFile        string
 	K0sVars        CfgVars
 	workerOpts     WorkerOptions
 	controllerOpts ControllerOptions
@@ -41,7 +40,6 @@ var (
 type CLIOptions struct {
 	WorkerOptions
 	ControllerOptions
-	CfgFile string
 	K0sVars *CfgVars
 }
 
@@ -260,18 +258,6 @@ func GetControllerFlags() *pflag.FlagSet {
 	flagset.BoolVar(&controllerOpts.EnableDynamicConfig, "enable-dynamic-config", false, "enable cluster-wide dynamic config based on custom resource")
 	flagset.BoolVar(&controllerOpts.EnableMetricsScraper, "enable-metrics-scraper", false, "enable scraping metrics from the controller components (kube-scheduler, kube-controller-manager)")
 	flagset.StringVar(&controllerOpts.KubeControllerManagerExtraArgs, "kube-controller-manager-extra-args", "", "extra args for kube-controller-manager")
-	flagset.AddFlagSet(FileInputFlag())
-	return flagset
-}
-
-// The config flag used to be a persistent, joint flag to all commands
-// now only a few commands use it. This function helps to share the flag with multiple commands without needing to define
-// it in multiple places
-func FileInputFlag() *pflag.FlagSet {
-	flagset := &pflag.FlagSet{}
-	descString := fmt.Sprintf("config file, use '-' to read the config from stdin (default %q)", constant.K0sConfigPathDefault)
-	flagset.StringVarP(&CfgFile, "config", "c", "", descString)
-
 	return flagset
 }
 
@@ -293,8 +279,6 @@ func GetCmdOpts(cobraCmd command) (*CLIOptions, error) {
 	return &CLIOptions{
 		ControllerOptions: controllerOpts,
 		WorkerOptions:     workerOpts,
-
-		CfgFile: CfgFile,
-		K0sVars: k0sVars,
+		K0sVars:           k0sVars,
 	}, nil
 }

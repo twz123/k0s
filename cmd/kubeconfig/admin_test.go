@@ -59,7 +59,6 @@ func TestAdmin(t *testing.T) {
 		AdminKubeConfigPath: adminConfPath,
 		DataDir:             dataDir,
 		RuntimeConfigPath:   filepath.Join(dataDir, "run", "k0s.yaml"),
-		StartupConfigPath:   configPath,
 	}
 	cfg, err := config.NewRuntimeConfig(k0sVars, nil)
 	require.NoError(t, err)
@@ -87,19 +86,10 @@ func TestAdmin(t *testing.T) {
 func TestAdmin_NoAdminConfig(t *testing.T) {
 	dataDir := t.TempDir()
 
-	configPath := filepath.Join(dataDir, "k0s.yaml")
-	writeYAML(t, configPath, &v1beta1.ClusterConfig{
-		TypeMeta: metav1.TypeMeta{APIVersion: v1beta1.SchemeGroupVersion.String(), Kind: v1beta1.ClusterConfigKind},
-		Spec: &v1beta1.ClusterSpec{API: &v1beta1.APISpec{
-			Port: 65432, ExternalAddress: "not-here.example.com",
-		}},
-	})
-
 	k0sVars := &config.CfgVars{
 		AdminKubeConfigPath: filepath.Join(dataDir, "admin.conf"),
 		DataDir:             dataDir,
 		RuntimeConfigPath:   filepath.Join(dataDir, "run", "k0s.yaml"),
-		StartupConfigPath:   filepath.Join(dataDir, "k0s.yaml"),
 	}
 
 	cfg, err := config.NewRuntimeConfig(k0sVars, nil)

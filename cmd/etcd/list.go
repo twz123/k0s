@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/k0sproject/k0s/cmd/internal"
 	k0sv1beta1 "github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/etcd"
@@ -29,6 +30,8 @@ import (
 )
 
 func etcdListCmd() *cobra.Command {
+	var configFlag internal.ConfigFlag
+
 	cmd := &cobra.Command{
 		Use:   "member-list",
 		Short: "List etcd cluster members (JSON encoded)",
@@ -38,7 +41,7 @@ func etcdListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			nodeConfig, err := opts.K0sVars.NodeConfig()
+			nodeConfig, err := opts.K0sVars.NodeConfig(configFlag.Loader())
 			if err != nil {
 				return err
 			}
@@ -59,7 +62,9 @@ func etcdListCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().AddFlagSet(config.GetPersistentFlagSet())
+	flags := cmd.Flags()
+	flags.AddFlagSet(config.GetPersistentFlagSet())
+	configFlag.WithStdin(cmd.InOrStdin).AddToFlagSet(flags)
 
 	return cmd
 }

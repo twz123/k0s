@@ -41,6 +41,7 @@ type command config.CLIOptions
 func NewBackupCmd() *cobra.Command {
 	var (
 		debugFlags internal.DebugFlags
+		configFlag internal.ConfigFlag
 		savePath   string
 	)
 
@@ -55,7 +56,7 @@ func NewBackupCmd() *cobra.Command {
 				return err
 			}
 			c := (*command)(opts)
-			nodeConfig, err := c.K0sVars.NodeConfig()
+			nodeConfig, err := c.K0sVars.NodeConfig(configFlag.Loader())
 			if err != nil {
 				return err
 			}
@@ -70,6 +71,7 @@ func NewBackupCmd() *cobra.Command {
 
 	flags := cmd.Flags()
 	flags.AddFlagSet(config.GetPersistentFlagSet())
+	configFlag.WithStdin(cmd.InOrStdin).AddToFlagSet(flags)
 	flags.StringVar(&savePath, "save-path", "", "destination directory path for backup assets, use '-' for stdout")
 
 	return cmd

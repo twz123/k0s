@@ -74,6 +74,7 @@ type command config.CLIOptions
 func NewControllerCmd() *cobra.Command {
 	var (
 		debugFlags            internal.DebugFlags
+		configFlag            internal.ConfigFlag
 		ignorePreFlightChecks bool
 	)
 
@@ -118,7 +119,7 @@ func NewControllerCmd() *cobra.Command {
 
 			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 			defer cancel()
-			return c.start(ctx, debugFlags.IsDebug())
+			return c.start(ctx, debugFlags.IsDebug(), configFlag.Loader())
 		},
 	}
 
@@ -128,15 +129,16 @@ func NewControllerCmd() *cobra.Command {
 	flags.AddFlagSet(config.GetPersistentFlagSet())
 	flags.AddFlagSet(config.GetControllerFlags())
 	flags.AddFlagSet(config.GetWorkerFlags())
+	configFlag.WithStdin(cmd.InOrStdin).AddToFlagSet(flags)
 	flags.BoolVar(&ignorePreFlightChecks, "ignore-pre-flight-checks", false, "continue even if pre-flight checks fail")
 
 	return cmd
 }
 
-func (c *command) start(ctx context.Context, debug bool) error {
+func (c *command) start(ctx context.Context, debug bool, configLoader config.ConfigDataLoaderFunc) error {
 	perfTimer := performance.NewTimer("controller-start").Buffer().Start()
 
-	nodeConfig, err := c.K0sVars.NodeConfig()
+	nodeConfig, err := c.K0sVars.NodeConfig(configLoader)
 	if err != nil {
 		return fmt.Errorf("failed to load node config: %w", err)
 	}

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io/fs"
 
+	"github.com/k0sproject/k0s/cmd/internal"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/kubernetes"
 
@@ -30,6 +31,8 @@ import (
 )
 
 func kubeConfigAdminCmd() *cobra.Command {
+	var configFlag internal.ConfigFlag
+
 	cmd := &cobra.Command{
 		Use:   "admin",
 		Short: "Display Admin's Kubeconfig file",
@@ -61,7 +64,7 @@ func kubeConfigAdminCmd() *cobra.Command {
 			// Now replace the internal address with the external one. See
 			// cmd/controller/certificates.go to see how the original kubeconfig
 			// is generated.
-			nodeConfig, err := opts.K0sVars.NodeConfig()
+			nodeConfig, err := opts.K0sVars.NodeConfig(configFlag.Loader())
 			if err != nil {
 				return err
 			}
@@ -83,7 +86,9 @@ func kubeConfigAdminCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().AddFlagSet(config.GetPersistentFlagSet())
+	flags := cmd.Flags()
+	flags.AddFlagSet(config.GetPersistentFlagSet())
+	configFlag.WithStdin(cmd.InOrStdin).AddToFlagSet(flags)
 
 	return cmd
 }
