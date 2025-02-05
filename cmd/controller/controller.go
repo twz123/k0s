@@ -91,6 +91,7 @@ type command config.CLIOptions
 func NewControllerCmd() *cobra.Command {
 	var (
 		controllerFlags       Flags
+		workerFlags           workercmd.Flags
 		ignorePreFlightChecks bool
 	)
 
@@ -120,9 +121,9 @@ func NewControllerCmd() *cobra.Command {
 			c := (*command)(opts)
 
 			if len(args) > 0 {
-				c.TokenArg = args[0]
+				workerFlags.TokenArg = args[0]
 			}
-			if c.TokenArg != "" && c.TokenFile != "" {
+			if workerFlags.TokenArg != "" && workerFlags.TokenFile != "" {
 				return errors.New("you can only pass one token argument either as a CLI argument 'k0s controller [join-token]' or as a flag 'k0s controller --token-file [path]'")
 			}
 
@@ -136,21 +137,21 @@ func NewControllerCmd() *cobra.Command {
 
 			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 			defer cancel()
-			return c.start(ctx, &controllerFlags)
+			return c.start(ctx, &controllerFlags, &workerFlags)
 		},
 	}
 
 	flags := cmd.Flags()
 	flags.AddFlagSet(config.GetPersistentFlagSet())
 	controllerFlags.AddToFlagSet(flags)
-	flags.AddFlagSet(config.GetWorkerFlags())
+	workerFlags.AddToFlagSet(flags)
 	flags.AddFlagSet(config.FileInputFlag())
 	flags.BoolVar(&ignorePreFlightChecks, "ignore-pre-flight-checks", false, "continue even if pre-flight checks fail")
 
 	return cmd
 }
 
-func (c *command) start(ctx context.Context, flags *Flags) error {
+func (c *command) start(ctx context.Context, flags *Flags, workerFlags *workercmd.Flags) error {
 	perfTimer := performance.NewTimer("controller-start").Buffer().Start()
 
 	nodeConfig, err := c.K0sVars.NodeConfig()
@@ -210,14 +211,14 @@ func (c *command) start(ctx context.Context, flags *Flags) error {
 
 	var joinClient *token.JoinClient
 
-	if (c.TokenArg != "" || c.TokenFile != "") && c.needToJoin(nodeConfig) {
+	if (workerFlags.TokenArg != "" || workerFlags.TokenFile != "") && c.needToJoin(nodeConfig) {
 		var tokenData string
-		if c.TokenArg != "" {
-			tokenData = c.TokenArg
+		if workerFlags.TokenArg != "" {
+			tokenData = workerFlags.TokenArg
 		} else {
-			data, err := os.ReadFile(c.TokenFile)
+			data, err := os.ReadFile(workerFlags.TokenFile)
 			if err != nil {
-				return fmt.Errorf("read token file %q: %w", c.TokenFile, err)
+				return fmt.Errorf("read token file %q: %w", workerFlags.TokenFile, err)
 			}
 			tokenData = string(data)
 		}
@@ -252,7 +253,7 @@ func (c *command) start(ctx context.Context, flags *Flags) error {
 			Config:      nodeConfig.Spec.Storage.Etcd,
 			JoinClient:  joinClient,
 			K0sVars:     c.K0sVars,
-			LogLevel:    c.LogLevels.Etcd,
+			LogLevel:    workerFlags.LogLevels.Etcd,
 		}
 	default:
 		return fmt.Errorf("invalid storage type: %s", nodeConfig.Spec.Storage.Type)
@@ -268,7 +269,7 @@ func (c *command) start(ctx context.Context, flags *Flags) error {
 	numActiveControllers := value.NewLatest[uint](1)
 
 	nodeComponents.Add(ctx, &iptables.Component{
-		IPTablesMode: c.IPTablesMode,
+		IPTablesMode: workerFlags.IPTablesMode,
 		BinDir:       c.K0sVars.BinDir,
 	})
 
@@ -300,7 +301,7 @@ func (c *command) start(ctx context.Context, flags *Flags) error {
 	if enableKonnectivity {
 		nodeComponents.Add(ctx, &controller.Konnectivity{
 			K0sVars:      c.K0sVars,
-			LogLevel:     c.LogLevels.Konnectivity,
+			LogLevel:     workerFlags.LogLevels.Konnectivity,
 			EventEmitter: prober.NewEventEmitter(),
 			ServerCount:  numActiveControllers.Peek,
 		})
@@ -309,7 +310,7 @@ func (c *command) start(ctx context.Context, flags *Flags) error {
 	nodeComponents.Add(ctx, &controller.APIServer{
 		ClusterConfig:      nodeConfig,
 		K0sVars:            c.K0sVars,
-		LogLevel:           c.LogLevels.KubeAPIServer,
+		LogLevel:           workerFlags.LogLevels.KubeAPIServer,
 		Storage:            storageBackend,
 		EnableKonnectivity: enableKonnectivity,
 
@@ -317,7 +318,7 @@ func (c *command) start(ctx context.Context, flags *Flags) error {
 		DisableEndpointReconciler: enableK0sEndpointReconciler,
 	})
 
-	nodeName, kubeletExtraArgs, err := workercmd.GetNodeName(&c.WorkerOptions)
+	nodeName, kubeletExtraArgs, err := workercmd.GetNodeName(workerFlags)
 	if err != nil {
 		return fmt.Errorf("failed to determine node name: %w", err)
 	}
@@ -583,7 +584,7 @@ func (c *command) start(ctx context.Context, flags *Flags) error {
 
 	if !flags.IsComponentDisabled(constant.KubeSchedulerComponentName) {
 		clusterComponents.Add(ctx, &controller.Scheduler{
-			LogLevel:              c.LogLevels.KubeScheduler,
+			LogLevel:              workerFlags.LogLevels.KubeScheduler,
 			K0sVars:               c.K0sVars,
 			DisableLeaderElection: singleController,
 		})
@@ -591,7 +592,7 @@ func (c *command) start(ctx context.Context, flags *Flags) error {
 
 	if !flags.IsComponentDisabled(constant.KubeControllerManagerComponentName) {
 		clusterComponents.Add(ctx, &controller.Manager{
-			LogLevel:              c.LogLevels.KubeControllerManager,
+			LogLevel:              workerFlags.LogLevels.KubeControllerManager,
 			K0sVars:               c.K0sVars,
 			DisableLeaderElection: singleController,
 			ServiceClusterIPRange: nodeConfig.Spec.Network.BuildServiceCIDR(nodeConfig.Spec.API.Address),
@@ -611,7 +612,7 @@ func (c *command) start(ctx context.Context, flags *Flags) error {
 
 	clusterComponents.Add(ctx, &controller.Autopilot{
 		K0sVars:            c.K0sVars,
-		KubeletExtraArgs:   c.KubeletExtraArgs,
+		KubeletExtraArgs:   workerFlags.KubeletExtraArgs,
 		AdminClientFactory: adminClientFactory,
 		Workloads:          controllerMode.WorkloadsEnabled(),
 	})
@@ -653,7 +654,7 @@ func (c *command) start(ctx context.Context, flags *Flags) error {
 
 	if controllerMode.WorkloadsEnabled() {
 		perfTimer.Checkpoint("starting-worker")
-		if err := c.startWorker(ctx, flags, nodeConfig.Spec.API, nodeName, kubeletExtraArgs); err != nil {
+		if err := c.startWorker(ctx, flags, nodeConfig.Spec.API, workerFlags, nodeName, kubeletExtraArgs); err != nil {
 			logrus.WithError(err).Error("Failed to start controller worker")
 		} else {
 			perfTimer.Checkpoint("started-worker")
@@ -672,7 +673,7 @@ func (c *command) start(ctx context.Context, flags *Flags) error {
 	return nil
 }
 
-func (c *command) startWorker(ctx context.Context, flags *Flags, api *v1beta1.APISpec, nodeName apitypes.NodeName, kubeletExtraArgs stringmap.StringMap) error {
+func (c *command) startWorker(ctx context.Context, flags *Flags, api *v1beta1.APISpec, workerFlags *workercmd.Flags, nodeName apitypes.NodeName, kubeletExtraArgs stringmap.StringMap) error {
 	var bootstrapConfig string
 	if !file.Exists(c.K0sVars.KubeletAuthConfigPath) {
 		// wait for controller to start up
@@ -706,14 +707,14 @@ func (c *command) startWorker(ctx context.Context, flags *Flags, api *v1beta1.AP
 	// opts to start the worker. Needs to be a copy so the original token and
 	// possibly other args won't get messed up.
 	wc := workercmd.Command(*(*config.CLIOptions)(c))
-	wc.TokenArg = bootstrapConfig
-	wc.Labels = append(wc.Labels, fields.OneTermEqualSelector(constant.K0SNodeRoleLabel, "control-plane").String())
+	workerFlags.TokenArg = bootstrapConfig
+	workerFlags.Labels = append(workerFlags.Labels, fields.OneTermEqualSelector(constant.K0SNodeRoleLabel, "control-plane").String())
 	if flags.Mode() == ControllerPlusWorkerMode && !flags.NoTaints {
 		key := path.Join(constant.NodeRoleLabelNamespace, "master")
 		taint := fields.OneTermEqualSelector(key, ":"+string(corev1.TaintEffectNoSchedule))
-		wc.Taints = append(wc.Taints, taint.String())
+		workerFlags.Taints = append(workerFlags.Taints, taint.String())
 	}
-	return wc.Start(ctx, nodeName, kubeletExtraArgs, (*embeddingController)(flags))
+	return wc.Start(ctx, workerFlags, nodeName, kubeletExtraArgs, (*embeddingController)(flags))
 }
 
 type embeddingController Flags

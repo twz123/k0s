@@ -42,7 +42,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func BootstrapKubeletKubeconfig(ctx context.Context, k0sVars *config.CfgVars, nodeName apitypes.NodeName, workerOpts *config.WorkerOptions) error {
+func BootstrapKubeletKubeconfig(ctx context.Context, k0sVars *config.CfgVars, nodeName apitypes.NodeName, tokenArg, tokenFile string) error {
 	bootstrapKubeconfigPath := filepath.Join(k0sVars.DataDir, "kubelet-bootstrap.conf")
 
 	// When using `k0s install` along with a join token, that join token
@@ -69,13 +69,13 @@ func BootstrapKubeletKubeconfig(ctx context.Context, k0sVars *config.CfgVars, no
 
 	// 3: A join token has been given.
 	// Bootstrap the kubelet kubeconfig via the embedded bootstrap config.
-	case workerOpts.TokenArg != "" || workerOpts.TokenFile != "":
+	case tokenArg != "" || tokenFile != "":
 		var tokenData string
-		if workerOpts.TokenArg != "" {
-			tokenData = workerOpts.TokenArg
+		if tokenArg != "" {
+			tokenData = tokenArg
 		} else {
 			var problem string
-			data, err := os.ReadFile(workerOpts.TokenFile)
+			data, err := os.ReadFile(tokenFile)
 			if errors.Is(err, os.ErrNotExist) {
 				problem = "not found"
 			} else if err != nil {
@@ -87,7 +87,7 @@ func BootstrapKubeletKubeconfig(ctx context.Context, k0sVars *config.CfgVars, no
 				return fmt.Errorf("token file %q %s"+
 					`: obtain a new token via "k0s token create ..." and store it in the file`+
 					` or reinstall this node via "k0s install --force ..." or "k0sctl apply --force ..."`,
-					workerOpts.TokenFile, problem)
+					tokenFile, problem)
 			}
 
 			tokenData = string(data)

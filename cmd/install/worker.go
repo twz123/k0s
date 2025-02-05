@@ -24,6 +24,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/k0sproject/k0s/cmd/worker"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/install"
 )
@@ -58,7 +59,7 @@ Windows flags like "--api-server", "--cidr-range" and "--cluster-dns" will be ig
 
 	flags := cmd.Flags()
 	flags.AddFlagSet(config.GetPersistentFlagSet())
-	flags.AddFlagSet(config.GetWorkerFlags())
+	(&worker.Flags{}).AddToFlagSet(flags)
 
 	return cmd
 }
