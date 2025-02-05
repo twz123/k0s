@@ -1,5 +1,5 @@
 /*
-Copyright 2022 k0s authors
+Copyright 2025 k0s authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package config
+package worker
 
 import (
 	"testing"
@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestLogLevelsFlagSet(t *testing.T) {
+func TestLogLevelsFlag(t *testing.T) {
 	t.Run("full_input", func(t *testing.T) {
 		var underTest logLevelsFlag
 		assert.NoError(t, underTest.Set("kubelet=a,kube-scheduler=b,kube-controller-manager=c,kube-apiserver=d,konnectivity-server=e,etcd=f,containerd=g"))

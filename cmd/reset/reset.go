@@ -24,6 +24,7 @@ import (
 	"os"
 
 	"github.com/k0sproject/k0s/cmd/internal"
+	"github.com/k0sproject/k0s/cmd/worker"
 	"github.com/k0sproject/k0s/pkg/cleanup"
 	"github.com/k0sproject/k0s/pkg/component/status"
 	"github.com/k0sproject/k0s/pkg/config"
@@ -35,7 +36,10 @@ import (
 type command config.CLIOptions
 
 func NewResetCmd() *cobra.Command {
-	var debugFlags internal.DebugFlags
+	var (
+		debugFlags internal.DebugFlags
+		criSocket  string
+	)
 
 	cmd := &cobra.Command{
 		Use:              "reset",
@@ -48,7 +52,7 @@ func NewResetCmd() *cobra.Command {
 				return err
 			}
 			c := (*command)(opts)
-			return c.reset(debugFlags.IsDebug())
+			return c.reset(criSocket, debugFlags.IsDebug())
 		},
 	}
 
@@ -56,14 +60,14 @@ func NewResetCmd() *cobra.Command {
 
 	flags := cmd.Flags()
 	flags.AddFlagSet(config.GetPersistentFlagSet())
-	flags.AddFlagSet(config.GetCriSocketFlag())
+	flags.AddFlagSet(worker.GetCRISocketFlag(&criSocket))
 	flags.AddFlagSet(config.FileInputFlag())
 	flags.String("kubelet-root-dir", "", "Kubelet root directory for k0s")
 
 	return cmd
 }
 
-func (c *command) reset(debug bool) error {
+func (c *command) reset(criSocket string, debug bool) error {
 	if os.Geteuid() != 0 {
 		return errors.New("this command must be run as root")
 	}
@@ -82,7 +86,7 @@ func (c *command) reset(debug bool) error {
 	}
 
 	// Get Cleanup Config
-	cfg, err := cleanup.NewConfig(debug, c.K0sVars, nodeCfg.Spec.Install.SystemUsers, c.CriSocket)
+	cfg, err := cleanup.NewConfig(debug, c.K0sVars, nodeCfg.Spec.Install.SystemUsers, criSocket)
 	if err != nil {
 		return fmt.Errorf("failed to configure cleanup: %w", err)
 	}

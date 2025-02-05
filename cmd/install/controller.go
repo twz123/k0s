@@ -25,6 +25,7 @@ import (
 	"testing/iotest"
 
 	"github.com/k0sproject/k0s/cmd/controller"
+	"github.com/k0sproject/k0s/cmd/worker"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/install"
 
@@ -86,7 +87,7 @@ With the controller subcommand you can setup a single node cluster by running:
 	flags := cmd.Flags()
 	flags.AddFlagSet(config.GetPersistentFlagSet())
 	(&controller.Flags{}).AddToFlagSet(flags)
-	flags.AddFlagSet(config.GetWorkerFlags())
+	(&worker.Flags{}).AddToFlagSet(flags)
 	flags.AddFlagSet(config.FileInputFlag())
 
 	return cmd

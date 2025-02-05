@@ -38,7 +38,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func BootstrapKubeletClientConfig(ctx context.Context, k0sVars *config.CfgVars, nodeName apitypes.NodeName, workerOpts *config.WorkerOptions, getBootstrapKubeconfig clientcmd.KubeconfigGetter) error {
+func BootstrapKubeletClientConfig(ctx context.Context, k0sVars *config.CfgVars, nodeName apitypes.NodeName, getBootstrapKubeconfig clientcmd.KubeconfigGetter) error {
 	log := logrus.WithFields(logrus.Fields{"component": "bootstrap-kubelet", "node_name": nodeName})
 	bootstrapKubeconfigPath := filepath.Join(k0sVars.DataDir, "kubelet-bootstrap.conf")
 

@@ -63,6 +63,7 @@ type EmbeddingController interface {
 func NewWorkerCmd() *cobra.Command {
 	var (
 		debugFlags            internal.DebugFlags
+		workerFlags           Flags
 		ignorePreFlightChecks bool
 	)
 
@@ -86,15 +87,15 @@ func NewWorkerCmd() *cobra.Command {
 
 			c := (*Command)(opts)
 			if len(args) > 0 {
-				c.TokenArg = args[0]
+				workerFlags.TokenArg = args[0]
 			}
 
-			getBootstrapKubeconfig, err := kubeconfigGetterFromJoinToken(c.TokenFile, c.TokenArg)
+			getBootstrapKubeconfig, err := kubeconfigGetterFromJoinToken(workerFlags.TokenFile, workerFlags.TokenArg)
 			if err != nil {
 				return err
 			}
 
-			nodeName, kubeletExtraArgs, err := GetNodeName(&c.WorkerOptions)
+			nodeName, kubeletExtraArgs, err := GetNodeName(&workerFlags)
 			if err != nil {
 				return fmt.Errorf("failed to determine node name: %w", err)
 			}
@@ -129,7 +130,7 @@ func NewWorkerCmd() *cobra.Command {
 				return err
 			}
 
-			return c.Start(ctx, nodeName, kubeletExtraArgs, getBootstrapKubeconfig, nil)
+			return c.Start(ctx, &workerFlags, nodeName, kubeletExtraArgs, getBootstrapKubeconfig, nil)
 		},
 	}
 
@@ -137,13 +138,13 @@ func NewWorkerCmd() *cobra.Command {
 
 	flags := cmd.Flags()
 	flags.AddFlagSet(config.GetPersistentFlagSet())
-	flags.AddFlagSet(config.GetWorkerFlags())
+	workerFlags.AddToFlagSet(flags)
 	flags.BoolVar(&ignorePreFlightChecks, "ignore-pre-flight-checks", false, "continue even if pre-flight checks fail")
 
 	return cmd
 }
 
-func GetNodeName(opts *config.WorkerOptions) (apitypes.NodeName, stringmap.StringMap, error) {
+func GetNodeName(f *Flags) (apitypes.NodeName, stringmap.StringMap, error) {
 	// The node name used during bootstrapping needs to match the node name
 	// selected by kubelet. Otherwise, kubelet will have problems interacting
 	// with a Node object that doesn't match the name in the certificates.
@@ -155,7 +156,7 @@ func GetNodeName(opts *config.WorkerOptions) (apitypes.NodeName, stringmap.Strin
 	// path anyways in kubelet. So it's safe to assume that the following code
 	// exactly matches the behavior of kubelet.
 
-	kubeletExtraArgs := flags.Split(opts.KubeletExtraArgs)
+	kubeletExtraArgs := flags.Split(f.KubeletExtraArgs)
 	nodeName, err := node.GetNodeName(kubeletExtraArgs["--hostname-override"])
 	if err != nil {
 		return "", nil, err
@@ -227,8 +228,8 @@ func loadKubeconfigFromTokenFile(path string) (*clientcmdapi.Config, error) {
 }
 
 // Start starts the worker components based on the given [config.CLIOptions].
-func (c *Command) Start(ctx context.Context, nodeName apitypes.NodeName, kubeletExtraArgs stringmap.StringMap, getBootstrapKubeconfig clientcmd.KubeconfigGetter, controller EmbeddingController) error {
-	if err := worker.BootstrapKubeletClientConfig(ctx, c.K0sVars, nodeName, &c.WorkerOptions, getBootstrapKubeconfig); err != nil {
+func (c *Command) Start(ctx context.Context, flags *Flags, nodeName apitypes.NodeName, kubeletExtraArgs stringmap.StringMap, getBootstrapKubeconfig clientcmd.KubeconfigGetter, controller EmbeddingController) error {
+	if err := worker.BootstrapKubeletClientConfig(ctx, c.K0sVars, nodeName, getBootstrapKubeconfig); err != nil {
 		return fmt.Errorf("failed to bootstrap kubelet client configuration: %w", err)
 	}
 
@@ -237,7 +238,7 @@ func (c *Command) Start(ctx context.Context, nodeName apitypes.NodeName, kubelet
 		ctx,
 		kubernetes.KubeconfigFromFile(kubeletKubeconfigPath),
 		c.K0sVars.DataDir,
-		c.WorkerProfile,
+		flags.WorkerProfile,
 	)
 	if err != nil {
 		return err
@@ -253,7 +254,7 @@ func (c *Command) Start(ctx context.Context, nodeName apitypes.NodeName, kubelet
 		}
 
 		sp := worker.NewStaticPods()
-		reconciler, err := nllb.NewReconciler(c.K0sVars, sp, c.WorkerProfile, *workerConfig.DeepCopy())
+		reconciler, err := nllb.NewReconciler(c.K0sVars, sp, flags.WorkerProfile, *workerConfig.DeepCopy())
 		if err != nil {
 			return fmt.Errorf("failed to create node-local load balancer reconciler: %w", err)
 		}
@@ -264,33 +265,33 @@ func (c *Command) Start(ctx context.Context, nodeName apitypes.NodeName, kubelet
 		componentManager.Add(ctx, reconciler)
 	}
 
-	if c.CriSocket == "" {
-		componentManager.Add(ctx, containerd.NewComponent(c.LogLevels.Containerd, c.K0sVars, workerConfig))
+	if flags.CRISocket == "" {
+		componentManager.Add(ctx, containerd.NewComponent(flags.LogLevels.Containerd, c.K0sVars, workerConfig))
 		componentManager.Add(ctx, worker.NewOCIBundleReconciler(c.K0sVars))
 	}
 
-	if c.WorkerProfile == "default" && runtime.GOOS == "windows" {
-		c.WorkerProfile = "default-windows"
+	if flags.WorkerProfile == "default" && runtime.GOOS == "windows" {
+		flags.WorkerProfile = "default-windows"
 	}
 
 	if controller == nil && runtime.GOOS == "linux" {
 		componentManager.Add(ctx, &iptables.Component{
-			IPTablesMode: c.IPTablesMode,
+			IPTablesMode: flags.IPTablesMode,
 			BinDir:       c.K0sVars.BinDir,
 		})
 	}
 	componentManager.Add(ctx,
 		&worker.Kubelet{
 			NodeName:            nodeName,
-			CRISocket:           c.CriSocket,
-			EnableCloudProvider: c.CloudProvider,
+			CRISocket:           flags.CRISocket,
+			EnableCloudProvider: flags.CloudProvider,
 			K0sVars:             c.K0sVars,
 			StaticPods:          staticPods,
 			Kubeconfig:          kubeletKubeconfigPath,
 			Configuration:       *workerConfig.KubeletConfiguration.DeepCopy(),
-			LogLevel:            c.LogLevels.Kubelet,
-			Labels:              c.Labels,
-			Taints:              c.Taints,
+			LogLevel:            flags.LogLevels.Kubelet,
+			Labels:              flags.Labels,
+			Taints:              flags.Taints,
 			ExtraArgs:           kubeletExtraArgs,
 			DualStackEnabled:    workerConfig.DualStackEnabled,
 		})

@@ -24,6 +24,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/k0sproject/k0s/cmd/worker"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/install"
 )
@@ -56,7 +57,7 @@ All default values of worker command will be passed to the service stub unless o
 
 	flags := cmd.Flags()
 	flags.AddFlagSet(config.GetPersistentFlagSet())
-	flags.AddFlagSet(config.GetWorkerFlags())
+	(&worker.Flags{}).AddToFlagSet(flags)
 
 	return cmd
 }

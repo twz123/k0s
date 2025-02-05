@@ -18,7 +18,6 @@ package config
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/k0sproject/k0s/pkg/constant"
 
@@ -26,31 +25,15 @@ import (
 )
 
 var (
-	CfgFile    string
-	K0sVars    CfgVars
-	workerOpts WorkerOptions
+	CfgFile string
+	K0sVars CfgVars
 )
 
 // This struct holds all the CLI options & settings required by the
 // different k0s sub-commands
 type CLIOptions struct {
-	WorkerOptions
 	CfgFile string
 	K0sVars *CfgVars
-}
-
-// Shared worker cli flags
-type WorkerOptions struct {
-	CloudProvider    bool
-	LogLevels        LogLevels
-	CriSocket        string
-	KubeletExtraArgs string
-	Labels           []string
-	Taints           []string
-	TokenFile        string
-	TokenArg         string
-	WorkerProfile    string
-	IPTablesMode     string
 }
 
 type LogLevels = struct {
@@ -75,74 +58,6 @@ func DefaultLogLevels() LogLevels {
 	}
 }
 
-type logLevelsFlag LogLevels
-
-func (f *logLevelsFlag) Type() string {
-	return "stringToString"
-}
-
-func (f *logLevelsFlag) Set(val string) error {
-	val = strings.TrimPrefix(val, "[")
-	val = strings.TrimSuffix(val, "]")
-
-	parsed := DefaultLogLevels()
-
-	for val != "" {
-		pair, rest, _ := strings.Cut(val, ",")
-		val = rest
-		k, v, ok := strings.Cut(pair, "=")
-
-		if k == "" {
-			return fmt.Errorf("component name cannot be empty: %q", pair)
-		}
-		if !ok {
-			return fmt.Errorf("must be of format component=level: %q", pair)
-		}
-
-		switch k {
-		case "containerd":
-			parsed.Containerd = v
-		case "etcd":
-			parsed.Etcd = v
-		case "konnectivity-server":
-			parsed.Konnectivity = v
-		case "kube-apiserver":
-			parsed.KubeAPIServer = v
-		case "kube-controller-manager":
-			parsed.KubeControllerManager = v
-		case "kube-scheduler":
-			parsed.KubeScheduler = v
-		case "kubelet":
-			parsed.Kubelet = v
-		default:
-			return fmt.Errorf("unknown component name: %q", k)
-		}
-	}
-
-	*f = parsed
-	return nil
-}
-
-func (f *logLevelsFlag) String() string {
-	var buf strings.Builder
-	buf.WriteString("[containerd=")
-	buf.WriteString(f.Containerd)
-	buf.WriteString(",etcd=")
-	buf.WriteString(f.Etcd)
-	buf.WriteString(",konnectivity-server=")
-	buf.WriteString(f.Konnectivity)
-	buf.WriteString(",kube-apiserver=")
-	buf.WriteString(f.KubeAPIServer)
-	buf.WriteString(",kube-controller-manager=")
-	buf.WriteString(f.KubeControllerManager)
-	buf.WriteString(",kube-scheduler=")
-	buf.WriteString(f.KubeScheduler)
-	buf.WriteString(",kubelet=")
-	buf.WriteString(f.Kubelet)
-	buf.WriteString("]")
-	return buf.String()
-}
-
 func GetPersistentFlagSet() *pflag.FlagSet {
 	flagset := &pflag.FlagSet{}
 	flagset.String("data-dir", constant.DataDirDefault, "Data Directory for k0s. DO NOT CHANGE for an existing setup, things will break!")
@@ -153,40 +68,6 @@ func GetPersistentFlagSet() *pflag.FlagSet {
 func GetKubeCtlFlagSet() *pflag.FlagSet {
 	flagset := &pflag.FlagSet{}
 	flagset.String("data-dir", constant.DataDirDefault, "Data Directory for k0s. DO NOT CHANGE for an existing setup, things will break!")
-	return flagset
-}
-
-func GetCriSocketFlag() *pflag.FlagSet {
-	flagset := &pflag.FlagSet{}
-	flagset.StringVar(&workerOpts.CriSocket, "cri-socket", "", "container runtime socket to use, default to internal containerd. Format: [remote|docker]:[path-to-socket]")
-	return flagset
-}
-
-func GetWorkerFlags() *pflag.FlagSet {
-	flagset := &pflag.FlagSet{}
-
-	if workerOpts.LogLevels == (LogLevels{}) {
-		// initialize zero value with defaults
-		workerOpts.LogLevels = DefaultLogLevels()
-	}
-
-	flagset.String("cidr-range", "", "")
-	flagset.VisitAll(func(f *pflag.Flag) {
-		f.Hidden = true
-		f.Deprecated = "it has no effect and will be removed in a future release"
-	})
-
-	flagset.String("kubelet-root-dir", "", "Kubelet root directory for k0s")
-	flagset.StringVar(&workerOpts.WorkerProfile, "profile", "default", "worker profile to use on the node")
-	flagset.BoolVar(&workerOpts.CloudProvider, "enable-cloud-provider", false, "Whether or not to enable cloud provider support in kubelet")
-	flagset.StringVar(&workerOpts.TokenFile, "token-file", "", "Path to the file containing join-token.")
-	flagset.VarP((*logLevelsFlag)(&workerOpts.LogLevels), "logging", "l", "Logging Levels for the different components")
-	flagset.StringSliceVarP(&workerOpts.Labels, "labels", "", []string{}, "Node labels, list of key=value pairs")
-	flagset.StringSliceVarP(&workerOpts.Taints, "taints", "", []string{}, "Node taints, list of key=value:effect strings")
-	flagset.StringVar(&workerOpts.KubeletExtraArgs, "kubelet-extra-args", "", "extra args for kubelet")
-	flagset.StringVar(&workerOpts.IPTablesMode, "iptables-mode", "", "iptables mode (valid values: nft, legacy, auto). default: auto")
-	flagset.AddFlagSet(GetCriSocketFlag())
-
 	return flagset
 }
 
@@ -212,10 +93,5 @@ func GetCmdOpts(cobraCmd command) (*CLIOptions, error) {
 		k0sVars = rtc.K0sVars
 	}
 
-	return &CLIOptions{
-		WorkerOptions: workerOpts,
-
-		CfgFile: CfgFile,
-		K0sVars: k0sVars,
-	}, nil
+	return &CLIOptions{CfgFile, k0sVars}, nil
 }
