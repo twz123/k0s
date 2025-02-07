@@ -1,0 +1,182 @@
+on:
+  push:
+    branches:
+      - win-wsl
+
+jobs:
+  build-k0s:
+    strategy:
+      matrix:
+        target-os: [linux, windows]
+
+    name: "Build :: k0s :: ${{ matrix.target-os }}-amd64"
+    uses: ./.github/workflows/build-k0s.yml
+    with:
+      target-os: ${{ matrix.target-os }}
+      target-arch: amd64
+
+  smoketest:
+    name: Smoketest
+    needs: [build-k0s]
+
+    runs-on: windows-2022
+
+    steps:
+      - name: Prepare WSL
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+
+          Write-Host "Updating to WSL 2 ..."
+          & wsl --set-default-version 2
+          & wsl --update
+
+          Write-Host "Downloading Ubuntu WSL ..."
+          Invoke-WebRequest -Uri https://old-releases.ubuntu.com/releases/24.04.2/ubuntu-24.04.2-wsl-amd64.wsl -OutFile ubuntu.wsl
+          Write-Host "Importing Ubuntu WSL ..."
+          New-Item -ItemType Directory -Path .\ubuntu | Out-Null
+          & wsl --import Ubuntu .\ubuntu .\ubuntu.wsl
+          Write-Host "Launching WSL ..."
+          & wsl -l
+
+          # https://github.com/microsoft/WSL/issues/10138#issuecomment-2380431569
+          @'
+          [Unit]
+          Description=A simple service to keep WSL alive
+          Documentation=https://github.com/gardengim/keepwsl
+
+          [Service]
+          ExecStart=/mnt/c/Windows/System32/wsl.exe sleep infinity
+          Restart=always
+
+          [Install]
+          WantedBy=default.target
+          # some trailing carriage return
+          '@ | & wsl tee /etc/systemd/system/keepwsl.service | Out-Null
+
+          & wsl -- base64 /etc/systemd/system/keepwsl.service
+
+          & wsl -- systemctl daemon-reload
+          & wsl -- systemctl start keepwsl.service
+
+      - name: Download compiled binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: k0s-{linux,windows}-amd64
+          merge-multiple: true
+
+      - name: Install and start k0s controller
+        id: start-controller
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+
+          & ./k0s.exe version
+
+          $dir = Resolve-Path .
+          $dir = "/mnt/$((Split-Path -Qualifier $dir).ToLower()[0])$((Split-Path -NoQualifier $dir) -replace '\\','/')"
+
+          @"
+          mkdir /etc/k0s
+          cat <<EOF >/etc/k0s/k0s.yaml
+          spec:
+            storage:
+              type: kine
+            network:
+              provider: calico
+            images:
+              pause:
+                # FIXME We need to use the upstream pause image here since the
+                # k0sproject's one doesn't ship with a windows build currently.
+                image: k8s.gcr.io/pause
+                version: 3.10.1
+          EOF
+
+          install -m755 -D -- '$dir/k0s' /usr/local/bin/k0s
+
+          k0s install controller --debug --enable-worker --disable-components metrics-server
+          # Do not use "k0s start" here, as its error reporting is poor.
+          systemctl start k0scontroller.service
+          # some trailing carriage return
+          "@ -replace "`r`n", "`n" | & wsl bash -euo pipefail
+
+      - name: Prepare kubeconfig
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+
+          for ($attempt = 1; $true; $attempt++) {
+            try {
+              Write-Host "Getting kubeconfig (attempt $attempt) ..."
+              & wsl k0s kubeconfig admin | Out-File -FilePath kubeconfig -Encoding utf8
+            }
+            catch {
+              if ($attempt -gt 5) {
+                throw
+              }
+
+              Write-Warning "Failed to get kubeconfig: $_"
+              & wsl -- systemctl status k0scontroller.service
+              Start-Sleep -Seconds 5
+              continue
+            }
+
+            Write-Host "Kubeconfig written to file"
+            break
+          }
+
+          "KUBECONFIG=" + (Resolve-Path "kubeconfig").Path | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Get join token
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+
+          for ($attempt = 1; $true; $attempt++) {
+            try {
+              Write-Host "Getting join token (attempt $attempt) ..."
+              & wsl k0s token create --role=worker | Out-File -FilePath k0s-worker-token -Encoding utf8
+            }
+            catch {
+              if ($attempt -gt 15) {
+                throw
+              }
+
+              Write-Warning "Failed to get join token: $_"
+              & wsl -- systemctl status k0scontroller.service
+              Start-Sleep -Seconds 5
+              continue
+            }
+
+            Write-Host "Join token written to file"
+            break
+          }
+
+      - name: Start k0s worker
+        timeout-minutes: 7
+        run: |
+          & .\k0s.exe worker --token-file=k0s-worker-token --debug
+
+      - name: Monitor cluster a bit
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+
+          for ($attempt = 1; $attempt -le 5; $attempt++) {
+            try {
+              & kubectl get node,po -A -owide
+            }
+            catch {
+              if ($attempt -eq 5 ) {
+                throw
+              }
+              & wsl -- systemctl status k0scontroller.service
+            }
+            Start-Sleep -Seconds 5
+          }
+
+      - name: k0 controller logs
+        if: failure() && steps.start-controller.conclusion == 'success'
+        run: |
+          & wsl systemctl status k0scontroller.service
+          & wsl journalctl --boot -u k0scontroller.service
