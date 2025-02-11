@@ -43,7 +43,6 @@ import (
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	workerconfig "github.com/k0sproject/k0s/pkg/component/worker/config"
 	"github.com/k0sproject/k0s/pkg/config"
-	"github.com/k0sproject/k0s/pkg/constant"
 	containerruntime "github.com/k0sproject/k0s/pkg/container/runtime"
 	"github.com/k0sproject/k0s/pkg/debounce"
 	"github.com/k0sproject/k0s/pkg/supervisor"
@@ -101,7 +100,7 @@ func (c *Component) Init(ctx context.Context) error {
 	for _, bin := range c.binaries {
 		b := bin
 		g.Go(func() error {
-			return assets.Stage(c.K0sVars.BinDir, b, constant.BinDirMode)
+			return assets.Stage(c.K0sVars.BinDir, b)
 		})
 	}
 	if err := g.Wait(); err != nil {
