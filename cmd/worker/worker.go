@@ -25,6 +25,7 @@ import (
 	"runtime"
 	"syscall"
 
+	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/flags"
 	internallog "github.com/k0sproject/k0s/internal/pkg/log"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
@@ -37,6 +38,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/component/worker/containerd"
 	"github.com/k0sproject/k0s/pkg/component/worker/nllb"
 	"github.com/k0sproject/k0s/pkg/config"
+	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/k0sproject/k0s/pkg/node"
 
@@ -103,6 +105,17 @@ func NewWorkerCmd() *cobra.Command {
 			// Set up signal handling
 			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 			defer cancel()
+
+			// create directories early with the proper permissions
+			if err := dir.Init(c.K0sVars.DataDir, constant.DataDirMode); err != nil {
+				return err
+			}
+			if err := dir.Init(c.K0sVars.RunDir, constant.RunDirMode); err != nil {
+				return err
+			}
+			if err := dir.Init(c.K0sVars.BinDir, constant.BinDirMode); err != nil {
+				return err
+			}
 
 			return c.Start(ctx, nodeName, kubeletExtraArgs, nil)
 		},
