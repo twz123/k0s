@@ -47,9 +47,9 @@ func (p *PowerShell) execute(args ...string) error {
 	return cmd.Run()
 }
 
-func winExecute(args ...string) error {
-	ps := NewPowershell()
+// func winExecute(args ...string) error {
+// 	ps := NewPowershell()
 
-	r := ps.execute(args...)
-	return r
-}
+// 	r := ps.execute(args...)
+// 	return r
+// }
