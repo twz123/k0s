@@ -29,6 +29,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"syscall"
 	"time"
 
@@ -71,6 +72,7 @@ type Component struct {
 	OCIBundlePath string
 	confPath      string
 	importsPath   string
+	stop          func(error)
 }
 
 func NewComponent(logLevel string, vars *config.CfgVars, profile *workerconfig.Profile) *Component {
@@ -135,7 +137,7 @@ func (c *Component) Init(ctx context.Context) error {
 // }
 
 // Run runs containerd.
-func (c *Component) Start(ctx context.Context) error {
+func (c *Component) Start(ctx context.Context) (err error) {
 	log := logrus.WithField("component", "containerd")
 	log.Info("Starting containerd")
 
@@ -171,11 +173,28 @@ func (c *Component) Start(ctx context.Context) error {
 		return err
 	}
 
-	go c.watchDropinConfigs(ctx)
+	cctx, cancel := context.WithCancelCause(context.Background())
+	var wg sync.WaitGroup
+	stop := func(err error) {
+		cancel(err)
+		c.supervisor.Stop()
+		wg.Wait()
+	}
+	defer func() {
+		if err != nil {
+			stop(err)
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		c.watchDropinConfigs(cctx)
+	}()
 
 	log.Debug("Waiting for containerd")
 	var lastErr error
-	err := wait.ExponentialBackoffWithContext(ctx, wait.Backoff{
+	err = wait.ExponentialBackoffWithContext(ctx, wait.Backoff{
 		Duration: 100 * time.Millisecond, Factor: 1.2, Jitter: 0.05, Steps: 30,
 	}, func(ctx context.Context) (bool, error) {
 		rt := containerruntime.NewContainerRuntime(runtimeEndpoint)
@@ -352,7 +371,11 @@ func (c *Component) Stop() error {
 	// if runtime.GOOS == "windows" {
 	// 	return c.windowsStop()
 	// }
-	c.supervisor.Stop()
+
+	if stop := c.stop; stop != nil {
+		stop(errors.New("containerd component is stopping"))
+	}
+
 	return nil
 }
 
