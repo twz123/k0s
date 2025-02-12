@@ -43,6 +43,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	workerconfig "github.com/k0sproject/k0s/pkg/component/worker/config"
 	"github.com/k0sproject/k0s/pkg/config"
+	"github.com/k0sproject/k0s/pkg/constant"
 	containerruntime "github.com/k0sproject/k0s/pkg/container/runtime"
 	"github.com/k0sproject/k0s/pkg/debounce"
 	"github.com/k0sproject/k0s/pkg/supervisor"
@@ -81,7 +82,7 @@ func NewComponent(logLevel string, vars *config.CfgVars, profile *workerconfig.P
 	}
 
 	if runtime.GOOS == "windows" {
-		c.binaries = []string{"containerd.exe", "containerd-shim-runhcs-v1.exe"}
+		c.binaries = []string{"containerd", "containerd-shim-runhcs-v1"}
 		c.confPath = confPathWindows
 		c.importsPath = importsPathWindows
 	} else {
@@ -99,14 +100,14 @@ func (c *Component) Init(ctx context.Context) error {
 	g, _ := errgroup.WithContext(ctx)
 	for _, bin := range c.binaries {
 		g.Go(func() error {
-			err := assets.Stage(c.K0sVars.BinDir, bin)
+			err := assets.StageExecutable(c.K0sVars.BinDir, bin)
 			// Simply ignore the "running executable" problem on Windows for
 			// now. Whenever there's a permission error on Windows and the
 			// target file exists, log the error and continue.
 			if err != nil &&
 				runtime.GOOS == "windows" &&
 				errors.Is(err, os.ErrPermission) &&
-				file.Exists(filepath.Join(c.K0sVars.BinDir, bin)) {
+				file.Exists(filepath.Join(c.K0sVars.BinDir, bin+constant.ExecutableSuffix)) {
 				logrus.WithField("component", "containerd").WithError(err).Error("Failed to replace ", bin)
 				return nil
 			}
