@@ -25,7 +25,7 @@ import (
 )
 
 func TestGetContainerRuntimeEndpoint_Defaults(t *testing.T) {
-	runtimeEndpoint, err := worker.GetContainerRuntimeEndpoint("", "/run/user/999")
+	runtimeEndpoint, err := worker.SelectContainerRuntimeEndpoint("", "/run/user/999")
 	assert.NoError(t, err)
 	if assert.NotNil(t, runtimeEndpoint) {
 		if runtime.GOOS == "windows" {
@@ -85,7 +85,7 @@ func TestGetContainerRuntimeEndpoint_Flag(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			endpoint, err := worker.GetContainerRuntimeEndpoint(tc.flag, "y u use me?")
+			endpoint, err := worker.SelectContainerRuntimeEndpoint(tc.flag, "y u use me?")
 			if tc.err != "" {
 				assert.ErrorContains(t, err, tc.err)
 				assert.Nil(t, endpoint)
