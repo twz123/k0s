@@ -29,5 +29,10 @@ type ContainerRuntime interface {
 }
 
 func NewContainerRuntime(runtimeEndpoint *url.URL) ContainerRuntime {
-	return &CRIRuntime{runtimeEndpoint.String()}
+	grpcTarget := url.URL{
+		Scheme: "passthrough", // https://github.com/grpc/grpc-go/issues/7288#issuecomment-2141190333
+		Opaque: runtimeEndpoint.String(),
+	}
+
+	return &CRIRuntime{grpcTarget.String()}
 }
