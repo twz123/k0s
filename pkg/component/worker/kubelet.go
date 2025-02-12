@@ -117,12 +117,11 @@ func lookupNodeName(ctx context.Context, nodeName apitypes.NodeName) (ipv4 net.I
 func (k *Kubelet) Start(ctx context.Context) error {
 	logrus.Info("Starting kubelet")
 	args := stringmap.StringMap{
-		"--root-dir":        k.K0sVars.KubeletRootDir,
-		"--config":          k.configPath,
-		"--kubeconfig":      k.Kubeconfig,
-		"--v":               k.LogLevel,
-		"--runtime-cgroups": "/system.slice/containerd.service",
-		"--cert-dir":        filepath.Join(k.K0sVars.KubeletRootDir, "pki"),
+		"--root-dir":   k.K0sVars.KubeletRootDir,
+		"--config":     k.configPath,
+		"--kubeconfig": k.Kubeconfig,
+		"--v":          k.LogLevel,
+		"--cert-dir":   filepath.Join(k.K0sVars.KubeletRootDir, "pki"),
 	}
 
 	if len(k.Labels) > 0 {
@@ -145,7 +144,11 @@ func (k *Kubelet) Start(ctx context.Context) error {
 		}
 	}
 
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "linux":
+		args["--runtime-cgroups"] = "/system.slice/containerd.service"
+
+	case "windows":
 		args["--enforce-node-allocatable"] = ""
 		args["--hairpin-mode"] = "promiscuous-bridge"
 		args["--cert-dir"] = "C:\\var\\lib\\k0s\\kubelet_certs"
