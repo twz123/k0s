@@ -24,6 +24,9 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/k0sproject/k0s/internal/pkg/file"
+	"github.com/k0sproject/k0s/pkg/constant"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -47,22 +50,27 @@ func EmbeddedBinaryNeedsUpdate(exinfo os.FileInfo, embeddedBinaryPath string, si
 // - in the PATH.
 // The first to be found is the one returned.
 func BinPath(name string, binDir string) string {
+	executable := name + constant.ExecutableSuffix
 	// Look into the BinDir folder.
-	path := filepath.Join(binDir, name)
+	path := filepath.Join(binDir, executable)
 	if stat, err := os.Stat(path); err == nil && !stat.IsDir() {
 		return path
 	}
 
 	// If we still haven't found the executable, look for it in the PATH.
-	if path, err := exec.LookPath(name); err == nil {
+	if path, err := exec.LookPath(executable); err == nil {
 		path, _ := filepath.Abs(path)
 		return path
 	}
-	return name
+	return executable
+}
+
+func StageExecutable(dataDir string, name string) error {
+	return Stage(dataDir, name+constant.ExecutableSuffix, 0755)
 }
 
 // Stage ...
-func Stage(dataDir string, name string) error {
+func Stage(dataDir string, name string, perm os.FileMode) error {
 	p := filepath.Join(dataDir, name)
 	logrus.Infof("Staging '%s'", p)
 
@@ -91,7 +99,7 @@ func Stage(dataDir string, name string) error {
 
 	infile, err := os.Open(selfexe)
 	if err != nil {
-		return fmt.Errorf("unable to open executable '%s': %w", selfexe, err)
+		return fmt.Errorf("unable to open executable: %w", err)
 	}
 	defer infile.Close()
 
@@ -106,32 +114,14 @@ func Stage(dataDir string, name string) error {
 
 	logrus.Debugf("Writing static file: '%s'", p)
 
-	if err := copyTo(p, gz); err != nil {
-		return fmt.Errorf("unable to copy to '%s': %w", p, err)
-	}
-	if err := os.Chmod(p, 0550); err != nil {
-		return fmt.Errorf("failed to chmod '%s': %w", p, err)
-	}
-
-	// In order to properly determine if an update of an embedded binary file is needed,
-	// the staged embedded binary needs to have the same modification time as the `k0s`
-	// executable.
-	if err := os.Chtimes(p, exinfo.ModTime(), exinfo.ModTime()); err != nil {
-		return fmt.Errorf("failed to set file modification times of '%s': %w", p, err)
-	}
-	return nil
-}
-
-func copyTo(p string, gz io.Reader) error {
-	_ = os.Remove(p)
-	f, err := os.Create(p)
-	if err != nil {
-		return fmt.Errorf("failed to create %s: %w", p, err)
-	}
-	defer f.Close()
-	_, err = io.Copy(f, gz)
-	if err != nil {
-		return fmt.Errorf("failed to write to %s: %w", p, err)
-	}
-	return nil
+	return file.AtomicWithTarget(p).
+		WithPermissions(perm).
+		// In order to properly determine if an update of an embedded binary
+		// file is needed, the staged embedded binary needs to have the same
+		// modification time as the `k0s` executable.
+		WithModificationTime(exinfo.ModTime()).
+		Do(func(dst file.AtomicWriter) error {
+			_, err := io.Copy(dst, gz)
+			return err
+		})
 }
