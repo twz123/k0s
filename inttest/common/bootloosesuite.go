@@ -30,18 +30,17 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"text/template"
 	"time"
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
+	"github.com/k0sproject/k0s/internal/supervised"
 	apclient "github.com/k0sproject/k0s/pkg/client/clientset"
 	etcdmemberclient "github.com/k0sproject/k0s/pkg/client/clientset/typed/etcd/v1beta1"
 	"github.com/k0sproject/k0s/pkg/constant"
@@ -199,7 +198,7 @@ func (s *BootlooseSuite) SetupSuite() {
 		t.Logf("Cleaning up")
 
 		// Get a fresh context for the cleanup tasks.
-		ctx, cancel := signalAwareCtx(context.Background())
+		ctx, cancel := supervised.ShutdownContext(context.Background())
 		defer cancel(nil)
 		s.cleanupSuite(ctx, t)
 	}()
@@ -209,23 +208,6 @@ func (s *BootlooseSuite) SetupSuite() {
 	if s.WithLB {
 		s.startHAProxy()
 	}
-}
-
-func signalAwareCtx(parent context.Context) (context.Context, context.CancelCauseFunc) {
-	ctx, cancel := context.WithCancelCause(parent)
-
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		defer signal.Stop(sigs)
-		select {
-		case <-ctx.Done():
-		case sig := <-sigs:
-			cancel(fmt.Errorf("signal received: %s", sig))
-		}
-	}()
-
-	return ctx, cancel
 }
 
 // waitForSSH waits to get a SSH connection to all bootloose machines defined as part of the test suite.
@@ -1277,7 +1259,7 @@ func cleanupClusterDir(t *testing.T, dir string) {
 }
 
 func newSuiteContext(t *testing.T) (context.Context, context.CancelCauseFunc) {
-	signalCtx, cancel := signalAwareCtx(context.Background())
+	signalCtx, cancel := supervised.ShutdownContext(context.Background())
 
 	// We need to reserve some time to conduct a proper teardown of the suite before the test timeout kicks in.
 	deadline, hasDeadline := t.Deadline()

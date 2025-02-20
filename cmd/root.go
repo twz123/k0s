@@ -17,9 +17,9 @@ limitations under the License.
 package cmd
 
 import (
+	"context"
 	"errors"
 	"net/http"
-	"os"
 
 	"github.com/k0sproject/k0s/cmd/airgap"
 	"github.com/k0sproject/k0s/cmd/api"
@@ -184,8 +184,6 @@ $ k0s completion fish > ~/.config/fish/completions/k0s.fish
 	}
 }
 
-func Execute() {
-	if err := NewRootCmd().Execute(); err != nil {
-		os.Exit(1)
-	}
+func Execute(ctx context.Context) error {
+	return NewRootCmd().ExecuteContext(ctx)
 }

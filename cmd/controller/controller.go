@@ -25,11 +25,9 @@ import (
 	"io/fs"
 	"net"
 	"os"
-	"os/signal"
 	"path"
 	"path/filepath"
 	"slices"
-	"syscall"
 	"time"
 
 	workercmd "github.com/k0sproject/k0s/cmd/worker"
@@ -38,6 +36,7 @@ import (
 	internallog "github.com/k0sproject/k0s/internal/pkg/log"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
 	"github.com/k0sproject/k0s/internal/pkg/sysinfo"
+	"github.com/k0sproject/k0s/internal/supervised"
 	"github.com/k0sproject/k0s/internal/sync/value"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/applier"
@@ -122,9 +121,7 @@ func NewControllerCmd() *cobra.Command {
 				return err
 			}
 
-			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-			defer cancel()
-			return c.start(ctx, &controllerFlags)
+			return c.start(cmd.Context(), &controllerFlags)
 		},
 	}
 
@@ -649,10 +646,13 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions) er
 
 	perfTimer.Output()
 
+	if supervised := supervised.Get(ctx); supervised != nil {
+		supervised.MarkReady()
+	}
+
 	// Wait for k0s process termination
 	<-ctx.Done()
-	logrus.Debug("Context done in main")
-	logrus.Info("Shutting down k0s controller")
+	logrus.Info("Shutting down k0s controller: ", context.Cause(ctx))
 
 	perfTimer.Output()
 
