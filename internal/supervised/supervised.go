@@ -30,9 +30,7 @@ type MainFunc func(context.Context) error
 // Whenever the supervisor deems that k0s should exit, the context passed to
 // main is canceled.
 func Run(ctx context.Context, main MainFunc) error {
-	// This is not doing anything special yet. Explicitly store a nil interface.
-	ctx = set(ctx, nil)
-	return main(ctx)
+	return run(ctx, main)
 }
 
 func set(ctx context.Context, supervised Interface) context.Context {
