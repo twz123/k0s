@@ -95,7 +95,15 @@ func (a *OCIBundleReconciler) containerdClient(ctx context.Context) (*containerd
 			return fmt.Errorf("failed to communicate with containerd: %w", err)
 		}
 		return nil
-	}, retry.Context(ctx), retry.Delay(time.Second*5)); err != nil {
+	},
+		retry.Context(ctx),
+		retry.LastErrorOnly(true),
+		retry.OnRetry(func(attempt uint, err error) {
+			a.log.WithError(err).
+				WithField("attempt", attempt+1).
+				Debug("Failed to list images")
+		}),
+	); err != nil {
 		return nil, err
 	}
 	return client, nil
