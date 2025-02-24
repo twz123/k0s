@@ -49,7 +49,8 @@ const (
 
 // OCIBundleReconciler tries to import OCI bundle into the running containerd instance
 type OCIBundleReconciler struct {
-	k0sVars         *config.CfgVars
+	ociBundleDir    string
+	runtimeEndpoint *RuntimeEndpoint
 	log             *logrus.Entry
 	alreadyImported map[string]time.Time
 	mtx             sync.Mutex
@@ -63,7 +64,8 @@ var _ manager.Component = (*OCIBundleReconciler)(nil)
 // NewOCIBundleReconciler builds new reconciler
 func NewOCIBundleReconciler(vars *config.CfgVars) *OCIBundleReconciler {
 	return &OCIBundleReconciler{
-		k0sVars:         vars,
+		ociBundleDir:    vars.OCIBundleDir,
+		runtimeEndpoint: GetContainerRuntimeEndpoint(vars.RunDir),
 		log:             logrus.WithField("component", "OCIBundleReconciler"),
 		EventEmitter:    prober.NewEventEmitter(),
 		alreadyImported: map[string]time.Time{},
@@ -72,16 +74,15 @@ func NewOCIBundleReconciler(vars *config.CfgVars) *OCIBundleReconciler {
 }
 
 func (a *OCIBundleReconciler) Init(_ context.Context) error {
-	return dir.Init(a.k0sVars.OCIBundleDir, constant.ManifestsDirMode)
+	return dir.Init(a.ociBundleDir, constant.ManifestsDirMode)
 }
 
 // containerdClient returns a connected containerd client.
 func (a *OCIBundleReconciler) containerdClient(ctx context.Context) (*containerd.Client, error) {
 	var client *containerd.Client
-	sock := filepath.Join(a.k0sVars.RunDir, "containerd.sock")
 	if err := retry.Do(func() (err error) {
 		client, err = containerd.New(
-			sock,
+			a.runtimeEndpoint.String(),
 			containerd.WithDefaultNamespace("k8s.io"),
 			containerd.WithDefaultPlatform(
 				platforms.Only(platforms.DefaultSpec()),
@@ -126,14 +127,14 @@ func (a *OCIBundleReconciler) loadAll(ctx context.Context) {
 	defer a.mtx.Unlock()
 
 	a.log.Info("Loading OCI bundles directory")
-	files, err := os.ReadDir(a.k0sVars.OCIBundleDir)
+	files, err := os.ReadDir(a.ociBundleDir)
 	if err != nil {
 		a.log.WithError(err).Errorf("Failed to read bundles directory")
 		return
 	}
 	a.EmitWithPayload("importing OCI bundles", files)
 	for _, file := range files {
-		fpath := filepath.Join(a.k0sVars.OCIBundleDir, file.Name())
+		fpath := filepath.Join(a.ociBundleDir, file.Name())
 		finfo, err := os.Stat(fpath)
 		if err != nil {
 			a.log.WithError(err).Errorf("failed to stat %s", fpath)
@@ -237,7 +238,7 @@ func (a *OCIBundleReconciler) installWatcher(ctx context.Context) error {
 		return fmt.Errorf("failed to create watcher: %w", err)
 	}
 
-	if err := watcher.Add(a.k0sVars.OCIBundleDir); err != nil {
+	if err := watcher.Add(a.ociBundleDir); err != nil {
 		return fmt.Errorf("failed to add watcher: %w", err)
 	}
 
@@ -261,7 +262,7 @@ func (a *OCIBundleReconciler) installWatcher(ctx context.Context) error {
 
 	go func() {
 		defer close(a.end)
-		a.log.Infof("Started to watch events on %s", a.k0sVars.OCIBundleDir)
+		a.log.Infof("Started to watch events on %s", a.ociBundleDir)
 		_ = debouncer.Run(ctx)
 		if err := watcher.Close(); err != nil {
 			a.log.Errorf("Failed to close watcher: %s", err)

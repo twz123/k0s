@@ -80,7 +80,7 @@ func (c *Config) Cleanup() error {
 }
 
 func newContainersStep(debug bool, k0sVars *config.CfgVars, criSocketFlag string) (*containers, error) {
-	runtimeEndpoint, err := worker.GetContainerRuntimeEndpoint(criSocketFlag, k0sVars.RunDir)
+	runtimeEndpoint, err := worker.SelectContainerRuntimeEndpoint(criSocketFlag, k0sVars.RunDir)
 	if err != nil {
 		return nil, err
 	}

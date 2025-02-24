@@ -98,9 +98,19 @@ var _ manager.Component = (*Component)(nil)
 func (c *Component) Init(ctx context.Context) error {
 	g, _ := errgroup.WithContext(ctx)
 	for _, bin := range c.binaries {
-		b := bin
 		g.Go(func() error {
-			return assets.Stage(c.K0sVars.BinDir, b)
+			err := assets.Stage(c.K0sVars.BinDir, bin)
+			// Simply ignore the "running executable" problem on Windows for
+			// now. Whenever there's a permission error on Windows and the
+			// target file exists, log the error and continue.
+			if err != nil &&
+				runtime.GOOS == "windows" &&
+				errors.Is(err, os.ErrPermission) &&
+				file.Exists(filepath.Join(c.K0sVars.BinDir, bin)) {
+				logrus.WithField("component", "containerd").WithError(err).Error("Failed to replace ", bin)
+				return nil
+			}
+			return err
 		})
 	}
 	if err := g.Wait(); err != nil {
@@ -168,18 +178,28 @@ func (c *Component) Start(ctx context.Context) error {
 	go c.watchDropinConfigs(ctx)
 
 	log.Debug("Waiting for containerd")
-	return wait.ExponentialBackoffWithContext(ctx, wait.Backoff{
+	var lastErr error
+	err := wait.ExponentialBackoffWithContext(ctx, wait.Backoff{
 		Duration: 100 * time.Millisecond, Factor: 1.2, Jitter: 0.05, Steps: 30,
 	}, func(ctx context.Context) (bool, error) {
 		rt := containerruntime.NewContainerRuntime(runtimeEndpoint)
-		if err := rt.Ping(ctx); err != nil {
-			log.WithError(err).Debug("Failed to ping containerd")
+		if lastErr = rt.Ping(ctx); lastErr != nil {
+			log.WithError(lastErr).Debug("Failed to ping containerd")
 			return false, nil
 		}
 
 		log.Debug("Successfully pinged containerd")
 		return true, nil
 	})
+
+	if err != nil {
+		if lastErr == nil {
+			return fmt.Errorf("failed to ping containerd: %w", err)
+		}
+		return fmt.Errorf("failed to ping containerd: %w (%w)", err, lastErr)
+	}
+
+	return nil
 }
 
 func (c *Component) windowsStart(_ context.Context) error {

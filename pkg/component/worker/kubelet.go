@@ -215,7 +215,7 @@ func (k *Kubelet) writeKubeletConfig() error {
 		staticPodURL = url.String()
 	}
 
-	containerRuntimeEndpoint, err := GetContainerRuntimeEndpoint(k.CRISocket, k.K0sVars.RunDir)
+	containerRuntimeEndpoint, err := SelectContainerRuntimeEndpoint(k.CRISocket, k.K0sVars.RunDir)
 	if err != nil {
 		return err
 	}
