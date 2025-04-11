@@ -292,7 +292,7 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions) er
 			K0sVars:      c.K0sVars,
 			LogLevel:     c.LogLevels.Konnectivity,
 			EventEmitter: prober.NewEventEmitter(),
-			ServerCount:  numActiveControllers.Peek,
+			ServerCount:  numActiveControllers.Peek, // TODO: remove in k0s 1.34+
 		})
 	}
 
@@ -318,7 +318,8 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions) er
 			InvocationID:          c.K0sVars.InvocationID,
 			ClusterConfig:         nodeConfig,
 			KubeClientFactory:     adminClientFactory,
-			UpdateControllerCount: numActiveControllers.Set,
+			KonnectivityEnabled:   enableKonnectivity,
+			UpdateControllerCount: numActiveControllers.Set, // TODO: remove in k0s 1.34+
 		})
 	}
 
@@ -571,7 +572,6 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions) er
 			K0sVars:       c.K0sVars,
 			APIServerHost: nodeConfig.Spec.API.APIAddress(),
 			EventEmitter:  prober.NewEventEmitter(),
-			ServerCount:   numActiveControllers.Peek,
 		})
 	}
 

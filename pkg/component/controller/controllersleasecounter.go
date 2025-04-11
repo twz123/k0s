@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"maps"
+	"strconv"
 	"sync"
 	"time"
 
@@ -27,21 +29,29 @@ import (
 	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/k0sproject/k0s/pkg/leaderelection"
 
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
+	clientcoordinationv1 "k8s.io/client-go/kubernetes/typed/coordination/v1"
 
 	"github.com/sirupsen/logrus"
 )
 
+const konnectivityLabelName = "k0s.k0sproject.io/konnectivity-proxy-server"
+
 // K0sControllersLeaseCounter implements a component that manages a lease per controller.
 // The per-controller leases are used to determine the amount of currently running controllers
 type K0sControllersLeaseCounter struct {
-	NodeName              apitypes.NodeName
-	InvocationID          string
-	ClusterConfig         *v1beta1.ClusterConfig
-	KubeClientFactory     kubeutil.ClientFactoryInterface
+	NodeName            apitypes.NodeName
+	InvocationID        string
+	ClusterConfig       *v1beta1.ClusterConfig
+	KubeClientFactory   kubeutil.ClientFactoryInterface
+	KonnectivityEnabled bool
+
+	// Deprecated: remove in k0s 1.34+
 	UpdateControllerCount func(uint)
 
 	log  logrus.FieldLogger
@@ -70,7 +80,12 @@ func (l *K0sControllersLeaseCounter) Start(context.Context) error {
 		Namespace: corev1.NamespaceNodeLease,
 		Name:      leaseName,
 		Identity:  l.InvocationID,
-		Client:    kubeClient.CoordinationV1(),
+		Client: &controllerLeasesGetter{
+			LeasesGetter: kubeClient.CoordinationV1(),
+			modifyLease: func(lease *coordinationv1.Lease) *coordinationv1.Lease {
+				return addLeaseLabel(lease, konnectivityLabelName, strconv.FormatBool(l.KonnectivityEnabled))
+			},
+		},
 	})
 	if err != nil {
 		return err
@@ -107,6 +122,8 @@ func (l *K0sControllersLeaseCounter) runLeaderElection(ctx context.Context, clie
 }
 
 // Updates the number of active controller leases every 10 secs.
+//
+// Deprecated: remove in k0s 1.34+
 func (l *K0sControllersLeaseCounter) runLeaseCounter(ctx context.Context, clients kubernetes.Interface) {
 	l.log.Debug("Starting controller lease counter every 10 secs")
 
@@ -122,4 +139,47 @@ func (l *K0sControllersLeaseCounter) runLeaseCounter(ctx context.Context, client
 
 		l.UpdateControllerCount(count)
 	}, 10*time.Second)
+}
+
+func addLeaseLabel(lease *coordinationv1.Lease, name, value string) *coordinationv1.Lease {
+	if lease == nil {
+		return nil
+	}
+
+	if lease.Labels != nil && lease.Labels[name] == value {
+		return lease
+	}
+
+	labels := make(map[string]string, len(lease.Labels)+1)
+	maps.Copy(labels, lease.Labels)
+	labels[name] = value
+
+	lease = lease.DeepCopy()
+	lease.Labels = labels
+	return lease
+}
+
+type controllerLeasesGetter struct {
+	clientcoordinationv1.LeasesGetter
+	modifyLease func(*coordinationv1.Lease) *coordinationv1.Lease
+}
+
+func (g *controllerLeasesGetter) Leases(namespace string) clientcoordinationv1.LeaseInterface {
+	return &controllerLeaseClient{
+		g.LeasesGetter.Leases(namespace),
+		g.modifyLease,
+	}
+}
+
+type controllerLeaseClient struct {
+	clientcoordinationv1.LeaseInterface
+	modifyLease func(*coordinationv1.Lease) *coordinationv1.Lease
+}
+
+func (c *controllerLeaseClient) Create(ctx context.Context, lease *coordinationv1.Lease, opts metav1.CreateOptions) (*coordinationv1.Lease, error) {
+	return c.LeaseInterface.Create(ctx, c.modifyLease(lease), opts)
+}
+
+func (c *controllerLeaseClient) Update(ctx context.Context, lease *coordinationv1.Lease, opts metav1.UpdateOptions) (*coordinationv1.Lease, error) {
+	return c.LeaseInterface.Update(ctx, c.modifyLease(lease), opts)
 }

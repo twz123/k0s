@@ -43,14 +43,15 @@ import (
 
 // Konnectivity implements the component interface for konnectivity server
 type Konnectivity struct {
-	K0sVars     *config.CfgVars
-	LogLevel    string
+	K0sVars  *config.CfgVars
+	LogLevel string
+
+	// Deprecated: remove in k0s 1.34+
 	ServerCount func() (uint, <-chan struct{})
 
 	supervisor *supervisor.Supervisor
 	uid        int
 
-	stopFunc      context.CancelFunc
 	clusterConfig *v1beta1.ClusterConfig
 	log           *logrus.Entry
 
@@ -161,7 +162,7 @@ func (k *Konnectivity) serverArgs(count uint) []string {
 		"--v":                        k.LogLevel,
 		"--enable-profiling":         "false",
 		"--delete-existing-uds-file": "true",
-		"--server-count":             strconv.FormatUint(uint64(count), 10),
+		"--server-count":             strconv.FormatUint(uint64(count), 10), // TODO: remove in k0s 1.34+
 		"--server-id":                k.K0sVars.InvocationID,
 		"--proxy-strategies":         "destHost,defaultRoute,default",
 		"--cipher-suites":            constant.AllowedTLS12CipherSuiteNames(),
@@ -176,7 +177,7 @@ func (k *Konnectivity) runServer(count uint) error {
 		k.supervisor.Stop()
 	}
 
-	k.supervisor = &supervisor.Supervisor{
+	supervisor := &supervisor.Supervisor{
 		Name:    "konnectivity",
 		BinPath: assets.BinPath("konnectivity-server", k.K0sVars.BinDir),
 		DataDir: k.K0sVars.DataDir,
@@ -184,11 +185,11 @@ func (k *Konnectivity) runServer(count uint) error {
 		Args:    k.serverArgs(count),
 		UID:     k.uid,
 	}
-	err := k.supervisor.Supervise()
-	if err != nil {
-		k.supervisor = nil // not to make the next loop to try to stop it first
+	if err := supervisor.Supervise(); err != nil {
 		return err
 	}
+
+	k.supervisor = supervisor
 	k.EmitWithPayload("started konnectivity server", map[string]interface{}{"serverCount": count})
 
 	return nil
@@ -212,10 +213,6 @@ func (k *Konnectivity) Healthy() error {
 
 // Stop stops
 func (k *Konnectivity) Stop() error {
-	if k.stopFunc != nil {
-		logrus.Debug("closing konnectivity component context")
-		k.stopFunc()
-	}
 	if k.supervisor == nil {
 		return nil
 	}
