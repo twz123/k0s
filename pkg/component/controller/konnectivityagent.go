@@ -29,13 +29,15 @@ import (
 	"github.com/k0sproject/k0s/pkg/component/prober"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
+
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/sirupsen/logrus"
 )
 
 type KonnectivityAgent struct {
 	K0sVars       *config.CfgVars
 	APIServerHost string
-	ServerCount   func() (uint, <-chan struct{})
 
 	configChangeChan chan *v1beta1.ClusterConfig
 	log              *logrus.Entry
@@ -57,22 +59,12 @@ func (k *KonnectivityAgent) Init(_ context.Context) error {
 func (k *KonnectivityAgent) Start(ctx context.Context) error {
 
 	go func() {
-		serverCount, serverCountChanged := k.ServerCount()
-
 		var clusterConfig *v1beta1.ClusterConfig
 		var retry <-chan time.Time
 		for {
 			select {
 			case config := <-k.configChangeChan:
 				clusterConfig = config
-
-			case <-serverCountChanged:
-				prevServerCount := serverCount
-				serverCount, serverCountChanged = k.ServerCount()
-				// write only if the server count actually changed
-				if serverCount == prevServerCount {
-					continue
-				}
 
 			case <-retry:
 				k.log.Info("Retrying to write konnectivity agent manifest")
@@ -88,7 +80,7 @@ func (k *KonnectivityAgent) Start(ctx context.Context) error {
 				continue
 			}
 
-			if err := k.writeKonnectivityAgent(clusterConfig, serverCount); err != nil {
+			if err := k.writeKonnectivityAgent(clusterConfig); err != nil {
 				k.log.Errorf("failed to write konnectivity agent manifest: %v", err)
 				retry = time.After(10 * time.Second)
 				continue
@@ -110,7 +102,7 @@ func (k *KonnectivityAgent) Stop() error {
 	return nil
 }
 
-func (k *KonnectivityAgent) writeKonnectivityAgent(clusterConfig *v1beta1.ClusterConfig, serverCount uint) error {
+func (k *KonnectivityAgent) writeKonnectivityAgent(clusterConfig *v1beta1.ClusterConfig) error {
 	konnectivityDir := filepath.Join(k.K0sVars.ManifestsDir, "konnectivity")
 	err := dir.Init(konnectivityDir, constant.ManifestsDirMode)
 	if err != nil {
@@ -122,7 +114,6 @@ func (k *KonnectivityAgent) writeKonnectivityAgent(clusterConfig *v1beta1.Cluste
 		ProxyServerHost: k.APIServerHost,
 		ProxyServerPort: uint16(clusterConfig.Spec.Konnectivity.AgentPort),
 		Image:           clusterConfig.Spec.Images.Konnectivity.URI(),
-		ServerCount:     serverCount,
 		PullPolicy:      clusterConfig.Spec.Images.DefaultPullPolicy,
 	}
 
@@ -192,7 +183,6 @@ type konnectivityAgentConfig struct {
 	ProxyServerPort uint16
 	AgentPort       uint16
 	Image           string
-	ServerCount     uint
 	PullPolicy      string
 	HostNetwork     bool
 }
@@ -221,9 +211,31 @@ metadata:
   labels:
     kubernetes.io/cluster-service: "true"
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: konnectivity-agent
+  namespace: ` + corev1.NamespaceNodeLease + `
+rules:
+- apiGroups: [coordination.k8s.io]
+  resources: [leases]
+  verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: konnectivity-agent
+  namespace: ` + corev1.NamespaceNodeLease + `
+roleRef:
+  kind: Role
+  name: konnectivity-agent
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+  - kind: ServiceAccount
+    name: konnectivity-agent
+    namespace: kube-system
+---
 apiVersion: apps/v1
-# Alternatively, you can deploy the agents as Deployments. It is not necessary
-# to have an agent on each node.
 kind: DaemonSet
 metadata:
   labels:
@@ -256,22 +268,19 @@ spec:
         - image: {{ .Image }}
           imagePullPolicy: {{ .PullPolicy }}
           name: konnectivity-agent
-          command: ["/proxy-agent"]
           env:
-              # the variable is not in a use
-              # we need it to have agent restarted on server count change
-              - name: K0S_CONTROLLER_COUNT
-                value: "{{ .ServerCount }}"
-
-              - name: NODE_IP
-                valueFrom:
-                  fieldRef:
-                    fieldPath: status.hostIP
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
           args:
             - --logtostderr=true
             - --ca-cert=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
             - --proxy-server-host={{ .ProxyServerHost }}
             - --proxy-server-port={{ .ProxyServerPort }}
+            - --count-server-leases
+            - --lease-label=` + konnectivityLabelName + `=true
+            - --lease-namespace=` + corev1.NamespaceNodeLease + `
             - --service-account-token-path=/var/run/secrets/tokens/konnectivity-agent-token
             - --agent-identifiers=host=$(NODE_IP)
             - --agent-id=$(NODE_IP)
