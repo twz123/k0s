@@ -32,6 +32,7 @@ import (
 	internallog "github.com/k0sproject/k0s/internal/pkg/log"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
 	"github.com/k0sproject/k0s/internal/pkg/sysinfo"
+	"github.com/k0sproject/k0s/internal/sync/value"
 	"github.com/k0sproject/k0s/pkg/component/iptables"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/component/prober"
@@ -46,6 +47,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/token"
 
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
@@ -227,11 +229,16 @@ func loadKubeconfigFromTokenFile(path string) (*clientcmdapi.Config, error) {
 
 // Start starts the worker components based on the given [config.CLIOptions].
 func (c *Command) Start(ctx context.Context, nodeName apitypes.NodeName, kubeletExtraArgs stringmap.StringMap, getBootstrapKubeconfig clientcmd.KubeconfigGetter, controller EmbeddingController) error {
+	if c.WorkerProfile == "default" && runtime.GOOS == "windows" {
+		c.WorkerProfile = "default-windows"
+	}
+
 	if err := worker.BootstrapKubeletClientConfig(ctx, c.K0sVars, nodeName, &c.WorkerOptions, getBootstrapKubeconfig); err != nil {
 		return fmt.Errorf("failed to bootstrap kubelet client configuration: %w", err)
 	}
 
 	kubeletKubeconfigPath := c.K0sVars.KubeletAuthConfigPath
+
 	workerConfig, err := workerconfig.LoadProfile(
 		ctx,
 		kubernetes.KubeconfigFromFile(kubeletKubeconfigPath),
@@ -241,6 +248,9 @@ func (c *Command) Start(ctx context.Context, nodeName apitypes.NodeName, kubelet
 	if err != nil {
 		return err
 	}
+
+	var currentProfile value.Latest[*workerconfig.Profile]
+	currentProfile.Set(workerConfig)
 
 	componentManager := manager.New(prober.DefaultProber)
 
@@ -263,13 +273,22 @@ func (c *Command) Start(ctx context.Context, nodeName apitypes.NodeName, kubelet
 		componentManager.Add(ctx, reconciler)
 	}
 
+	certManager := worker.NewCertificateManager(kubeletKubeconfigPath)
+	// does that make sense?
+	clients := kubernetes.ClientFactory{LoadRESTConfig: func() (*rest.Config, error) {
+		return certManager.GetRestConfig(ctx)
+	}}
+
+	componentManager.Add(ctx, &workerconfig.Watcher{
+		Clients:       &clients,
+		ProfileName:   c.WorkerProfile,
+		CacheDir:      c.K0sVars.DataDir,
+		UpdateProfile: currentProfile.Set,
+	})
+
 	if c.CriSocket == "" {
 		componentManager.Add(ctx, containerd.NewComponent(c.LogLevels.Containerd, c.K0sVars, workerConfig))
 		componentManager.Add(ctx, worker.NewOCIBundleReconciler(c.K0sVars))
-	}
-
-	if c.WorkerProfile == "default" && runtime.GOOS == "windows" {
-		c.WorkerProfile = "default-windows"
 	}
 
 	if controller == nil && runtime.GOOS == "linux" {
@@ -278,6 +297,7 @@ func (c *Command) Start(ctx context.Context, nodeName apitypes.NodeName, kubelet
 			BinDir:       c.K0sVars.BinDir,
 		})
 	}
+
 	componentManager.Add(ctx,
 		&worker.Kubelet{
 			NodeName:            nodeName,
@@ -293,8 +313,6 @@ func (c *Command) Start(ctx context.Context, nodeName apitypes.NodeName, kubelet
 			ExtraArgs:           kubeletExtraArgs,
 			DualStackEnabled:    workerConfig.DualStackEnabled,
 		})
-
-	certManager := worker.NewCertificateManager(kubeletKubeconfigPath)
 
 	addPlatformSpecificComponents(ctx, componentManager, c.K0sVars, controller, certManager)
 
