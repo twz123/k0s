@@ -70,7 +70,7 @@ Flags:
       --enable-dynamic-config                          enable cluster-wide dynamic config based on custom resource
       --enable-k0s-cloud-provider                      enables the k0s-cloud-provider (default false)
       --enable-metrics-scraper                         enable scraping metrics from the controller components (kube-scheduler, kube-controller-manager)
-      --enable-worker                                  enable worker (default false)
+      --enable-worker                                  enable worker
   -h, --help                                           help for controller
       --ignore-pre-flight-checks                       continue even if pre-flight checks fail
       --init-only                                      only initialize controller and exit
@@ -84,7 +84,7 @@ Flags:
   -l, --logging stringToString                         Logging Levels for the different components (default [containerd=info,etcd=info,konnectivity-server=1,kube-apiserver=1,kube-controller-manager=1,kube-scheduler=1,kubelet=1])
       --no-taints                                      disable default taints for controller node
       --profile string                                 worker profile to use on the node (default "default")
-      --single                                         enable single node (implies --enable-worker, default false)
+      --single                                         enable single node (implies --enable-worker)
       --status-socket string                           Full file path to the socket file. (default: <rundir>/status.sock)
       --taints strings                                 Node taints, list of key=value:effect strings
       --token-file string                              Path to the file containing join-token.

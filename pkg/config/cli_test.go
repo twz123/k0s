@@ -17,44 +17,10 @@ limitations under the License.
 package config
 
 import (
-	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
-
-func TestAvailableComponents_SortedAndUnique(t *testing.T) {
-	expected := slices.Clone(availableComponents)
-	slices.Sort(expected)
-
-	assert.Equal(t, expected, availableComponents, "Available components aren't sorted")
-
-	expected = slices.Compact(expected)
-	assert.Equal(t, expected, availableComponents, "Available components contain duplicates")
-}
-
-func TestControllerOptions_Normalize(t *testing.T) {
-	t.Run("failsOnUnknownComponent", func(t *testing.T) {
-		disabled := []string{"i-dont-exist"}
-
-		underTest := ControllerOptions{DisableComponents: disabled}
-		err := underTest.Normalize()
-
-		assert.ErrorContains(t, err, "unknown component i-dont-exist")
-	})
-
-	t.Run("removesDuplicateComponents", func(t *testing.T) {
-		disabled := []string{"helm", "kube-proxy", "coredns", "kube-proxy", "autopilot"}
-		expected := []string{"helm", "kube-proxy", "coredns", "autopilot"}
-
-		underTest := ControllerOptions{DisableComponents: disabled}
-		err := underTest.Normalize()
-
-		require.NoError(t, err)
-		assert.Equal(t, expected, underTest.DisableComponents)
-	})
-}
 
 func TestLogLevelsFlagSet(t *testing.T) {
 	t.Run("full_input", func(t *testing.T) {
