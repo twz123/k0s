@@ -562,7 +562,7 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions, de
 	}
 
 	if !slices.Contains(flags.DisableComponents, constant.NodeRoleComponentName) {
-		clusterComponents.Add(ctx, controller.NewNodeRole(c.K0sVars, adminClientFactory))
+		clusterComponents.Add(ctx, controller.NewNodeRole(adminClientFactory, leaderElector))
 	}
 
 	if enableKonnectivity {

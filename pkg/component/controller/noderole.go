@@ -19,20 +19,26 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path"
 	"time"
 
-	"github.com/go-openapi/jsonpointer"
-	"github.com/sirupsen/logrus"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/kubernetes/cmd/kubeadm/app/constants"
-
-	"github.com/k0sproject/k0s/pkg/config"
+	"github.com/k0sproject/k0s/pkg/component/controller/leaderelector"
 	"github.com/k0sproject/k0s/pkg/constant"
 	k8sutil "github.com/k0sproject/k0s/pkg/kubernetes"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/metadata"
+	"k8s.io/kubernetes/cmd/kubeadm/app/constants"
+
+	"github.com/go-openapi/jsonpointer"
+	"github.com/sirupsen/logrus"
 )
 
 // NodeRole implements the component interface to manage node role labels for worker nodes
@@ -40,16 +46,17 @@ type NodeRole struct {
 	log logrus.FieldLogger
 
 	kubeClientFactory k8sutil.ClientFactoryInterface
-	k0sVars           *config.CfgVars
+	leaderElector     leaderelector.Interface
+
+	stop func()
 }
 
 // NewNodeRole creates new NodeRole reconciler
-func NewNodeRole(k0sVars *config.CfgVars, clientFactory k8sutil.ClientFactoryInterface) *NodeRole {
+func NewNodeRole(clientFactory k8sutil.ClientFactoryInterface, leaderElector leaderelector.Interface) *NodeRole {
 	return &NodeRole{
-		log: logrus.WithFields(logrus.Fields{"component": "noderole"}),
-
+		log:               logrus.WithFields(logrus.Fields{"component": constant.NodeRoleComponentName}),
 		kubeClientFactory: clientFactory,
-		k0sVars:           k0sVars,
+		leaderElector:     leaderElector,
 	}
 }
 
@@ -60,60 +67,76 @@ func (n *NodeRole) Init(_ context.Context) error {
 
 // Run checks and adds labels
 func (n *NodeRole) Start(ctx context.Context) error {
-	client, err := n.kubeClientFactory.GetClient()
+	restConfig, err := n.kubeClientFactory.GetRESTConfig()
 	if err != nil {
 		return err
 	}
-	go func() {
-		timer := time.NewTicker(1 * time.Minute)
-		defer timer.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-timer.C:
-				nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-				if err != nil {
-					n.log.Errorf("failed to get node list: %v", err)
-					continue
-				}
-
-				for _, node := range nodes.Items {
-					err = n.ensureNodeLabel(ctx, client, node)
-					if err != nil {
-						n.log.Error(err)
-					}
-				}
-			}
-		}
-	}()
-
-	return nil
-}
-
-func (n *NodeRole) ensureNodeLabel(ctx context.Context, client kubernetes.Interface, node corev1.Node) error {
-	if _, exists := node.Labels[constants.LabelNodeRoleControlPlane]; exists {
-		return nil
+	metaClient, err := metadata.NewForConfig(restConfig)
+	if err != nil {
+		return err
 	}
-
-	if node.Labels[constant.K0SNodeRoleLabel] != "control-plane" {
-		return nil
+	client := metaClient.Resource(corev1.SchemeGroupVersion.WithResource("nodes"))
+	unlabeledControllerNodes := metav1.ListOptions{
+		LabelSelector: labels.NewSelector().Add(
+			mustRequirement(constant.K0SNodeRoleLabel, selection.Equals, "control-plane"),
+			mustRequirement(constants.LabelNodeRoleControlPlane, selection.DoesNotExist),
+		).String(),
 	}
-
-	patch, err := json.Marshal([]map[string]string{{
+	controlPlanePatch, err := json.Marshal([]map[string]string{{
 		"op":    "add",
 		"path":  path.Join("/metadata/labels", jsonpointer.Escape(constants.LabelNodeRoleControlPlane)),
 		"value": "true",
 	}})
-	if err != nil {
-		return err
-	}
+	runtime.Must(err)
 
-	_, err = client.CoreV1().Nodes().Patch(ctx, node.Name, types.JSONPatchType, []byte(patch), metav1.PatchOptions{})
-	return err
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := make(chan struct{})
+
+	go func() {
+		defer close(stopped)
+		wait.UntilWithContext(ctx, func(ctx context.Context) {
+			if !n.leaderElector.IsLeader() {
+				return
+			}
+
+			nodes, err := client.List(ctx, unlabeledControllerNodes)
+			if err != nil {
+				if !errors.Is(err, context.Cause(ctx)) {
+					n.log.WithError(err).Error("Failed to list nodes")
+				}
+				return
+			}
+
+			for _, node := range nodes.Items {
+				_, err := client.Patch(ctx, node.Name, types.JSONPatchType, controlPlanePatch, metav1.PatchOptions{FieldManager: "k0s"})
+				if err != nil {
+					if !errors.Is(err, context.Cause(ctx)) {
+						n.log.WithError(err).Error("Failed to add control-plane label to node ", node.Name)
+					}
+					continue
+				}
+
+				n.log.Infof("Added control-plane label to node %s", node.Name)
+			}
+		}, 1*time.Minute)
+	}()
+
+	n.stop = func() { cancel(); <-stopped }
+
+	return nil
+}
+
+func mustRequirement(key string, op selection.Operator, vals ...string) labels.Requirement {
+	r, err := labels.NewRequirement(key, op, vals)
+	runtime.Must(err)
+	return *r
 }
 
 // Stop no-op
 func (n *NodeRole) Stop() error {
+	if n.stop != nil {
+		n.stop()
+	}
+
 	return nil
 }
