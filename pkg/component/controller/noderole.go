@@ -18,9 +18,8 @@ package controller
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"path"
-	"strings"
 	"time"
 
 	"github.com/go-openapi/jsonpointer"
@@ -29,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/kubernetes/cmd/kubeadm/app/constants"
 
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
@@ -92,31 +92,25 @@ func (n *NodeRole) Start(ctx context.Context) error {
 }
 
 func (n *NodeRole) ensureNodeLabel(ctx context.Context, client kubernetes.Interface, node corev1.Node) error {
-	var labelToAdd string
-	for label, value := range node.Labels {
-		if strings.HasPrefix(label, constant.NodeRoleLabelNamespace) {
-			return nil
-		}
-
-		if label == constant.K0SNodeRoleLabel {
-			labelToAdd = fmt.Sprintf("%s/%s", constant.NodeRoleLabelNamespace, value)
-		}
+	if _, exists := node.Labels[constants.LabelNodeRoleControlPlane]; exists {
+		return nil
 	}
 
-	if labelToAdd != "" {
-		_, err := n.addNodeLabel(ctx, client, node.Name, labelToAdd, "true")
-		if err != nil {
-			return fmt.Errorf("failed to set label '%s' to node %s: %w", labelToAdd, node.Name, err)
-		}
+	if node.Labels[constant.K0SNodeRoleLabel] != "control-plane" {
+		return nil
 	}
 
-	return nil
-}
+	patch, err := json.Marshal([]map[string]string{{
+		"op":    "add",
+		"path":  path.Join("/metadata/labels", jsonpointer.Escape(constants.LabelNodeRoleControlPlane)),
+		"value": "true",
+	}})
+	if err != nil {
+		return err
+	}
 
-func (n *NodeRole) addNodeLabel(ctx context.Context, client kubernetes.Interface, node, key, value string) (*corev1.Node, error) {
-	keyPath := path.Join("/metadata/labels", jsonpointer.Escape(key))
-	patch := fmt.Sprintf(`[{"op":"add", "path":"%s", "value":"%s" }]`, keyPath, value)
-	return client.CoreV1().Nodes().Patch(ctx, node, types.JSONPatchType, []byte(patch), metav1.PatchOptions{})
+	_, err = client.CoreV1().Nodes().Patch(ctx, node.Name, types.JSONPatchType, []byte(patch), metav1.PatchOptions{})
+	return err
 }
 
 // Stop no-op
