@@ -24,6 +24,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type IP interface {
+	IP() net.IP
+
+	isSecondary() (bool, error)
+}
+
 // AllAddresses returns a list of all network addresses on a node
 func AllAddresses() ([]string, error) {
 	addresses, err := CollectAllIPs()
@@ -63,7 +69,8 @@ func FirstPublicAddress() (string, error) {
 	if err != nil {
 		return "127.0.0.1", fmt.Errorf("failed to list network interfaces: %w", err)
 	}
-	ipv6addr := ""
+
+	var ipv6 net.IP
 	for i := range ifs {
 		i := &ifs[i]
 		switch {
@@ -79,19 +86,38 @@ func FirstPublicAddress() (string, error) {
 			continue
 		}
 		for ip := range ips {
-			// check the address type and skip if loopback
-			if !ip.IsLoopback() {
-				if ip.To4() != nil {
-					return ip.String(), nil
-				}
-				if ip.To16() != nil && ipv6addr == "" {
-					ipv6addr = ip.String()
+			addr := ip.IP()
+			switch {
+			// Skip unspecified IPs
+			case addr == nil, addr.IsUnspecified():
+				continue
+			// Skip multicast IPs
+			case addr.IsMulticast():
+				continue
+			// Skip interface-local IPs (interface-local multicast already excluded above)
+			case addr.IsLoopback():
+				continue
+			}
+
+			// Skip secondary IPs. This is to avoid returning VIPs as the public address.
+			// https://github.com/k0sproject/k0s/issues/4664
+			if secondary, err := ip.isSecondary(); err == nil && secondary {
+				continue
+			}
+
+			if ip := addr.To4(); ip != nil {
+				return ip.String(), nil
+			}
+			if ipv6 == nil {
+				if ip := addr.To16(); ip != nil {
+					ipv6 = ip
 				}
 			}
 		}
 	}
-	if ipv6addr != "" {
-		return ipv6addr, nil
+
+	if ipv6 != nil {
+		return ipv6.String(), nil
 	}
 
 	logrus.Warn("failed to find any non-local, non podnetwork addresses on host, defaulting public address to 127.0.0.1")

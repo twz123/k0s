@@ -25,7 +25,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func interfaceIPs(i *net.Interface) (iter.Seq[net.IP], error) {
+func interfaceIPs(i *net.Interface) (iter.Seq[IP], error) {
 	link, err := netlink.LinkByName(i.Name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get link by name: %w", err)
@@ -36,19 +36,19 @@ func interfaceIPs(i *net.Interface) (iter.Seq[net.IP], error) {
 		return nil, fmt.Errorf("failed to list IP addresses: %w", err)
 	}
 
-	return func(yield func(net.IP) bool) {
-		for _, a := range addresses {
-			// skip secondary addresses. This is to avoid returning VIPs as the public address
-			// https://github.com/k0sproject/k0s/issues/4664
-			if a.Flags&unix.IFA_F_SECONDARY != 0 {
-				continue
-			}
-
+	return func(yield func(IP) bool) {
+		for i := range addresses {
+			a := &addresses[i]
 			if a.IPNet != nil {
-				if !yield(a.IPNet.IP) {
+				if !yield((*netlinkIP)(a)) {
 					return
 				}
 			}
 		}
 	}, nil
 }
+
+type netlinkIP netlink.Addr
+
+func (ip *netlinkIP) IP() net.IP                 { return ip.IPNet.IP }
+func (ip *netlinkIP) isSecondary() (bool, error) { return ip.Flags&unix.IFA_F_SECONDARY != 0, nil }
