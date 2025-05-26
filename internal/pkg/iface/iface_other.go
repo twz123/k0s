@@ -6,18 +6,19 @@
 package iface
 
 import (
+	"errors"
 	"fmt"
 	"iter"
 	"net"
 )
 
-func interfaceIPs(i *net.Interface) (iter.Seq[net.IP], error) {
+func interfaceIPs(i *net.Interface) (iter.Seq[IP], error) {
 	addresses, err := i.Addrs()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list interface addresses: %w", err)
 	}
 
-	return func(yield func(net.IP) bool) {
+	return func(yield func(IP) bool) {
 		for _, a := range addresses {
 			var ip net.IP
 			switch a := a.(type) {
@@ -29,9 +30,14 @@ func interfaceIPs(i *net.Interface) (iter.Seq[net.IP], error) {
 				continue
 			}
 
-			if !yield(ip) {
+			if !yield(genericIP(ip)) {
 				return
 			}
 		}
 	}, nil
 }
+
+type genericIP net.IP
+
+func (ip genericIP) IP() net.IP                 { return (net.IP)(ip) }
+func (ip genericIP) isSecondary() (bool, error) { return false, errors.ErrUnsupported }
