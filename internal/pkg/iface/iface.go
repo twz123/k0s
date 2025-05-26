@@ -64,22 +64,12 @@ func FirstPublicAddress() (string, error) {
 		return "127.0.0.1", fmt.Errorf("failed to list network interfaces: %w", err)
 	}
 	ipv6addr := ""
-	for _, i := range ifs {
+	for i := range ifs {
+		i := &ifs[i]
 		switch {
-		// Skip calico CNI interface
-		case i.Name == "vxlan.calico":
+		case isCNIInterface(i): // Skip all CNI related interfaces
 			continue
-		// Skip kube-router CNI interface
-		case i.Name == "kube-bridge":
-			continue
-		// Skip k0s CPLB interface
-		case i.Name == "dummyvip0":
-			continue
-		// Skip kube-router pod CNI interfaces
-		case strings.HasPrefix(i.Name, "veth"):
-			continue
-		// Skip calico pod CNI interfaces
-		case strings.HasPrefix(i.Name, "cali"):
+		case i.Name == "dummyvip0": // Skip k0s CPLB interface
 			continue
 		}
 
@@ -106,4 +96,17 @@ func FirstPublicAddress() (string, error) {
 
 	logrus.Warn("failed to find any non-local, non podnetwork addresses on host, defaulting public address to 127.0.0.1")
 	return "127.0.0.1", nil
+}
+
+func isCNIInterface(i *net.Interface) bool {
+	switch {
+	case strings.HasPrefix(i.Name, "veth"): // kube-router pod CNI interfaces
+	case strings.HasPrefix(i.Name, "cali"): // Calico pod CNI interfaces
+	case i.Name == "kube-bridge": // kube-router CNI interface
+	case i.Name == "vxlan.calico": // Calico CNI interface
+	default: // All other interfaces are not considered to be related to CNI.
+		return false
+	}
+
+	return true
 }

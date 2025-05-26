@@ -24,7 +24,7 @@ import (
 	"net"
 )
 
-func interfaceIPs(i net.Interface) (iter.Seq[net.IP], error) {
+func interfaceIPs(i *net.Interface) (iter.Seq[net.IP], error) {
 	addresses, err := i.Addrs()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list interface addresses: %w", err)
