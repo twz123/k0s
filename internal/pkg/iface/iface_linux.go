@@ -12,7 +12,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func interfaceIPs(i net.Interface) (iter.Seq[net.IP], error) {
+func interfaceIPs(i *net.Interface) (iter.Seq[net.IP], error) {
 	link, err := netlink.LinkByName(i.Name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get link by name: %w", err)
