@@ -11,18 +11,26 @@ import (
 	"net"
 )
 
-func interfaceAddrs(i net.Interface) (iter.Seq[*net.IPNet], error) {
+func interfaceIPs(i net.Interface) (iter.Seq[net.IP], error) {
 	addresses, err := i.Addrs()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list interface addresses: %w", err)
 	}
 
-	return func(yield func(*net.IPNet) bool) {
+	return func(yield func(net.IP) bool) {
 		for _, a := range addresses {
-			if ipnet, ok := a.(*net.IPNet); ok && ipnet != nil {
-				if !yield(ipnet) {
-					return
-				}
+			var ip net.IP
+			switch a := a.(type) {
+			case *net.IPNet:
+				ip = a.IP
+			case *net.IPAddr: // Windows Anycast
+				ip = a.IP
+			default:
+				continue
+			}
+
+			if !yield(ip) {
+				return
 			}
 		}
 	}, nil

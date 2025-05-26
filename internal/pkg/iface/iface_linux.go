@@ -12,7 +12,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func interfaceAddrs(i net.Interface) (iter.Seq[*net.IPNet], error) {
+func interfaceIPs(i net.Interface) (iter.Seq[net.IP], error) {
 	link, err := netlink.LinkByName(i.Name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get link by name: %w", err)
@@ -23,7 +23,7 @@ func interfaceAddrs(i net.Interface) (iter.Seq[*net.IPNet], error) {
 		return nil, fmt.Errorf("failed to list IP addresses: %w", err)
 	}
 
-	return func(yield func(*net.IPNet) bool) {
+	return func(yield func(net.IP) bool) {
 		for _, a := range addresses {
 			// skip secondary addresses. This is to avoid returning VIPs as the public address
 			// https://github.com/k0sproject/k0s/issues/4664
@@ -32,7 +32,7 @@ func interfaceAddrs(i net.Interface) (iter.Seq[*net.IPNet], error) {
 			}
 
 			if a.IPNet != nil {
-				if !yield(a.IPNet) {
+				if !yield(a.IPNet.IP) {
 					return
 				}
 			}

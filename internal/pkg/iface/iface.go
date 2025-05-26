@@ -70,19 +70,19 @@ func FirstPublicAddress() (string, error) {
 			continue
 		}
 
-		addresses, err := interfaceAddrs(i)
+		ips, err := interfaceIPs(i)
 		if err != nil {
 			logrus.WithError(err).Warn("Skipping network interface ", i.Name)
 			continue
 		}
-		for a := range addresses {
+		for ip := range ips {
 			// check the address type and skip if loopback
-			if !a.IP.IsLoopback() {
-				if a.IP.To4() != nil {
-					return a.IP.String(), nil
+			if !ip.IsLoopback() {
+				if ip.To4() != nil {
+					return ip.String(), nil
 				}
-				if a.IP.To16() != nil && ipv6addr == "" {
-					ipv6addr = a.IP.String()
+				if ip.To16() != nil && ipv6addr == "" {
+					ipv6addr = ip.String()
 				}
 			}
 		}
