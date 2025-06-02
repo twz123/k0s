@@ -449,6 +449,10 @@ func (ec *ExtensionsController) drainQueue(ctx context.Context, queue *workQueue
 	nextTimer := time.NewTimer(0)
 	defer nextTimer.Stop()
 
+	// Keeps track of reconciled generations. Shouldn't be necessary once the
+	// tgz file version mismatch problem is addressed.
+	reconciledGenerations := make(map[string]int64)
+
 	for {
 		next, queueUpdated := queue.peekOrPop()
 
@@ -477,6 +481,16 @@ func (ec *ExtensionsController) drainQueue(ctx context.Context, queue *workQueue
 		}
 
 		chart := next.inner
+
+		if !chart.DeletionTimestamp.IsZero() {
+			delete(reconciledGenerations, chart.Name)
+		} else if gen, found := reconciledGenerations[chart.Name]; !found {
+			ec.L.Debug("Chart ", chart.Name, " not yet reconciled")
+		} else if gen == chart.Generation {
+			ec.L.Debug("Chart ", chart.Name, " has already been reconciled for generation ", gen)
+			continue
+		}
+
 		// FIXME what context to use here? Shall we cancel it on lost leases?
 		if err := ec.reconcile(ctx, chart); err != nil {
 			if next.failureCount == 9 {
@@ -487,6 +501,8 @@ func (ec *ExtensionsController) drainQueue(ctx context.Context, queue *workQueue
 				ec.L.WithError(err).Error("Failed to reconcile chart ", chart.Name, ", retrying in ", timeout.String())
 				queue.enqueue(chart, time.Now().Add(timeout), next.failureCount)
 			}
+		} else if chart.DeletionTimestamp.IsZero() {
+			reconciledGenerations[chart.Name] = chart.Generation
 		}
 	}
 }
