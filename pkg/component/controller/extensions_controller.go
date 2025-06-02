@@ -294,7 +294,7 @@ func (cr *ChartReconciler) updateOrInstallChart(ctx context.Context, chart *helm
 			return fmt.Errorf("can't reconcile installation for %q: %w", chart.GetName(), err)
 		}
 	} else {
-		if !cr.chartNeedsUpgrade(chart) {
+		if !chartNeedsUpgrade(chart) {
 			return nil
 		}
 		// update
@@ -319,7 +319,7 @@ func (cr *ChartReconciler) updateOrInstallChart(ctx context.Context, chart *helm
 	return nil
 }
 
-func (cr *ChartReconciler) chartNeedsUpgrade(chart *helmv1beta1.Chart) bool {
+func chartNeedsUpgrade(chart *helmv1beta1.Chart) bool {
 	return chart.Status.Namespace != chart.Spec.Namespace ||
 		chart.Status.ReleaseName != chart.Spec.ReleaseName ||
 		chart.Status.Version != chart.Spec.Version ||
