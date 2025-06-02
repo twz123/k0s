@@ -113,7 +113,7 @@ func (ec *ExtensionsController) reconcileHelmExtensions(helmSpec *k0sv1beta1.Hel
 		fileName := chartManifestFileName(&chart)
 		fileNamesToKeep = append(fileNamesToKeep, fileName)
 
-		path, err := ec.writeChartManifestFile(chart, fileName)
+		path, err := ec.writeChartManifestFile(&chart, fileName)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("can't write file for Helm chart manifest %q: %w", chart.ChartName, err))
 			continue
@@ -148,13 +148,13 @@ func (ec *ExtensionsController) reconcileHelmExtensions(helmSpec *k0sv1beta1.Hel
 	return errors.Join(errs...)
 }
 
-func (ec *ExtensionsController) writeChartManifestFile(chart k0sv1beta1.Chart, fileName string) (string, error) {
+func (ec *ExtensionsController) writeChartManifestFile(chart *k0sv1beta1.Chart, fileName string) (string, error) {
 	tw := templatewriter.TemplateWriter{
 		Path:     filepath.Join(ec.manifestsDir, fileName),
 		Name:     "addon_crd_manifest",
 		Template: chartCrdTemplate,
 		Data: struct {
-			k0sv1beta1.Chart
+			*k0sv1beta1.Chart
 			Finalizer string
 		}{
 			Chart:     chart,
@@ -203,7 +203,7 @@ func (cr *ChartReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 	if !chartInstance.DeletionTimestamp.IsZero() {
 		cr.L.Debugf("Uninstall reconciliation request: %s", req)
 		// uninstall chart
-		if err := cr.uninstall(ctx, chartInstance); err != nil {
+		if err := cr.uninstall(ctx, &chartInstance); err != nil {
 			if !errors.Is(err, driver.ErrReleaseNotFound) {
 				return reconcile.Result{}, fmt.Errorf("can't uninstall chart: %w", err)
 			}
@@ -218,7 +218,7 @@ func (cr *ChartReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 		return reconcile.Result{}, nil
 	}
 	cr.L.Debugf("Install or update reconciliation request: %s", req)
-	if err := cr.updateOrInstallChart(ctx, chartInstance); err != nil {
+	if err := cr.updateOrInstallChart(ctx, &chartInstance); err != nil {
 		return reconcile.Result{Requeue: true}, fmt.Errorf("can't update or install chart: %w", err)
 	}
 
@@ -226,7 +226,7 @@ func (cr *ChartReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 	return reconcile.Result{}, nil
 }
 
-func (cr *ChartReconciler) uninstall(ctx context.Context, chart helmv1beta1.Chart) error {
+func (cr *ChartReconciler) uninstall(ctx context.Context, chart *helmv1beta1.Chart) error {
 	if err := cr.helm.UninstallRelease(ctx, chart.Status.ReleaseName, chart.Status.Namespace); err != nil {
 		return fmt.Errorf("can't uninstall release `%s/%s`: %w", chart.Status.Namespace, chart.Status.ReleaseName, err)
 	}
@@ -257,7 +257,7 @@ func removeFinalizer(ctx context.Context, c client.Client, chart *helmv1beta1.Ch
 
 const defaultTimeout = 10 * time.Minute
 
-func (cr *ChartReconciler) updateOrInstallChart(ctx context.Context, chart helmv1beta1.Chart) error {
+func (cr *ChartReconciler) updateOrInstallChart(ctx context.Context, chart *helmv1beta1.Chart) error {
 	var err error
 	var chartRelease *release.Release
 	timeout, err := time.ParseDuration(chart.Spec.Timeout)
@@ -319,7 +319,7 @@ func (cr *ChartReconciler) updateOrInstallChart(ctx context.Context, chart helmv
 	return nil
 }
 
-func (cr *ChartReconciler) chartNeedsUpgrade(chart helmv1beta1.Chart) bool {
+func (cr *ChartReconciler) chartNeedsUpgrade(chart *helmv1beta1.Chart) bool {
 	return chart.Status.Namespace != chart.Spec.Namespace ||
 		chart.Status.ReleaseName != chart.Spec.ReleaseName ||
 		chart.Status.Version != chart.Spec.Version ||
@@ -331,7 +331,7 @@ func (cr *ChartReconciler) chartNeedsUpgrade(chart helmv1beta1.Chart) bool {
 // to complete and the chart may have been updated in the meantime. If returns the error returned
 // by the Update operation. Moreover, if the chart has indeed changed in the meantime we already
 // have an event for it so we will see it again soon.
-func (cr *ChartReconciler) updateStatus(ctx context.Context, chart helmv1beta1.Chart, chartRelease *release.Release, err error) error {
+func (cr *ChartReconciler) updateStatus(ctx context.Context, chart *helmv1beta1.Chart, chartRelease *release.Release, err error) error {
 	nsn := types.NamespacedName{Namespace: chart.Namespace, Name: chart.Name}
 	var updchart helmv1beta1.Chart
 	if err := cr.Get(ctx, nsn, &updchart); err != nil {

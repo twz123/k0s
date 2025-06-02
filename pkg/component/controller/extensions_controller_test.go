@@ -136,7 +136,7 @@ func TestChartNeedsUpgrade(t *testing.T) {
 	cr := new(ChartReconciler)
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			actual := cr.chartNeedsUpgrade(tc.chart)
+			actual := cr.chartNeedsUpgrade(&tc.chart)
 			assert.Equal(t, tc.expected, actual)
 		})
 	}
@@ -253,7 +253,7 @@ spec:
 			ec := &ExtensionsController{
 				manifestsDir: t.TempDir(),
 			}
-			path, err := ec.writeChartManifestFile(tt.args.chart, tt.args.fileName)
+			path, err := ec.writeChartManifestFile(&tt.args.chart, tt.args.fileName)
 			require.NoError(t, err)
 			contents, err := os.ReadFile(path)
 			require.NoError(t, err)
