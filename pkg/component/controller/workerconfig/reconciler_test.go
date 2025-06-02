@@ -21,11 +21,11 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/k0sproject/k0s/internal/sync/value"
 	"github.com/k0sproject/k0s/internal/testutil"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/component/controller/leaderelector"
@@ -889,41 +889,24 @@ func createKubernetesEndpoints(t *testing.T, clients kubernetes.Interface) {
 }
 
 type mockLeaderElector struct {
-	mu       sync.Mutex
-	leader   bool
-	acquired []func()
+	leader value.Latest[leaderelection.Status]
 }
 
 func (e *mockLeaderElector) activate() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if !e.leader {
-		e.leader = true
-		for _, fn := range e.acquired {
-			fn()
-		}
-	}
+	e.leader.Set(leaderelection.StatusLeading)
 }
 
 func (e *mockLeaderElector) deactivate() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.leader = false
+	e.leader.Set(leaderelection.StatusPending)
 }
 
 func (e *mockLeaderElector) IsLeader() bool {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.leader
+	status, _ := e.leader.Peek()
+	return status == leaderelection.StatusLeading
 }
 
 func (e *mockLeaderElector) AddAcquiredLeaseCallback(fn func()) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.acquired = append(e.acquired, fn)
-	if e.leader {
-		fn()
-	}
+	panic("not expected to be called in tests")
 }
 
 func (e *mockLeaderElector) AddLostLeaseCallback(func()) {
@@ -931,5 +914,5 @@ func (e *mockLeaderElector) AddLostLeaseCallback(func()) {
 }
 
 func (e *mockLeaderElector) CurrentStatus() (leaderelection.Status, <-chan struct{}) {
-	panic("not expected to be called in tests")
+	return e.leader.Peek()
 }

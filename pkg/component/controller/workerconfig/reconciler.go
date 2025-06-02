@@ -40,6 +40,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/constant"
 	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
+	"github.com/k0sproject/k0s/pkg/leaderelection"
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -187,8 +188,8 @@ func (r *Reconciler) Start(context.Context) error {
 	}()
 	// React to leader elector changes. Enforce a reconciliation whenever the
 	// lease is acquired.
-	r.leaderElector.AddAcquiredLeaseCallback(func() {
-		go func() {
+	go func() {
+		leaderelection.RunLeaderTasks(reconcilerCtx, r.leaderElector.CurrentStatus, func(context.Context) {
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 			defer cancel()
 
@@ -201,8 +202,8 @@ func (r *Reconciler) Start(context.Context) error {
 			if err != nil && !errors.Is(err, errStoppedConcurrently) {
 				r.log.WithError(err).Error("Failed to reconcile after having acquired the leader lease")
 			}
-		}()
-	})
+		})
+	}()
 
 	// Store the started state
 	r.apply = nil
