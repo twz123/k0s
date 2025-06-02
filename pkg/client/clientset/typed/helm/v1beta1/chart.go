@@ -24,6 +24,7 @@ import (
 	helmv1beta1 "github.com/k0sproject/k0s/pkg/apis/helm/v1beta1"
 	scheme "github.com/k0sproject/k0s/pkg/client/clientset/scheme"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	gentype "k8s.io/client-go/gentype"
 )
@@ -38,10 +39,14 @@ type ChartsGetter interface {
 type ChartInterface interface {
 	Create(ctx context.Context, chart *helmv1beta1.Chart, opts v1.CreateOptions) (*helmv1beta1.Chart, error)
 	Update(ctx context.Context, chart *helmv1beta1.Chart, opts v1.UpdateOptions) (*helmv1beta1.Chart, error)
+	// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
+	UpdateStatus(ctx context.Context, chart *helmv1beta1.Chart, opts v1.UpdateOptions) (*helmv1beta1.Chart, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
+	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
 	Get(ctx context.Context, name string, opts v1.GetOptions) (*helmv1beta1.Chart, error)
 	List(ctx context.Context, opts v1.ListOptions) (*helmv1beta1.ChartList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
+	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *helmv1beta1.Chart, err error)
 	ChartExpansion
 }
 

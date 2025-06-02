@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"container/heap"
 	"context"
 	"encoding/json"
 	"errors"
@@ -32,18 +33,22 @@ import (
 	"github.com/bombsimon/logrusr/v4"
 	"github.com/k0sproject/k0s/internal/pkg/templatewriter"
 	helmv1beta1 "github.com/k0sproject/k0s/pkg/apis/helm/v1beta1"
+	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	k0sv1beta1 "github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	k0sscheme "github.com/k0sproject/k0s/pkg/client/clientset/scheme"
+	helmclient "github.com/k0sproject/k0s/pkg/client/clientset/typed/helm/v1beta1"
 	"github.com/k0sproject/k0s/pkg/component/controller/leaderelector"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/helm"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
 	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
+	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
 	"github.com/k0sproject/k0s/pkg/leaderelection"
 	"github.com/sirupsen/logrus"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/storage/driver"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
@@ -62,9 +67,11 @@ import (
 type ExtensionsController struct {
 	L             *logrus.Entry
 	helm          *helm.Commands
+	clientFactory kubernetes.ClientFactoryInterface
 	kubeConfig    string
 	leaderElector leaderelector.Interface
 	manifestsDir  string
+	queue         chartQueue
 	stop          context.CancelFunc
 }
 
@@ -76,7 +83,7 @@ func NewExtensionsController(k0sVars *config.CfgVars, kubeClientFactory kubeutil
 	return &ExtensionsController{
 		L:             logrus.WithFields(logrus.Fields{"component": "extensions_controller"}),
 		helm:          helm.NewCommands(k0sVars),
-		kubeConfig:    k0sVars.AdminKubeConfigPath,
+		clientFactory: kubeClientFactory,
 		leaderElector: leaderElector,
 		manifestsDir:  filepath.Join(k0sVars.ManifestsDir, "helm"),
 	}
@@ -178,52 +185,37 @@ func isChartManifestFileName(fileName string) bool {
 }
 
 type ChartReconciler struct {
-	client.Client
+	client        helmclient.ChartInterface
 	helm          *helm.Commands
 	leaderElector leaderelector.Interface
 	L             *logrus.Entry
 }
 
-func (cr *ChartReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	if !cr.leaderElector.IsLeader() {
-		return reconcile.Result{}, nil
-	}
-	cr.L.Tracef("Got helm chart reconciliation request: %s", req)
-	defer cr.L.Tracef("Finished processing helm chart reconciliation request: %s", req)
-
-	var chartInstance helmv1beta1.Chart
-
-	if err := cr.Get(ctx, req.NamespacedName, &chartInstance); err != nil {
-		if apierrors.IsNotFound(err) {
-			return reconcile.Result{}, nil
-		}
-		return reconcile.Result{}, err
-	}
-
+func (cr *ChartReconciler) Reconcile(ctx context.Context, chartInstance helmv1beta1.Chart) error {
 	if !chartInstance.DeletionTimestamp.IsZero() {
-		cr.L.Debugf("Uninstall reconciliation request: %s", req)
+		cr.L.Debug("Uninstall chart ", chartInstance.Name)
 		// uninstall chart
 		if err := cr.uninstall(ctx, chartInstance); err != nil {
 			if !errors.Is(err, driver.ErrReleaseNotFound) {
-				return reconcile.Result{}, fmt.Errorf("can't uninstall chart: %w", err)
+				return fmt.Errorf("can't uninstall chart: %w", err)
 			}
 
-			cr.L.Debugf("No Helm release found for chart %s, assuming it has already been uninstalled", req)
+			cr.L.Debugf("No Helm release found for chart %s, assuming it has already been uninstalled", chartInstance.Name)
 		}
 
-		if err := removeFinalizer(ctx, cr.Client, &chartInstance); err != nil {
-			return reconcile.Result{}, fmt.Errorf("while trying to remove finalizer: %w", err)
+		if err := removeFinalizer(ctx, cr.client, &chartInstance); err != nil {
+			return fmt.Errorf("while trying to remove finalizer: %w", err)
 		}
 
-		return reconcile.Result{}, nil
+		return nil
 	}
-	cr.L.Debugf("Install or update reconciliation request: %s", req)
+	cr.L.Debug("Install or update chart %s", chartInstance.Name)
 	if err := cr.updateOrInstallChart(ctx, chartInstance); err != nil {
 		return reconcile.Result{Requeue: true}, fmt.Errorf("can't update or install chart: %w", err)
 	}
 
-	cr.L.Debugf("Installed or updated reconciliation request: %s", req)
-	return reconcile.Result{}, nil
+	cr.L.Debug("Installed or updated chart ", chartInstance.Name)
+	return nil
 }
 
 func (cr *ChartReconciler) uninstall(ctx context.Context, chart helmv1beta1.Chart) error {
@@ -233,7 +225,7 @@ func (cr *ChartReconciler) uninstall(ctx context.Context, chart helmv1beta1.Char
 	return nil
 }
 
-func removeFinalizer(ctx context.Context, c client.Client, chart *helmv1beta1.Chart) error {
+func removeFinalizer(ctx context.Context, c helmclient.ChartInterface, chart *helmv1beta1.Chart) error {
 	idx := slices.Index(chart.Finalizers, finalizerName)
 	if idx < 0 {
 		return nil
@@ -252,7 +244,11 @@ func removeFinalizer(ctx context.Context, c client.Client, chart *helmv1beta1.Ch
 		return err
 	}
 
-	return c.Patch(ctx, chart, client.RawPatch(types.JSONPatchType, patch))
+	_, err = c.Patch(ctx, chart.Name, types.JSONPatchType, patch, metav1.PatchOptions{
+		FieldManager: "k0s",
+	})
+
+	return err
 }
 
 const defaultTimeout = 10 * time.Minute
@@ -332,10 +328,9 @@ func (cr *ChartReconciler) chartNeedsUpgrade(chart helmv1beta1.Chart) bool {
 // by the Update operation. Moreover, if the chart has indeed changed in the meantime we already
 // have an event for it so we will see it again soon.
 func (cr *ChartReconciler) updateStatus(ctx context.Context, chart helmv1beta1.Chart, chartRelease *release.Release, err error) error {
-	nsn := types.NamespacedName{Namespace: chart.Namespace, Name: chart.Name}
-	var updchart helmv1beta1.Chart
-	if err := cr.Get(ctx, nsn, &updchart); err != nil {
-		return fmt.Errorf("can't get updated version of chart %s: %w", chart.Name, err)
+	updchart, err := cr.client.Get(ctx, chart.Name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("can't get updated version of chart: %w", err)
 	}
 	chart.Spec.YamlValues() // XXX what is this function for ?
 	if chartRelease != nil {
@@ -351,9 +346,9 @@ func (cr *ChartReconciler) updateStatus(ctx context.Context, chart helmv1beta1.C
 		updchart.Status.Error = err.Error()
 	}
 	updchart.Status.ValuesHash = chart.Spec.HashValues()
-	if updErr := cr.Client.Status().Update(ctx, &updchart); updErr != nil {
-		cr.L.WithError(updErr).Error("Failed to update status for chart release", chart.Name)
-		return updErr
+	if _, err := cr.client.UpdateStatus(ctx, updchart, metav1.UpdateOptions{FieldManager: "k0s"}); err != nil {
+		cr.L.WithError(err).Error("Failed to update status for chart release", chart.Name)
+		return err
 	}
 	return nil
 }
@@ -422,6 +417,21 @@ func (ec *ExtensionsController) Start(ctx context.Context) error {
 	return nil
 }
 
+func (ec *ExtensionsController) run(ctx context.Context) error {
+	k0sClient, err := ec.clientFactory.GetK0sClient()
+	if err != nil {
+		return fmt.Errorf("failed to get k0s client: %w", err)
+	}
+
+	watch.Charts(k0sClient.HelmV1beta1().Charts(metav1.NamespaceSystem)).
+		IncludingDeletions().
+		Until(ctx, func(item *helmv1beta1.Chart) (done bool, err error) {
+
+		})
+
+	return nil
+}
+
 func (ec *ExtensionsController) instantiateManager(ctx context.Context) (crman.Manager, error) {
 	clientConfig, err := clientcmd.BuildConfigFromFlags("", ec.kubeConfig)
 	if err != nil {
@@ -485,4 +495,51 @@ func (ec *ExtensionsController) Stop() error {
 	}
 	ec.L.Debug("Stopped extensions controller")
 	return nil
+}
+
+type chartQueue struct {
+	heap  []*pendingChart
+	index map[string]*pendingChart
+	nextDeadline
+}
+
+func (q *chartQueue) update(c *pendingChart) {
+	if old := q.index[c.Name]; old != nil {
+		old.Chart = c.Chart
+		old.deadline = c.deadline
+	}
+	heap.Push(q, c)
+
+}
+
+type pendingChart struct {
+	*v1beta1.Chart
+	deadline time.Time
+	index    int
+}
+
+func (q *chartQueue) Len() int {
+	return len(q.heap)
+}
+
+func (q *chartQueue) Swap(i, j int) {
+	q.heap[i], q.heap[j] = q.heap[j], q.heap[i]
+	q.heap[i].index, q.heap[j].index = i, j
+}
+
+func (q *chartQueue) Less(i, j int) bool {
+	return q.heap[i].deadline.Compare(q.heap[j].deadline) < 0
+}
+
+func (q *chartQueue) Push(item any) {
+	chart := item.(*pendingChart)
+	chart.index, q.heap = len(q.heap), append(q.heap, chart)
+}
+
+func (q *chartQueue) Pop() any {
+	n := len(q.heap)
+	item := q.heap[n-1]
+	q.heap[n-1] = nil // don't stop the GC from reclaiming the item eventually
+	q.heap = q.heap[:n-1]
+	return item
 }
