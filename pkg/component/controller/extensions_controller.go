@@ -43,6 +43,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/storage/driver"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -186,9 +187,11 @@ func (cr *ExtensionsController) reconcile(ctx context.Context, chartInstance *he
 			}
 
 			log.Debug("No Helm release found, assuming chart has already been uninstalled")
+		} else {
+			log.Debug("Uninstalled")
 		}
 
-		if err := removeFinalizer(ctx, cr.charts, chartInstance); err != nil {
+		if err := removeFinalizer(ctx, cr.charts, chartInstance); err != nil && !apierrors.IsNotFound(err) {
 			return fmt.Errorf("while trying to remove finalizer: %w", err)
 		}
 
