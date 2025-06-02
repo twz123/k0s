@@ -26,43 +26,34 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sync"
 	"time"
 
-	"github.com/avast/retry-go"
-	"github.com/bombsimon/logrusr/v4"
 	"github.com/k0sproject/k0s/internal/pkg/templatewriter"
 	helmv1beta1 "github.com/k0sproject/k0s/pkg/apis/helm/v1beta1"
 	k0sv1beta1 "github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
-	k0sscheme "github.com/k0sproject/k0s/pkg/client/clientset/scheme"
+	helmclient "github.com/k0sproject/k0s/pkg/client/clientset/typed/helm/v1beta1"
 	"github.com/k0sproject/k0s/pkg/component/controller/leaderelector"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/helm"
 	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
+	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
 	"github.com/k0sproject/k0s/pkg/leaderelection"
 	"github.com/sirupsen/logrus"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/storage/driver"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/apimachinery/pkg/util/wait"
 	apiretry "k8s.io/client-go/util/retry"
-	controllerruntime "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
-	crman "sigs.k8s.io/controller-runtime/pkg/manager"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // Helm watch for Chart crd
 type ExtensionsController struct {
 	L             *logrus.Entry
 	helm          *helm.Commands
-	kubeConfig    string
+	charts        helmclient.ChartInterface
 	leaderElector leaderelector.Interface
 	manifestsDir  string
 	stop          context.CancelFunc
@@ -72,19 +63,21 @@ var _ manager.Component = (*ExtensionsController)(nil)
 var _ manager.Reconciler = (*ExtensionsController)(nil)
 
 // NewExtensionsController builds new HelmAddons
-func NewExtensionsController(k0sVars *config.CfgVars, kubeClientFactory kubeutil.ClientFactoryInterface, leaderElector leaderelector.Interface) *ExtensionsController {
+func NewExtensionsController(k0sVars *config.CfgVars, kubeClientFactory kubeutil.ClientFactoryInterface, leaderElector leaderelector.Interface) (*ExtensionsController, error) {
+	k0sClient, err := kubeClientFactory.GetK0sClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get k0s client: %w", err)
+	}
+	charts := k0sClient.HelmV1beta1().Charts(metav1.NamespaceSystem)
+
 	return &ExtensionsController{
 		L:             logrus.WithFields(logrus.Fields{"component": "extensions_controller"}),
 		helm:          helm.NewCommands(k0sVars),
-		kubeConfig:    k0sVars.AdminKubeConfigPath,
+		charts:        charts,
 		leaderElector: leaderElector,
 		manifestsDir:  filepath.Join(k0sVars.ManifestsDir, "helm"),
-	}
+	}, nil
 }
-
-const (
-	namespaceToWatch = "kube-system"
-)
 
 // Run runs the extensions controller
 func (ec *ExtensionsController) Reconcile(ctx context.Context, clusterConfig *k0sv1beta1.ClusterConfig) error {
@@ -177,63 +170,41 @@ func isChartManifestFileName(fileName string) bool {
 	return regexp.MustCompile(`^-?[0-9]+_helm_extension_.+\.yaml$`).MatchString(fileName)
 }
 
-type ChartReconciler struct {
-	client.Client
-	helm          *helm.Commands
-	leaderElector leaderelector.Interface
-	L             *logrus.Entry
-}
-
-func (cr *ChartReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	if !cr.leaderElector.IsLeader() {
-		return reconcile.Result{}, nil
-	}
-	cr.L.Tracef("Got helm chart reconciliation request: %s", req)
-	defer cr.L.Tracef("Finished processing helm chart reconciliation request: %s", req)
-
-	var chartInstance helmv1beta1.Chart
-
-	if err := cr.Get(ctx, req.NamespacedName, &chartInstance); err != nil {
-		if apierrors.IsNotFound(err) {
-			return reconcile.Result{}, nil
-		}
-		return reconcile.Result{}, err
-	}
-
+func (cr *ExtensionsController) reconcile(ctx context.Context, chartInstance *helmv1beta1.Chart) error {
 	if !chartInstance.DeletionTimestamp.IsZero() {
-		cr.L.Debugf("Uninstall reconciliation request: %s", req)
+		cr.L.Debug("Uninstall chart ", chartInstance.Name)
 		// uninstall chart
-		if err := cr.uninstall(ctx, &chartInstance); err != nil {
+		if err := cr.uninstall(ctx, chartInstance); err != nil {
 			if !errors.Is(err, driver.ErrReleaseNotFound) {
-				return reconcile.Result{}, fmt.Errorf("can't uninstall chart: %w", err)
+				return fmt.Errorf("can't uninstall chart: %w", err)
 			}
 
-			cr.L.Debugf("No Helm release found for chart %s, assuming it has already been uninstalled", req)
+			cr.L.Debugf("No Helm release found for chart %s, assuming it has already been uninstalled", chartInstance.Name)
 		}
 
-		if err := removeFinalizer(ctx, cr.Client, &chartInstance); err != nil {
-			return reconcile.Result{}, fmt.Errorf("while trying to remove finalizer: %w", err)
+		if err := removeFinalizer(ctx, cr.charts, chartInstance); err != nil {
+			return fmt.Errorf("while trying to remove finalizer: %w", err)
 		}
 
-		return reconcile.Result{}, nil
+		return nil
 	}
-	cr.L.Debugf("Install or update reconciliation request: %s", req)
-	if err := cr.updateOrInstallChart(ctx, &chartInstance); err != nil {
-		return reconcile.Result{Requeue: true}, fmt.Errorf("can't update or install chart: %w", err)
+	cr.L.Debug("Install or update chart ", chartInstance.Name)
+	if err := cr.updateOrInstallChart(ctx, chartInstance); err != nil {
+		return fmt.Errorf("can't update or install chart: %w", err)
 	}
 
-	cr.L.Debugf("Installed or updated reconciliation request: %s", req)
-	return reconcile.Result{}, nil
+	cr.L.Debug("Installed or updated chart ", chartInstance.Name)
+	return nil
 }
 
-func (cr *ChartReconciler) uninstall(ctx context.Context, chart *helmv1beta1.Chart) error {
+func (cr *ExtensionsController) uninstall(ctx context.Context, chart *helmv1beta1.Chart) error {
 	if err := cr.helm.UninstallRelease(ctx, chart.Status.ReleaseName, chart.Status.Namespace); err != nil {
 		return fmt.Errorf("can't uninstall release `%s/%s`: %w", chart.Status.Namespace, chart.Status.ReleaseName, err)
 	}
 	return nil
 }
 
-func removeFinalizer(ctx context.Context, c client.Client, chart *helmv1beta1.Chart) error {
+func removeFinalizer(ctx context.Context, c helmclient.ChartInterface, chart *helmv1beta1.Chart) error {
 	idx := slices.Index(chart.Finalizers, finalizerName)
 	if idx < 0 {
 		return nil
@@ -252,12 +223,16 @@ func removeFinalizer(ctx context.Context, c client.Client, chart *helmv1beta1.Ch
 		return err
 	}
 
-	return c.Patch(ctx, chart, client.RawPatch(types.JSONPatchType, patch))
+	_, err = c.Patch(ctx, chart.Name, types.JSONPatchType, patch, metav1.PatchOptions{
+		FieldManager: "k0s",
+	})
+
+	return err
 }
 
 const defaultTimeout = 10 * time.Minute
 
-func (cr *ChartReconciler) updateOrInstallChart(ctx context.Context, chart *helmv1beta1.Chart) error {
+func (cr *ExtensionsController) updateOrInstallChart(ctx context.Context, chart *helmv1beta1.Chart) error {
 	var err error
 	var chartRelease *release.Release
 	timeout, err := time.ParseDuration(chart.Spec.Timeout)
@@ -331,11 +306,12 @@ func chartNeedsUpgrade(chart *helmv1beta1.Chart) bool {
 // to complete and the chart may have been updated in the meantime. If returns the error returned
 // by the Update operation. Moreover, if the chart has indeed changed in the meantime we already
 // have an event for it so we will see it again soon.
-func (cr *ChartReconciler) updateStatus(ctx context.Context, chart *helmv1beta1.Chart, chartRelease *release.Release, err error) error {
-	nsn := types.NamespacedName{Namespace: chart.Namespace, Name: chart.Name}
-	var updchart helmv1beta1.Chart
-	if err := cr.Get(ctx, nsn, &updchart); err != nil {
-		return fmt.Errorf("can't get updated version of chart %s: %w", chart.Name, err)
+func (cr *ExtensionsController) updateStatus(ctx context.Context, chart *helmv1beta1.Chart, chartRelease *release.Release, err error) error {
+	var updchart *helmv1beta1.Chart
+	if chart, err := cr.charts.Get(ctx, chart.Name, metav1.GetOptions{}); err != nil {
+		return fmt.Errorf("can't get updated version of chart: %w", err)
+	} else {
+		updchart = chart
 	}
 	chart.Spec.YamlValues() // XXX what is this function for ?
 	if chartRelease != nil {
@@ -351,9 +327,9 @@ func (cr *ChartReconciler) updateStatus(ctx context.Context, chart *helmv1beta1.
 		updchart.Status.Error = err.Error()
 	}
 	updchart.Status.ValuesHash = chart.Spec.HashValues()
-	if updErr := cr.Client.Status().Update(ctx, &updchart); updErr != nil {
-		cr.L.WithError(updErr).Error("Failed to update status for chart release", chart.Name)
-		return updErr
+	if _, err := cr.charts.UpdateStatus(ctx, updchart, metav1.UpdateOptions{FieldManager: "k0s"}); err != nil {
+		cr.L.WithError(err).Error("Failed to update status for chart release", chart.Name)
+		return err
 	}
 	return nil
 }
@@ -392,90 +368,98 @@ func (ec *ExtensionsController) Init(_ context.Context) error {
 
 // Start
 func (ec *ExtensionsController) Start(ctx context.Context) error {
-	ec.L.Debug("Starting")
-
-	mgr, err := ec.instantiateManager(ctx)
-	if err != nil {
-		return fmt.Errorf("can't instantiate controller-runtime manager: %w", err)
-	}
-
+	var wg sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
 
+	wg.Add(1)
 	go func() {
-		defer close(done)
-		leaderelection.RunLeaderTasks(ctx, ec.leaderElector.CurrentStatus, func(ctx context.Context) {
-			ec.L.Info("Running controller-runtime manager")
-			if err := mgr.Start(ctx); err != nil {
-				ec.L.WithError(err).Error("Failed to run controller-runtime manager")
-			}
-			ec.L.Info("Controller-runtime manager exited")
-		})
+		defer wg.Done()
 
+		leaderelection.RunLeaderTasks(ctx, ec.leaderElector.CurrentStatus, func(ctx context.Context) {
+			var queue workQueue[*helmv1beta1.Chart]
+
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ec.watchCharts(ctx, &queue)
+			}()
+
+			ec.drainQueue(ctx, &queue)
+		})
 	}()
 
 	ec.stop = func() {
 		cancel()
-		<-done
+		wg.Wait()
 	}
 
 	return nil
 }
 
-func (ec *ExtensionsController) instantiateManager(ctx context.Context) (crman.Manager, error) {
-	clientConfig, err := clientcmd.BuildConfigFromFlags("", ec.kubeConfig)
-	if err != nil {
-		return nil, fmt.Errorf("can't build controller-runtime controller for helm extensions: %w", err)
-	}
-	gk := schema.GroupKind{
-		Group: helmv1beta1.GroupName,
-		Kind:  "Chart",
-	}
-
-	mgr, err := controllerruntime.NewManager(clientConfig, crman.Options{
-		Scheme: k0sscheme.Scheme,
-		Metrics: metricsserver.Options{
-			BindAddress: "0",
-		},
-		Logger:     logrusr.New(ec.L),
-		Controller: ctrlconfig.Controller{},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("can't build controller-runtime controller for helm extensions: %w", err)
-	}
-	if err := retry.Do(func() error {
-		_, err := mgr.GetRESTMapper().RESTMapping(gk)
-		if err != nil {
-			ec.L.Warn("Extensions CRD is not yet ready, waiting before starting ExtensionsController")
-			return err
+func (ec *ExtensionsController) watchCharts(ctx context.Context, queue *workQueue[*helmv1beta1.Chart]) {
+	wait.UntilWithContext(ctx, func(ctx context.Context) {
+		if err := watch.Charts(ec.charts).
+			IncludingDeletions().
+			WithErrorCallback(func(err error) (time.Duration, error) {
+				if retryDelay, e := watch.IsRetryable(err); e == nil {
+					ec.L.WithError(err).Debugf("Encountered transient error while watching charts, retrying in %s", retryDelay)
+					return retryDelay, nil
+				}
+				return 0, err
+			}).
+			Until(ctx, func(chart *helmv1beta1.Chart) (bool, error) {
+				queue.enqueue(chart, time.Now(), 0)
+				return false, nil
+			}); !errors.Is(err, ctx.Err()) {
+			ec.L.WithError(err).Error("Failed to watch charts")
 		}
-		ec.L.Info("Extensions CRD is ready, going nuts")
-		return nil
-	}, retry.Context(ctx)); err != nil {
-		return nil, fmt.Errorf("can't start ExtensionsReconciler, helm CRD is not registered, check CRD registration reconciler: %w", err)
-	}
+	}, 10*time.Second)
+}
 
-	if err := builder.
-		ControllerManagedBy(mgr).
-		Named("chart").
-		For(&helmv1beta1.Chart{},
-			builder.WithPredicates(predicate.And(
-				predicate.GenerationChangedPredicate{},
-				predicate.NewPredicateFuncs(func(object client.Object) bool {
-					return object.GetNamespace() == namespaceToWatch
-				}),
-			),
-			),
-		).
-		Complete(&ChartReconciler{
-			Client:        mgr.GetClient(),
-			leaderElector: ec.leaderElector, // TODO: drop in favor of controller-runtime lease manager?
-			helm:          ec.helm,
-			L:             ec.L.WithField("extensions_type", "helm"),
-		}); err != nil {
-		return nil, fmt.Errorf("can't build controller-runtime controller for helm extensions: %w", err)
+func (ec *ExtensionsController) drainQueue(ctx context.Context, queue *workQueue[*helmv1beta1.Chart]) {
+	nextTimer := time.NewTimer(0)
+	defer nextTimer.Stop()
+
+	for {
+		next, queueUpdated := queue.peekOrPop()
+
+		// If queueUpdated isn't nil, we need to wait.
+		if queueUpdated != nil {
+			var nextTimeout <-chan time.Time
+			if next != nil {
+				nextTimer.Reset(time.Until(next.deadline))
+				nextTimeout = nextTimer.C
+			}
+
+			select {
+			case <-queueUpdated:
+				continue
+			case <-nextTimeout:
+				continue
+			case <-ctx.Done():
+				return
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		chart := next.inner
+		// FIXME what context to use here? Shall we cancel it on lost leases?
+		if err := ec.reconcile(ctx, chart); err != nil {
+			if next.failureCount == 9 {
+				ec.L.WithError(err).Error("Failed to reconcile chart ", chart.Name, ", giving up after 10 attempts")
+			} else {
+				next.failureCount++
+				timeout := time.Duration(next.failureCount) * time.Minute
+				ec.L.WithError(err).Error("Failed to reconcile chart ", chart.Name, ", retrying in ", timeout.String())
+				queue.enqueue(chart, time.Now().Add(timeout), next.failureCount)
+			}
+		}
 	}
-	return mgr, nil
 }
 
 // Stop
@@ -485,4 +469,91 @@ func (ec *ExtensionsController) Stop() error {
 	}
 	ec.L.Debug("Stopped extensions controller")
 	return nil
+}
+
+type workQueueItem[T any] struct {
+	inner        T
+	failureCount uint
+	deadline     time.Time
+}
+
+type workQueue[R metav1.Object] struct {
+	mu    sync.Mutex
+	next  *workQueueItem[R]
+	items map[string]*workQueueItem[R]
+	ch    chan struct{}
+}
+
+func (w *workQueue[R]) peekOrPop() (*workQueueItem[R], <-chan struct{}) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	// Find the new next chart to pop, if necessary.
+	if w.next == nil {
+		for _, chart := range w.items {
+			if w.next == nil || chart.deadline.Before(w.next.deadline) {
+				w.next = chart
+			}
+		}
+	}
+
+	// Pop the next chart if it's time to do so.
+	if w.next != nil && !w.next.deadline.After(time.Now()) {
+		popped := w.next
+		w.next = nil
+		delete(w.items, popped.inner.GetName())
+		if w.ch != nil {
+			close(w.ch)
+			w.ch = nil
+		}
+		return popped, nil
+	}
+
+	// Either the queue is empty or the next item still needs to wait.
+	ch := w.ch
+	if ch == nil {
+		ch = make(chan struct{})
+		w.ch = ch
+	}
+
+	return w.next, ch
+}
+
+func (w *workQueue[R]) enqueue(resource R, deadline time.Time, failureCount uint) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	name := resource.GetName()
+	item := w.items[name]
+	if item == nil {
+		item = &workQueueItem[R]{resource, failureCount, deadline}
+		if w.items == nil {
+			w.items = make(map[string]*workQueueItem[R])
+		}
+		w.items[name] = item
+	} else {
+		if failureCount > 0 {
+			item.failureCount = failureCount
+		} else {
+			item.inner = resource
+		}
+		if !deadline.Before(item.deadline) {
+			return
+		}
+		item.deadline = deadline
+	}
+
+	if w.next != nil {
+		// Return early if the next resource didn't change.
+		if item != w.next && !item.deadline.Before(w.next.deadline) {
+			return
+		}
+		w.next = item
+	}
+
+	// Notify any waiters about the updated queue.
+	if w.ch != nil {
+		close(w.ch)
+		w.ch = nil
+	}
 }

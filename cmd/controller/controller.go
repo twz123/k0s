@@ -464,11 +464,16 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions, de
 			return fmt.Errorf("failed to initialize helm manifests saver: %w", err)
 		}
 		clusterComponents.Add(ctx, controller.NewCRD(helmSaver, "helm"))
-		clusterComponents.Add(ctx, controller.NewExtensionsController(
+
+		if extensionsController, err := controller.NewExtensionsController(
 			c.K0sVars,
 			adminClientFactory,
 			leaderElector,
-		))
+		); err != nil {
+			return fmt.Errorf("failed to create extensions controller: %w", err)
+		} else {
+			clusterComponents.Add(ctx, extensionsController)
+		}
 	}
 
 	if !slices.Contains(flags.DisableComponents, constant.AutopilotComponentName) {
