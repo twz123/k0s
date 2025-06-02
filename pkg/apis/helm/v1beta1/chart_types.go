@@ -81,7 +81,6 @@ type ChartStatus struct {
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:subresource:status
 // +genclient
-// +genclient:onlyVerbs=create,delete,list,get,watch,update
 // Chart is the Schema for the charts API
 type Chart struct {
 	metav1.TypeMeta   `json:",inline"`
