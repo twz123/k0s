@@ -171,15 +171,21 @@ func isChartManifestFileName(fileName string) bool {
 }
 
 func (cr *ExtensionsController) reconcile(ctx context.Context, chartInstance *helmv1beta1.Chart) error {
+	log := cr.L.WithFields(logrus.Fields{
+		"chart":           chartInstance.Name,
+		"generation":      chartInstance.Generation,
+		"resourceVersion": chartInstance.ResourceVersion,
+	})
+
 	if !chartInstance.DeletionTimestamp.IsZero() {
-		cr.L.Debug("Uninstall chart ", chartInstance.Name)
+		log.Debug("Uninstalling")
 		// uninstall chart
 		if err := cr.uninstall(ctx, chartInstance); err != nil {
 			if !errors.Is(err, driver.ErrReleaseNotFound) {
 				return fmt.Errorf("can't uninstall chart: %w", err)
 			}
 
-			cr.L.Debugf("No Helm release found for chart %s, assuming it has already been uninstalled", chartInstance.Name)
+			log.Debug("No Helm release found, assuming chart has already been uninstalled")
 		}
 
 		if err := removeFinalizer(ctx, cr.charts, chartInstance); err != nil {
@@ -188,12 +194,12 @@ func (cr *ExtensionsController) reconcile(ctx context.Context, chartInstance *he
 
 		return nil
 	}
-	cr.L.Debug("Install or update chart ", chartInstance.Name)
+	log.Debug("Install or update")
 	if err := cr.updateOrInstallChart(ctx, chartInstance); err != nil {
 		return fmt.Errorf("can't update or install chart: %w", err)
 	}
 
-	cr.L.Debug("Installed or updated chart ", chartInstance.Name)
+	log.Debug("Installed or updated")
 	return nil
 }
 
@@ -269,7 +275,9 @@ func (cr *ExtensionsController) updateOrInstallChart(ctx context.Context, chart 
 			return fmt.Errorf("can't reconcile installation for %q: %w", chart.GetName(), err)
 		}
 	} else {
-		if !chartNeedsUpgrade(chart) {
+		if reason := chartNeedsUpgrade(chart); reason != "" {
+			cr.L.Debug("Chart " + chart.Name + " needs upgrade: " + reason)
+		} else {
 			return nil
 		}
 		// update
@@ -294,11 +302,21 @@ func (cr *ExtensionsController) updateOrInstallChart(ctx context.Context, chart 
 	return nil
 }
 
-func chartNeedsUpgrade(chart *helmv1beta1.Chart) bool {
-	return chart.Status.Namespace != chart.Spec.Namespace ||
-		chart.Status.ReleaseName != chart.Spec.ReleaseName ||
-		chart.Status.Version != chart.Spec.Version ||
-		chart.Status.ValuesHash != chart.Spec.HashValues()
+func chartNeedsUpgrade(chart *helmv1beta1.Chart) string {
+	switch {
+	case chart.Spec.Namespace != chart.Status.Namespace:
+		return "namespace: " + chart.Spec.Namespace + " != " + chart.Status.Namespace
+	case chart.Spec.ReleaseName != chart.Status.ReleaseName:
+		return "release name: " + chart.Spec.ReleaseName + " != " + chart.Status.ReleaseName
+	case chart.Spec.Version != chart.Status.Version:
+		return "version: " + chart.Spec.Version + " != " + chart.Status.Version
+	}
+
+	if valuesHash := chart.Spec.HashValues(); valuesHash != chart.Status.ValuesHash {
+		return "values hash: " + valuesHash + " != " + chart.Status.ValuesHash
+	}
+
+	return ""
 }
 
 // updateStatus updates the status of the chart with the given release information. This function
@@ -327,9 +345,15 @@ func (cr *ExtensionsController) updateStatus(ctx context.Context, chart *helmv1b
 		updchart.Status.Error = err.Error()
 	}
 	updchart.Status.ValuesHash = chart.Spec.HashValues()
-	if _, err := cr.charts.UpdateStatus(ctx, updchart, metav1.UpdateOptions{FieldManager: "k0s"}); err != nil {
+	if c, err := cr.charts.UpdateStatus(ctx, updchart, metav1.UpdateOptions{FieldManager: "k0s"}); err != nil {
 		cr.L.WithError(err).Error("Failed to update status for chart release", chart.Name)
 		return err
+	} else {
+		cr.L.Debug("Updated status of chart ", c.Name,
+			", generation ", c.Generation,
+			", resource version ", c.ResourceVersion,
+			", status", c.Status,
+		)
 	}
 	return nil
 }
@@ -408,6 +432,11 @@ func (ec *ExtensionsController) watchCharts(ctx context.Context, queue *workQueu
 				return 0, err
 			}).
 			Until(ctx, func(chart *helmv1beta1.Chart) (bool, error) {
+				ec.L.WithFields(logrus.Fields{
+					"chart":           chart.Name,
+					"generation":      chart.Generation,
+					"resourceVersion": chart.ResourceVersion,
+				}).Debug("Enqueuing")
 				queue.enqueue(chart, time.Now(), 0)
 				return false, nil
 			}); !errors.Is(err, ctx.Err()) {
