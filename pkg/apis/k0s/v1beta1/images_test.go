@@ -71,12 +71,12 @@ spec:
 	cfg, err := ConfigFromBytes(yamlData)
 	require.NoError(t, err)
 
-	strippedCfg := cfg.StripDefaults()
+	cc := cfg.GetClusterWideConfig()
 
-	require.Equal(t, "Never", strippedCfg.Spec.Images.DefaultPullPolicy)
-	require.Nil(t, strippedCfg.Spec.Images.Konnectivity)
-	require.True(t, strippedCfg.Spec.Network.NodeLocalLoadBalancing.Enabled)
-	require.Nil(t, strippedCfg.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy.Image)
+	require.Equal(t, "Never", cc.Spec.Images.DefaultPullPolicy)
+	require.Nil(t, cc.Spec.Images.Konnectivity)
+	require.True(t, cc.Spec.Network.NodeLocalLoadBalancing.Enabled)
+	require.Nil(t, cc.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy.Image)
 }
 
 func TestImagesRepoOverrideInConfiguration(t *testing.T) {

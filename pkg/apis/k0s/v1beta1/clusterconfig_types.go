@@ -75,54 +75,6 @@ type ClusterConfig struct {
 	Status *ClusterConfigStatus `json:"status,omitempty"`
 }
 
-// StripDefaults returns a copy of the config where the default values a nilled out
-func (c *ClusterConfig) StripDefaults() *ClusterConfig {
-	c = c.DeepCopy() // Clone and overwrite receiver to avoid side effects
-	if c == nil || c.Spec == nil {
-		return c
-	}
-	if reflect.DeepEqual(c.Spec.API, DefaultAPISpec()) {
-		c.Spec.API = nil
-	}
-	if reflect.DeepEqual(c.Spec.ControllerManager, DefaultControllerManagerSpec()) {
-		c.Spec.ControllerManager = nil
-	}
-	if reflect.DeepEqual(c.Spec.Scheduler, DefaultSchedulerSpec()) {
-		c.Spec.Scheduler = nil
-	}
-	if reflect.DeepEqual(c.Spec.Storage, DefaultStorageSpec()) {
-		c.Spec.Storage = nil
-	}
-	if reflect.DeepEqual(c.Spec.Network, DefaultNetwork()) {
-		c.Spec.Network = nil
-	} else if c.Spec.Network != nil &&
-		c.Spec.Network.NodeLocalLoadBalancing != nil &&
-		c.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy != nil &&
-		reflect.DeepEqual(c.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy.Image, DefaultEnvoyProxyImage()) {
-		c.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy.Image = nil
-	}
-	if reflect.DeepEqual(c.Spec.Telemetry, DefaultClusterTelemetry()) {
-		c.Spec.Telemetry = nil
-	}
-	if reflect.DeepEqual(c.Spec.Images, DefaultClusterImages()) {
-		c.Spec.Images = nil
-	} else {
-		stripDefaultImages(c.Spec.Images, DefaultClusterImages())
-	}
-	if reflect.DeepEqual(c.Spec.Konnectivity, DefaultKonnectivitySpec()) {
-		c.Spec.Konnectivity = nil
-	}
-	return c
-}
-
-func stripDefaultImages(cfgImages, defaultImages *ClusterImages) {
-	if cfgImages != nil && defaultImages != nil {
-		cfgVal := reflect.ValueOf(cfgImages).Elem()
-		defaultVal := reflect.ValueOf(defaultImages).Elem()
-		stripDefaults(cfgVal, defaultVal)
-	}
-}
-
 // Zeroes out any field in actualValue whose value equals the corresponding
 // field in defaultValue, but only if that field's JSON tag contains
 // "omitempty". Both actualValue and defaultValue must be wrapping the same
@@ -484,7 +436,14 @@ func (c *ClusterConfig) Validate() (errs []error) {
 // - Install
 func (c *ClusterConfig) GetClusterWideConfig() *ClusterConfig {
 	c = c.DeepCopy()
-	if c != nil && c.Spec != nil {
+	if c == nil {
+		return nil
+	}
+
+	c.Name = "k0s"
+	c.Namespace = metav1.NamespaceSystem
+
+	if c.Spec != nil {
 		c.Spec.API = nil
 		c.Spec.Storage = nil
 		if c.Spec.Network != nil {
@@ -493,16 +452,12 @@ func (c *ClusterConfig) GetClusterWideConfig() *ClusterConfig {
 			c.Spec.Network.ControlPlaneLoadBalancing = nil
 		}
 		c.Spec.Install = nil
+
+		stripDefaults(
+			reflect.ValueOf(c.Spec).Elem(),
+			reflect.ValueOf(DefaultClusterSpec()).Elem(),
+		)
 	}
 
 	return c
-}
-
-// CRValidator is used to make sure a config CR is created with correct values
-func (c *ClusterConfig) CRValidator() *ClusterConfig {
-	copy := c.DeepCopy()
-	copy.Name = "k0s"
-	copy.Namespace = "kube-system"
-
-	return copy
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/iface"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 
 	"github.com/stretchr/testify/assert"
@@ -324,28 +325,28 @@ spec:
 	}
 }
 
-func TestClusterConfig_StripDefaults_Zero(t *testing.T) {
-	underTest := ClusterConfig{}
-	assert.Equal(t, &underTest, underTest.StripDefaults())
+func TestClusterConfig_GetClusterWideConfig_Zero(t *testing.T) {
+	expected := ClusterConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "kube-system", Name: "k0s"}}
+	var zeroConfig ClusterConfig
+	assert.Equal(t, &expected, zeroConfig.GetClusterWideConfig())
 }
 
-func TestClusterConfig_StripDefaults_ZeroSpec(t *testing.T) {
+func TestClusterConfig_GetClusterWideConfig_ZeroSpec(t *testing.T) {
+	expected := ClusterConfig{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "kube-system", Name: "k0s"},
+		Spec:       &ClusterSpec{},
+	}
 	underTest := ClusterConfig{Spec: &ClusterSpec{}}
-	assert.Equal(t, &underTest, underTest.StripDefaults())
+	assert.Equal(t, &expected, underTest.GetClusterWideConfig())
 }
 
-func TestClusterConfig_StripDefaults_DefaultConfig(t *testing.T) {
-	defaultConfig := DefaultClusterConfig()
-	stripped := defaultConfig.StripDefaults()
-	a := assert.New(t)
-	a.Nil(stripped.Spec.API)
-	a.Nil(stripped.Spec.ControllerManager)
-	a.Nil(stripped.Spec.Scheduler)
-	a.Nil(stripped.Spec.Storage)
-	a.Nil(stripped.Spec.Network)
-	a.Nil(stripped.Spec.Telemetry)
-	a.Nil(stripped.Spec.Images)
-	a.Nil(stripped.Spec.Konnectivity)
+func TestClusterConfig_GetClusterWideConfig_DefaultConfig(t *testing.T) {
+	expected := ClusterConfig{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "k0s.k0sproject.io/v1beta1", Kind: "ClusterConfig"},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "kube-system", Name: "k0s"},
+		Spec:       &ClusterSpec{},
+	}
+	assert.Equal(t, &expected, DefaultClusterConfig().GetClusterWideConfig())
 }
 
 func TestClusterConfig_StripDefaults_Images(t *testing.T) {
@@ -387,27 +388,24 @@ spec:
 	input, err := ConfigFromBytes([]byte(yaml))
 	require.NoError(t, err)
 
-	stripped := input.StripDefaults()
-	assert.NotEmpty(t, stripped.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy.Image.Version)
-	assert.NotEmpty(t, stripped.Spec.Images.Konnectivity.Version)
-	assert.NotEmpty(t, stripped.Spec.Images.PushGateway.Version)
-	assert.NotEmpty(t, stripped.Spec.Images.MetricsServer.Version)
-	assert.NotEmpty(t, stripped.Spec.Images.KubeProxy.Version)
-	assert.NotEmpty(t, stripped.Spec.Images.CoreDNS.Version)
-	assert.NotEmpty(t, stripped.Spec.Images.Pause.Version)
-	assert.NotEmpty(t, stripped.Spec.Images.Calico.CNI.Version)
-	assert.NotEmpty(t, stripped.Spec.Images.Calico.Node.Version)
-	assert.NotEmpty(t, stripped.Spec.Images.Calico.KubeControllers.Version)
-	assert.NotEmpty(t, stripped.Spec.Images.KubeRouter.CNI.Version)
-	assert.NotEmpty(t, stripped.Spec.Images.KubeRouter.CNIInstaller.Version)
+	cc := input.GetClusterWideConfig()
+	assert.NotEmpty(t, cc.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy.Image.Version)
+	assert.NotEmpty(t, cc.Spec.Images.Konnectivity.Version)
+	assert.NotEmpty(t, cc.Spec.Images.PushGateway.Version)
+	assert.NotEmpty(t, cc.Spec.Images.MetricsServer.Version)
+	assert.NotEmpty(t, cc.Spec.Images.KubeProxy.Version)
+	assert.NotEmpty(t, cc.Spec.Images.CoreDNS.Version)
+	assert.NotEmpty(t, cc.Spec.Images.Pause.Version)
+	assert.NotEmpty(t, cc.Spec.Images.Calico.CNI.Version)
+	assert.NotEmpty(t, cc.Spec.Images.Calico.Node.Version)
+	assert.NotEmpty(t, cc.Spec.Images.Calico.KubeControllers.Version)
+	assert.NotEmpty(t, cc.Spec.Images.KubeRouter.CNI.Version)
+	assert.NotEmpty(t, cc.Spec.Images.KubeRouter.CNIInstaller.Version)
 }
 
 func TestStrippedClusterWideDefaultConfig(t *testing.T) {
-	underTest := DefaultClusterConfig().GetClusterWideConfig().StripDefaults()
+	underTest := DefaultClusterConfig().GetClusterWideConfig()
 	if assert.NotNil(t, underTest.Spec) {
-		// The network and extensions fields aren't properly handled at the moment.
-		underTest.Spec.Network = nil
-		underTest.Spec.Extensions = nil
 		assert.Zero(t, *underTest.Spec, "%+v", underTest.Spec)
 	}
 }

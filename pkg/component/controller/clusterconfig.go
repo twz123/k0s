@@ -266,7 +266,7 @@ func (i *ClusterConfigInitializer) clusterConfigExists(ctx context.Context, clie
 func (i *ClusterConfigInitializer) createClusterConfig(ctx context.Context, client k0sv1beta1client.ClusterConfigInterface) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	clusterWideConfig := i.initialConfig.GetClusterWideConfig().StripDefaults().CRValidator()
+	clusterWideConfig := i.initialConfig.GetClusterWideConfig()
 	_, err := client.Create(ctx, clusterWideConfig, metav1.CreateOptions{})
 	return err
 }
