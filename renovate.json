@@ -95,6 +95,19 @@
     },
     {
       "customType": "regex",
+      "description": "Update container image tags",
+      "managerFilePatterns": [
+        "**/*.go",
+        "**/*.md"
+      ],
+      "matchStrings": [
+        "\\b(?<depName>(docker|quay)\\.io/[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*)(:|.*\n.*(= \"|version:\\s+))v?(?<currentValue>[a-z0-9_][\\w.-]{0,127})"
+      ],
+      "datasourceTemplate": "docker",
+      "extractVersionTemplate": "^v?(?<version>[\\w][\\w.-]{0,127})"
+    },
+    {
+      "customType": "regex",
       "description": "Update etcd version in embedded-bins/Makefile.variables",
       "managerFilePatterns": [
         "embedded-bins/Makefile.variables"
