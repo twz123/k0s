@@ -18,7 +18,7 @@ TARGET_VERSION ?= latest
 # gives: "Error: The 'docs_dir' should not be the parent directory of the config file."
 # even if docs_dir is "."
 docs: .require-mkdocs cli
-	cd .. && PYTHONPATH=$(CURDIR)/mkdocs_modules KUBERNETES_VERSION=$(kubernetes_version) mkdocs build --strict
+	cd .. && PYTHONPATH=$(CURDIR)/mkdocs_modules K0S_VERSION=($$('$(k0s_binary_path)/$(k0s_binary)' version)) mkdocs build --strict
 
 .PHONY: .require-mkdocs
 .require-mkdocs:

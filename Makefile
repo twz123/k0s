@@ -303,7 +303,7 @@ docs-serve-dev:
 	$(MAKE) -C docs .docker-image.serve-dev.stamp
 	$(DOCKER) run --rm \
 	  -e PYTHONPATH=/k0s/docs/mkdocs_modules \
-	  -e KUBERNETES_VERSION='$(kubernetes_version)' \
+	  -e K0S_VERSION=$(VERSION) \
 	  -v "$(CURDIR):/k0s:ro" \
 	  -p '$(DOCS_DEV_PORT):8000' \
 	  k0sdocs.docker-image.serve-dev
