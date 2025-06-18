@@ -41,7 +41,7 @@ locals {
 
       worker = {
         ami_id        = one(data.aws_ami.windows_server_2022.*.id)
-        instance_type = "t3a.medium"
+        instance_type = contains(["small", "medium"], var.default_instance_size) ? "t3a.medium" : "c6a.${var.default_instance_size}"
         os_type       = "windows"
         volume        = { size = 50 }
 

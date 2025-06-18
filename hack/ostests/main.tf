@@ -28,6 +28,7 @@ module "os" {
 
   os                       = var.os
   arch                     = var.arch
+  default_instance_size    = var.default_instance_size
   additional_ingress_cidrs = [local.podCIDR]
 }
 
@@ -51,6 +52,7 @@ module "k0sctl" {
   source = "./modules/k0sctl"
 
   k0sctl_executable_path = var.k0sctl_executable_path
+  k0sctl_timeout         = var.k0sctl_timeout
   k0s_executable_path    = var.k0s_executable_path
   k0s_version            = var.k0s_version
 

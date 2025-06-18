@@ -1,4 +1,4 @@
 output "os" {
-  value       = merge(local.os[var.os], { arch = var.arch })
+  value       = local.configured_os
   description = "The OS confguration."
 }

@@ -10,13 +10,10 @@ resource "aws_key_pair" "ssh" {
 }
 
 locals {
-  default_node_config = merge ({
+  default_node_config = merge({
     os_type = "linux"
     volume  = { size = 20 }
-  }, {
-    x86_64 = { instance_type = "t3a.small" }
-    arm64  = { instance_type = "t4g.small" }
-  }[var.os.arch])
+  })
 
   node_role_templates = {
     controller = {
@@ -46,13 +43,13 @@ locals {
 
   node_roles = { for role, tmpl in local.node_role_templates: role => merge(tmpl.data, {
     node_config = {
-      ami_id        =  coalesce(tmpl.sources.*.ami_id...)
-      instance_type =  coalesce(concat(tmpl.sources, [local.default_node_config]).*.instance_type...)
-      os_type       =  coalesce(concat(tmpl.sources, [local.default_node_config]).*.os_type...)
-      volume        =  coalesce(concat(tmpl.sources, [local.default_node_config]).*.volume...)
-      user_data     =  try(coalesce(tmpl.sources.*.user_data...), null)
-      ready_script  =  try(coalesce(tmpl.sources.*.ready_script...), null)
-      connection    =  coalesce(tmpl.sources.*.connection...)
+      ami_id        = coalesce(tmpl.sources.*.ami_id...)
+      instance_type = coalesce(tmpl.sources.*.instance_type...)
+      os_type       = coalesce(concat(tmpl.sources, [local.default_node_config]).*.os_type...)
+      volume        = coalesce(concat(tmpl.sources, [local.default_node_config]).*.volume...)
+      user_data     = try(coalesce(tmpl.sources.*.user_data...), null)
+      ready_script  = try(coalesce(tmpl.sources.*.ready_script...), null)
+      connection    = coalesce(tmpl.sources.*.connection...)
     }
   })}
 

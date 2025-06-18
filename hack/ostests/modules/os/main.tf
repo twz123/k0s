@@ -26,4 +26,16 @@ locals {
     ubuntu_2404         = local.os_ubuntu_2404
     windows_server_2022 = local.os_windows_server_2022
   }
+
+  selected_os = local.os[var.os]
+
+  configured_os = merge(local.selected_os, {
+    arch = var.arch
+    node_configs = merge(local.selected_os.node_configs, {
+      default = merge({
+        x86_64 = { instance_type = "${contains(["small", "medium"], var.default_instance_size) ? "t3a" : "c6a"}.${var.default_instance_size}" }
+        arm64  = { instance_type = "${contains(["small", "medium"], var.default_instance_size) ? "t4g" : "c6g"}.${var.default_instance_size}" }
+      }[var.arch], local.selected_os.node_configs.default)
+    })
+  })
 }

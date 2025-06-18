@@ -100,6 +100,17 @@ that not all operating systems support all architectures.
 * `x86_64`
 * `arm64`
 
+### `default_instance_size`: The default instance size to choose
+
+The default instance size to choose when provisioning AWS instances. Depending
+on the OS, the actual instance types may be different
+
+* `small` (the default)
+* `medium`
+* `large`
+* `xlarge`
+* `2xlarge`
+
 ### `k0sctl_skip`: Skip k0s provisioning altogether
 
 Just provision the infrastructure, but no k0s cluster. This may be used for
