@@ -564,6 +564,7 @@ jobs:
       e2e-concurrency-level: 1
       os: debian_12
       arch: ${{ matrix.arch }}
+      default-instance-size: large # There's sporadic/spurious test failures on smaller instances
       network-provider: kuberouter
     secrets:
       aws-access-key-id: ${{ secrets.AWS_TERRAFORM_ID }}
