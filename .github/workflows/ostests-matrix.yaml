@@ -39,10 +39,24 @@ on:
             "ubuntu_2004", "ubuntu_2204", "ubuntu_2404"
           ]
       arch:
-        type: string
+        type: choice
         description: The processor architecture to test.
         required: true
         default: amd64
+        options:
+          - amd64
+          - arm64
+      default-instance-size:
+        type: choice
+        description: The default instance size to choose.
+        required: true
+        default: small
+        options:
+          - small
+          - medium
+          - large
+          - xlarge
+          - 2xlarge
       network-providers:
         type: string
         description: The k0s network providers to test.
@@ -90,6 +104,7 @@ jobs:
       e2e-focus: ${{ inputs.e2e-focus }}
       os: ${{ matrix.os }}
       arch: ${{ inputs.arch }}
+      default-instance-size: ${{ inputs.default-instance-size }}
       network-provider: ${{ matrix.network-provider }}
       kube-proxy-mode: ${{ matrix.kube-proxy-mode }}
     secrets:

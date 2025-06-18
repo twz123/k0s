@@ -41,6 +41,17 @@ variable "arch" {
   default     = "x86_64"
 }
 
+variable "default_instance_size" {
+  type        = string
+  description = "The default instance size to choose."
+  default     = "small"
+
+  validation {
+    condition     = contains(["small", "medium", "large", "xlarge", "2xlarge"], var.default_instance_size)
+    error_message = "Allowed values for default_instance_size are: small, medium, large, xlarge and 2xlarge."
+  }
+}
+
 variable "k0sctl_skip" {
   type        = bool
   description = "Skip k0s provisoning altogether."

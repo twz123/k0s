@@ -28,6 +28,7 @@ module "os" {
 
   os                       = var.os
   arch                     = var.arch
+  default_instance_size    = var.default_instance_size
   additional_ingress_cidrs = [local.podCIDR]
 }
 

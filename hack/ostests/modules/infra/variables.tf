@@ -14,7 +14,7 @@ variable "os" {
     node_configs = object({
       default = object({
         ami_id        = string
-        instance_type = optional(string)
+        instance_type = string
         os_type       = optional(string)
 
         volume = optional(object({

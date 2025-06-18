@@ -24,6 +24,9 @@ on:
         type: string
         description: The processor architecture to test.
         default: amd64
+      default-instance-size:
+        type: string
+        description: The default instance size to choose.
       network-provider:
         type: string
         description: The k0s network provider to test.
@@ -106,6 +109,7 @@ jobs:
       - name: "Tofu :: Requisites :: Prepare"
         env:
           OSTESTS_ARCH: ${{ inputs.arch }}
+          OSTESTS_DEFAULT_INSTANCE_SIZE: ${{ inputs.default-instance-size }}
           K0S_VERSION: ${{ inputs.k0s-version }}
           K0S_EXECUTABLE_PATH: ${{ github.workspace }}/.cache/k0s
         run: |
@@ -128,6 +132,9 @@ jobs:
 
           if [ "$OSTESTS_ARCH" != amd64 ]; then
             echo TF_VAR_arch="$OSTESTS_ARCH" >>"$GITHUB_ENV"
+          fi
+          if [ -n "$OSTESTS_DEFAULT_INSTANCE_SIZE" ]; then
+            echo TF_VAR_default_instance_size="$OSTESTS_DEFAULT_INSTANCE_SIZE" >>"$GITHUB_ENV"
           fi
           echo TF_VAR_k0s_version="$K0S_VERSION" >>"$GITHUB_ENV"
 
