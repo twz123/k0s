@@ -1725,29 +1725,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../examples/ambassador-ingress/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Ambassador API Gateway
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../examples/rook-ceph/" class="md-nav__link">
         
   
@@ -2097,18 +2074,179 @@
   
   
   
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Governance
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            Governance
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Security policy
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
     <li class="md-nav__item">
       <a href="../releases/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Releases & Support
+    Releases & support model
     
   </span>
   
 
       </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_9_3" id="__nav_9_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    CNCF
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_9_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9_3">
+            <span class="md-nav__icon md-icon"></span>
+            CNCF
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../governance/cncf/gtr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    General Technical Review
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../governance/cncf/security-self-assessment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    TAG-Security self-assessment
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
     </li>
   
 
@@ -2163,28 +2301,6 @@
   
   
   
-    <li class="md-nav__item">
-      <a href="../security/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Security Policy
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
     
     
     
@@ -2194,10 +2310,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_13" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" >
         
           
-          <label class="md-nav__link" for="__nav_13" id="__nav_13_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_12" id="__nav_12_label" tabindex="0">
             
   
   
@@ -2210,8 +2326,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_13_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_13">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
             <span class="md-nav__icon md-icon"></span>
             Contributing
           </label>
@@ -2475,7 +2591,7 @@
 </thead>
 <tbody>
 <tr>
-<td style="text-align: left;"><code>K0S_VERSION=v1.33.1+head</code></td>
+<td style="text-align: left;"><code>K0S_VERSION=v1.33.2+head</code></td>
 <td style="text-align: left;">Select the version of k0s to be installed</td>
 </tr>
 <tr>
@@ -2485,7 +2601,7 @@
 </tbody>
 </table>
 <p><strong>Note</strong>: If you require environment variables and use sudo, you can do:</p>
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>--proto<span class="w"> </span><span class="s1">&#39;=https&#39;</span><span class="w"> </span>--tlsv1.2<span class="w"> </span>-sSf<span class="w"> </span>https://get.k0s.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sudo<span class="w"> </span><span class="nv">K0S_VERSION</span><span class="o">=</span>v1.33.1+head<span class="w"> </span>sh
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>--proto<span class="w"> </span><span class="s1">&#39;=https&#39;</span><span class="w"> </span>--tlsv1.2<span class="w"> </span>-sSf<span class="w"> </span>https://get.k0s.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sudo<span class="w"> </span><span class="nv">K0S_VERSION</span><span class="o">=</span>v1.33.2+head<span class="w"> </span>sh
 </code></pre></div>
 <h3 id="2-bootstrap-a-controller-node">2. Bootstrap a controller node<a class="headerlink" href="#2-bootstrap-a-controller-node" title="Permanent link">#</a></h3>
 <p>Create a configuration file:</p>
@@ -2537,7 +2653,7 @@ If your configuration file includes IP addresses (node address, sans, etcd peerA
 <p>To get general information about your k0s instance's status:</p>
 <div class="highlight"><pre><span></span><code><span class="w"> </span>sudo<span class="w"> </span>k0s<span class="w"> </span>status
 </code></pre></div>
-<div class="highlight"><pre><span></span><code>Version:<span class="w"> </span>v1.33.1+head
+<div class="highlight"><pre><span></span><code>Version:<span class="w"> </span>v1.33.2+head
 Process<span class="w"> </span>ID:<span class="w"> </span><span class="m">2769</span>
 Parent<span class="w"> </span>Process<span class="w"> </span>ID:<span class="w"> </span><span class="m">1</span>
 Role:<span class="w"> </span>controller
@@ -2549,7 +2665,7 @@ Service<span class="w"> </span>file:<span class="w"> </span>/etc/systemd/system/
 <div class="highlight"><pre><span></span><code>sudo<span class="w"> </span>k0s<span class="w"> </span>kubectl<span class="w"> </span>get<span class="w"> </span>nodes
 </code></pre></div>
 <div class="highlight"><pre><span></span><code>NAME<span class="w">   </span>STATUS<span class="w">   </span>ROLES<span class="w">    </span>AGE<span class="w">    </span>VERSION
-k0s<span class="w">    </span>Ready<span class="w">    </span>&lt;none&gt;<span class="w">   </span>4m6s<span class="w">   </span>v1.33.1+k0s
+k0s<span class="w">    </span>Ready<span class="w">    </span>&lt;none&gt;<span class="w">   </span>4m6s<span class="w">   </span>v1.33.2+k0s
 </code></pre></div>
 <p>You can also access your cluster easily with <a href="https://k8slens.dev/">Lens</a>, simply by copying the kubeconfig and pasting it to Lens:</p>
 <div class="highlight"><pre><span></span><code>sudo<span class="w"> </span>cat<span class="w"> </span>/var/lib/k0s/pki/admin.conf
