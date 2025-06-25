@@ -1,1 +1,4 @@
+# SPDX-FileCopyrightText: 2022 k0s authors
+# SPDX-License-Identifier: Apache-2.0
+
 python_version = 3.13.5

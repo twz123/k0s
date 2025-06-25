@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2024 k0s authors
+# SPDX-License-Identifier: CC0-1.0
+
 services:
   k0s-controller:
     image: docker.io/k0sproject/k0s:{{{ k0s_docker_version }}}

@@ -9,4 +9,8 @@ Portions of this software are licensed as follows:
 - Individual files may include their own license headers. When a license header
   is present in a file, it governs the licensing of that specific file and takes
   precedence over the repository-level license terms, unless explicitly stated
-  otherwise.
+  otherwise. In particular, certain files, such as example configurations,
+  sample data, or demonstration snippets, may be licensed under the "Creative
+  Commons Zero v1.0 Universal" (CC0-1.0) public domain dedication. See
+  LICENSES/CC0-1.0.txt for details. These files will include an explicit CC0-1.0
+  license header or notice.

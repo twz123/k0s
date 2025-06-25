@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025 k0s authors
+# SPDX-License-Identifier: Apache-2.0
+
 import os
 import re
 import subprocess

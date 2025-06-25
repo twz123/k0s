@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2024 k0s authors
+# SPDX-License-Identifier: CC0-1.0
+
 # Spec to run when a kURL cluster is down and in-cluster specs can't be run
 apiVersion: troubleshoot.sh/v1beta2
 kind: SupportBundle

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2025 k0s authors
+# SPDX-License-Identifier: CC0-1.0
+
 name: compose-cluster
 
 x-k0s-image: &k0s-image docker.io/k0sproject/k0s:{{{ k0s_docker_version }}}

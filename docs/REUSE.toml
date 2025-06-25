@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2025 k0s authors
+# SPDX-License-Identifier: CC0-1.0
+
+version = 1
+
+[[annotations]]
+path = ["img/*.png", "img/*.gif"]
+SPDX-License-Identifier = "CC-BY-SA-4.0"
