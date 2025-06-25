@@ -6,3 +6,7 @@ Portions of this software are licensed as follows:
 - Content outside of the above mentioned directories or restrictions above is
   available under the "Apache License, Version 2.0" (Apache-2.0). See
   LICENSES/Apache-2.0.txt for details.
+- Individual files may include their own license headers. When a license header
+  is present in a file, it governs the licensing of that specific file and takes
+  precedence over the repository-level license terms, unless explicitly stated
+  otherwise.
