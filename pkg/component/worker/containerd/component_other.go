@@ -1,5 +1,7 @@
+//go:build !windows
+
 /*
-Copyright 2021 k0s authors
+Copyright 2025 k0s authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,20 +16,22 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package runtime
+package containerd
 
-import (
-	"context"
-	"net/url"
+import "github.com/k0sproject/k0s/pkg/assets"
+
+const (
+	defaultConfPath    = "/etc/k0s/containerd.toml"
+	defaultImportsPath = "/etc/k0s/containerd.d/"
 )
 
-type ContainerRuntime interface {
-	Ping(ctx context.Context) error
-	ListContainers(ctx context.Context) ([]string, error)
-	RemoveContainer(ctx context.Context, id string) error
-	StopContainer(ctx context.Context, id string) error
+var additionalExecutableNames = [...]string{
+	"containerd-shim",
+	"containerd-shim-runc-v1",
+	"containerd-shim-runc-v2",
+	"runc",
 }
 
-func NewContainerRuntime(runtimeEndpoint *url.URL) ContainerRuntime {
-	return newCRIRuntime(runtimeEndpoint)
+func stageExecutable(dir, name string) (string, error) {
+	return assets.StageExecutable(dir, name)
 }
