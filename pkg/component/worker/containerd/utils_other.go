@@ -18,6 +18,18 @@ limitations under the License.
 
 package containerd
 
+import (
+	"net/url"
+	"path/filepath"
+)
+
+func Address(runDir string) *url.URL {
+	return &url.URL{
+		Scheme: "unix",
+		Path:   filepath.ToSlash(filepath.Join(runDir, "containerd.sock")),
+	}
+}
+
 func winExecute(args ...string) error {
 	panic("Invariant broken: this function should never be called on non-winodws platforms")
 }

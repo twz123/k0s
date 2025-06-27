@@ -25,7 +25,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -143,17 +142,13 @@ func (c *Component) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to setup containerd config: %w", err)
 	}
 
-	var runtimeEndpoint *url.URL
+	address := Address(c.K0sVars.RunDir)
 
 	if runtime.GOOS == "windows" {
 		if err := c.windowsStart(ctx); err != nil {
 			return fmt.Errorf("failed to start windows server: %w", err)
 		}
-
-		runtimeEndpoint = &url.URL{Scheme: "npipe", Path: "//./pipe/containerd-containerd"}
 	} else {
-		socketPath := filepath.Join(c.K0sVars.RunDir, "containerd.sock")
-
 		c.supervisor = supervisor.Supervisor{
 			Name:    "containerd",
 			BinPath: assets.BinPath("containerd", c.K0sVars.BinDir),
@@ -162,7 +157,7 @@ func (c *Component) Start(ctx context.Context) error {
 			Args: []string{
 				"--root=" + filepath.Join(c.K0sVars.DataDir, "containerd"),
 				"--state=" + filepath.Join(c.K0sVars.RunDir, "containerd"),
-				"--address=" + socketPath,
+				"--address=" + address.String(),
 				"--log-level=" + c.LogLevel,
 				"--config=" + c.confPath,
 			},
@@ -171,8 +166,6 @@ func (c *Component) Start(ctx context.Context) error {
 		if err := c.supervisor.Supervise(); err != nil {
 			return err
 		}
-
-		runtimeEndpoint = &url.URL{Scheme: "unix", Path: socketPath}
 	}
 
 	go c.watchDropinConfigs(ctx)
@@ -182,7 +175,7 @@ func (c *Component) Start(ctx context.Context) error {
 	err := wait.ExponentialBackoffWithContext(ctx, wait.Backoff{
 		Duration: 100 * time.Millisecond, Factor: 1.2, Jitter: 0.05, Steps: 30,
 	}, func(ctx context.Context) (bool, error) {
-		rt := containerruntime.NewContainerRuntime(runtimeEndpoint)
+		rt := containerruntime.NewContainerRuntime(address)
 		if lastErr = rt.Ping(ctx); lastErr != nil {
 			log.WithError(lastErr).Debug("Failed to ping containerd")
 			return false, nil
