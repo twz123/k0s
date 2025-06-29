@@ -71,6 +71,10 @@ func (pp *PingPong) BinArgs() []string {
 	return []string{pp.script, pp.pipe, ignoreSIGTERM}
 }
 
+func (pp *PingPong) sysProcAttr() *syscall.SysProcAttr {
+	return nil
+}
+
 func (pp *PingPong) AwaitPing() (err error) {
 	// The open for reading call will block until the
 	// script tries to open the file for writing.

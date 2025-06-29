@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/Microsoft/go-winio"
@@ -76,6 +77,12 @@ func (pp *PingPong) BinPath() string {
 
 func (pp *PingPong) BinArgs() []string {
 	return pp.shellArgs
+}
+
+func (pp *PingPong) sysProcAttr() *syscall.SysProcAttr {
+	return &syscall.SysProcAttr{
+		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP,
+	}
 }
 
 func (pp *PingPong) AwaitPing() (err error) {

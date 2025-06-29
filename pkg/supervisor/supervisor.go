@@ -335,7 +335,9 @@ func (s *Supervisor) shouldKillProcess(ph procHandle) (bool, error) {
 		if errors.Is(err, syscall.ESRCH) {
 			return false, nil
 		}
-		return false, err
+		if !errors.Is(err, errors.ErrUnsupported) {
+			return false, err
+		}
 	} else if len(cmd) > 0 && cmd[0] != s.BinPath {
 		return false, nil
 	}
