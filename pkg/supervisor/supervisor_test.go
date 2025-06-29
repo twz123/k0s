@@ -36,6 +36,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type embeddedTestHelperProc string
+
+const GRACEFUL_SHUTDOWN_TEST_HELPER embeddedTestHelperProc = "__GRACEFUL_SHUTDOWN_TEST_HELPER"
+
+func (p embeddedTestHelperProc) toArgs() []string { return []string{string(p)} }
+
 type SupervisorTest struct {
 	expectedErrMsg string
 	proc           Supervisor
@@ -235,32 +241,34 @@ func TestMultiThread(t *testing.T) {
 
 func TestCleanupPIDFile_Gracefully(t *testing.T) {
 	switch runtime.GOOS {
-	case "windows":
-		t.Skip("PID file cleanup not yet implemented on Windows")
 	case "darwin":
 		t.Skip("FIXME: times out on macOS, needs debugging")
 	}
 
 	// Start some k0s-managed process.
-	prevCmd, prevPingPong := pingpong.Start(t, pingpong.StartOptions{
-		Env: []string{k0sManaged},
-	})
-	require.NoError(t, prevPingPong.AwaitPing())
+	exe, err := os.Executable()
+	require.NoError(t, err)
+	prevCmd := exec.Command(exe, GRACEFUL_SHUTDOWN_TEST_HELPER.toArgs()...)
+	prevCmd.Stdout = os.Stdout
+	prevCmd.Stderr = os.Stderr
+	prevCmd.SysProcAttr = DetachAttr(0, 0)
+	prevCmd.Env = []string{k0sManaged}
+	require.NoError(t, prevCmd.Start())
+	t.Cleanup(func() { _, _ = prevCmd.Process.Kill(), prevCmd.Wait() })
 
 	// Prepare another supervised process.
-	pingPong := pingpong.New(t)
 	s := Supervisor{
 		Name:           t.Name(),
-		BinPath:        pingPong.BinPath(),
+		BinPath:        exe,
 		RunDir:         t.TempDir(),
-		Args:           pingPong.BinArgs(),
+		Args:           GRACEFUL_SHUTDOWN_TEST_HELPER.toArgs(),
 		TimeoutStop:    1 * time.Minute,
 		TimeoutRespawn: 1 * time.Hour,
 	}
 
 	// Create a PID file that's pointing to the running process.
 	pidFilePath := filepath.Join(s.RunDir, s.Name+".pid")
-	require.NoError(t, os.WriteFile(pidFilePath, []byte(fmt.Sprintf("%d\n", prevCmd.Process.Pid)), 0644))
+	require.NoError(t, os.WriteFile(pidFilePath, fmt.Appendf(nil, "%d\n", prevCmd.Process.Pid), 0644))
 
 	// Start to supervise the new process.
 	require.NoError(t, s.Supervise())
@@ -276,8 +284,6 @@ func TestCleanupPIDFile_Gracefully(t *testing.T) {
 
 func TestCleanupPIDFile_Forcefully(t *testing.T) {
 	switch runtime.GOOS {
-	case "windows":
-		t.Skip("PID file cleanup not yet implemented on Windows")
 	case "darwin":
 		t.Skip("FIXME: times out on macOS, needs debugging")
 	}
@@ -304,14 +310,28 @@ func TestCleanupPIDFile_Forcefully(t *testing.T) {
 
 	// Create a PID file that's pointing to the running process.
 	pidFilePath := filepath.Join(s.RunDir, s.Name+".pid")
-	require.NoError(t, os.WriteFile(pidFilePath, []byte(fmt.Sprintf("%d\n", prevCmd.Process.Pid)), 0644))
+	require.NoError(t, os.WriteFile(pidFilePath, fmt.Appendf(nil, "%d\n", prevCmd.Process.Pid), 0644))
 
 	// Start to supervise the new process.
 	require.NoError(t, s.Supervise())
 	t.Cleanup(s.Stop)
 
 	// Expect the previous process to be forcefully terminated.
-	assert.ErrorContains(t, prevCmd.Wait(), "signal: killed")
+	err := prevCmd.Wait()
+	var exitErr *exec.ExitError
+	if assert.ErrorAs(t, err, &exitErr) {
+		assert.False(t, exitErr.Success())
+		assert.Equal(t, 137, exitErr.ExitCode())
+		sys := exitErr.ProcessState.Sys()
+		if status, ok := sys.(syscall.WaitStatus); assert.True(t, ok, "not a syscall.WaitStatus: %T", sys) {
+			expected := syscall.SIGKILL
+			if runtime.GOOS == "windows" {
+				// Windows doesn't have the concept of signals.
+				expected = syscall.Signal(-1)
+			}
+			assert.Equal(t, expected, status.Signal())
+		}
+	}
 
 	// Stop the supervisor and check if the PID file is gone.
 	assert.NoError(t, pingPong.AwaitPing())
@@ -380,10 +400,6 @@ func TestCleanupPIDFile_NonexistingProcess(t *testing.T) {
 }
 
 func TestCleanupPIDFile_BogusPIDFile(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("PID file cleanup not yet implemented on Windows")
-	}
-
 	// Prepare some supervised process that should never be started.
 	s := Supervisor{
 		Name:    t.Name(),
