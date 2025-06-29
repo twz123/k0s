@@ -88,13 +88,13 @@ func (h *ProcHandle) Kill() error {
 
 func (h *ProcHandle) Environ() (env []string, _ error) {
 	var envBlock []byte
-	err := control(h, func(fd uintptr) (err error) {
+	if err := control(h, func(fd uintptr) error {
 		handle := windows.Handle(fd)
 
 		// If there's some WOW64 emulation going on, there's probably different
 		// character encodings and other shenanigans involved. This code has not
 		// been tested with such processes, so let's be conservative about that.
-		err = ensureNoWOW64Process(handle)
+		err := ensureNoWOW64Process(handle)
 		if err != nil {
 			return err
 		}
@@ -117,11 +117,13 @@ func (h *ProcHandle) Environ() (env []string, _ error) {
 		}
 
 		return err
-	})
+	}); err != nil {
+		return nil, err
+	}
 
 	// The environment block uses Windows wide characters, i.e. UTF-16LE.
 	// Convert this into Golang-compatible UTF-8.
-	envBlock, err = unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM).NewDecoder().Bytes(envBlock)
+	envBlock, err := unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM).NewDecoder().Bytes(envBlock)
 	if err != nil {
 		return nil, err
 	}
