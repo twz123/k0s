@@ -19,25 +19,35 @@ limitations under the License.
 package supervisor
 
 import (
+	"errors"
+	"io/fs"
 	"syscall"
 
 	"github.com/k0sproject/k0s/internal/os/linux/procfs"
 )
 
-type unixPID int
+type unixPID uint
 
 func newProcHandle(pid int) (procHandle, error) {
 	return unixPID(pid), nil
 }
 
 func (pid unixPID) cmdline() ([]string, error) {
-	pidDir := procfs.NewPIDDIR(uint(pid))
-	return pidDir.Cmdline()
+	fd, err := pid.openFD()
+	if err != nil {
+		return nil, err
+	}
+	cmdline, err := fd.Dir().Cmdline()
+	return cmdline, errors.Join(err, fd.Close())
 }
 
 func (pid unixPID) environ() ([]string, error) {
-	pidDir := procfs.NewPIDDIR(uint(pid))
-	return pidDir.Environ()
+	fd, err := pid.openFD()
+	if err != nil {
+		return nil, err
+	}
+	environ, err := fd.Dir().Environ()
+	return environ, errors.Join(err, fd.Close())
 }
 
 func (pid unixPID) terminateGracefully() error {
@@ -46,4 +56,12 @@ func (pid unixPID) terminateGracefully() error {
 
 func (pid unixPID) terminateForcibly() error {
 	return syscall.Kill(int(pid), syscall.SIGKILL)
+}
+
+func (pid unixPID) openFD() (procfs.PIDFD, error) {
+	fd, err := procfs.OpenPID(uint(pid))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, syscall.ESRCH
+	}
+	return fd, err
 }
