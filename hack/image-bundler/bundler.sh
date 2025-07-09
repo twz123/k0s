@@ -34,6 +34,6 @@ done
 
 echo Exporting images ... >&2
 ctr images export --platform "$TARGET_PLATFORM" -- - "$@"
-echo Images exported. Waiting 5 secs ...>&2
-sleep 5
+echo Images exported. Waiting 30 secs ...>&2
+sleep 30
 echo Good bye. >&2
