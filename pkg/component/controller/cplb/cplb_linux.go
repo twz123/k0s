@@ -30,7 +30,6 @@ import (
 	"strings"
 	"syscall"
 	"text/template"
-	"time"
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/users"
@@ -164,6 +163,10 @@ func (k *Keepalived) Start(ctx context.Context) error {
 		UID:     k.uid,
 	}
 
+	if err := k.supervisor.Supervise(); err != nil {
+		return err
+	}
+
 	if k.reconciler != nil {
 		reconcilerDone := make(chan struct{})
 		k.reconcilerDone = reconcilerDone
@@ -179,7 +182,7 @@ func (k *Keepalived) Start(ctx context.Context) error {
 		}()
 	}
 
-	return k.supervisor.Supervise()
+	return nil
 }
 
 // Stops keepalived and cleans up the virtual IPs. This is done so that if the
@@ -468,19 +471,6 @@ func (k *Keepalived) redirectToProxyIPTables(op string) error {
 }
 
 func (k *Keepalived) watchReconcilerUpdatesKeepalived() {
-	// Wait for the supervisor to start keepalived before
-	// watching for endpoint changes
-	process := k.supervisor.GetProcess()
-	for i := 0; process == nil; i++ {
-		if i > 3 {
-			k.log.Error("failed to start keepalived, supervisor process is nil")
-			return
-		}
-		k.log.Info("Waiting for keepalived to start")
-		time.Sleep(5 * time.Second)
-		process = k.supervisor.GetProcess()
-	}
-
 	k.log.Info("started watching cplb-reconciler updates")
 	templ := template.Must(template.New("keepalived").Parse(keepalivedVirtualServersConfigTemplate))
 	for range k.updateCh {
