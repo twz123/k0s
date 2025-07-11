@@ -136,22 +136,20 @@ func (s *Supervisor) Supervise() error {
 		}()
 
 		s.log.Info("Starting to supervise")
-		restarts := 0
-		for {
+
+		for firstStart := started; ; {
 			if err := s.startProcess(); err != nil {
 				s.log.Warnf("Failed to start: %s", err)
-				if restarts == 0 {
-					started <- err
+				if firstStart != nil {
+					firstStart <- err
 					return
 				}
 			} else {
-				if restarts == 0 {
-					s.log.Infof("Started successfully, go nuts pid %d", s.cmd.Process.Pid)
-					started <- nil
-				} else {
-					s.log.Infof("Restarted (%d)", restarts)
+				if firstStart != nil {
+					close(firstStart)
+					firstStart = nil
 				}
-				restarts++
+
 				if s.processWaitQuit(ctx) {
 					return
 				}
@@ -201,7 +199,9 @@ func (s *Supervisor) startProcess() error {
 		return err
 	}
 
-	if err := os.WriteFile(s.PidFile, []byte(strconv.Itoa(s.cmd.Process.Pid)+"\n"), constant.PidFileMode); err != nil {
+	s.log.WithField("pid", s.cmd.Process.Pid).Info("Process started")
+
+	if err := os.WriteFile(s.PidFile, fmt.Appendf(nil, "%d\n", s.cmd.Process.Pid), constant.PidFileMode); err != nil {
 		s.log.Warnf("Failed to write file %s: %v", s.PidFile, err)
 	}
 
