@@ -343,8 +343,7 @@ func (c *Component) restart() {
 			return
 		}
 	} else {
-		p := c.supervisor.GetProcess()
-		if err := p.Signal(syscall.SIGHUP); err != nil {
+		if err := c.supervisor.Signal(syscall.SIGHUP); err != nil {
 			log.WithError(err).Warn("failed to send SIGHUP")
 		}
 

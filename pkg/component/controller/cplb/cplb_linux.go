@@ -481,8 +481,7 @@ func (k *Keepalived) watchReconcilerUpdatesKeepalived() {
 			continue
 		}
 
-		process := k.supervisor.GetProcess()
-		if err := process.Signal(syscall.SIGHUP); err != nil {
+		if err := k.supervisor.Signal(syscall.SIGHUP); err != nil {
 			k.log.Errorf("failed to send SIGHUP to keepalived: %v", err)
 		}
 	}

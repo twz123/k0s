@@ -380,12 +380,13 @@ func getEnv(dataDir, component string, keepEnvPrefix bool) []string {
 	return env[:i]
 }
 
-// GetProcess returns the last started process
-func (s *Supervisor) GetProcess() *os.Process {
+// Sends a signal to the supervised process.
+func (s *Supervisor) Signal(sig os.Signal) error {
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	if s.cmd == nil {
-		return nil
+	cmd := s.cmd
+	s.mutex.Unlock()
+	if cmd == nil {
+		return errors.New("not started")
 	}
-	return s.cmd.Process
+	return cmd.Process.Signal(sig)
 }
