@@ -139,11 +139,12 @@ func (s *Supervisor) Supervise() error {
 
 		for firstStart := started; ; {
 			if err := s.startProcess(); err != nil {
-				s.log.Warnf("Failed to start: %s", err)
 				if firstStart != nil {
 					firstStart <- err
 					return
 				}
+
+				s.log.WithError(err).Warnf("Failed to start process")
 			} else {
 				if firstStart != nil {
 					close(firstStart)
