@@ -143,19 +143,17 @@ func TestRespawn(t *testing.T) {
 	t.Cleanup(s.Stop)
 
 	// wait til process starts up
-	require.NoError(t, pingPong.AwaitPing())
-
-	// save the pid
-	process := s.GetProcess()
+	pid, err := pingPong.AwaitPIDPing()
+	require.NoError(t, err)
 
 	// send pong to unblock the process so it can exit
 	require.NoError(t, pingPong.SendPong())
 
 	// wait til the respawned process pings again
-	require.NoError(t, pingPong.AwaitPing())
-
-	// test that a new process got respawned
-	assert.NotEqual(t, process.Pid, s.GetProcess().Pid, "Respawn failed")
+	if newPid, err := pingPong.AwaitPIDPing(); assert.NoError(t, err) {
+		// test that a new process got respawned
+		assert.NotEqual(t, pid, newPid, "Respawn failed")
+	}
 }
 
 func TestStopWhileRespawn(t *testing.T) {

@@ -23,6 +23,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -100,12 +102,26 @@ func (pp *PingPong) BinArgs() (args []string) {
 }
 
 func (pp *PingPong) AwaitPing() error {
+	return pp.awaitPing(io.Discard)
+}
+
+func (pp *PingPong) AwaitPIDPing() (int, error) {
+	var buf strings.Builder
+	if err := pp.awaitPing(&buf); err != nil {
+		return 0, err
+	}
+
+	return strconv.Atoi(buf.String())
+}
+
+func (pp *PingPong) awaitPing(out io.Writer) error {
 	ping, err := pp.ping.Accept()
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(io.Discard, ping)
-	return errors.Join(err, ping.Close())
+
+	_, err = io.Copy(out, ping)
+	return err
 }
 
 func (pp *PingPong) SendPong() error {
@@ -154,7 +170,7 @@ func runPingPong(basePath string) (err error) {
 		return err
 	}
 
-	_, err = out.Write([]byte("ping"))
+	_, err = out.Write(fmt.Appendf(nil, "%d", os.Getpid()))
 	err = errors.Join(err, out.Close())
 	if err != nil {
 		return err
