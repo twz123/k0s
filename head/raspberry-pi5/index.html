@@ -22,7 +22,7 @@
       
       
       <link rel="icon" href="../img/k0s-favicon-192.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.14">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.15">
     
     
       
@@ -603,9 +603,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#enable-memory-cgroups" class="md-nav__link">
+  <a href="#enable-the-memory-cgroup-controller" class="md-nav__link">
     <span class="md-ellipsis">
-      Enable Memory Cgroups
+      Enable the memory cgroup controller
     </span>
   </a>
   
@@ -2526,9 +2526,9 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#enable-memory-cgroups" class="md-nav__link">
+  <a href="#enable-the-memory-cgroup-controller" class="md-nav__link">
     <span class="md-ellipsis">
-      Enable Memory Cgroups
+      Enable the memory cgroup controller
     </span>
   </a>
   
@@ -2677,8 +2677,8 @@ any issues.</p>
 <p>If your key has a paraphrase, you’ll be prompted for it.</p>
 </li>
 </ol>
-<h3 id="enable-memory-cgroups">Enable Memory Cgroups<a class="headerlink" href="#enable-memory-cgroups" title="Permanent link">#</a></h3>
-<p>By default, Raspberry Pi OS does not enable memory cgroups. Since k0s requires them to pass its pre-flight checks, enable them:</p>
+<h3 id="enable-the-memory-cgroup-controller">Enable the memory cgroup controller<a class="headerlink" href="#enable-the-memory-cgroup-controller" title="Permanent link">#</a></h3>
+<p>Raspberry Pi OS does not enable the memory cgroup controller by default. However, it is required to run containerized workloads, so enable it:</p>
 <ol>
 <li>
 <p>Edit /boot/cmdline.txt:</p>
@@ -2698,7 +2698,7 @@ any issues.</p>
 <h3 id="download-k0s">Download k0s<a class="headerlink" href="#download-k0s" title="Permanent link">#</a></h3>
 <p>Download a <a href="https://github.com/k0sproject/k0s/releases/latest">k0s release</a>. For
 example:</p>
-<div class="highlight"><pre><span></span><code>wget<span class="w"> </span>-O<span class="w"> </span>/tmp/k0s<span class="w"> </span>https://github.com/k0sproject/k0s/releases/download/v1.33.2+head/k0s-v1.33.2+head-arm64<span class="w"> </span><span class="c1"># replace version number!</span>
+<div class="highlight"><pre><span></span><code>wget<span class="w"> </span>-O<span class="w"> </span>/tmp/k0s<span class="w"> </span>https://github.com/k0sproject/k0s/releases/download/v1.34.0-alpha.2+head/k0s-v1.34.0-alpha.2+head-arm64<span class="w"> </span><span class="c1"># replace version number!</span>
 sudo<span class="w"> </span>install<span class="w"> </span>/tmp/k0s<span class="w"> </span>/usr/local/bin/k0s
 </code></pre></div>
 <p>― or ―</p>
@@ -2708,7 +2708,7 @@ and make it executable in <code>/usr/bin/k0s</code>.</p>
 </code></pre></div>
 <p>At this point you can run <code>k0s</code>:</p>
 <div class="highlight"><pre><span></span><code><span class="gp">$ </span>sudo<span class="w"> </span>k0s<span class="w"> </span>version
-<span class="go">v1.33.2+head</span>
+<span class="go">v1.34.0-alpha.2+head</span>
 </code></pre></div>
 <p>To check if k0s's <a href="../system-requirements/">system requirements</a> and <a href="../external-runtime-deps/">external
 runtime dependencies</a> are fulfilled by your current
@@ -2848,7 +2848,7 @@ setup, you can invoke <code>k0s sysinfo</code>:</p>
   k0sctl v0.21.0 Copyright 2023, k0sctl authors.
   INFO ==&gt; Running phase: Set k0s version
   INFO Looking up latest stable k0s version
-  INFO Using k0s version v1.33.2+head
+  INFO Using k0s version v1.34.0-alpha.2+head
   INFO ==&gt; Running phase: Connect to hosts
   INFO [ssh] 192.168.31.93:22: connected
   INFO ==&gt; Running phase: Detect host operating systems
@@ -2861,7 +2861,7 @@ setup, you can invoke <code>k0s sysinfo</code>:</p>
   INFO ==&gt; Running phase: Validate hosts
   INFO ==&gt; Running phase: Validate facts
   INFO ==&gt; Running phase: Download k0s on hosts
-  INFO [ssh] 192.168.31.93:22: downloading k0s v1.33.2+head
+  INFO [ssh] 192.168.31.93:22: downloading k0s v1.34.0-alpha.2+head
   INFO ==&gt; Running phase: Install k0s binaries on hosts
   INFO [ssh] 192.168.31.93:22: validating configuration
   INFO ==&gt; Running phase: Configure k0s
@@ -2873,7 +2873,7 @@ setup, you can invoke <code>k0s sysinfo</code>:</p>
   INFO ==&gt; Running phase: Release exclusive host lock
   INFO ==&gt; Running phase: Disconnect from hosts
   INFO ==&gt; Finished in 4m14s
-  INFO k0s cluster version v1.33.2+head is now installed
+  INFO k0s cluster version v1.34.0-alpha.2+head is now installed
   INFO Tip: To access the cluster you can now fetch the admin kubeconfig using:
   INFO      k0sctl kubeconfig --config cluster.yaml
   ```
@@ -2888,7 +2888,7 @@ setup, you can invoke <code>k0s sysinfo</code>:</p>
   $ export KUBECONFIG=pi_cluster.kubeconfig
   $ kubectl get nodes
   NAME   STATUS   ROLES           AGE     VERSION
-  pi     Ready    control-plane   2m54s   v1.33.2+k0s
+  pi     Ready    control-plane   2m54s   v1.34.0-alpha.2+k0s
   ```
 </code></pre></div>
 <h2 id="tear-down-k0s-on-pi-5">Tear down k0s on Pi 5<a class="headerlink" href="#tear-down-k0s-on-pi-5" title="Permanent link">#</a></h2>
@@ -3007,7 +3007,7 @@ setup, you can invoke <code>k0s sysinfo</code>:</p>
       <script id="__config" type="application/json">{"base": "..", "features": ["toc.autohide", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "stable", "provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.13a4f30d.min.js"></script>
+      <script src="../assets/javascripts/bundle.56ea9cef.min.js"></script>
       
     
   </body>

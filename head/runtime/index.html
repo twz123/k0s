@@ -22,7 +22,7 @@
       
       
       <link rel="icon" href="../img/k0s-favicon-192.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.14">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.15">
     
     
       
@@ -2683,7 +2683,7 @@ helm<span class="w"> </span>install<span class="w"> </span>nvidia-gpu-operator<s
 NVIDIA GPU Operator documentation</a>.</p>
 <h2 id="using-custom-cri-runtimes">Using custom CRI runtimes<a class="headerlink" href="#using-custom-cri-runtimes" title="Permanent link">#</a></h2>
 <p><strong>Warning</strong>: You can use your own CRI runtime with k0s (for example, <code>docker</code>). However, k0s will not start or manage the runtime, and configuration is solely your responsibility.</p>
-<p>Use the option <code>--cri-socket</code> to run a k0s worker with a custom CRI runtime. the option takes input in the form of <code>&lt;type&gt;:&lt;url&gt;</code> (the only supported type is <code>remote</code>).</p>
+<p>Use the option <code>--cri-socket</code> to run a k0s worker with a custom CRI runtime. The option takes input in the form of <code>&lt;type&gt;:&lt;url&gt;</code> (the only supported type is <code>remote</code>).</p>
 <h3 id="using-docker-as-the-container-runtime">Using Docker as the container runtime<a class="headerlink" href="#using-docker-as-the-container-runtime" title="Permanent link">#</a></h3>
 <p>As of Kubernetes 1.24, the use of Docker as a container runtime is <a href="https://kubernetes.io/blog/2020/12/02/dockershim-faq/">no longer
 supported</a> out of the box. However, Mirantis provides
@@ -2749,8 +2749,8 @@ metrics</a> when using cri-dockerd.</p>
 <h4 id="verification">Verification<a class="headerlink" href="#verification" title="Permanent link">#</a></h4>
 <p>The successful configuration can be verified by executing the following command:</p>
 <div class="highlight"><pre><span></span><code><span class="gp">$ </span>kubectl<span class="w"> </span>get<span class="w"> </span>nodes<span class="w"> </span>-o<span class="w"> </span>wide
-<span class="go">NAME              STATUS   ROLES    AGE   VERSION       INTERNAL-IP     EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION      CONTAINER-RUNTIME</span>
-<span class="go">docker-worker-0   Ready    &lt;none&gt;   15m   v1.33.2+k0s   172.27.77.155   &lt;none&gt;        Ubuntu 22.04.3 LTS   5.15.0-82-generic   docker://24.0.7</span>
+<span class="go">NAME              STATUS   ROLES    AGE   VERSION               INTERNAL-IP     EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION      CONTAINER-RUNTIME</span>
+<span class="go">docker-worker-0   Ready    &lt;none&gt;   15m   v1.34.0-alpha.2+k0s   172.27.77.155   &lt;none&gt;        Ubuntu 22.04.3 LTS   5.15.0-82-generic   docker://24.0.7</span>
 </code></pre></div>
 <p>On the worker nodes, the Kubernetes containers should be listed as regular
 Docker containers:</p>
@@ -2860,7 +2860,7 @@ Docker containers:</p>
       <script id="__config" type="application/json">{"base": "..", "features": ["toc.autohide", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "stable", "provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.13a4f30d.min.js"></script>
+      <script src="../assets/javascripts/bundle.56ea9cef.min.js"></script>
       
     
   </body>
