@@ -102,8 +102,7 @@ func (s *Supervisor) Supervise() error {
 	defer s.startStopMutex.Unlock()
 	// check if it is already started
 	if s.cancel != nil {
-		s.log.Warn("Already started")
-		return nil
+		return errors.New("already started")
 	}
 	s.log = logrus.WithField("component", s.Name)
 	s.PidFile = filepath.Join(s.RunDir, s.Name) + ".pid"
@@ -198,16 +197,24 @@ func (s *Supervisor) Supervise() error {
 			}
 		}
 	}()
-	return <-started
+
+	if err := <-started; err != nil {
+		s.cancel()
+		<-s.done
+		s.cancel = nil
+		s.done = nil
+		return err
+	}
+
+	return nil
 }
 
 // Stop stops the supervised
-func (s *Supervisor) Stop() {
+func (s *Supervisor) Stop() error {
 	s.startStopMutex.Lock()
 	defer s.startStopMutex.Unlock()
 	if s.cancel == nil || s.log == nil {
-		s.log.Warn("Not started")
-		return
+		return errors.New("not started")
 	}
 	s.log.Debug("Sending stop message")
 
@@ -217,6 +224,8 @@ func (s *Supervisor) Stop() {
 	if s.done != nil {
 		<-s.done
 	}
+
+	return nil
 }
 
 // Checks if the process referenced in the PID file is a k0s-managed process.
