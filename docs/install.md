@@ -1,12 +1,12 @@
 # Quick Start Guide
 
- On completion of the Quick Start you will have a full Kubernetes cluster with a single node that includes both the controller and the worker. Such a setup is ideal for environments that do not require high-availability and multiple nodes.
+Completing this Quick Start results in a single-node Kubernetes cluster that includes both the controller and worker roles. This setup suits environments that do not require high availability or multiple nodes.
 
 ## Prerequisites
 
 **Note**: Before proceeding, make sure to review the [System Requirements](system-requirements.md).
 
-Though the Quick Start material is written for Debian/Ubuntu, you can use it for any Linux distro that is running either a Systemd or OpenRC init system.
+Although the steps are written for Debian/Ubuntu, they work on any Linux distribution that uses Systemd or OpenRC.
 
 ## Install k0s
 
@@ -18,7 +18,7 @@ Though the Quick Start material is written for Debian/Ubuntu, you can use it for
     curl --proto '=https' --tlsv1.2 -sSf https://get.k0s.sh | sudo sh
     ```
 
-    Alternatively you can download it from the [releases page.](https://github.com/k0sproject/k0s/releases/latest) This is required for airgapped environments.
+    Alternatively, download it from the [releases page.](https://github.com/k0sproject/k0s/releases/latest) This approach is required in airgapped environments.
 
 2. Install k0s as a service
 
@@ -31,7 +31,7 @@ Though the Quick Start material is written for Debian/Ubuntu, you can use it for
     ```
 
     NOTE:
-    The `--single` option will disable features needed for multi-node clusters, so you will not be able to extend this cluster. If you want to be able to extend the cluster in the future, you should use:
+    The `--single` option disables features needed for multi-node clusters, so the cluster cannot be extended. To enable expansion later, use:
 
     ``` shell
     sudo k0s install controller --enable-worker --no-taints
@@ -66,7 +66,7 @@ Though the Quick Start material is written for Debian/Ubuntu, you can use it for
 
 4. Check service, logs and k0s status
 
-    To get general information about your k0s instance's status, run:
+    To get general information about the k0s instance status, run:
 
     ```shell
     $ sudo k0s status
@@ -77,11 +77,11 @@ Though the Quick Start material is written for Debian/Ubuntu, you can use it for
     Init System: linux-systemd
     ```
 
-5. Access your cluster using kubectl
+5. Access the cluster using kubectl
 
     **Note**: k0s includes the Kubernetes command-line tool *kubectl*.
 
-    Use kubectl to deploy your application or to check your node status:
+    Use kubectl to deploy applications or check node status:
 
     ```shell
     $ sudo k0s kubectl get nodes
@@ -109,7 +109,7 @@ The removal of k0s is a two-step process.
 
 3. Reboot the system.
 
-    A few small k0s fragments persist even after the reset (for example, iptables). As such, you should initiate a reboot after the running of the `k0s reset` command.
+    A few small k0s fragments persist even after the reset, such as iptables rules. Reboot the machine after running `k0s reset`.
 
 ## Next Steps
 

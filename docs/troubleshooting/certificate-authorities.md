@@ -29,8 +29,7 @@ to all nodes, and then bringing the cluster back online:
 
 2. Stop k0s on all worker and controller nodes. All the instructions below
    assume that all k0s nodes are using the default data directory
-   `/var/lib/k0s`. Please adjust accordingly if you're using a different data
-   directory path.
+   `/var/lib/k0s`. Adjust the path if a different data directory is used.
 
 3. Delete the Kubernetes CA and SA key pair files from the all the controller
    data directories:
@@ -49,7 +48,7 @@ to all nodes, and then bringing the cluster back online:
 
 4. Choose one controller as the "first" one. Restart k0s on the first
    controller. If this controller is running with the `--enable-worker` flag,
-   you should **reboot the machine** instead. This will ensure that all
+   **reboot the machine** instead. This ensures that all
    processes and pods will be cleanly restarted. After the restart, k0s will
    have regenerated a new Kubernetes CA and SA key pair.
 
@@ -83,8 +82,7 @@ to all nodes, and then bringing the cluster back online:
    `/var/lib/k0s/kubelet-bootstrap.conf`. Then reboot the machine.
 
 7. When all workers are back online, the `kubelet-bootstrap.conf` files can be
-   safely removed from the workers. You can also invalidate the token so you
-   don't have to wait for it to expire: Use [`k0s token list --role
+   safely removed from the workers. The token can be invalidated without waiting for expiration: Use [`k0s token list --role
    worker`](../cli/k0s_token_list.md) to list all tokens and [`k0s token
    invalidate <token-id>`](../cli/k0s_token_invalidate.md) to invalidate them immediately.
 
