@@ -138,44 +138,13 @@ func (s *Supervisor) Supervise() error {
 		s.log.Info("Starting to supervise")
 		restarts := 0
 		for {
-			s.mutex.Lock()
-
-			s.cmd = exec.Command(s.BinPath, s.Args...)
-			s.cmd.Dir = s.DataDir
-			s.cmd.Env = getEnv(s.DataDir, s.Name, s.KeepEnvPrefix)
-			if s.Stdin != nil {
-				s.cmd.Stdin = s.Stdin()
-			}
-
-			// detach from the process group so children don't
-			// get signals sent directly to parent.
-			s.cmd.SysProcAttr = DetachAttr(s.UID, s.GID)
-
-			const maxLogChunkLen = 16 * 1024
-			s.cmd.Stdout = &logWriter{
-				log: s.log.WithField("stream", "stdout"),
-				buf: make([]byte, maxLogChunkLen),
-			}
-			s.cmd.Stderr = &logWriter{
-				log: s.log.WithField("stream", "stderr"),
-				buf: make([]byte, maxLogChunkLen),
-			}
-
-			err := s.cmd.Start()
-
-			s.mutex.Unlock()
-
-			if err != nil {
+			if err := s.startProcess(); err != nil {
 				s.log.Warnf("Failed to start: %s", err)
 				if restarts == 0 {
 					started <- err
 					return
 				}
 			} else {
-				err := os.WriteFile(s.PidFile, []byte(strconv.Itoa(s.cmd.Process.Pid)+"\n"), constant.PidFileMode)
-				if err != nil {
-					s.log.Warnf("Failed to write file %s: %v", s.PidFile, err)
-				}
 				if restarts == 0 {
 					s.log.Infof("Started successfully, go nuts pid %d", s.cmd.Process.Pid)
 					started <- nil
@@ -201,6 +170,42 @@ func (s *Supervisor) Supervise() error {
 		}
 	}()
 	return <-started
+}
+
+func (s *Supervisor) startProcess() error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	s.cmd = exec.Command(s.BinPath, s.Args...)
+	s.cmd.Dir = s.DataDir
+	s.cmd.Env = getEnv(s.DataDir, s.Name, s.KeepEnvPrefix)
+	if s.Stdin != nil {
+		s.cmd.Stdin = s.Stdin()
+	}
+
+	// detach from the process group so children don't
+	// get signals sent directly to parent.
+	s.cmd.SysProcAttr = DetachAttr(s.UID, s.GID)
+
+	const maxLogChunkLen = 16 * 1024
+	s.cmd.Stdout = &logWriter{
+		log: s.log.WithField("stream", "stdout"),
+		buf: make([]byte, maxLogChunkLen),
+	}
+	s.cmd.Stderr = &logWriter{
+		log: s.log.WithField("stream", "stderr"),
+		buf: make([]byte, maxLogChunkLen),
+	}
+
+	if err := s.cmd.Start(); err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(s.PidFile, []byte(strconv.Itoa(s.cmd.Process.Pid)+"\n"), constant.PidFileMode); err != nil {
+		s.log.Warnf("Failed to write file %s: %v", s.PidFile, err)
+	}
+
+	return nil
 }
 
 // Stop stops the supervised
