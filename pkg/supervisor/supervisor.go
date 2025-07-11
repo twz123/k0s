@@ -157,14 +157,14 @@ func (s *Supervisor) Supervise() error {
 			}
 
 			// TODO Maybe some backoff thingy would be nice
-			s.log.Infof("respawning in %s", s.TimeoutRespawn.String())
+			s.log.Infof("Restarting process in %s", s.TimeoutRespawn)
 
 			select {
 			case <-ctx.Done():
-				s.log.Debug("respawn canceled")
+				s.log.WithError(context.Cause(ctx)).Debug("Exiting supervisor loop")
 				return
 			case <-time.After(s.TimeoutRespawn):
-				s.log.Debug("respawning")
+				s.log.Debug("Restarting process now")
 			}
 		}
 	}()
