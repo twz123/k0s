@@ -17,7 +17,6 @@ limitations under the License.
 package supervisor
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -27,7 +26,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -157,47 +155,48 @@ func TestRespawn(t *testing.T) {
 }
 
 func TestStopWhileRespawn(t *testing.T) {
-	fail := selectCmd(t,
-		cmd{"false", []string{}},
-		cmd{"sh", []string{"-c", "exit 1"}},
-		cmd{"powershell", []string{"-noprofile", "-noninteractive", "-command", "exit 1"}},
-	)
-
+	pp := pingpong.New(t)
 	s := Supervisor{
-		Name:           "supervisor-test-stop-while-respawn",
-		BinPath:        fail.binPath,
-		Args:           fail.binArgs,
+		Name:           t.Name(),
+		BinPath:        pp.BinPath(),
+		Args:           pp.BinArgs(),
 		RunDir:         t.TempDir(),
-		TimeoutStop:    1 * time.Minute,
+		TimeoutStop:    1 * time.Hour,
 		TimeoutRespawn: 1 * time.Hour,
 	}
 
-	if assert.NoError(t, s.Supervise(), "Failed to start") {
-		// wait til the process exits
-		for process := s.GetProcess(); ; {
-			// Send "the null signal" to probe if the PID still exists
-			// (https://www.man7.org/linux/man-pages/man3/kill.3p.html). On
-			// Windows, the only emulated Signal is os.Kill, so this will return
-			// EWINDOWS if the process is still running, i.e. the
-			// WaitForSingleObject syscall on the process handle is still
-			// blocking.
-			err := process.Signal(syscall.Signal(0))
+	require.NoError(t, s.Supervise(), "Failed to start")
+	t.Cleanup(s.Stop)
 
-			// Wait a bit to ensure that the supervisor has noticed a potential
-			// process exit as well, so that it's safe to assume that it reached
-			// the respawn timeout internally.
-			time.Sleep(100 * time.Millisecond)
+	// Await process startup and get PID
+	pid, err := pp.AwaitPIDPing()
+	require.NoError(t, err)
 
-			// Ensure that the error indicates that the process is done. Note
-			// that on Windows, there seems to be a bug in os.Process that
-			// causes EINVAL being returned instead of ErrProcessDone, probably
-			// due to the wrong order of internal checks (i.e. the process
-			// handle is checked before the done flag).
-			if errors.Is(err, os.ErrProcessDone) || errors.Is(err, syscall.EINVAL) {
-				break
-			}
-		}
-	}
+	// Open process
+	process, err := os.FindProcess(pid)
+	require.NoError(t, err)
+	var (
+		state   *os.ProcessState
+		waitErr error
+	)
+	waitDone := make(chan struct{})
+	go func() {
+		defer close(waitDone)
+		state, waitErr = process.Wait()
+	}()
+
+	// Send pong to initiate process shutdown
+	require.NoError(t, pp.SendPong())
+
+	// Await process shutdown
+	<-waitDone
+	require.NoError(t, waitErr)
+	require.True(t, state.Success())
+
+	// Wait a bit to ensure that the supervisor has noticed a potential process
+	// exit as well, so that it's safe to assume that it reached the respawn
+	// timeout internally.
+	time.Sleep(100 * time.Millisecond)
 
 	// stop while waiting for respawn
 	s.Stop()
