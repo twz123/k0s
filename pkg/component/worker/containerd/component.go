@@ -152,10 +152,13 @@ func (c *Component) Start(ctx context.Context) (err error) {
 
 	cctx, cancel := context.WithCancelCause(context.Background())
 	var wg sync.WaitGroup
-	stop := func(err error) {
+	var stopSupervisor sync.Once
+	stop := func(err error) error {
 		cancel(err)
-		supervisor.Stop()
+		var stopErr error
+		stopSupervisor.Do(func() { stopErr = supervisor.Stop() })
 		wg.Wait()
+		return stopErr
 	}
 	c.reloadConfig = func() {
 		p := supervisor.GetProcess()
@@ -169,7 +172,7 @@ func (c *Component) Start(ctx context.Context) (err error) {
 		if err == nil {
 			c.stop = stop
 		} else {
-			stop(err)
+			err = errors.Join(err, stop(err))
 		}
 	}()
 
