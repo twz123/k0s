@@ -29,6 +29,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -54,10 +55,9 @@ type Supervisor struct {
 	// For those components having env prefix convention such as ETCD_xxx, we should keep the prefix.
 	KeepEnvPrefix bool
 
-	cmd            *exec.Cmd
+	cmd            atomic.Pointer[exec.Cmd]
 	done           chan bool
 	log            logrus.FieldLogger
-	mutex          sync.Mutex
 	startStopMutex sync.Mutex
 	cancel         context.CancelFunc
 }
@@ -138,7 +138,7 @@ func (s *Supervisor) Supervise() error {
 		s.log.Info("Starting to supervise")
 
 		for firstStart := started; ; {
-			if err := s.startProcess(); err != nil {
+			if cmd, err := s.startProcess(); err != nil {
 				if firstStart != nil {
 					firstStart <- err
 					return
@@ -146,12 +146,13 @@ func (s *Supervisor) Supervise() error {
 
 				s.log.WithError(err).Warnf("Failed to start process")
 			} else {
+				s.cmd.Store(cmd)
 				if firstStart != nil {
 					close(firstStart)
 					firstStart = nil
 				}
 
-				if s.processWaitQuit(ctx, s.cmd) {
+				if s.processWaitQuit(ctx, cmd) {
 					return
 				}
 			}
@@ -171,42 +172,39 @@ func (s *Supervisor) Supervise() error {
 	return <-started
 }
 
-func (s *Supervisor) startProcess() error {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	s.cmd = exec.Command(s.BinPath, s.Args...)
-	s.cmd.Dir = s.DataDir
-	s.cmd.Env = getEnv(s.DataDir, s.Name, s.KeepEnvPrefix)
+func (s *Supervisor) startProcess() (*exec.Cmd, error) {
+	cmd := exec.Command(s.BinPath, s.Args...)
+	cmd.Dir = s.DataDir
+	cmd.Env = getEnv(s.DataDir, s.Name, s.KeepEnvPrefix)
 	if s.Stdin != nil {
-		s.cmd.Stdin = s.Stdin()
+		cmd.Stdin = s.Stdin()
 	}
 
 	// detach from the process group so children don't
 	// get signals sent directly to parent.
-	s.cmd.SysProcAttr = DetachAttr(s.UID, s.GID)
+	cmd.SysProcAttr = DetachAttr(s.UID, s.GID)
 
 	const maxLogChunkLen = 16 * 1024
-	s.cmd.Stdout = &logWriter{
+	cmd.Stdout = &logWriter{
 		log: s.log.WithField("stream", "stdout"),
 		buf: make([]byte, maxLogChunkLen),
 	}
-	s.cmd.Stderr = &logWriter{
+	cmd.Stderr = &logWriter{
 		log: s.log.WithField("stream", "stderr"),
 		buf: make([]byte, maxLogChunkLen),
 	}
 
-	if err := s.cmd.Start(); err != nil {
-		return err
+	if err := cmd.Start(); err != nil {
+		return nil, err
 	}
 
-	s.log.WithField("pid", s.cmd.Process.Pid).Info("Process started")
+	s.log.WithField("pid", cmd.Process.Pid).Info("Process started")
 
-	if err := os.WriteFile(s.PidFile, fmt.Appendf(nil, "%d\n", s.cmd.Process.Pid), constant.PidFileMode); err != nil {
+	if err := os.WriteFile(s.PidFile, fmt.Appendf(nil, "%d\n", cmd.Process.Pid), constant.PidFileMode); err != nil {
 		s.log.Warnf("Failed to write file %s: %v", s.PidFile, err)
 	}
 
-	return nil
+	return cmd, nil
 }
 
 // Stop stops the supervised
@@ -380,10 +378,9 @@ func getEnv(dataDir, component string, keepEnvPrefix bool) []string {
 
 // GetProcess returns the last started process
 func (s *Supervisor) GetProcess() *os.Process {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	if s.cmd == nil {
-		return nil
+	if cmd := s.cmd.Load(); cmd != nil {
+		return cmd.Process
 	}
-	return s.cmd.Process
+
+	return nil
 }

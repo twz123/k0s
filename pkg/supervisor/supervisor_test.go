@@ -345,7 +345,9 @@ func TestCleanupPIDFile_WrongProcess(t *testing.T) {
 
 	// Expect the PID file to be replaced with the new PID.
 	if pid, err := os.ReadFile(pidFilePath); assert.NoError(t, err, "Failed to read PID file") {
-		assert.Equal(t, []byte(fmt.Sprintf("%d\n", s.cmd.Process.Pid)), pid)
+		if p := s.GetProcess(); assert.NotNil(t, p) {
+			assert.Equal(t, []byte(fmt.Sprintf("%d\n", p.Pid)), pid)
+		}
 	}
 
 	// Expect the previous process to be still alive and react to the pong signal.
@@ -375,7 +377,9 @@ func TestCleanupPIDFile_NonexistingProcess(t *testing.T) {
 
 	// Expect the PID file to be replaced with the new PID.
 	if pid, err := os.ReadFile(pidFilePath); assert.NoError(t, err, "Failed to read PID file") {
-		assert.Equal(t, []byte(fmt.Sprintf("%d\n", s.cmd.Process.Pid)), pid)
+		if p := s.GetProcess(); assert.NotNil(t, p) {
+			assert.Equal(t, []byte(fmt.Sprintf("%d\n", p.Pid)), pid)
+		}
 	}
 }
 
