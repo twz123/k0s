@@ -85,7 +85,12 @@ func (s *Supervisor) processWaitQuit(ctx context.Context, cmd *exec.Cmd) bool {
 			}
 			select {
 			case <-time.After(s.TimeoutStop):
-				continue
+				s.log.Info("Killing process")
+				if err := cmd.Process.Kill(); err != nil {
+					s.log.WithError(err).Warn("Failed to kill process")
+					return true
+				}
+
 			case <-waitresult:
 				return true
 			}
