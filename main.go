@@ -24,6 +24,7 @@ import (
 	"github.com/k0sproject/k0s/cmd"
 	internallog "github.com/k0sproject/k0s/internal/pkg/log"
 	"github.com/k0sproject/k0s/internal/supervised"
+	"github.com/k0sproject/k0s/pkg/supervisor"
 )
 
 //go:generate make codegen
@@ -33,6 +34,8 @@ func init() {
 }
 
 func main() {
+	supervisor.ShutdownHelperHook()
+
 	if err := run(); err != nil {
 		os.Exit(1)
 	}
