@@ -66,7 +66,7 @@ type Component struct {
 	importsPath    string
 
 	reloadConfig func()
-	stop         func(error) error
+	stop         func() error
 }
 
 func NewComponent(logLevel string, vars *config.CfgVars, profile *workerconfig.Profile) *Component {
@@ -150,11 +150,11 @@ func (c *Component) Start(ctx context.Context) (err error) {
 	}
 	// }
 
-	cctx, cancel := context.WithCancelCause(context.Background())
+	cctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 	var stopSupervisor sync.Once
-	stop := func(err error) error {
-		cancel(err)
+	stop := func() error {
+		cancel()
 		var stopErr error
 		stopSupervisor.Do(func() { stopErr = supervisor.Stop() })
 		wg.Wait()
@@ -172,14 +172,15 @@ func (c *Component) Start(ctx context.Context) (err error) {
 		if err == nil {
 			c.stop = stop
 		} else {
-			err = errors.Join(err, stop(err))
+			err = errors.Join(err, stop())
 		}
 	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		c.watchDropinConfigs(cctx)
+		wait.UntilWithContext(cctx, c.watchDropinConfigs, 30*time.Second)
+		log.Info("Stopped to watch for drop-ins")
 	}()
 
 	log.Debug("Waiting for containerd")
@@ -288,13 +289,30 @@ func (c *Component) watchDropinConfigs(ctx context.Context) {
 		log.WithError(err).Error("failed to create watcher for drop-ins")
 		return
 	}
-	defer watcher.Close()
 
-	err = watcher.Add(c.importsPath)
-	if err != nil {
+	if err = watcher.Add(c.importsPath); err != nil {
+		err := errors.Join(err, watcher.Close())
 		log.WithError(err).Error("failed to watch for drop-ins")
 		return
 	}
+
+	// Consume and log any errors from watcher.
+	// Close the watcher when the context closes.
+	go func() {
+		defer func() {
+			if err := watcher.Close(); err != nil {
+				log.WithError(err).Error("Failed to close watcher for drop-ins")
+			}
+		}()
+
+		select {
+		case <-ctx.Done():
+		case err, ok := <-watcher.Errors:
+			if ok {
+				log.WithError(err).Error("error while watching drop-ins")
+			}
+		}
+	}()
 
 	debouncer := debounce.Debouncer[fsnotify.Event]{
 		Input:   watcher.Events,
@@ -310,23 +328,8 @@ func (c *Component) watchDropinConfigs(ctx context.Context) {
 		Callback: func(fsnotify.Event) { c.restart() },
 	}
 
-	// Consume and log any errors from watcher
-	go func() {
-		for {
-			err, ok := <-watcher.Errors
-			if !ok {
-				return
-			}
-			log.WithError(err).Error("error while watching drop-ins")
-		}
-	}()
-
 	log.Infof("started to watch events on %s", c.importsPath)
-
-	err = debouncer.Run(ctx)
-	if err != nil {
-		log.WithError(err).Warn("dropin watch bouncer exited with error")
-	}
+	_ = debouncer.Run(context.Background()) // Will return as soon as the watcher is closed.
 }
 
 func (c *Component) restart() {
@@ -347,7 +350,7 @@ func (c *Component) Stop() error {
 	// 	return c.windowsStop()
 	// }
 	if stop := c.stop; stop != nil {
-		return stop(errors.New("containerd component is stopping"))
+		return stop()
 	}
 	return nil
 }
