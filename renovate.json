@@ -138,19 +138,6 @@
     },
     {
       "customType": "regex",
-      "description": "Update etcd version in embedded-bins/Makefile.variables",
-      "managerFilePatterns": [
-        "embedded-bins/Makefile.variables"
-      ],
-      "matchStrings": [
-        "etcd_version = (?<currentValue>\\d+(\\.\\d+){2})"
-      ],
-      "depNameTemplate": "etcd-io/etcd",
-      "datasourceTemplate": "github-releases",
-      "versioningTemplate": "semver"
-    },
-    {
-      "customType": "regex",
       "description": "Update kine versions across the codebase",
       "managerFilePatterns": [
         "/(^|/)[Mm]akefile(\\.[^/]+)?$/",
@@ -166,42 +153,20 @@
     },
     {
       "customType": "regex",
-      "description": "Update Alpine version",
+      "description": "Generic version updates based on comments",
       "managerFilePatterns": [
-        "embedded-bins/Makefile.variables"
-      ],
-      "matchStrings": [
-        "alpine_patch_version\\s*=\\s*(?<currentValue>\\S+)"
-      ],
-      "depNameTemplate": "docker.io/library/alpine",
-      "datasourceTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "Update Python version",
-      "managerFilePatterns": [
-        "docs/Makefile.variables"
-      ],
-      "matchStrings": [
-        "python_version\\s*=\\s*(?<currentValue>\\S+)"
-      ],
-      "depNameTemplate": "python",
-      "datasourceTemplate": "python-version",
-      "versioningTemplate": "python"
-    },
-    {
-      "customType": "regex",
-      "description": "Generic version updates for YAML files",
-      "managerFilePatterns": [
+        "**/Makefile*",
+        "**/Dockerfile*",
         "**/*.yaml",
         "**/*.yml"
       ],
       "matchStrings": [
-        ":\\s*[\"']?(?<currentValue>\\S+?)[\"']?\\s*#\\s*renovate:\\s*datasource=(?<datasource>\\S+)(\\s+registryUrl=(?<registryUrl>.+))?\\s+depName=(?<depName>\\S+)(\\s+versioning=(?<versioning>.+))?\n"
+        "^#\\s*renovate:\\s*datasource=(?<datasource>\\S+)(\\s+registryUrl=(?<registryUrl>.+))?\\s+depName=(?<depName>\\S+)(\\s+versioning=(?<versioning>.+))?\n[^:=]+[:=]\\s*[\"']?(?<currentValue>\\S+?)[\"']?\\s*(:?#|$)",
+        "[=:]\\s*[\"']?(?<currentValue>\\S+?)[\"']?\\s*#\\s*renovate:\\s*datasource=(?<datasource>\\S+)(\\s+registryUrl=(?<registryUrl>.+))?\\s+depName=(?<depName>\\S+)(\\s+versioning=(?<versioning>.+))?\n"
       ],
       "datasourceTemplate": "{{{datasource}}}",
-      "registryUrlTemplate": "{{#if registryUrl}}{{{registryUrl}}}{{/if}}",
-      "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}"
+      "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}",
+      "extractVersionTemplate": "^v?(?<version>.+)"
     }
   ]
 }
