@@ -38,10 +38,11 @@ type MetricsScraperSuite struct {
 func (s *MetricsScraperSuite) TestK0sGetsUp() {
 	flags := []string{"--enable-metrics-scraper"}
 	expectedJobs := []string{"kube-controller-manager", "kube-scheduler"}
-	if _, singleNode := os.LookupEnv("K0S_SINGLENODE"); singleNode {
+	switch os.Getenv("K0S_TEST_TARGET") {
+	case "metricsscraper-singlenode":
 		flags = append(flags, "--single")
 		expectedJobs = append(expectedJobs, "kine")
-	} else {
+	default:
 		flags = append(flags, "--enable-worker")
 		expectedJobs = append(expectedJobs, "etcd")
 	}
@@ -59,7 +60,7 @@ func (s *MetricsScraperSuite) TestK0sGetsUp() {
 	s.T().Logf("Waiting to see pushgateway is ready")
 	s.Require().NoError(s.waitForPushgateway())
 
-	s.T().Logf("Waiting for metrics")
+	s.T().Log("Waiting for metrics:", expectedJobs)
 	s.Require().NoError(s.waitForMetrics(expectedJobs...))
 }
 

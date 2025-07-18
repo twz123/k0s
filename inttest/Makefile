@@ -122,8 +122,7 @@ check-network-conformance-kuberouter-nft: export K0S_NETWORK_CONFORMANCE_PROXY_M
 check-network-conformance-calico-nft: TIMEOUT=15m
 check-network-conformance-calico-nft: export K0S_NETWORK_CONFORMANCE_CNI=calico
 check-network-conformance-calico-nft: export K0S_NETWORK_CONFORMANCE_PROXY_MODE=nftables
-
-check-metricsscraper-singlenode: export K0S_SINGLENODE=1
+check-network-conformance-calico-nft: TEST_PACKAGE=network-conformance
 
 check-nllb: TIMEOUT=15m
 check-nllb-ipv6: TIMEOUT=15m
