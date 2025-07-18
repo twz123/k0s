@@ -36,14 +36,20 @@ type MetricsScraperSuite struct {
 }
 
 func (s *MetricsScraperSuite) TestK0sGetsUp() {
-	flags := []string{"--enable-metrics-scraper"}
+	target := os.Getenv("K0S_INTTEST_TARGET")
+
+	flags := []string{}
 	expectedJobs := []string{"kube-controller-manager", "kube-scheduler"}
-	switch os.Getenv("K0S_TEST_TARGET") {
+
+	switch target {
 	case "metricsscraper-singlenode":
-		flags = append(flags, "--single")
+		flags = append(flags, "--single", "--enable-metrics-scraper")
 		expectedJobs = append(expectedJobs, "kine")
+	case "metricsscraper-dynamicconfig":
+		flags = append(flags, "--enable-worker", "--enable-dynamic-config")
+		expectedJobs = append(expectedJobs, "etcd")
 	default:
-		flags = append(flags, "--enable-worker")
+		flags = append(flags, "--enable-worker", "--enable-metrics-scraper")
 		expectedJobs = append(expectedJobs, "etcd")
 	}
 
@@ -51,11 +57,22 @@ func (s *MetricsScraperSuite) TestK0sGetsUp() {
 
 	s.NoError(s.InitController(0, flags...))
 
-	kc, err := s.KubeClient(s.ControllerNode(0))
+	nodeName := s.ControllerNode(0)
+	kc, err := s.KubeClient(nodeName)
 	s.Require().NoError(err)
 
-	err = s.WaitForNodeReady(s.ControllerNode(0), kc)
+	err = s.WaitForNodeReady(nodeName, kc)
 	s.Require().NoError(err)
+
+	// If the metrics scraper hasn't been enabled from the beginning,
+	// restart the controller and enable it after the fact.
+	if !slices.Contains(flags, "--enable-metrics-scraper") {
+		flags = append(flags, "--enable-metrics-scraper")
+		s.T().Log("Restarting controller with flags:", flags)
+		s.Require().NoError(s.StopController(nodeName))
+		s.NoError(s.InitController(0, flags...))
+		s.Require().NoError(s.WaitForNodeReady(nodeName, kc))
+	}
 
 	s.T().Logf("Waiting to see pushgateway is ready")
 	s.Require().NoError(s.waitForPushgateway())

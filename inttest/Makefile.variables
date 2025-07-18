@@ -56,6 +56,7 @@ smoketests := \
 	check-kuberouter \
 	check-metrics \
 	check-metricsscraper \
+	check-metricsscraper-dynamicconfig \
 	check-metricsscraper-singlenode \
 	check-multicontroller \
 	check-network-conformance-calico \
