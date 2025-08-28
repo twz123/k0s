@@ -19,12 +19,8 @@ limitations under the License.
 package unix_test
 
 import (
-	"io"
-	"iter"
 	"os"
 	"path/filepath"
-	"strconv"
-	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -63,65 +59,11 @@ func TestDirFD_Empty(t *testing.T) {
 		}
 	}
 
-	_, err = d.OpenDir(foo, 0)
-	assertENOENT(t, "openat", err)
-
 	_, err = d.StatAt(foo, 0)
 	assertENOENT(t, "fstatat", err)
 
-	err = d.Remove(foo)
-	assertENOENT(t, "unlinkat", err)
-
-	err = d.RemoveDir(foo)
-	assertENOENT(t, "unlinkat", err)
-
 	_, err = d.ReadFile(foo)
 	assertENOENT(t, "openat", err)
-
-	err = d.WriteFile(filepath.Join("foo", "bar"), nil, 0644)
-	if pathErr := (*os.PathError)(nil); assert.ErrorAs(t, err, &pathErr) {
-		assert.Equal(t, "openat", pathErr.Op)
-		assert.Equal(t, filepath.Join("foo", "bar"), pathErr.Path)
-		assert.Equal(t, syscall.ENOENT, pathErr.Err)
-	}
-
-	if entries, err := d.Readdirnames(1); assert.Equal(t, io.EOF, err) {
-		assert.Empty(t, entries)
-	}
-}
-
-func TestDirFD_Mkdir(t *testing.T) {
-	path := t.TempDir()
-
-	d, err := osunix.OpenDir(path, 0)
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, d.Close()) })
-
-	require.NoError(t, os.WriteFile(filepath.Join(path, "foo"), []byte("lorem"), 0644))
-	require.NoError(t, os.Mkdir(filepath.Join(path, "bar"), 0755))
-
-	err = d.Mkdir("foo", 0755)
-	if pathErr := (*os.PathError)(nil); assert.ErrorAs(t, err, &pathErr) {
-		assert.Equal(t, "mkdirat", pathErr.Op)
-		assert.Equal(t, "foo", pathErr.Path)
-		assert.Equal(t, syscall.EEXIST, pathErr.Err)
-	}
-
-	err = d.Mkdir("bar", 0755)
-	if pathErr := (*os.PathError)(nil); assert.ErrorAs(t, err, &pathErr) {
-		assert.Equal(t, "mkdirat", pathErr.Op)
-		assert.Equal(t, "bar", pathErr.Path)
-		assert.Equal(t, syscall.EEXIST, pathErr.Err)
-	}
-
-	err = d.Mkdir("baz", 0755)
-	if assert.NoError(t, err) {
-		stat, err := os.Stat(filepath.Join(path, "baz"))
-		if assert.NoError(t, err) {
-			assert.Equal(t, os.FileMode(0755), stat.Mode()&os.ModePerm)
-			assert.True(t, stat.IsDir())
-		}
-	}
 }
 
 func TestDirFD_Filled(t *testing.T) {
@@ -157,7 +99,7 @@ func TestDirFD_Filled(t *testing.T) {
 	// Stat bar and match contents.
 	if stat, err := d.StatAt("bar", 0); assert.NoError(t, err) {
 		assert.Equal(t, "bar", stat.Name())
-		assert.Greater(t, stat.Size(), int64(0))
+		assert.Positive(t, stat.Size())
 		assert.WithinDuration(t, now.Add(-1*time.Minute), stat.ModTime(), 0)
 		assert.Equal(t, os.FileMode(0755)|os.ModeDir, stat.Mode())
 		assert.True(t, stat.IsDir())
@@ -174,66 +116,8 @@ func TestDirFD_Filled(t *testing.T) {
 		assert.IsType(t, new(unix.Stat_t), stat.Sys())
 	}
 
-	// List directory contents and match for correctness.
-	entries, err := d.Readdirnames(10)
-	if assert.NoError(t, err) && assert.Len(t, entries, 2) {
-		assert.ElementsMatch(t, entries, []string{"foo", "bar"})
-	}
-	entries, err = d.Readdirnames(10)
-	assert.Empty(t, entries)
-	assert.Same(t, io.EOF, err)
-
 	// Read bar/baz and match contents.
 	if data, err := d.ReadFile(filepath.Join("bar", "baz")); assert.NoError(t, err) {
 		assert.Equal(t, []byte("ipsum"), data)
 	}
-
-	// Write foo and match contents.
-	if err := d.WriteFile("foo", []byte("ipsum"), 0644); assert.NoError(t, err) {
-		if data, err := os.ReadFile(filepath.Join(dirPath, "foo")); assert.NoError(t, err) {
-			assert.Equal(t, []byte("ipsum"), data)
-		}
-	}
-}
-
-func TestDirFD_Entries(t *testing.T) {
-	dirPath, expectedNames := t.TempDir(), make([]string, 10)
-	for i := range expectedNames {
-		expectedNames[i] = strconv.Itoa(i)
-		require.NoError(t, os.WriteFile(filepath.Join(dirPath, expectedNames[i]), nil, 0644))
-	}
-
-	d, err := osunix.OpenDir(dirPath, 0)
-	require.NoError(t, err)
-	close := sync.OnceFunc(func() { assert.NoError(t, d.Close()) })
-	t.Cleanup(close)
-
-	var names []string
-	for name, err := range d.ReadEntryNames() {
-		require.NoError(t, err)
-		names = append(names, name)
-		if len(names) >= len(expectedNames)/2 {
-			break // test early break
-		}
-	}
-	for name, err := range d.ReadEntryNames() {
-		require.NoError(t, err)
-		names = append(names, name)
-	}
-
-	assert.ElementsMatch(t, expectedNames, names)
-
-	for range d.ReadEntryNames() {
-		require.Fail(t, "Shouldn't yield any additional entries after a full iteration")
-	}
-
-	close()
-	next, stop := iter.Pull2(d.ReadEntryNames())
-	defer stop()
-	if name, err, hasNext := next(); assert.True(t, hasNext, "Should yield exactly one error") {
-		assert.Zero(t, name)
-		assert.ErrorContains(t, err, "use of closed file")
-	}
-	_, _, hasNext := next()
-	assert.False(t, hasNext, "Should yield exactly one error")
 }

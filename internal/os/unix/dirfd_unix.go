@@ -22,7 +22,6 @@ import (
 	"errors"
 	"io"
 	"io/fs"
-	"iter"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -139,12 +138,6 @@ func (d *DirFD) Name() string { return (*os.File)(d).Name() }
 // Delegates to [io.File.Stat].
 func (d *DirFD) Stat() (os.FileInfo, error) { return (*os.File)(d).Stat() }
 
-// Delegates to [io.File.Chown].
-func (d *DirFD) Chown(uid, gid int) error { return (*os.File)(d).Chown(uid, gid) }
-
-// Delegates to [io.File.Chmod].
-func (d *DirFD) Chmod(mode os.FileMode) error { return (*os.File)(d).Chmod(mode) }
-
 // Opens the path with the given name.
 // The path is opened relative to the receiver, using the openat syscall.
 //
@@ -175,16 +168,6 @@ func (d *DirFD) Open(name string, flags int, mode os.FileMode) (*PathFD, error) 
 	return (*PathFD)(os.NewFile(uintptr(opened), name)), nil
 }
 
-// Opens the directory with the given name.
-// The name is opened relative to the receiver, using the openat syscall.
-func (d *DirFD) OpenDir(name string, flags int) (*DirFD, error) {
-	f, err := d.Open(name, flags|syscall.O_DIRECTORY, 0)
-	return f.UnwrapDir(), err
-}
-
-// Converts this pointer to a [*PathFD].
-func (d *DirFD) AsPath() *PathFD { return (*PathFD)(d) }
-
 // Stats the path with the given name.
 // The name is interpreted relative to the receiver, using the fstatat syscall.
 //
@@ -204,111 +187,12 @@ func (d *DirFD) StatAt(name string, flags int) (*FileInfo, error) {
 	return &info, nil
 }
 
-// Creates a new directory, just as [os.Mkdir] does.
-// The directory is created relative to the receiver, using the mkdirat syscall.
-//
-// https://www.man7.org/linux/man-pages/man2/mkdir.2.html
-func (d *DirFD) Mkdir(name string, mode os.FileMode) error {
-	return syscallControl(d, func(fd uintptr) error {
-		if err := unix.Mkdirat(int(fd), name, toSysMode(mode)); err != nil {
-			return &os.PathError{Op: "mkdirat", Path: name, Err: err}
-		}
-		return nil
-	})
-}
-
-// Remove the name and possibly the file it refers to.
-// The name is removed relative to the receiver, using the unlinkat syscall.
-//
-// https://www.man7.org/linux/man-pages/man2/unlink.2.html
-func (d *DirFD) Remove(name string) error {
-	return d.unlink(name, 0)
-}
-
-// Remove the directory with the given name using the unlinkat syscall.
-// The name is removed relative to the receiver, using the unlinkat syscall.
-//
-// https://www.man7.org/linux/man-pages/man2/unlink.2.html
-func (d *DirFD) RemoveDir(name string) error {
-	return d.unlink(name, unix.AT_REMOVEDIR)
-}
-
-func (d *DirFD) unlink(name string, flags int) error {
-	return syscallControl(d, func(fd uintptr) error {
-		err := unix.Unlinkat(int(fd), name, flags)
-		if err != nil {
-			return &os.PathError{Op: "unlinkat", Path: name, Err: err}
-		}
-
-		return nil
-	})
-}
-
-// Delegates to [os.File.Readdirnames].
-//
-// This is the only "safe" option. Both [os.File.ReadDir] and [os.File.Readdir]
-// will NOT work because of the way the standard library handles directory
-// entries: Both methods may end up using the lstat syscall to stat the
-// directory entry pathnames under certain circumstances, which violates the
-// assumptions of DirFD, and at best will produce runtime errors or return false
-// data, or worse. Possible workarounds would be either to use
-// [os.File.Readdirnames] internally and do an fstatat syscall for each of the
-// returned pathnames (with a significant performance penalty), or to
-// reimplement substantial OS-dependent parts of the standard library's internal
-// dir entry handling (which feels like the "nuclear option"). For this reason,
-// DirFD cannot simply implement [fs.FS], since the stat-like information should
-// also be queryable in the [fs.DirEntry] interface.
-func (d *DirFD) Readdirnames(n int) ([]string, error) {
-	return (*os.File)(d).Readdirnames(n)
-}
-
-// Iterates over all the directory entries, returning their names, in no
-// particular order.
-func (d *DirFD) ReadEntryNames() iter.Seq2[string, error] {
-	return func(yield func(string, error) bool) {
-		for {
-			// Using n=1 is required in order to be able
-			// to resume iteration after early breaks.
-			names, err := d.Readdirnames(1)
-			var eof bool
-			if err != nil {
-				if !errors.Is(err, io.EOF) {
-					yield("", err)
-					return
-				}
-				eof = true
-			}
-
-			for _, name := range names {
-				if !yield(name, nil) {
-					return
-				}
-			}
-
-			if eof {
-				return
-			}
-		}
-	}
-}
-
 // Reads the named file and returns the contents, similar to [os.ReadFile].
 func (d *DirFD) ReadFile(name string) ([]byte, error) {
 	// Leverage fs.ReadFile for the heavy lifting.
 	// Safety: unsafeDIRFDFS is not working for directories, but for files.
 	// Moreover, the fs path normalizations and verifications are not wanted here.
 	return fs.ReadFile((*unsafeDIRFDFS)(d), name)
-}
-
-// Writes data to the named file, just as [os.WriteFile] is doing it.
-// The file is opened relative to d, using [DirFD.Open].
-func (d *DirFD) WriteFile(name string, data []byte, perm os.FileMode) error {
-	f, err := d.Open(name, syscall.O_WRONLY|syscall.O_CREAT|syscall.O_TRUNC|syscall.O_NONBLOCK, perm)
-	if err != nil {
-		return err
-	}
-	_, err = f.UnwrapFile().Write(data)
-	return errors.Join(err, f.Close())
 }
 
 type Stat unix.Stat_t
@@ -368,8 +252,8 @@ func toFileMode[T ~uint16 | ~uint32](unixMode T) os.FileMode {
 }
 
 // This is an internal, unsafe implementation of [fs.FS]. It won't do any input
-// path validation, and it's only safe to be used for files. Using this with
-// directories is a road to chaos ...
+// path validation, and it's only safe to be used for opening files. Using this
+// to open directories is a road to perdition ...
 type unsafeDIRFDFS DirFD
 
 // Open implements [fs.FS].
