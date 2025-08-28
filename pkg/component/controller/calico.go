@@ -51,6 +51,8 @@ const (
 )
 
 type calicoConfig struct {
+	APIAddress           string
+	APIPort              int
 	MTU                  int
 	Mode                 calicoMode
 	VxlanPort            int
@@ -205,6 +207,8 @@ func (c *Calico) getConfig(clusterConfig *v1beta1.ClusterConfig) (calicoConfig, 
 		IPAutodetectionMethod:      clusterConfig.Spec.Network.Calico.IPAutodetectionMethod,
 		IPV6AutodetectionMethod:    ipv6AutoDetectionMethod,
 		PullPolicy:                 clusterConfig.Spec.Images.DefaultPullPolicy,
+		APIAddress:                 clusterConfig.Spec.API.APIAddress(),
+		APIPort:                    clusterConfig.Spec.API.Port,
 	}
 
 	switch clusterConfig.Spec.Network.Calico.Mode {
