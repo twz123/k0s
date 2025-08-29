@@ -1,5 +1,5 @@
 ARG BUILDIMAGE
-FROM $BUILDIMAGE AS build
+FROM --platform=$BUILDPLATFORM $BUILDIMAGE AS build
 
 ENV GOPATH=/go
 
@@ -24,23 +24,25 @@ RUN git -c advice.detachedHead=false clone -b v$VERSION --depth=1 https://github
 WORKDIR /go/src/github.com/containerd/containerd
 
 ARG TARGET_OS \
+  TARGET_ARCH \
   BUILD_GO_TAGS \
   BUILD_GO_CGO_ENABLED \
   BUILD_SHIM_GO_CGO_ENABLED \
   BUILD_GO_FLAGS \
   BUILD_GO_LDFLAGS \
   BUILD_GO_LDFLAGS_EXTRA \
-  CONTAINERD_BINS
+  COMMANDS
 
 RUN go version
 RUN make \
-	CGO_ENABLED=${BUILD_GO_CGO_ENABLED} \
-	SHIM_CGO_ENABLED=${BUILD_SHIM_GO_CGO_ENABLED} \
-	GO_TAGS="-tags=${BUILD_GO_TAGS}" \
-	COMMANDS="${CONTAINERD_BINS}" \
-	GO_BUILD_FLAGS="${BUILD_GO_FLAGS}" \
-	EXTRA_LDFLAGS="${BUILD_GO_LDFLAGS_EXTRA}" \
-	GOOS="${TARGET_OS}"
+    CGO_ENABLED=${BUILD_GO_CGO_ENABLED} \
+    SHIM_CGO_ENABLED=${BUILD_SHIM_GO_CGO_ENABLED} \
+    GO_TAGS="-tags=${BUILD_GO_TAGS}" \
+    COMMANDS="${COMMANDS}" \
+    GO_BUILD_FLAGS="${BUILD_GO_FLAGS}" \
+    EXTRA_LDFLAGS="${BUILD_GO_LDFLAGS_EXTRA}" \
+    GOOS="$TARGET_OS" \
+    GOARCH="$TARGET_ARCH"
 
 FROM scratch
 COPY --from=build /go/src/github.com/containerd/containerd/bin/* /bin/
