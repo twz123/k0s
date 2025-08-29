@@ -47,10 +47,6 @@ spec:
           value: "true"
         - name: KUBE_NETWORK
           value: Calico.*
-        # TODO Pick this up from the k0s calico config
-        - name: CALICO_NETWORKING_BACKEND
-          value: {{ .Overlay }}
-        # TODO Pick this up from the k0s calico config
         - name: IP
           value: {{ .IPAutodetectionMethod }}
         # TODO Pick this up from the k0s calico config
@@ -142,8 +138,6 @@ spec:
           value: "true"
         - name: KUBE_NETWORK
           value: Calico.*
-        - name: CALICO_NETWORKING_BACKEND
-          value: {{ .Overlay }}
         - name: IP
           value: {{ .IPAutodetectionMethod }}
         - name: IP_AUTODETECTION_METHOD
@@ -217,9 +211,9 @@ spec:
         - name: CNI_NET_DIR
           value: /etc/cni/net.d
         - name: KUBERNETES_DNS_SERVERS
-          value: 10.96.0.10
+          value: "{{ .Nameserver }}"
         - name: KUBERNETES_SERVICE_CIDRS
-          value: 10.96.0.0/12
+          value: "{{ .ServiceCIDR }}"
         - name: VXLAN_VNI
           value: "{{ .VxlanVNI }}"
         - name: KUBERNETES_NODE_NAME
