@@ -51,6 +51,17 @@ type windowsStackRenderingContext struct {
 
 	KubeProxyImage   string
 	KubeProxyVersion string
+
+	VxlanVNI  int
+	VxlanPort int
+	MTU       int
+	// Manifest template fields
+	IPAutodetectionMethod string
+	APIAddress            string
+	APIPort               string
+	DNSAddress            string
+	ServiceCIDR           string
+	ClusterDomain         string
 }
 
 // NewWindowsStackComponent creates new WindowsStackComponent reconciler
@@ -141,17 +152,25 @@ func (n *WindowsStackComponent) makeRenderingContext(cfg *v1beta1.ClusterConfig)
 		return windowsStackRenderingContext{}, fmt.Errorf("failed to parse dns address: %w", err)
 	}
 
+	apiPortStr := strconv.Itoa(cfg.Spec.API.Port)
+
 	config := windowsStackRenderingContext{
-		// template rendering unescapes double backslashes
-		CNIBin:           "c:\\\\opt\\\\cni\\\\bin",
-		CNIConf:          "c:\\\\opt\\\\cni\\\\conf",
-		KubeAPIHost:      cfg.Spec.API.Address,
-		KubeAPIPort:      strconv.Itoa(cfg.Spec.API.Port),
+		CNIBin:           "c\\\\opt\\\\cni\\\\bin",
+		CNIConf:          "c\\\\etc\\\\cni\\\\net.d",
+		KubeAPIHost:      cfg.Spec.API.APIAddress(),
+		KubeAPIPort:      apiPortStr,
 		IPv4ServiceCIDR:  cfg.Spec.Network.ServiceCIDR,
 		Nameserver:       dns,
 		NodeImage:        "docker.io/calico/windows:v3.26.5",
 		KubeProxyImage:   "docker.io/sigwindowstools/kube-proxy",
 		KubeProxyVersion: "v1.33.2-calico-hostprocess",
+		// Manifest template fields
+		IPAutodetectionMethod: cfg.Spec.Network.Calico.IPAutodetectionMethod,
+		APIAddress:            cfg.Spec.API.Address,
+		APIPort:               apiPortStr,
+		MTU:                   cfg.Spec.Network.Calico.MTU,
+		ServiceCIDR:           cfg.Spec.Network.ServiceCIDR,
+		ClusterDomain:         cfg.Spec.Network.ClusterDomain,
 	}
 
 	switch cfg.Spec.Network.Calico.Mode {
@@ -159,6 +178,8 @@ func (n *WindowsStackComponent) makeRenderingContext(cfg *v1beta1.ClusterConfig)
 		config.Mode = calicoModeBIRD
 	case v1beta1.CalicoModeVXLAN:
 		config.Mode = calicoModeVXLAN
+		config.VxlanVNI = cfg.Spec.Network.Calico.VxlanVNI
+		config.VxlanPort = cfg.Spec.Network.Calico.VxlanPort
 	default:
 		return config, fmt.Errorf("unsupported mode: %q", cfg.Spec.Network.Calico.Mode)
 	}
@@ -174,6 +195,7 @@ func (n *WindowsStackComponent) Stop() error {
 // createWindowsStack creates windows stack
 
 func (n *WindowsStackComponent) createWindowsStack(newConfig windowsStackRenderingContext) error {
+	n.log.Infof("Creating windows stack manifests with config: %+v", newConfig)
 	manifestDirectories, err := fs.ReadDir(static.WindowsManifests, ".")
 	if err != nil {
 		return fmt.Errorf("error retrieving manifests: %w", err)

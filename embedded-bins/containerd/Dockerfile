@@ -27,6 +27,7 @@ RUN \
 WORKDIR /go/src/github.com/containerd/containerd
 
 ARG TARGET_OS \
+  TARGET_ARCH \
   BUILD_GO_TAGS \
   BUILD_GO_CGO_ENABLED \
   BUILD_SHIM_GO_CGO_ENABLED \
@@ -42,7 +43,8 @@ RUN make \
 	COMMANDS="${CONTAINERD_BINS}" \
 	GO_BUILD_FLAGS="${BUILD_GO_FLAGS}" \
 	EXTRA_LDFLAGS="${BUILD_GO_LDFLAGS_EXTRA}" \
-	GOOS="${TARGET_OS}"
+	GOOS="${TARGET_OS}" \
+	GOARCH="${TARGET_ARCH}"
 
 FROM scratch
 COPY --from=build /go/src/github.com/containerd/containerd/bin/* /bin/
