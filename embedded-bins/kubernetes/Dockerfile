@@ -23,7 +23,7 @@ ARG TARGET_OS \
   BUILD_GO_FLAGS \
   BUILD_GO_LDFLAGS \
   BUILD_GO_LDFLAGS_EXTRA \
-  KUBERNETES_BINS
+  COMMANDS
 
 COPY riscv64.patch .
 
@@ -32,11 +32,11 @@ RUN \
   git apply < riscv64.patch; \
   export GOPATH=/go; \
   if [ "${TARGET_OS}" = windows ]; then \
-    commands="${KUBERNETES_BINS}"; \
+    commands="${COMMANDS}"; \
     binarySuffix=.exe; \
     export KUBE_BUILD_PLATFORMS=windows/amd64; \
   else \
-    commands="${KUBERNETES_BINS}"; \
+    commands="${COMMANDS}"; \
     binarySuffix=''; \
   fi; \
   # Ensure that all of the binaries are built with CGO \
