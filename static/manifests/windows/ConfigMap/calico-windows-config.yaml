@@ -9,11 +9,11 @@ data:
     {
       "name": "Calico",
       "cniVersion": "0.3.1",
-      "plugins\": [
+      "plugins": [
         { 
           "DNS": {
-              "Nameservers":["10.96.0.10"],
-              "Search":["svc.cluster.local"]
+              "Nameservers":["{{ .Nameserver}}"],
+              "Search":["{{ .ClusterDomain }}"]
           },
           "capabilities":{"dns":true},
           "datastore_type": "kubernetes",
@@ -39,13 +39,13 @@ data:
             {
               "Name":"EndpointPolicy",
               "Value":{
-                "ExceptionList":["10.96.0.0/12"],
+                "ExceptionList":["{{ .ServiceCIDR }}"],
                 "Type":"OutBoundNAT"}
               },
               {
                 "Name":"EndpointPolicy",
                 "Value":{
-                  "DestinationPrefix":"10.96.0.0/12",
+                  "DestinationPrefix":"{{ .ServiceCIDR }}",
                   "NeedEncap":true,
                   "Type":"SDNROUTE"
                 }
@@ -56,10 +56,9 @@ data:
           },
           "type":"calico",
           "vxlan_mac_prefix":"0E-2A",
-          "vxlan_vni":4096,
+          "vxlan_vni":{{ .VxlanVNI }},
           "windows_loopback_DSR":"__DSR_SUPPORT__",
           "windows_use_single_network":true
         }
       ]
     }
-  
