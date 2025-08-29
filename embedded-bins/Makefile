@@ -6,26 +6,71 @@ DOCKER ?= docker
 # https://reproducible-builds.org/docs/source-date-epoch/#git
 SOURCE_DATE_EPOCH ?= $(shell git log -1 --pretty=%ct || date -u +%s)
 
+PHONY: .no_default
+.no_default:
+	$(error no default target)
+
+# Some helpers
+
 linux_images   := containerd etcd iptables keepalived kine konnectivity kubernetes runc
 windows_images := containerd                                            kubernetes
 
 linux_arches   := amd64 arm64 arm riscv64
 windows_arches := amd64 arm64
 
-PHONY: .no_default
-.no_default:
-	$(error no default target)
+exe_path             = staging/$(1)/$(2)/$(3)$(if $(1:windows=),,.exe)
+cid_dependency       = $(eval $(call exe_path,$(1),$(2),$(3)): staging/$(1)/$(2)/.$(4).cid)
+container_dependency = $(eval $(call exe_path,$(1),$(2),$(4)): staging/$(1)/$(2)/.$(3).cid)
+extra_build_arg      = $(eval staging/$(1)/$(2)/.$(3).iid: EXTRA_BUILD_ARGS += --build-arg $(4)='$(5)')
+foreach_asset        = $(foreach os,$(2),$(foreach arch,$(3),$(foreach asset,$(4),$(call $(1),$(os),$(arch),$(asset),$(5),$(6)))))
+foreach_linux        = $(call foreach_asset,$(1),linux,$(linux_arches),$(2),$(3),$(4))
 
-# Declare assets: containerd
+# Declare assets: staging/$OS/$ARCH/containerd...
 containerd_linux_assets   := containerd containerd-shim containerd-shim-runc-v2
 containerd_windows_assets := containerd containerd-shim-runhcs-v1
 all_targets               += \
-	$(foreach a,$(linux_arches),   $(foreach e,$(containerd_linux_assets),    staging/linux/$(a)/$(e)    )) \
-	$(foreach a,$(windows_arches), $(foreach e,$(containerd_windows_assets),staging/windows/$(a)/$(e).exe))
-$(foreach a,$(linux_arches),   $(foreach e,$(containerd_linux_assets),  $(eval   staging/linux/$(a)/$(e):       staging/linux/$(a)/.containerd.cid)))
-$(foreach a,$(windows_arches), $(foreach e,$(containerd_windows_assets),$(eval staging/windows/$(a)/$(e).exe: staging/windows/$(a)/.containerd.cid)))
-$(foreach a,$(linux_arches),    staging/linux/$(a)/.containerd.iid): EXTRA_BUILD_ARGS += --build-arg COMMANDS='$(containerd_linux_assets)'
-$(foreach a,$(windows_arches),staging/windows/$(a)/.containerd.iid): EXTRA_BUILD_ARGS += --build-arg COMMANDS='$(containerd_windows_assets)'
+	$(call foreach_asset,exe_path,linux,$(linux_arches),$(containerd_linux_assets)) \
+	$(call foreach_asset,exe_path,windows,$(windows_arches),$(containerd_windows_assets))
+$(call foreach_asset,cid_dependency,linux,$(linux_arches),$(containerd_linux_assets),containerd)
+$(call foreach_asset,cid_dependency,windows,$(windows_arches),$(containerd_windows_assets),containerd)
+$(call foreach_asset,extra_build_arg,linux,$(linux_arches),containerd,COMMANDS,$(containerd_linux_assets))
+$(call foreach_asset,extra_build_arg,windows,$(windows_arches),containerd,COMMANDS,$(containerd_windows_assets))
+
+# Declare assets: staging/linux/$ARCH/etcd
+all_targets += $(call foreach_linux,exe_path,etcd)
+$(call foreach_linux,cid_dependency,etcd,etcd)
+
+# Declare assets: staging/linux/$ARCH/xtables-...
+iptables_assets = xtables-legacy-multi xtables-nft-multi
+all_targets += $(call foreach_linux,exe_path,$(iptables_assets))
+$(call foreach_linux,cid_dependency,$(iptables_assets),iptables)
+
+# Declare assets: staging/linux/$ARCH/keepalived
+all_targets += $(call foreach_linux,exe_path,keepalived)
+$(call foreach_linux,cid_dependency,keepalived,keepalived)
+
+# Declare assets: staging/linux/$ARCH/kine
+all_targets += $(call foreach_linux,exe_path,kine)
+$(call foreach_linux,cid_dependency,keepalived,keepalived)
+
+# Declare assets: staging/linux/$ARCH/konnectivity
+all_targets += $(call foreach_linux,exe_path,konnectivity-server)
+$(call foreach_linux,container_dependency,konnectivity,konnectivity-server)
+
+# Declare assets: staging/$OS/$ARCH/kubernetes
+kubernetes_linux_assets   := kubelet kube-apiserver kube-scheduler kube-controller-manager
+kubernetes_windows_assets := kubelet
+all_targets               += \
+	$(call foreach_asset,exe_path,linux,$(linux_arches),$(kubernetes_linux_assets)) \
+	$(call foreach_asset,exe_path,windows,$(windows_arches),$(kubernetes_windows_assets))
+$(call foreach_asset,cid_dependency,linux,$(linux_arches),$(kubernetes_linux_assets),kubernetes)
+$(call foreach_asset,cid_dependency,windows,$(windows_arches),$(kubernetes_windows_assets),kubernetes)
+$(call foreach_asset,extra_build_arg,linux,$(linux_arches),kubernetes,COMMANDS,$(kubernetes_linux_assets))
+$(call foreach_asset,extra_build_arg,windows,$(windows_arches),kubernetes,COMMANDS,$(kubernetes_windows_assets))
+
+# Declare assets: staging/linux/$ARCH/runc
+all_targets += $(call foreach_linux,exe_path,runc)
+$(call foreach_linux,container_dependency,runc,runc)
 
 # Targets to extract all declared assets from their Docker containers.
 # - The cid file is expected to be the first prerequisite.
