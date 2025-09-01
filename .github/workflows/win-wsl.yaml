@@ -159,10 +159,11 @@ jobs:
 
           & netstat -abno
 
+
       - name: Start k0s worker
         timeout-minutes: 7
         run: |
-          & .\k0s.exe worker --token-file=k0s-worker-token --debug
+          & .\k0s.exe worker --token-file=k0s-worker-token --debug --kubelet-extra-args="--hostname-override=windowsworker"
 
       - name: Monitor cluster a bit
         run: |
