@@ -158,21 +158,25 @@ jobs:
             break
           }
 
-      - name: Debug ports
+      # - name: Debug ports
+      #   run: |
+      #     $ErrorActionPreference = "Stop"
+      #     $PSNativeCommandUseErrorActionPreference = $true
+
+      #     & netstat -abno
+
+
+      - name: Install & Start k0s worker
         run: |
-          $ErrorActionPreference = "Stop"
-          $PSNativeCommandUseErrorActionPreference = $true
+          & .\k0s.exe install worker --token-file=k0s-worker-token --debug --kubelet-extra-args="--hostname-override=windowsworker"
+          & .\k0s.exe start
 
-          & netstat -abno
-
-
-      - name: Start k0s worker
+      - name: Windows smoke test
         timeout-minutes: 5
-        run: |
-          & .\k0s.exe worker --token-file=k0s-worker-token --debug --kubelet-extra-args="--hostname-override=windowsworker"
+        run: go test ./inttest/windows -v
 
       - name: Grap everything from /var/log/containers on Windows
-        if: always()
+        if: failure()
         run: |
           $ErrorActionPreference = 'Stop'
 
@@ -210,12 +214,15 @@ jobs:
             Write-Host "Wrote $dst ($([math]::Round($size/1MB,2)) MB)"
           }
 
-      - name: Upload container logs
+      - name: Upload k0s & container logs
         uses: actions/upload-artifact@v4
-        if: always()
+        if: failure()
         with:
           name: containers-logs
-          path: ${{ runner.temp }}\containers-logs.zip
+          path: |
+            c:/var/lib/k0s/k0s_*.log
+            ${{ runner.temp }}\containers-logs.zip
+
 
       - name: Monitor cluster a bit
         run: |
