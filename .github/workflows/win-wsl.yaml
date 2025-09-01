@@ -167,9 +167,55 @@ jobs:
 
 
       - name: Start k0s worker
-        timeout-minutes: 7
+        timeout-minutes: 5
         run: |
           & .\k0s.exe worker --token-file=k0s-worker-token --debug --kubelet-extra-args="--hostname-override=windowsworker"
+
+      - name: Grap everything from /var/log/containers on Windows
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # Prefer pods dir; fall back to containers
+          $roots = @('C:\var\log\pods','C:\var\log\containers') | Where-Object { Test-Path $_ }
+          if (-not $roots) {
+            Write-Warning "No C:\var\log\pods or C:\var\log\containers found on this runner."
+            $roots = @()
+          }
+
+          # Make sure we write into a known-good location
+          $outDir = $env:RUNNER_TEMP
+          if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir -Force | Out-Null }
+          $dst = Join-Path $outDir 'containers-logs.zip'
+
+          if ($roots.Count -eq 0) {
+            # Always produce an artifact so upload succeeds (even if empty)
+            "No log directories present." | Out-File (Join-Path $outDir 'NO_LOGS.txt')
+            tar -a -c -f $dst -C $outDir NO_LOGS.txt
+          } else {
+            # Use 'pods' if present to avoid symlink weirdness under 'containers'
+            $root = if (Test-Path 'C:\var\log\pods') { 'C:\var\log\pods' } else { 'C:\var\log\containers' }
+
+            # Give a little visibility in the action logs
+            Write-Host "Archiving from: $root"
+            Get-ChildItem -Path $root -Recurse -File -ErrorAction SilentlyContinue | 
+              Select-Object -First 10 FullName | ForEach-Object { "  sample: $_" }
+
+            # Create the zip. 'tar -a' is generally sturdier than Compress-Archive on Windows.
+            tar -a -c -f $dst -C (Split-Path $root) (Split-Path $root -Leaf)
+
+            # Prove the file exists + show size
+            if (-not (Test-Path $dst)) { throw "Archive not created at $dst" }
+            $size = (Get-Item $dst).Length
+            Write-Host "Wrote $dst ($([math]::Round($size/1MB,2)) MB)"
+          }
+
+      - name: Upload container logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: containers-logs
+          path: ${{ runner.temp }}\containers-logs.zip
 
       - name: Monitor cluster a bit
         run: |
