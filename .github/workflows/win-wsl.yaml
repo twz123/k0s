@@ -152,6 +152,13 @@ jobs:
             break
           }
 
+      - name: Debug ports
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+
+          & netstat -abno
+
       - name: Start k0s worker
         timeout-minutes: 7
         run: |
