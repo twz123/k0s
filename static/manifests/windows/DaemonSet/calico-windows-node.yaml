@@ -290,10 +290,6 @@ spec:
           path: /var/run/calico
           type: DirectoryOrCreate
         name: var-run-calico
-      - hostPath:
-          path: /run/xtables.lock
-          type: FileOrCreate
-        name: xtables-lock
   updateStrategy:
     rollingUpdate:
       maxSurge: 0
