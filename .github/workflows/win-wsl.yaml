@@ -22,6 +22,12 @@ jobs:
     runs-on: windows-2022
 
     steps:
+      - name: Configure WSL to NOT do local port forwarding
+        run: |
+          @"
+          [wsl2]
+          localhostForwarding=false
+          "@ | Out-File -FilePath "$env:UserProfile\.wslconfig" -Encoding ascii
       - name: Prepare WSL
         run: |
           $ErrorActionPreference = "Stop"
