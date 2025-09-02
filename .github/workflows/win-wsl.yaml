@@ -22,6 +22,11 @@ jobs:
     runs-on: windows-2022
 
     steps:
+      - name: "Build :: Checkout"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # for `git describe`
+          persist-credentials: false
       - name: Configure WSL to NOT do local port forwarding
         run: |
           @"
@@ -170,7 +175,6 @@ jobs:
         run: |
           & .\k0s.exe install worker --token-file=k0s-worker-token --debug --kubelet-extra-args="--hostname-override=windowsworker"
           & .\k0s.exe start
-
       - name: Windows smoke test
         timeout-minutes: 5
         run: go test ./inttest/windows -v
