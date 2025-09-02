@@ -38,6 +38,8 @@ jobs:
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
 
+          & Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
+
           Write-Host "Updating to WSL 2 ..."
           & wsl --set-default-version 2
           & wsl --update
@@ -111,6 +113,8 @@ jobs:
           # some trailing carriage return
           "@ -replace "`r`n", "`n" | & wsl bash -euo pipefail
 
+          # Wait that we get connection to the kube api on WSL IP
+          
       - name: Prepare kubeconfig
         run: |
           $ErrorActionPreference = "Stop"
@@ -137,6 +141,28 @@ jobs:
           }
 
           "KUBECONFIG=" + (Resolve-Path "kubeconfig").Path | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Wait for kube api
+        run: |
+          for ($attempt = 1; $true; $attempt++) {
+            try {
+              Write-Host "Verifying kube API access (attempt $attempt) ..."
+              & kubectl get nodes
+            }
+            catch {
+              if ($attempt -gt 15) {
+                throw
+              }
+
+              Write-Warning "Failed to access API: $_"
+              & wsl -- systemctl status k0scontroller.service
+              Start-Sleep -Seconds 5
+              continue
+            }
+
+            Write-Host "API access verified successfully"
+            break
+          }
 
       - name: Get join token
         run: |
@@ -177,7 +203,9 @@ jobs:
           & .\k0s.exe start
       - name: Windows smoke test
         timeout-minutes: 5
-        run: go test ./inttest/windows -v
+        run: |
+          wsl ip
+          go test ./inttest/windows -v
 
       - name: Grap everything from /var/log/containers on Windows
         if: failure()
@@ -246,8 +274,10 @@ jobs:
             Start-Sleep -Seconds 5
           }
 
-      - name: k0 controller logs
+      - name: k0s controller logs
         if: failure() && steps.start-controller.conclusion == 'success'
         run: |
+          & wsl hostname -I
+          & wsl -- ip -o -4 -json addr list
           & wsl systemctl status k0scontroller.service
           & wsl journalctl --boot -u k0scontroller.service
