@@ -4,9 +4,13 @@
 package windows
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
+	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -35,11 +39,43 @@ func (s *WindowsSuite) SetupSuite() {
 	// kubeconfig := "/Users/jnummelin/.kube/win-config"
 	kubeconfig := os.Getenv("KUBECONFIG")
 	s.Require().NotEmpty(kubeconfig, "KUBECONFIG must be set for this test to work")
+	s.T().Logf("Using kubeconfig: %s", kubeconfig)
 	var err error
 	s.restConfig, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
 	s.Require().NoError(err, "Failed to build kubeconfig")
 	s.kc, err = kubernetes.NewForConfig(s.restConfig)
 	s.Require().NoError(err, "Failed to create Kubernetes client")
+
+	// Get the server address and try to connect to it via go std lib
+	server := s.restConfig.Host
+	s.T().Logf("Trying to connect to Kube API server: %s", server)
+	client := http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
+
+	// Test the connection via stdlib client
+	resp, err := client.Get(fmt.Sprintf("%s/version", server))
+	if err != nil {
+		s.T().Logf("Failed to connect to Kube API server: %v", err)
+	} else {
+		s.T().Logf("Successfully connected to Kube API server, got status: %s", resp.Status)
+	}
+	defer resp.Body.Close()
+
+	// Test the connection using os.Exec for kubectl
+	cmd := exec.Command("kubectl", "version")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	err = cmd.Run()
+	if err != nil {
+		s.T().Logf("Failed to connect to Kube API server via kubectl: %v", err)
+	} else {
+		s.T().Logf("Successfully connected to Kube API server via kubectl, got output: %s", out.String())
+	}
 }
 
 func (s *WindowsSuite) TearDownSuite() {

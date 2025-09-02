@@ -204,8 +204,16 @@ jobs:
       - name: Windows smoke test
         timeout-minutes: 5
         run: |
-          wsl ip
+          & kubectl config view
+          & kubectl get nodes,pods -A
           go test ./inttest/windows -v
+
+      - name: Debug after test failure
+        if: always()
+        run: |
+          & kubectl config view
+          & kubectl get nodes,pods -A
+          
 
       - name: Grap everything from /var/log/containers on Windows
         if: failure()
