@@ -213,8 +213,9 @@ jobs:
         timeout-minutes: 5
         if: always()
         run: |
-          $ErrorActionPreference = "Stop"
-          $PSNativeCommandUseErrorActionPreference = $true
+          $ErrorActionPreference = "Continue"
+          $PSNativeCommandUseErrorActionPreference = $false
+          & wsl hostname -I
           & wsl df -h
           & wsl free -h
           & wsl nproc
@@ -223,16 +224,16 @@ jobs:
           $end = (Get-Date).AddMinutes($minutes)
 
           Write-Host "Watching cluster for $minutes minutes (every $interval s)..."
-          while (Get-Date -lt $end) {
+          while ((Get-Date).CompareTo($end) -lt 0) {
             $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
             Write-Host "`n=== $ts ==="
 
             # API server quick health
             kubectl get --raw /readyz
 
-            kubectl get nodes -o wide | Out-Host
-            kubectl get pods -A -o wide | Out-Host
-
+            kubectl get nodes,pods -A -o wide | Out-Host
+            Write-Host "`n=== routing ==="
+            route PRINT
             Start-Sleep -Seconds $interval
           }
 
