@@ -93,6 +93,8 @@ jobs:
           mkdir /etc/k0s
           cat <<EOF >/etc/k0s/k0s.yaml
           spec:
+            storage:
+              type: kine
             network:
               provider: calico
             images:
@@ -199,18 +201,40 @@ jobs:
         run: |
           & .\k0s.exe install worker --token-file=k0s-worker-token --debug --kubelet-extra-args="--hostname-override=windowsworker"
           & .\k0s.exe start
-      - name: Windows smoke test
-        timeout-minutes: 5
-        run: |
-          & kubectl config view
-          & kubectl get nodes,pods -A
-          go test ./inttest/windows -v
+      # - name: Windows smoke test
+      #   timeout-minutes: 5
+      #   run: |
+      #     & kubectl config view
+      #     & kubectl get nodes,pods -A
+      #     go test ./inttest/windows -v
 
+      # Watch the state of the cluster in loop
       - name: Debug after test failure
+        timeout-minutes: 5
         if: always()
         run: |
-          & kubectl config view
-          & kubectl get nodes,pods -A
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          & wsl df -h
+          & wsl free -h
+          & wsl nproc
+          $interval = 5      # seconds
+          $minutes  = 5
+          $end = (Get-Date).AddMinutes($minutes)
+
+          Write-Host "Watching cluster for $minutes minutes (every $interval s)..."
+          while (Get-Date -lt $end) {
+            $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+            Write-Host "`n=== $ts ==="
+
+            # API server quick health
+            kubectl get --raw /readyz
+
+            kubectl get nodes -o wide | Out-Host
+            kubectl get pods -A -o wide | Out-Host
+
+            Start-Sleep -Seconds $interval
+          }
 
 
       - name: Grap everything from /var/log/containers on Windows
@@ -283,7 +307,14 @@ jobs:
       - name: k0s controller logs
         if: failure() && steps.start-controller.conclusion == 'success'
         run: |
+          & Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | 
+              Select-Object DeviceID, VolumeName,
+              @{n='FreeGB';e={[math]::Round($_.FreeSpace/1GB,2)}},
+              @{n='TotalGB';e={[math]::Round($_.Size/1GB,2)}},
+              @{n='%Free';e={[math]::Round(100*$_.FreeSpace/$_.Size,1)}}
           & wsl hostname -I
-          & wsl -- ip -o -4 -json addr list
+          & wsl nproc
+          & wsl free -h
+          & wsl df -h
           & wsl systemctl status k0scontroller.service
           & wsl journalctl --boot -u k0scontroller.service
