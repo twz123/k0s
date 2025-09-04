@@ -189,14 +189,45 @@ jobs:
             break
           }
 
-      # - name: Debug ports
+      # Calico borks network when it creates the HNS network etc. so we need to have a watchdog that restores route to WSL
+      # - name: Start route watchdog (Scheduled Task)
+      #   shell: pwsh
       #   run: |
-      #     $ErrorActionPreference = "Stop"
-      #     $PSNativeCommandUseErrorActionPreference = $true
+      #     $ErrorActionPreference = 'Stop'
 
-      #     & netstat -abno
+      #     $taskName = 'WSLRouteWatchdog'
+      #     $script   = Join-Path $env:GITHUB_WORKSPACE 'route-watchdog.ps1'   # repo root
+      #     $log      = Join-Path $env:RUNNER_TEMP 'route-watchdog.log'
+      #     $minutes  = 10    # how long to keep the watchdog alive
+      #     $port     = 6443  # apiserver port it protects
 
+      #     # Build a tiny PS payload for the task:
+      #     # - sets any env you want in the task's process (optional)
+      #     # - calls your script with -Minutes, -Port, -LogFile
+      #     $payload = @"
+      #     `$ErrorActionPreference = 'Stop'
+      #     `$env:KUBECONFIG = "$env:KUBECONFIG"
+      #     & "$script" -Minutes $minutes -LogFile "$log"
+      #     "@
 
+      #     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($payload))
+
+      #     $action    = New-ScheduledTaskAction  -Execute 'pwsh.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded"
+      #     $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest
+      #     $trigger   = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(5)
+      #     # Give it ample time; it will naturally exit when your script finishes
+      #     $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+      #                 -ExecutionTimeLimit (New-TimeSpan -Hours 1)
+
+      #     Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Force | Out-Null
+      #     Start-ScheduledTask    -TaskName $taskName
+
+      #     # Make paths available to later steps
+      #     "WATCHDOG_TASK=$taskName" | Out-File -FilePath $env:GITHUB_ENV -Append
+      #     "WATCHDOG_LOG=$log"      | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      #     Write-Host "Watchdog task '$taskName' started. Log: $log"
+        
       - name: Install & Start k0s worker
         run: |
           & .\k0s.exe install worker --token-file=k0s-worker-token --debug --kubelet-extra-args="--hostname-override=windowsworker"
@@ -209,7 +240,7 @@ jobs:
       #     go test ./inttest/windows -v
 
       # Watch the state of the cluster in loop
-      - name: Debug after test failure
+      - name: Debug 
         timeout-minutes: 5
         if: always()
         run: |
@@ -223,6 +254,14 @@ jobs:
           $minutes  = 5
           $end = (Get-Date).AddMinutes($minutes)
 
+          $wslIP = wsl.exe -e sh -lc "hostname -I | cut -f 1 -d ' '" | Out-String
+          $wslIP = $wslIP.Trim()
+          Write-Host "WSL IP: $wslIP"
+          $wslRoute = Find-NetRoute -RemoteIPAddress $wslIP -ErrorAction SilentlyContinue
+          Write-Host "Got initial WSL route, interface: $($wslRoute.InterfaceIndex), next hop: $($wslRoute.NextHop)"
+          $defaultRoute = Find-NetRoute -RemoteIPAddress 1.1.1.1 -ErrorAction SilentlyContinue
+          Write-Host "Got initial default route, interface: $($defaultRoute.InterfaceIndex), next hop: $($defaultRoute.NextHop)"
+
           Write-Host "Watching cluster for $minutes minutes (every $interval s)..."
           while ((Get-Date).CompareTo($end) -lt 0) {
             $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
@@ -234,9 +273,37 @@ jobs:
             kubectl get nodes,pods -A -o wide | Out-Host
             Write-Host "`n=== routing ==="
             route PRINT
+
+            # If default or WSL routes disappear, re-create them
+            $wr = Find-NetRoute -RemoteIPAddress "$wslIP/32" -ErrorAction SilentlyContinue
+            if (-not $wr) {
+              Write-Host "Re-creating WSL route..."
+              New-NetRoute -DestinationPrefix "$wslIP/32" -InterfaceIndex $wslRoute.InterfaceIndex -NextHop $wslRoute.NextHop -RouteMetric 1 -PolicyStore PersistentStore -ErrorAction Stop
+            }
+            $dr = Find-NetRoute -RemoteIPAddress 1.1.1.1 -ErrorAction SilentlyContinue
+            if (-not $dr) {
+              Write-Host "Re-creating default route..."
+              New-NetRoute -DestinationPrefix "0.0.0.0/0" -InterfaceIndex $defaultRoute.InterfaceIndex -NextHop $defaultRoute.NextHop -RouteMetric 1 -PolicyStore PersistentStore -ErrorAction Stop
+            }
+
             Start-Sleep -Seconds $interval
           }
 
+      # - name: Stop route watchdog & show log
+      #   if: always()
+      #   shell: pwsh
+      #   run: |
+      #     $tn = $env:WATCHDOG_TASK
+      #     if ($tn) {
+      #       Stop-ScheduledTask -TaskName $tn -ErrorAction SilentlyContinue
+      #       Start-Sleep 1
+      #       Unregister-ScheduledTask -TaskName $tn -Confirm:$false -ErrorAction SilentlyContinue
+      #     }
+
+      #     if ($env:WATCHDOG_LOG -and (Test-Path $env:WATCHDOG_LOG)) {
+      #       Write-Host "`n--- tail of watchdog log ---"
+      #       Get-Content $env:WATCHDOG_LOG
+      #     }
 
       - name: Grap everything from /var/log/containers on Windows
         if: failure()
