@@ -321,6 +321,9 @@ jobs:
               Write-Host "Error getting cluster state: $_"
               Write-Host "Restarting k0scontroller systemd unit on WSL..."
               & wsl -- systemctl restart k0scontroller.service
+              Write-Host "k0scontroller restarted, allow it 30 seconds to stabilize..."
+              Start-Sleep -Seconds 30
+              continue
             }
             Write-Host "-- WSL k0s state"
             wsl.exe k0s kc get node,pod -A -o wide
@@ -328,14 +331,19 @@ jobs:
             Start-Sleep -Seconds 5
           }
 
+      - name: Collect logs into workspace
+        if: failure()
+        run: |
+          mkdir -Force logs
+          if (Test-Path "c:/var/lib/k0s") { Copy-Item -Path "c:/var/lib/k0s/*.log" -Destination "logs" -Force -ErrorAction SilentlyContinue }
+          if (Test-Path "c:/var/log") { Copy-Item -Path "c:/var/log" -Destination "logs" -Recurse -Force -ErrorAction SilentlyContinue }
+
       - name: Upload k0s & container logs
         uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: containers-logs
-          path: |
-            c:/var/lib/k0s/k0s_*.log
-            c:/var/log/**/*
+          path: logs/**
 
 
       - name: Monitor cluster a bit
