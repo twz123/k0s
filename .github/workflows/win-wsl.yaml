@@ -28,28 +28,26 @@ jobs:
           fetch-depth: 0 # for `git describe`
           persist-credentials: false
 
-      # - name: Pre-create HNS networking
-      #   run: |
-      #     $ErrorActionPreference = "Stop"
-      #     $PSNativeCommandUseErrorActionPreference = $true
+      - name: Pre-create HNS networking
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          Write-Host "Disabling Windows Firewall"
+          & Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
 
-      #     # Download the MS helpers and load them
-      #     $u = "https://raw.githubusercontent.com/Microsoft/SDN/master/Kubernetes/windows/hns.psm1"
-      #     Invoke-WebRequest -Uri $u -OutFile c:/hns.psm1
-      #     Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-      #     Unblock-File 'C:\hns.psm1'            # removes the "downloaded from internet" mark
-      #     Import-Module 'C:\hns.psm1' -Force
+          # Download the MS helpers and load them
+          $u = "https://raw.githubusercontent.com/Microsoft/SDN/master/Kubernetes/windows/hns.psm1"
+          Invoke-WebRequest -Uri $u -OutFile c:/hns.psm1
+          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          Unblock-File 'C:\hns.psm1'            # removes the "downloaded from internet" mark
+          Import-Module 'C:\hns.psm1' -Force
 
 
-      #     Write-Host "Creating overlay network"
-      #     New-HnsNetwork -Type "Overlay" -AddressPrefix "192.168.255.0/30" -Gateway "192.168.255.1" -Name "External" -SubnetPolicies @(@{Type = "VSID"; VSID = 9999; }) -Verbose
-      #     Start-Sleep -s 20s
-      #     Write-Host "Overlay network created succesfully"
+          Write-Host "Creating overlay network"
+          New-HNSNetwork -Type Overlay -AddressPrefix "192.168.255.0/30" -Gateway "192.168.255.1" -Name "External" -SubnetPolicies @(@{Type = "VSID"; VSID = 9999; }) -AdapterName $vxlanAdapter -Verbose
 
-      #     # Write-Host "Creating bridge network"
-      #     # New-HnsNetwork -Type "L2Bridge" -AddressPrefix "10.244.10.0/24" -Gateway "10.244.10.1" -Name "External" -Verbose
-      #     # Start-Sleep -s 20s
-      #     # Write-Host "Bridge network created succesfully"
+          Start-Sleep -s 20s
+          Write-Host "Overlay network created succesfully"
 
       - name: Configure WSL to NOT do local port forwarding
         run: |
@@ -63,7 +61,6 @@ jobs:
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
 
-          & Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
 
           Write-Host "Updating to WSL 2 ..."
           & wsl --set-default-version 2
