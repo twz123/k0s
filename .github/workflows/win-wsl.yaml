@@ -303,6 +303,8 @@ jobs:
           for ($i = 0; $i -lt 60; $i++) {
             $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
             Write-Host "`n=== $ts ==="
+            Write-Host "Previous WSL IP: $env:WSL_IP"
+            Write-Host "Current WSL IP: (wsl.exe -e sh -lc "hostname -I | cut -f 1 -d ' '").Trim()"
             Write-Host "-- HNS networks"
             Get-HnsNetwork
             Write-Host "-- port forwards"
