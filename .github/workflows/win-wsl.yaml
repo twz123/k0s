@@ -49,6 +49,30 @@ jobs:
           Start-Sleep -s 20s
           Write-Host "Overlay network created succesfully"
 
+          Write-Host "Trick Calico NOT the re-create the overlay network by setting up last boot time reg key"
+          $softwareRegistryKey = "HKLM:\Software\Tigera"
+          $calicoRegistryKey = $softwareRegistryKey + "\Calico"
+
+          if (! (Test-Path $softwareRegistryKey))
+          {
+              New-Item $softwareRegistryKey
+          }
+          if (! (Test-Path $calicoRegistryKey))
+          {
+              New-Item $calicoRegistryKey
+          }
+          # Set the Calico last boot time to system last boottime
+          $bootTime = (Get-CimInstance win32_operatingsystem | select @{LABEL='LastBootUpTime';EXPRESSION={$_.lastbootuptime}}).LastBootUpTime
+          if (($bootTime -EQ $null) -OR ($bootTime.length -EQ 0))
+          {
+              throw "Failed to get last boot time"
+          }
+      
+          # This function is used in conjunction with Get-StoredLastBootTime, which
+          # returns a string, so convert the datetime value to a string using the "general" standard format.
+          $systemBootTime = $bootTime.ToString("G")
+          Set-ItemProperty -Path $calicoRegistryKey -Name "LastBootTime" -Value $systemBootTime
+
       - name: Configure WSL to NOT do local port forwarding
         run: |
           @"

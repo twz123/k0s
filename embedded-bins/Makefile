@@ -79,7 +79,7 @@ $(bindir)/xtables-legacy-multi: .container.iptables
 $(bindir)/xtables-nft-multi: .container.iptables
 $(bindir)/keepalived: .container.keepalived
 
-$(bindir)/kubelet.exe .container.kubernetes.windows
+$(bindir)/kubelet.exe: .container.kubernetes.windows
 $(bindir)/containerd.exe $(bindir)/containerd-shim-runhcs-v1.exe: .container.containerd.windows
 
 $(addprefix $(bindir)/, $(bins)): | $(bindir)
