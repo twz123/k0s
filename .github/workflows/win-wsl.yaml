@@ -286,6 +286,8 @@ jobs:
 
           & kubectl get nodes,pods,ds,deployments -A -owide
 
+          & kubectl -n kube-system get ds calico-node-windows -o yaml
+
       
 
       - name: Collect logs into workspace

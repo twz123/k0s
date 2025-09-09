@@ -176,7 +176,10 @@ func WaitForDaemonSet(ctx context.Context, kc *kubernetes.Clientset, name string
 		WithObjectName(name).
 		WithErrorCallback(RetryWatchErrors(logfFrom(ctx))).
 		Until(ctx, func(ds *appsv1.DaemonSet) (bool, error) {
-			return ds.Status.NumberAvailable == ds.Status.DesiredNumberScheduled, nil
+			log := logfFrom(ctx)
+			ready := ds.Status.NumberAvailable == ds.Status.DesiredNumberScheduled
+			log("DaemonSet ready check: %v == %v → %v", ds.Status.NumberAvailable, ds.Status.DesiredNumberScheduled, ready)
+			return ready, nil
 		})
 }
 
