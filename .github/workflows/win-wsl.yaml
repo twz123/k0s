@@ -288,6 +288,9 @@ jobs:
 
           & kubectl -n kube-system get ds calico-node-windows -o yaml
 
+          # Describe the tests pods
+          & kubectl describe pod -n default
+
       
 
       - name: Collect logs into workspace

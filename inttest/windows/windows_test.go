@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/k0sproject/k0s/inttest/common"
 	"github.com/stretchr/testify/require"
@@ -139,17 +140,21 @@ func (s *WindowsSuite) TestWindows() {
 	require.NoError(s.T(), common.WaitForDaemonSet(ctx, s.kc, "calico-node", "kube-system"))
 	s.T().Log("Waiting for calico-node-windows DaemonSet to be ready")
 	require.NoError(s.T(), common.WaitForDaemonSet(ctx, s.kc, "calico-node-windows", "kube-system"))
-
+	s.T().Log("All system DaemonSets are ready")
 	// Schedule a test pod on each side
 	// Windows
 
+	s.T().Log("Creating test pods and services on both Windows and Linux nodes")
 	s.Require().NoError(runWindowsDeployment(ctx, s.kc))
-
+	s.T().Log("Waiting for Windows test pod to be ready")
 	s.Require().NoError(common.WaitForPod(ctx, s.kc, "iis", "default"))
 	// Linux
 	s.Require().NoError(runLinuxDeployment(ctx, s.kc))
+	s.T().Log("Waiting for Linux test pod to be ready")
 	s.Require().NoError(common.WaitForPod(ctx, s.kc, "nginx-linux", "default"))
 
+	s.T().Log("Both test pods are running, testing cross-node connectivity")
+	time.Sleep(10 * time.Second)
 	winSvcIP, err := svcIP(ctx, s.kc, "iis-windows-svc")
 	s.Require().NoError(err)
 	linuxSvcIP, err := svcIP(ctx, s.kc, "nginx-linux-svc")
