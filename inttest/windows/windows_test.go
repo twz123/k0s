@@ -102,17 +102,6 @@ func (s *WindowsSuite) TestWindows() {
 
 	ctx := s.T().Context()
 
-	// Wait for system services to boot up
-	s.T().Log("Waiting for system DaemonSets to be ready")
-	s.T().Log("Waiting for kube-proxy DaemonSet to be ready")
-	require.NoError(s.T(), common.WaitForDaemonSet(ctx, s.kc, "kube-proxy", "kube-system"))
-	s.T().Log("Waiting for kube-proxy-windows DaemonSet to be ready")
-	require.NoError(s.T(), common.WaitForDaemonSet(ctx, s.kc, "kube-proxy-windows", "kube-system"))
-	s.T().Log("Waiting for calico-node DaemonSet to be ready")
-	require.NoError(s.T(), common.WaitForDaemonSet(ctx, s.kc, "calico-node", "kube-system"))
-	s.T().Log("Waiting for calico-node-windows DaemonSet to be ready")
-	require.NoError(s.T(), common.WaitForDaemonSet(ctx, s.kc, "calico-node-windows", "kube-system"))
-
 	// Wait for all nodes to be ready
 	s.T().Log("Waiting for all nodes to be ready")
 	require.NoError(s.T(), common.Poll(ctx, func(ctx context.Context) (bool, error) {
@@ -129,6 +118,7 @@ func (s *WindowsSuite) TestWindows() {
 			// Find the ready condition
 			for _, condition := range node.Status.Conditions {
 				if condition.Type == corev1.NodeReady {
+					s.T().Logf("Node %s condition %s is %s", node.Name, condition.Type, condition.Status)
 					if condition.Status != corev1.ConditionTrue {
 						return false, nil
 					}
@@ -138,6 +128,17 @@ func (s *WindowsSuite) TestWindows() {
 		return true, nil
 	}))
 	s.T().Log("All nodes are ready")
+
+	// Wait for system services to boot up
+	s.T().Log("Waiting for system DaemonSets to be ready")
+	s.T().Log("Waiting for kube-proxy DaemonSet to be ready")
+	require.NoError(s.T(), common.WaitForDaemonSet(ctx, s.kc, "kube-proxy", "kube-system"))
+	s.T().Log("Waiting for kube-proxy-windows DaemonSet to be ready")
+	require.NoError(s.T(), common.WaitForDaemonSet(ctx, s.kc, "kube-proxy-windows", "kube-system"))
+	s.T().Log("Waiting for calico-node DaemonSet to be ready")
+	require.NoError(s.T(), common.WaitForDaemonSet(ctx, s.kc, "calico-node", "kube-system"))
+	s.T().Log("Waiting for calico-node-windows DaemonSet to be ready")
+	require.NoError(s.T(), common.WaitForDaemonSet(ctx, s.kc, "calico-node-windows", "kube-system"))
 
 	// Schedule a test pod on each side
 	// Windows

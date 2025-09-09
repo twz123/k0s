@@ -184,7 +184,7 @@ jobs:
 
           install -m755 -D -- '$dir/k0s' /usr/local/bin/k0s
 
-          k0s install controller --debug --enable-worker --disable-components metrics-server
+          k0s install controller --debug --enable-worker --disable-components metrics-server,konnectivity-server
           # Do not use "k0s start" here, as its error reporting is poor.
           systemctl start k0scontroller.service
           # some trailing carriage return
@@ -265,94 +265,20 @@ jobs:
             Write-Host "Join token written to file"
             break
           }
-
-      # Calico borks network when it creates the HNS network etc. so we need to have a watchdog that restores route to WSL
-      # - name: Start route watchdog (Scheduled Task)
-      #   shell: pwsh
-      #   run: |
-      #     $ErrorActionPreference = 'Stop'
-
-      #     $taskName = 'WSLRouteWatchdog'
-      #     $script   = Join-Path $env:GITHUB_WORKSPACE 'route-watchdog.ps1'   # repo root
-      #     $log      = Join-Path $env:RUNNER_TEMP 'route-watchdog.log'
-      #     $minutes  = 10    # how long to keep the watchdog alive
-      #     $port     = 6443  # apiserver port it protects
-
-      #     # Build a tiny PS payload for the task:
-      #     # - sets any env you want in the task's process (optional)
-      #     # - calls your script with -Minutes, -Port, -LogFile
-      #     $payload = @"
-      #     `$ErrorActionPreference = 'Stop'
-      #     `$env:KUBECONFIG = "$env:KUBECONFIG"
-      #     & "$script" -Minutes $minutes -LogFile "$log"
-      #     "@
-
-      #     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($payload))
-
-      #     $action    = New-ScheduledTaskAction  -Execute 'pwsh.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded"
-      #     $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest
-      #     $trigger   = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(5)
-      #     # Give it ample time; it will naturally exit when your script finishes
-      #     $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-      #                 -ExecutionTimeLimit (New-TimeSpan -Hours 1)
-
-      #     Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Force | Out-Null
-      #     Start-ScheduledTask    -TaskName $taskName
-
-      #     # Make paths available to later steps
-      #     "WATCHDOG_TASK=$taskName" | Out-File -FilePath $env:GITHUB_ENV -Append
-      #     "WATCHDOG_LOG=$log"      | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      #     Write-Host "Watchdog task '$taskName' started. Log: $log"
         
       - name: Install & Start k0s worker
         run: |
           & .\k0s.exe install worker --token-file=k0s-worker-token --debug --kubelet-extra-args="--hostname-override=windowsworker"
           & .\k0s.exe start
-      # - name: Windows smoke test
-      #   timeout-minutes: 5
-      #   run: |
-      #     & kubectl config view
-      #     & kubectl get nodes,pods -A
-      #     go test ./inttest/windows -v
 
-      # Watch the state of the cluster in loop
-      - name: Cluster state
+      - name: Windows smoke test
         timeout-minutes: 15
         run: |
-          $ErrorActionPreference = "Continue"
-          $PSNativeCommandUseErrorActionPreference = $false
+          & kubectl config view
+          & kubectl get nodes,pods -A
+          go test ./inttest/windows -v
 
-          Write-Host "Watching cluster state for a while ..."
-          for ($i = 0; $i -lt 60; $i++) {
-            $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-            Write-Host "`n=== $ts ==="
-            Write-Host "Previous WSL IP: $env:WSL_IP"
-            Write-Host "Current WSL IP: (wsl.exe -e sh -lc "hostname -I | cut -f 1 -d ' '").Trim()"
-            Write-Host "-- HNS networks"
-            Get-HnsNetwork
-            Write-Host "-- port forwards"
-            netsh interface portproxy show v4tov4
-            # Check if the needed ports are open, if not re-create
-            Write-Host "-- cluster state"
-            try {
-              & kubectl get nodes,pods -A -o wide | Out-Host
-              if ($LASTEXITCODE -ne 0) {
-                throw "kubectl exited with code $LASTEXITCODE"
-              }
-            } catch {
-              Write-Host "Error getting cluster state: $_"
-              Write-Host "Restarting k0scontroller systemd unit on WSL..."
-              & wsl -- systemctl restart k0scontroller.service
-              Write-Host "k0scontroller restarted, allow it 30 seconds to stabilize..."
-              Start-Sleep -Seconds 30
-              continue
-            }
-            Write-Host "-- WSL k0s state"
-            wsl.exe k0s kc get node,pod -A -o wide
-
-            Start-Sleep -Seconds 5
-          }
+      
 
       - name: Collect logs into workspace
         if: failure()
