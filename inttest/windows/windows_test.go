@@ -157,22 +157,40 @@ func (s *WindowsSuite) TestWindows() {
 	time.Sleep(10 * time.Second)
 	winSvcIP, err := svcIP(ctx, s.kc, "iis-windows-svc")
 	s.Require().NoError(err)
+	s.Require().NotEmpty(winSvcIP, "Windows service IP should not be empty")
 	linuxSvcIP, err := svcIP(ctx, s.kc, "nginx-linux-svc")
 	s.Require().NoError(err)
-
-	// Windows --> Linux connectivity
-	pwsh := fmt.Sprintf(`(Invoke-WebRequest -UseBasicParsing -Uri http://%s).StatusCode`, linuxSvcIP)
-	out, err := common.PodExecPowerShell(s.kc, s.restConfig, "iis", "default", pwsh)
-	s.Require().NoError(err)
-	s.T().Logf("Response from Linux service: %s", out)
-	s.Require().Equal("200", strings.TrimSpace(out))
+	s.Require().NotEmpty(linuxSvcIP, "Linux service IP should not be empty")
 
 	// Linux --> Windows connectivity
-	curl := fmt.Sprintf(`curl -s -o /dev/null -w "%%{http_code}" http://%s`, winSvcIP)
-	out, err = common.PodExecShell(s.kc, s.restConfig, "nginx-linux", "default", curl)
-	s.Require().NoError(err)
-	s.T().Logf("Response from Windows service: %s", out)
-	s.Require().Equal("200", strings.TrimSpace(out))
+	winPollCtx, winCancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer winCancel()
+	s.Require().NoError(common.Poll(winPollCtx, func(ctx context.Context) (bool, error) {
+		curl := fmt.Sprintf(`curl -s -o /dev/null -w "%%{http_code}" http://%s`, winSvcIP)
+		out, err := common.PodExecShell(s.kc, s.restConfig, "nginx-linux", "default", curl)
+		if err != nil {
+			s.T().Logf("Failed to curl Windows service from Linux pod: %v", err)
+			return false, nil
+		}
+		s.T().Logf("Response from Windows service: %s", out)
+		if strings.TrimSpace(out) != "200" {
+			s.T().Logf("Unexpected response from Windows service: %s", out)
+			return false, nil
+		}
+		s.T().Logf("Successfully curled Windows service from Linux pod")
+		return true, nil
+	}))
+	// Windows --> Linux connectivity
+	linuxPollCtx, linuxCancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer linuxCancel()
+	s.Require().NoError(common.Poll(linuxPollCtx, func(ctx context.Context) (bool, error) {
+		pwsh := fmt.Sprintf(`(Invoke-WebRequest -UseBasicParsing -Uri http://%s).StatusCode`, linuxSvcIP)
+		out, err := common.PodExecPowerShell(s.kc, s.restConfig, "iis", "default", pwsh)
+		s.Require().NoError(err)
+		s.T().Logf("Response from Linux service: %s", out)
+		return strings.TrimSpace(out) == "200", nil
+	}))
+
 }
 
 func svcIP(ctx context.Context, kc *kubernetes.Clientset, svcName string) (string, error) {

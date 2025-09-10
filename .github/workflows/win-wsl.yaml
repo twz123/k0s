@@ -290,6 +290,7 @@ jobs:
 
           # Describe the tests pods
           & kubectl describe pod -n default
+          & kubectl get ipamconfig -A -o yaml
 
       
 
