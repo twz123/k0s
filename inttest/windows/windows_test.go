@@ -153,7 +153,7 @@ func (s *WindowsSuite) TestWindows() {
 	s.T().Log("Waiting for Linux test pod to be ready")
 	s.Require().NoError(common.WaitForPod(ctx, s.kc, "nginx-linux", "default"))
 
-	s.T().Log("Both test pods are running, testing cross-node connectivity")
+	s.T().Log("Both test pods are running")
 	time.Sleep(10 * time.Second)
 	winSvcIP, err := svcIP(ctx, s.kc, "iis-windows-svc")
 	s.Require().NoError(err)
@@ -166,10 +166,11 @@ func (s *WindowsSuite) TestWindows() {
 	winPollCtx, winCancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer winCancel()
 	s.Require().NoError(common.Poll(winPollCtx, func(ctx context.Context) (bool, error) {
-		curl := fmt.Sprintf(`curl -s -o /dev/null -w "%%{http_code}" http://%s`, winSvcIP)
+		curl := fmt.Sprintf(`curl -s -o /dev/null -w "%%{http_code}" --connect-timeout 5 http://%s`, winSvcIP)
+		s.T().Logf("CURL command: %s", curl)
 		out, err := common.PodExecShell(s.kc, s.restConfig, "nginx-linux", "default", curl)
 		if err != nil {
-			s.T().Logf("Failed to curl Windows service from Linux pod: %v", err)
+			s.T().Logf("Error when curling Windows service from Linux pod: %v", err)
 			return false, nil
 		}
 		s.T().Logf("Response from Windows service: %s", out)
@@ -184,9 +185,13 @@ func (s *WindowsSuite) TestWindows() {
 	linuxPollCtx, linuxCancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer linuxCancel()
 	s.Require().NoError(common.Poll(linuxPollCtx, func(ctx context.Context) (bool, error) {
-		pwsh := fmt.Sprintf(`(Invoke-WebRequest -UseBasicParsing -Uri http://%s).StatusCode`, linuxSvcIP)
+		pwsh := fmt.Sprintf(`$ProgressPreference = 'SilentlyContinue'; (Invoke-WebRequest -UseBasicParsing -Uri http://%s -TimeoutSec 5).StatusCode`, linuxSvcIP)
+		s.T().Logf("PowerShell command: %s", pwsh)
 		out, err := common.PodExecPowerShell(s.kc, s.restConfig, "iis", "default", pwsh)
-		s.Require().NoError(err)
+		if err != nil {
+			s.T().Logf("Error when invoking PowerShell command: %v", err)
+			return false, nil
+		}
 		s.T().Logf("Response from Linux service: %s", out)
 		return strings.TrimSpace(out) == "200", nil
 	}))
