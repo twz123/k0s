@@ -22,7 +22,7 @@
       
       
       <link rel="icon" href="../img/k0s-favicon-192.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.17">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.19">
     
     
       
@@ -1284,6 +1284,29 @@
   
   <span class="md-ellipsis">
     IPv4/IPv6 dual-stack networking
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../single-stack-ipv6/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    IPv6 single-stack networking
     
   </span>
   
@@ -2587,7 +2610,7 @@ the container runtime.</p>
 <li>Use the pre-built image bundles for different target platforms that are
   created for each k0s release. They contain all the images for the default k0s
   <a href="../configuration/#specimages">image configuration</a> and can be downloaded from
-  the <a href="https://github.com/k0sproject/k0s/releases/v1.34.0-beta.0+head">GitHub releases page</a>.</li>
+  the <a href="https://github.com/k0sproject/k0s/releases/v1.34.0+head">GitHub releases page</a>.</li>
 <li>Create your own image bundle. In this case, you can easily customize the
   bundle to include container images that are not used by default in k0s.</li>
 </ul>
@@ -2667,7 +2690,7 @@ one worker node to upload k0s binary and an image bundle:</p>
 <span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">k0s</span>
 <span class="nt">spec</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">k0s</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v1.34.0-beta.0+head</span>
+<span class="w">    </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v1.34.0+head</span>
 <span class="w">  </span><span class="nt">hosts</span><span class="p">:</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">controller</span>
 <span class="w">      </span><span class="nt">ssh</span><span class="p">:</span>
@@ -2747,7 +2770,8 @@ are pulled from the Internet at any time.</p>
   
 </div>
       
-        <div class="md-social">
+        
+<div class="md-social">
   
     
     

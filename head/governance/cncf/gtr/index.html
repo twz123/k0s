@@ -22,7 +22,7 @@
       
       
       <link rel="icon" href="../../../img/k0s-favicon-192.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.17">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.19">
     
     
       
@@ -1154,6 +1154,29 @@
   
   <span class="md-ellipsis">
     IPv4/IPv6 dual-stack networking
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../single-stack-ipv6/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    IPv6 single-stack networking
     
   </span>
   
@@ -3588,12 +3611,12 @@ This is because we build our version of k0s from the officially released
 Kubernetes version and need time to test the final version before shipping.
 ![][image1]
 The k0s version string consists of the Kubernetes version and the k0s version. For example:</p>
-<div class="highlight"><pre><span></span><code>v1.34.0-beta.0+head
+<div class="highlight"><pre><span></span><code>v1.34.0+head
 </code></pre></div>
-<p>The Kubernetes version (v1.34.0-beta.0) is the first part, and the last part (head) reflects the k0s version, which is built on top of the certain Kubernetes version.</p>
+<p>The Kubernetes version (v1.34.0) is the first part, and the last part (head) reflects the k0s version, which is built on top of the certain Kubernetes version.</p>
 <h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">#</a></h2>
 <p>Here’s an example of how to set a single node cluster:</p>
-<div class="highlight"><pre><span></span><code><span class="gp"># </span><span class="nb">export</span><span class="w"> </span><span class="nv">K0S_VERSION</span><span class="o">=</span>v1.34.0-beta.0+head
+<div class="highlight"><pre><span></span><code><span class="gp"># </span><span class="nb">export</span><span class="w"> </span><span class="nv">K0S_VERSION</span><span class="o">=</span>v1.34.0+head
 <span class="gp"># </span>curl<span class="w"> </span>-sSfL<span class="w"> </span>https://github.com/k0sproject/k0s/releases/download/<span class="nv">$K0S_VERSION</span>/k0s-<span class="nv">$K0S_VERSION</span>-amd64<span class="w"> </span>-o<span class="w"> </span>k0s
 <span class="gp"># </span>chmod<span class="w"> </span>u+x<span class="w"> </span>k0s
 <span class="gp"># </span>./k0s<span class="w"> </span>install<span class="w"> </span>controller<span class="w"> </span>--single<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>./k0s<span class="w"> </span>start
@@ -3762,7 +3785,8 @@ This test suite is executed by the CI for each release (on <code>x86_64</code> a
   
 </div>
       
-        <div class="md-social">
+        
+<div class="md-social">
   
     
     

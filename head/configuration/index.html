@@ -22,7 +22,7 @@
       
       
       <link rel="icon" href="../img/k0s-favicon-192.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.17">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.19">
     
     
       
@@ -1357,6 +1357,29 @@
   
   <span class="md-ellipsis">
     IPv4/IPv6 dual-stack networking
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../single-stack-ipv6/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    IPv6 single-stack networking
     
   </span>
   
@@ -2892,7 +2915,11 @@ k0sctl</a> and the <a href="https://github.com/k0sproject/k0sctl/blob/main/READM
 </tr>
 <tr>
 <td><code>etcd.extraArgs</code></td>
-<td>Map of key-values (strings) for any extra arguments to pass down to etcd process. Any behavior triggered by these parameters is outside k0s support.</td>
+<td>Map of key-values (strings) for any extra arguments to pass down to etcd process. <code>extraArgs</code> are recommeneded over <code>rawrArgs</code> if the use case allows it.  Any behavior triggered by these parameters is outside k0s support.</td>
+</tr>
+<tr>
+<td><code>etcd.rawArgs</code></td>
+<td>Slice of strings for any raw arguments to pass down to the etcd process. These are appeneded after <code>extraArg</code>. Any behavior triggered by these parameters is outside k0s support.</td>
 </tr>
 <tr>
 <td><code>etcd.ca.expiresAfter</code></td>
@@ -3540,7 +3567,7 @@ will not disable component deployment.</p>
 users to build a minimal Kubernetes control plane and use what ever components
 they need to fulfill their need for the control plane. Disabling the system
 components happens through a command line flag for the controller process:</p>
-<div class="highlight"><pre><span></span><code>--disable-components strings                     disable components (valid items: applier-manager,autopilot,control-api,coredns,csr-approver,endpoint-reconciler,helm,konnectivity-server,kube-controller-manager,kube-proxy,kube-scheduler,metrics-server,network-provider,node-role,system-rbac,windows-node,worker-config)
+<div class="highlight"><pre><span></span><code>--disable-components strings                     disable components (valid items: applier-manager,autopilot,control-api,coredns,csr-approver,endpoint-reconciler,helm,konnectivity-server,kube-controller-manager,kube-proxy,kube-scheduler,metrics-server,network-provider,node-role,system-rbac,update-prober,windows-node,worker-config)
 </code></pre></div>
 <p>If you use k0sctl, just add the flag when installing the cluster for the first
 controller at <code>spec.hosts.installFlags</code> in the config file like e.g.:</p>
@@ -3600,7 +3627,8 @@ DaemonSets.</p>
   
 </div>
       
-        <div class="md-social">
+        
+<div class="md-social">
   
     
     
