@@ -111,7 +111,7 @@ func TestDir_Filled(t *testing.T) {
 	// Stat bar and match contents.
 	if stat, err := fs.Stat(d, "bar"); assert.NoError(t, err) {
 		assert.Equal(t, "bar", stat.Name())
-		assert.Greater(t, stat.Size(), int64(0))
+		assert.Positive(t, stat.Size(), int64(0))
 		assert.WithinDuration(t, now.Add(-1*time.Minute), stat.ModTime(), 0)
 		assert.Equal(t, os.FileMode(0755)|os.ModeDir, stat.Mode())
 		assert.True(t, stat.IsDir())
