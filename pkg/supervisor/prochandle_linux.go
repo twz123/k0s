@@ -4,136 +4,184 @@
 package supervisor
 
 import (
-	"bytes"
+	"context"
 	"errors"
+	"fmt"
 	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 	"syscall"
 
-	"github.com/k0sproject/k0s/internal/os/unix"
+	"github.com/k0sproject/k0s/internal/os/linux"
+	"github.com/k0sproject/k0s/internal/os/linux/procfs"
+	osunix "github.com/k0sproject/k0s/internal/os/unix"
+	"golang.org/x/sys/unix"
 )
 
 type unixProcess struct {
-	pid      int
-	pidDirFD *unix.DirFD
+	pid    int
+	pidDir *osunix.Dir
 }
 
 func openPID(pid int) (_ *unixProcess, err error) {
-	pidDirFD, err := unix.OpenDir(filepath.Join("/proc", strconv.Itoa(pid)), 0)
+	p := &unixProcess{pid: pid}
+	p.pidDir, err = procfs.OpenPID(pid)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, syscall.ESRCH
 		}
 		return nil, err
 	}
-	return &unixProcess{pid, pidDirFD}, nil
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, p.Close())
+		}
+	}()
+
+	// The dir is open. It might refer to a thread, though.
+	// Check if the thread group ID is the process ID.
+	if status, err := p.dir().Status(); err != nil {
+		return nil, err
+	} else if tgid, err := status.ThreadGroupID(); err != nil {
+		return nil, fmt.Errorf("failed to get thread group ID: %w", err)
+	} else if tgid != pid {
+		return nil, fmt.Errorf("%w (thread group ID is %d)", syscall.ESRCH, tgid)
+	}
+
+	return p, nil
 }
 
 func (p *unixProcess) Close() error {
-	return p.pidDirFD.Close()
+	return p.pidDir.Close()
 }
 
 func (p *unixProcess) hasTerminated() (bool, error) {
 	// Checking for termination is harder than one might think when there are
 	// open file descriptors to that process. The "null signal" trick won't work
-	// because the process remains a zombie as long as there are file
+	// because the process remains a zombie as long as there are open file
 	// descriptors to it. Rely on the proc filesystem once again to check if the
 	// process has terminated or is a zombie.
-	if zombie, err := p.isZombie(); err != nil {
-		if errors.Is(err, os.ErrProcessDone) {
-			return false, nil
+	state, err := p.dir().State()
+	if err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return true, nil
 		}
 		return false, err
-	} else if zombie {
-		return true, nil
 	}
 
-	return false, nil
+	return state == procfs.PIDStateZombie, nil
 }
 
 // cmdline implements [procHandle].
 func (p *unixProcess) cmdline() ([]string, error) {
-	cmdline, err := p.pidDirFD.ReadFile("cmdline")
-	if err != nil {
-		if errors.Is(err, syscall.ESRCH) {
-			return nil, os.ErrProcessDone
-		}
-		return nil, err
+	cmdline, err := p.dir().Cmdline()
+	if errors.Is(err, syscall.ESRCH) {
+		return nil, os.ErrProcessDone
 	}
-
-	return strings.Split(string(cmdline), "\x00"), nil
+	return cmdline, err
 }
 
 // environ implements [procHandle].
 func (p *unixProcess) environ() ([]string, error) {
-	env, err := p.pidDirFD.ReadFile("environ")
-	if err != nil {
-		if errors.Is(err, syscall.ESRCH) {
-			return nil, os.ErrProcessDone
-		}
+	env, err := p.dir().Environ()
+	if errors.Is(err, syscall.ESRCH) {
+		return nil, os.ErrProcessDone
 	}
-
-	return strings.Split(string(env), "\x00"), nil
+	return env, err
 }
 
 // requestGracefulTermination implements [procHandle].
 func (p *unixProcess) requestGracefulTermination() error {
-	// Use Go's process API to send a signal. On modern kernels (since Linux
-	// 5.3), it will use the pidfd_open syscall to obtain a pidfd to be used
-	// with the pidfd_send_signal syscall. This avoids race conditions that
-	// occur when using the traditional kill syscall. The problem is that kill
-	// specifies the target process via a PID. As a consequence, the sender may
-	// accidentally send a signal to the wrong process if the originally
-	// intended target process has terminated and its PID has been recycled for
-	// another process. By contrast, a pidfd is a stable reference to a specific
-	// process which needs to be closed. If that process terminated in the
-	// meantime, pidfd_send_signal will fail with ESRCH, no matter what happened
-	// to the PID.
-
-	process, _ := os.FindProcess(p.pid) // On UNIX, FindProcess is infallible.
-	defer func() { _ = process.Release() }()
-
-	// Make a check against the PID dirfd: If that dirfd still references an
-	// existing process ...
-	if _, err := p.pidDirFD.StatAt("stat", 0); err != nil {
-		if errors.Is(err, syscall.ESRCH) {
-			return os.ErrProcessDone
-		}
+	if err := linux.SendSignal(p.pidDir, syscall.SIGTERM); errors.Is(err, syscall.ESRCH) {
+		return os.ErrProcessDone
+	} else if !errors.Is(err, errors.ErrUnsupported) {
 		return err
 	}
-	// ... and the kernel supports pidfd_open, we now have a pidfd that is
-	// guaranteed to point to the same process as the PID dirfd.
 
-	// This is as much as we can do.
-	// On older kernels, there's simply no race-free way to do this.
-	return requestGracefulTermination(process)
+	if err := syscall.Kill(p.pid, syscall.SIGTERM); errors.Is(err, syscall.ESRCH) {
+		return os.ErrProcessDone
+	} else {
+		return err
+	}
 }
 
-func (p *unixProcess) isZombie() (bool, error) {
-	// https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html
-	stat, err := p.pidDirFD.ReadFile("stat")
+// awaitTermination implements [procHandle]. Waits until the process terminated
+// by using poll() on a pidfd. This is the only way that doesn't involve
+// userspace polling using timeouts and such, but requires at least Linux 5.3.
+func (p *unixProcess) awaitTermination(ctx context.Context) error {
+	// In order to poll() on a PID file descriptor, it needs to be opened using
+	// pidfd_open; the procfs file descriptors can't be used in that way.
+	// https://www.man7.org/linux/man-pages/man2/pidfd_open.2.html
+	pidFD, err := unix.PidfdOpen(p.pid, 0)
 	if err != nil {
 		if errors.Is(err, syscall.ESRCH) {
-			return false, os.ErrProcessDone
+			return nil // The PID doesn't exist anymore, nothing to wait for.
 		}
-		return false, err
+		return os.NewSyscallError("pidfd_open", err)
+	}
+	defer func() { err = errors.Join(err, os.NewSyscallError("close", unix.Close(pidFD))) }()
+
+	// Since the process has been opened via its PID, there might have been a
+	// race. Check if the process is still alive. If it is, then it's guaranteed
+	// that the PID hasn't been recycled in the meantime and both pidFD and p
+	// are referring to the same process.
+	if terminated, err := p.hasTerminated(); err != nil || terminated {
+		return err
 	}
 
-	// Discard the pid and comm fields: The last parenthesis marks the end of
-	// the comm field, all other fields won't contain parentheses. The end of
-	// comm needs to be at the fourth byte the earliest.
-	if endOfComm := bytes.LastIndex(stat, []byte{')'}); endOfComm < 3 {
-		return false, errors.New("/proc/[pid]/stat malformed")
-	} else {
-		stat = stat[endOfComm+1:]
+	// Setup an eventfd object to wake up the poll call from a goroutine when
+	// the context gets canceled.
+	// https://www.man7.org/linux/man-pages/man2/eventfd.2.html
+	eventFD, err := unix.Eventfd(0, unix.EFD_CLOEXEC)
+	if err != nil {
+		return os.NewSyscallError("eventfd", err)
 	}
+	defer func() { err = errors.Join(err, os.NewSyscallError("close", unix.Close(eventFD))) }()
 
-	// Parse the state field. It's a single character.
-	if len(stat) < 3 || stat[0] != ' ' || stat[2] != ' ' {
-		return false, errors.New("/proc/[pid]/stat malformed")
+	exit, done := make(chan struct{}), make(chan error, 1)
+	go func() {
+		defer close(done)
+		select {
+		case <-ctx.Done():
+			// eventfds accept an uint64 between 0 and 2^64-1.
+			one := [8]byte{7: 1}
+			_, err := unix.Write(eventFD, one[:])
+			done <- os.NewSyscallError("write", err)
+		case <-exit:
+		}
+	}()
+	defer func() {
+		close(exit)
+		if doneErr := <-done; doneErr != nil {
+			err = errors.Join(err, doneErr)
+		}
+	}()
+
+	for {
+		// https://www.man7.org/linux/man-pages/man2/poll.2.html
+		fds := [2]unix.PollFd{
+			{Fd: int32(pidFD), Events: unix.POLLIN},
+			{Fd: int32(eventFD), Events: unix.POLLIN},
+		}
+		_, err := unix.Poll(fds[:], -1)
+
+		switch {
+		case errors.Is(err, syscall.EINTR):
+			continue
+
+		case err != nil:
+			return os.NewSyscallError("poll", err)
+
+		case fds[0].Revents&unix.POLLIN != 0:
+			return nil // the process has terminated
+
+		case fds[1].Revents&unix.POLLIN != 0:
+			return context.Cause(ctx) // the context has been canceled
+
+		default:
+			return fmt.Errorf("woke up unexpectedly (0x%x / 0x%x)", fds[0].Revents, fds[1].Revents)
+		}
 	}
+}
 
-	return stat[1] == 'Z', nil
+func (p *unixProcess) dir() *procfs.PIDDir {
+	return &procfs.PIDDir{FS: p.pidDir}
 }

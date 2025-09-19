@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path"
@@ -19,8 +20,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/avast/retry-go"
 	"github.com/sirupsen/logrus"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/pkg/constant"
@@ -113,7 +114,7 @@ func (s *Supervisor) Supervise() error {
 		s.TimeoutRespawn = 5 * time.Second
 	}
 
-	if err := s.maybeCleanupPIDFile(); err != nil {
+	if err := s.maybeCleanupPIDFile(context.TODO()); err != nil {
 		if !errors.Is(err, errors.ErrUnsupported) {
 			return err
 		}
@@ -227,7 +228,7 @@ func (s *Supervisor) Stop() {
 // If so, requests graceful termination and waits for the process to terminate.
 //
 // The PID file itself is not removed here; that is handled by the caller.
-func (s *Supervisor) maybeCleanupPIDFile() error {
+func (s *Supervisor) maybeCleanupPIDFile(ctx context.Context) error {
 	pid, err := os.ReadFile(s.PidFile)
 	if os.IsNotExist(err) {
 		return nil
@@ -258,52 +259,28 @@ func (s *Supervisor) maybeCleanupPIDFile() error {
 		return nil
 	}
 
-	if err := s.terminateAndWait(ph); err != nil {
+	if err := s.terminateAndWait(ctx, ph); err != nil {
 		return fmt.Errorf("while waiting for termination of PID %d from PID file %s: %w", p, s.PidFile, err)
 	}
 
 	return nil
 }
 
-const exitCheckInterval = 200 * time.Millisecond
-
 // Tries to gracefully terminate a process and waits for it to exit. If the
 // process is still running after several attempts, it returns an error instead
 // of forcefully killing the process.
-func (s *Supervisor) terminateAndWait(ph procHandle) error {
-	return retry.Do(
-		func() error {
-			if err := ph.requestGracefulTermination(); err != nil {
-				if errors.Is(err, os.ErrProcessDone) {
-					return nil
-				}
-				return fmt.Errorf("failed to request graceful termination: %w", err)
-			}
+func (s *Supervisor) terminateAndWait(ctx context.Context, ph procHandle) error {
+	if err := ph.requestGracefulTermination(); err != nil {
+		if errors.Is(err, os.ErrProcessDone) {
+			return nil
+		}
+		return fmt.Errorf("failed to request graceful termination: %w", err)
+	}
 
-			deadlineTimer := time.NewTimer(s.TimeoutStop)
-			defer deadlineTimer.Stop()
-			checkTicker := time.NewTicker(exitCheckInterval)
-			defer checkTicker.Stop()
-
-			for {
-				select {
-				case <-checkTicker.C:
-					if terminated, err := ph.hasTerminated(); err != nil || terminated {
-						return err
-					}
-				case <-deadlineTimer.C:
-					return errors.New("process did not terminate in time")
-				}
-			}
-		},
-		retry.Attempts(3),
-		retry.Delay(exitCheckInterval),
-		retry.LastErrorOnly(true),
-		retry.OnRetry(func(attempt uint, err error) {
-			log := s.log.WithError(err).WithField("attempt", attempt+1)
-			log.Debug("Error while waiting for process termination, retrying after backoff")
-		}),
-	)
+	errTimeout := errors.New("process did not terminate in time")
+	ctx, cancel := context.WithTimeoutCause(ctx, s.TimeoutStop, errTimeout)
+	defer cancel()
+	return ph.awaitTermination(ctx)
 }
 
 // Checks if the process handle refers to a k0s-managed process. A process is
@@ -324,6 +301,28 @@ func (s *Supervisor) isK0sManaged(ph procHandle) (bool, error) {
 	}
 
 	return true, nil
+}
+
+func (s *Supervisor) awaitTermination(ctx context.Context, ph procHandle) error {
+	err := ph.awaitTermination(ctx)
+	if !errors.Is(err, errors.ErrUnsupported) {
+		return err
+	}
+
+	// Fall back to polling (old Linux kernels don't have the required syscalls).
+	s.log.WithError(err).Debug("Polling for process termination")
+
+	backoff := wait.Backoff{
+		Duration: 25 * time.Millisecond,
+		Cap:      3 * time.Second,
+		Steps:    math.MaxInt32,
+		Factor:   1.5,
+		Jitter:   0.1,
+	}
+
+	return wait.ExponentialBackoffWithContext(ctx, backoff, func(context.Context) (bool, error) {
+		return ph.hasTerminated()
+	})
 }
 
 // Prepare the env for exec:
