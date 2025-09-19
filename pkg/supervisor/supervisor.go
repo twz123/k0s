@@ -96,7 +96,7 @@ func (s *Supervisor) processWaitQuit(ctx context.Context) bool {
 }
 
 // Supervise Starts supervising the given process
-func (s *Supervisor) Supervise() error {
+func (s *Supervisor) Supervise(ctx context.Context) error {
 	s.startStopMutex.Lock()
 	defer s.startStopMutex.Unlock()
 	// check if it is already started
@@ -114,7 +114,7 @@ func (s *Supervisor) Supervise() error {
 		s.TimeoutRespawn = 5 * time.Second
 	}
 
-	if err := s.maybeCleanupPIDFile(context.TODO()); err != nil {
+	if err := s.maybeCleanupPIDFile(ctx); err != nil {
 		if !errors.Is(err, errors.ErrUnsupported) {
 			return err
 		}
@@ -122,7 +122,6 @@ func (s *Supervisor) Supervise() error {
 		s.log.WithError(err).Warn("Old process cannot be terminated")
 	}
 
-	var ctx context.Context
 	ctx, s.cancel = context.WithCancel(context.Background())
 	started := make(chan error)
 	s.done = make(chan bool)

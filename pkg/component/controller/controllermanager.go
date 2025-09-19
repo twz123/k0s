@@ -74,7 +74,7 @@ func (a *Manager) Init(_ context.Context) error {
 func (a *Manager) Start(_ context.Context) error { return nil }
 
 // Reconcile detects changes in configuration and applies them to the component
-func (a *Manager) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterConfig) error {
+func (a *Manager) Reconcile(ctx context.Context, clusterConfig *v1beta1.ClusterConfig) error {
 	logger := logrus.WithField("component", kubeControllerManagerComponent)
 	logger.Info("Starting reconcile")
 	ccmAuthConf := filepath.Join(a.K0sVars.CertRootDir, "ccm.conf")
@@ -149,7 +149,7 @@ func (a *Manager) Reconcile(_ context.Context, clusterConfig *v1beta1.ClusterCon
 		GID:     a.gid,
 	}
 	a.previousConfig = args
-	return a.supervisor.Supervise()
+	return a.supervisor.Supervise(ctx)
 }
 
 // Stop stops Manager

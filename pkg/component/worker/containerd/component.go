@@ -148,7 +148,7 @@ func (c *Component) Start(ctx context.Context) error {
 			},
 		}
 
-		if err := c.supervisor.Supervise(); err != nil {
+		if err := c.supervisor.Supervise(ctx); err != nil {
 			return err
 		}
 	}
