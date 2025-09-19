@@ -63,7 +63,7 @@ func TestDir_Empty(t *testing.T) {
 	if _, err = fs.ReadFile(d, "."); assert.ErrorAs(t, err, &pathErr) {
 		assert.Equal(t, "read", pathErr.Op)
 		assert.Equal(t, ".", pathErr.Path)
-		assert.Equal(t, pathErr.Err, syscall.EISDIR)
+		assert.Equal(t, syscall.EISDIR, pathErr.Err)
 	}
 
 	// We don't want to allow reading directories via io/fs.
