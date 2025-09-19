@@ -279,7 +279,7 @@ func (s *Supervisor) terminateAndWait(ctx context.Context, ph procHandle) error 
 	errTimeout := errors.New("process did not terminate in time")
 	ctx, cancel := context.WithTimeoutCause(ctx, s.TimeoutStop, errTimeout)
 	defer cancel()
-	return ph.awaitTermination(ctx)
+	return s.awaitTermination(ctx, ph)
 }
 
 // Checks if the process handle refers to a k0s-managed process. A process is
