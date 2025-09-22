@@ -12,13 +12,9 @@
         <meta name="author" content="Mirantis, Inc.">
       
       
-        <link rel="canonical" href="https://docs.k0sproject.io/head/user-management/">
+        <link rel="canonical" href="https://docs.k0sproject.io/head/windows-notes/">
       
       
-        <link rel="prev" href="../shell-completion/">
-      
-      
-        <link rel="next" href="../environment-variables/">
       
       
       <link rel="icon" href="../img/k0s-favicon-192.png">
@@ -26,7 +22,7 @@
     
     
       
-        <title>User Management - Documentation</title>
+        <title>Windows notes - Documentation</title>
       
     
     
@@ -87,7 +83,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#user-management" class="md-skip">
+        <a href="#check-powershell-version" class="md-skip">
           Skip to content
         </a>
       
@@ -138,7 +134,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              User Management
+              Windows notes
             
           </span>
         </div>
@@ -831,20 +827,18 @@
       
   
   
-    
   
   
-  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
@@ -860,7 +854,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             Usage
@@ -1285,32 +1279,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    User Management
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../user-management/" class="md-nav__link">
         
   
   
@@ -1321,44 +1293,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#adding-a-cluster-user" class="md-nav__link">
-    <span class="md-ellipsis">
-      Adding a Cluster User
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#enabling-access-to-cluster-resources" class="md-nav__link">
-    <span class="md-ellipsis">
-      Enabling Access to Cluster Resources
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -2415,8 +2349,6 @@
   
   
   
-    
-  
   
     <label class="md-nav__title" for="__toc">
       <span class="md-nav__icon md-icon"></span>
@@ -2425,18 +2357,90 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#adding-a-cluster-user" class="md-nav__link">
+  <a href="#check-powershell-version" class="md-nav__link">
     <span class="md-ellipsis">
-      Adding a Cluster User
+      Check PowerShell version
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#enabling-access-to-cluster-resources" class="md-nav__link">
+  <a href="#install-latest-powershell-manually" class="md-nav__link">
     <span class="md-ellipsis">
-      Enabling Access to Cluster Resources
+      Install latest PowerShell manually
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#install-containers-feature" class="md-nav__link">
+    <span class="md-ellipsis">
+      Install Containers feature
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#set-the-default-ssh-shell-to-be-powershell" class="md-nav__link">
+    <span class="md-ellipsis">
+      Set the default SSH shell to be PowerShell
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-powershell-remote-sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      Use PowerShell remote sessions
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#replacement-for-top" class="md-nav__link">
+    <span class="md-ellipsis">
+      Replacement for top
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#less-for-windows" class="md-nav__link">
+    <span class="md-ellipsis">
+      less for Windows
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#install-k0s-worker" class="md-nav__link">
+    <span class="md-ellipsis">
+      Install k0s worker
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#view-k0s-logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      View k0s logs
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#debug-k0s-with-delve" class="md-nav__link">
+    <span class="md-ellipsis">
+      Debug k0s with delve
     </span>
   </a>
   
@@ -2458,28 +2462,147 @@
 
 
 
+  <h1>Windows notes</h1>
+
 <!--
-SPDX-FileCopyrightText: 2021 k0s authors
+SPDX-FileCopyrightText: 2025 k0s authors
+
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-<h1 id="user-management">User Management<a class="headerlink" href="#user-management" title="Permanent link">#</a></h1>
-<p>Kubernetes, and thus k0s, does not have any built-in functionality to manage users. Kubernetes relies solely on external sources for user identification and authentication. A client certificate is considered an external source in this case as Kubernetes API server "just" validates that the certificate is signed by a trusted CA. This means that it is recommended to use e.g. <a href="../examples/oidc/oidc-cluster-configuration/">OpenID Connect</a> to configure the API server to trust tokens issued by an external Identity Provider.</p>
-<p>k0s comes with some helper commands to create kubeconfig with client certificates for users. There are few caveats that one needs to take into consideration when using client certificates:</p>
-<ul>
-<li>Client certificates have long expiration time, they're valid for one year</li>
-<li>Client certificates cannot be revoked (general Kubernetes challenge)</li>
-</ul>
-<h2 id="adding-a-cluster-user">Adding a Cluster User<a class="headerlink" href="#adding-a-cluster-user" title="Permanent link">#</a></h2>
-<p>Run the <a href="../cli/k0s_kubeconfig_create/">kubeconfig create</a> command on the controller to add a user to the cluster. The command outputs a kubeconfig for the user, to use for authentication.</p>
-<div class="highlight"><pre><span></span><code>k0s<span class="w"> </span>kubeconfig<span class="w"> </span>create<span class="w"> </span><span class="o">[</span>username<span class="o">]</span>
+<p>It's a pity that UNIX shells won't like CRLF and Windows PowerShell won't like
+LF.</p>
+<h2 id="check-powershell-version">Check PowerShell version<a class="headerlink" href="#check-powershell-version" title="Permanent link">#</a></h2>
+<p>In a PowerShell session, just type <code>$PSVersionTable.PSVersion</code>.</p>
+<h2 id="install-latest-powershell-manually">Install latest PowerShell manually<a class="headerlink" href="#install-latest-powershell-manually" title="Permanent link">#</a></h2>
+<div class="highlight"><pre><span></span><code><span class="c"># Turn off progress, as updating it is ridiculously slow</span>
+<span class="nv">$ProgressPreference</span> <span class="p">=</span> <span class="s1">&#39;SilentlyContinue&#39;</span>
+<span class="c"># Stop on errors</span>
+<span class="nv">$ErrorActionPreference</span> <span class="p">=</span> <span class="s1">&#39;Stop&#39;</span>
+
+<span class="c"># Get the latest PowerShell version</span>
+<span class="nv">$latestVersion</span> <span class="p">=</span> <span class="p">(</span><span class="nb">Invoke-RestMethod</span> <span class="n">-Uri</span> <span class="s2">&quot;https://api.github.com/repos/PowerShell/PowerShell/releases/latest&quot;</span><span class="p">).</span><span class="n">tag_name</span><span class="p">.</span><span class="n">TrimStart</span><span class="p">(</span><span class="s2">&quot;v&quot;</span><span class="p">)</span>
+
+<span class="c"># Download and install it</span>
+<span class="nv">$src</span> <span class="p">=</span> <span class="s2">&quot;https://github.com/PowerShell/PowerShell/releases/latest/download/PowerShell-$latestVersion-win-x64.msi&quot;</span>
+<span class="nv">$dst</span> <span class="p">=</span> <span class="s2">&quot;$env:TEMP\pwsh-$latestVersion.msi&quot;</span>
+
+<span class="nb">Write-Host</span> <span class="s2">&quot;Latest PowerShell version: $latestVersion&quot;</span>
+<span class="nb">Write-Host</span> <span class="s2">&quot;Download URL: $src&quot;</span>
+
+<span class="nb">Invoke-WebRequest</span> <span class="n">-Uri</span> <span class="nv">$src</span> <span class="n">-OutFile</span> <span class="nv">$dst</span>
+<span class="nb">Start-Process</span> <span class="n">msiexec</span><span class="p">.</span><span class="n">exe</span> <span class="n">-Wait</span> <span class="n">-ArgumentList</span> <span class="s2">&quot;/i </span><span class="se">`&quot;</span><span class="s2">$dst</span><span class="se">`&quot;</span><span class="s2"> /quiet /norestart&quot;</span>
+
+<span class="c"># Check that the installation was successful</span>
+<span class="nb">Get-Item</span> <span class="s2">&quot;C:\Program Files\PowerShell\7\pwsh.exe&quot;</span>
 </code></pre></div>
-<h2 id="enabling-access-to-cluster-resources">Enabling Access to Cluster Resources<a class="headerlink" href="#enabling-access-to-cluster-resources" title="Permanent link">#</a></h2>
-<p>Create the user with the <code>system:masters</code> group to grant the user access to the cluster:</p>
-<div class="highlight"><pre><span></span><code>k0s<span class="w"> </span>kubeconfig<span class="w"> </span>create<span class="w"> </span>--groups<span class="w"> </span><span class="s2">&quot;system:masters&quot;</span><span class="w"> </span>testUser<span class="w"> </span>&gt;<span class="w"> </span>k0s.config
+<h2 id="install-containers-feature">Install Containers feature<a class="headerlink" href="#install-containers-feature" title="Permanent link">#</a></h2>
+<div class="highlight"><pre><span></span><code><span class="nb">Install-WindowsFeature</span> <span class="n">-Name</span> <span class="n">Containers</span>
+<span class="nb">Restart-Computer</span> <span class="n">-Force</span>
 </code></pre></div>
-<p>Create a <code>roleBinding</code> to grant the user access to the resources:</p>
-<div class="highlight"><pre><span></span><code>k0s<span class="w"> </span>kubectl<span class="w"> </span>create<span class="w"> </span>clusterrolebinding<span class="w"> </span>--kubeconfig<span class="w"> </span>k0s.config<span class="w"> </span>testUser-admin-binding<span class="w"> </span>--clusterrole<span class="o">=</span>admin<span class="w"> </span>--user<span class="o">=</span>testUser
+<h2 id="set-the-default-ssh-shell-to-be-powershell">Set the default SSH shell to be PowerShell<a class="headerlink" href="#set-the-default-ssh-shell-to-be-powershell" title="Permanent link">#</a></h2>
+<div class="highlight"><pre><span></span><code><span class="nv">$path</span> <span class="p">=</span> <span class="p">(</span><span class="nb">Get-Command</span> <span class="n">pwsh</span><span class="p">).</span><span class="n">Path</span>
+<span class="nb">New-ItemProperty</span> <span class="n">-Path</span> <span class="n">HKLM</span><span class="p">:\</span><span class="n">SOFTWARE</span><span class="p">\</span><span class="n">OpenSSH</span> <span class="n">-Name</span> <span class="n">DefaultShell</span> <span class="n">-PropertyType</span> <span class="n">String</span> <span class="n">-Value</span> <span class="s2">&quot;$path&quot;</span> <span class="n">-Force</span>
+</code></pre></div>
+<!-- Set-PSReadlineKeyHandler -Key Tab -Function MenuComplete -->
+
+<h2 id="use-powershell-remote-sessions">Use PowerShell remote sessions<a class="headerlink" href="#use-powershell-remote-sessions" title="Permanent link">#</a></h2>
+<p>See <a href="https://learn.microsoft.com/en-us/powershell/scripting/security/remoting/ssh-remoting-in-powershell">PowerShell remoting over SSH</a> on Microsoft Learn.</p>
+<p>Enable the subsystem on the host:</p>
+<div class="highlight"><pre><span></span><code><span class="nv">$sshdConfigPath</span> <span class="p">=</span> <span class="s2">&quot;C:\ProgramData\ssh\sshd_config&quot;</span>
+
+<span class="c"># Load config and print it</span>
+<span class="nv">$config</span> <span class="p">=</span> <span class="nb">Get-Content</span> <span class="nv">$sshdConfigPath</span>
+
+<span class="c"># We need the short 8.3 style path to Powershell</span>
+<span class="c"># https://github.com/PowerShell/Win32-OpenSSH/issues/784</span>
+<span class="nv">$pwshPath</span> <span class="p">=</span> <span class="p">(</span><span class="nb">New-Object</span> <span class="n">-ComObject</span> <span class="n">Scripting</span><span class="p">.</span><span class="n">FileSystemObject</span><span class="p">).</span><span class="n">GetFile</span><span class="p">((</span><span class="nb">Get-Command</span> <span class="n">pwsh</span><span class="p">).</span><span class="n">Path</span><span class="p">).</span><span class="n">ShortPath</span>
+
+<span class="c"># Build the powershell subsystem line</span>
+<span class="nv">$subsystemLine</span> <span class="p">=</span> <span class="s2">&quot;Subsystem powershell $pwshPath -sshs&quot;</span>
+
+<span class="c"># Replace existing line or append if not found</span>
+<span class="k">if</span> <span class="p">(</span><span class="nv">$config</span> <span class="o">-match</span> <span class="s1">&#39;^Subsystem powershell&#39;</span><span class="p">)</span> <span class="p">{</span>
+    <span class="nv">$config</span> <span class="p">=</span> <span class="nv">$config</span> <span class="o">-replace</span> <span class="s1">&#39;^Subsystem powershell.*&#39;</span><span class="p">,</span> <span class="nv">$subsystemLine</span>
+<span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+    <span class="nv">$config</span> <span class="p">+=</span> <span class="nv">$subsystemLine</span>
+<span class="p">}</span>
+
+<span class="c"># Print the modified config</span>
+<span class="nb">echo </span><span class="nv">$config</span>
+
+<span class="c"># If you&#39;re okay with it, write it back to the file</span>
+<span class="nb">Set-Content</span> <span class="n">-Path</span> <span class="nv">$sshdConfigPath</span> <span class="n">-Value</span> <span class="nv">$config</span>
+
+<span class="c"># Restart OpenSSH</span>
+<span class="nb">Restart-Service</span> <span class="n">sshd</span>
+</code></pre></div>
+<p>Then, from a client PowerShell session:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">Enter-PSSession</span> <span class="n">-HostName</span> <span class="p">&lt;...&gt;</span> <span class="n">-UserName</span> <span class="p">&lt;...&gt;</span> <span class="n">-KeyFilePath</span> <span class="p">&lt;...&gt;</span>
+</code></pre></div>
+<h2 id="replacement-for-top">Replacement for <code>top</code><a class="headerlink" href="#replacement-for-top" title="Permanent link">#</a></h2>
+<div class="highlight"><pre><span></span><code><span class="k">while</span> <span class="p">(</span><span class="nv">$true</span><span class="p">)</span> <span class="p">{</span>
+    <span class="nb">Clear-Host</span>
+    <span class="nb">Get-Process</span> <span class="p">|</span>
+        <span class="nb">Sort-Object</span> <span class="n">CPU</span> <span class="n">-Descending</span> <span class="p">|</span>
+        <span class="nb">Select-Object</span> <span class="n">-First</span> <span class="n">10</span> <span class="n">ProcessName</span><span class="p">,</span> <span class="n">CPU</span><span class="p">,</span> <span class="n">Id</span><span class="p">,</span> <span class="n">WorkingSet</span> <span class="p">|</span>
+        <span class="nb">Format-Table</span> <span class="n">-AutoSize</span>
+    <span class="nb">Start-Sleep</span> <span class="n">-Seconds</span> <span class="n">2</span>
+<span class="p">}</span>
+</code></pre></div>
+<h2 id="less-for-windows"><code>less</code> for Windows<a class="headerlink" href="#less-for-windows" title="Permanent link">#</a></h2>
+<div class="highlight"><pre><span></span><code><span class="nv">$ProgressPreference</span> <span class="p">=</span> <span class="s1">&#39;SilentlyContinue&#39;</span> <span class="c"># Turn off progress, as updating it is ridiculously slow</span>
+<span class="nv">$ErrorActionPreference</span> <span class="p">=</span> <span class="s1">&#39;Stop&#39;</span> <span class="c"># Stop on errors</span>
+
+<span class="nv">$src</span> <span class="p">=</span> <span class="s2">&quot;https://github.com/jftuga/less-Windows/releases/download/less-v679/less-x64.zip&quot;</span>
+<span class="nv">$dst</span> <span class="p">=</span> <span class="s2">&quot;$env:TEMP\less.zip&quot;</span>
+
+<span class="nb">Invoke-WebRequest</span> <span class="n">-Uri</span> <span class="nv">$src</span> <span class="n">-OutFile</span> <span class="nv">$dst</span>
+
+<span class="nb">Expand-Archive</span> <span class="n">-Path</span> <span class="nv">$dst</span> <span class="n">-DestinationPath</span> <span class="p">(</span><span class="nb">Join-Path</span> <span class="nv">$env:LOCALAPPDATA</span> <span class="s1">&#39;Microsoft\WindowsApps&#39;</span><span class="p">)</span> <span class="n">-Force</span>
+</code></pre></div>
+<h2 id="install-k0s-worker">Install k0s worker<a class="headerlink" href="#install-k0s-worker" title="Permanent link">#</a></h2>
+<div class="highlight"><pre><span></span><code><span class="nb">Move-Item</span> <span class="n">-Path</span> <span class="n">k0s</span><span class="p">.</span><span class="n">exe</span> <span class="n">-Destination</span> <span class="p">(</span><span class="nb">Join-Path</span> <span class="nv">$env:LOCALAPPDATA</span> <span class="s1">&#39;Microsoft\WindowsApps&#39;</span><span class="p">)</span>
+<span class="p">&amp;</span> <span class="n">k0s</span> <span class="n">install</span> <span class="n">worker</span> <span class="p">-</span><span class="n">-token</span><span class="o">-file</span> <span class="p">\</span><span class="n">path</span><span class="p">\</span><span class="n">to</span><span class="p">\</span><span class="n">token</span><span class="o">-file</span> <span class="p">-</span><span class="n">-debug</span>
+<span class="p">&amp;</span> <span class="n">k0s</span> <span class="nb">start</span>
+</code></pre></div>
+<h2 id="view-k0s-logs">View k0s logs<a class="headerlink" href="#view-k0s-logs" title="Permanent link">#</a></h2>
+<div class="highlight"><pre><span></span><code><span class="k">for</span> <span class="p">(</span><span class="nv">$lastRecordId</span> <span class="p">=</span> <span class="n">0</span><span class="p">;</span> <span class="nv">$true</span><span class="p">;</span> <span class="p">)</span> <span class="p">{</span>
+    <span class="nv">$filter</span> <span class="p">=</span> <span class="p">@{</span>
+        <span class="n">LogName</span>      <span class="p">=</span> <span class="s1">&#39;Application&#39;</span>
+        <span class="n">ProviderName</span> <span class="p">=</span> <span class="s1">&#39;k0sworker&#39;</span>
+        <span class="c">#StartTime    = (Get-Date).AddSeconds(-10)</span>
+    <span class="p">}</span>
+
+    <span class="nv">$newEntries</span> <span class="p">=</span> <span class="nb">Get-WinEvent</span> <span class="n">-FilterHashtable</span> <span class="nv">$filter</span> <span class="p">|</span>
+        <span class="nb">Where-Object</span> <span class="p">{</span> <span class="nv">$_</span><span class="p">.</span><span class="n">RecordId</span> <span class="o">-gt</span> <span class="nv">$lastRecordId</span> <span class="p">}</span> <span class="p">|</span>
+        <span class="nb">Sort-Object</span> <span class="n">RecordId</span>
+
+    <span class="k">foreach</span> <span class="p">(</span><span class="nv">$entry</span> <span class="k">in</span> <span class="nv">$newEntries</span><span class="p">)</span> <span class="p">{</span>
+        <span class="nv">$template</span> <span class="p">=</span> <span class="s2">&quot;[{0}] {1} - {2} - {3}&quot;</span>
+        <span class="nv">$message</span> <span class="p">=</span> <span class="nv">$entry</span><span class="p">.</span><span class="n">Message</span> <span class="o">-replace</span> <span class="s1">&#39;\s+&#39;</span><span class="p">,</span> <span class="s1">&#39; &#39;</span>
+        <span class="nv">$formatted</span> <span class="p">=</span> <span class="nv">$template</span> <span class="o">-f</span> <span class="nv">$entry</span><span class="p">.</span><span class="n">TimeCreated</span><span class="p">,</span> <span class="nv">$entry</span><span class="p">.</span><span class="n">LevelDisplayName</span><span class="p">,</span> <span class="nv">$entry</span><span class="p">.</span><span class="n">ProviderName</span><span class="p">,</span> <span class="nv">$message</span>
+        <span class="nb">Write-Output</span> <span class="nv">$formatted</span>
+
+        <span class="nv">$lastRecordId</span> <span class="p">=</span> <span class="nv">$entry</span><span class="p">.</span><span class="n">RecordId</span>
+    <span class="p">}</span>
+
+    <span class="nb">Start-Sleep</span> <span class="n">-Seconds</span> <span class="n">2</span>
+<span class="p">}</span>
+</code></pre></div>
+<h2 id="debug-k0s-with-delve">Debug k0s with delve<a class="headerlink" href="#debug-k0s-with-delve" title="Permanent link">#</a></h2>
+<div class="highlight"><pre><span></span><code><span class="nv">$ProgressPreference</span> <span class="p">=</span> <span class="s1">&#39;SilentlyContinue&#39;</span>
+<span class="nv">$ErrorActionPreference</span> <span class="p">=</span> <span class="s1">&#39;Stop&#39;</span>
+
+<span class="c"># Install Go</span>
+<span class="nv">$src</span> <span class="p">=</span> <span class="s1">&#39;https://go.dev/dl/go1.24.5.windows-amd64.msi&#39;</span>
+<span class="nv">$dst</span> <span class="p">=</span> <span class="s1">&#39;go1.24.5.windows-amd64.msi&#39;</span>
+<span class="nb">Invoke-WebRequest</span> <span class="n">-Uri</span> <span class="nv">$src</span> <span class="n">-OutFile</span> <span class="nv">$dst</span>
+<span class="nb">Start-Process</span> <span class="n">msiexec</span><span class="p">.</span><span class="n">exe</span> <span class="n">-Wait</span> <span class="n">-ArgumentList</span> <span class="s2">&quot;/i </span><span class="se">`&quot;</span><span class="s2">$dst</span><span class="se">`&quot;</span><span class="s2"> /quiet /norestart&quot;</span>
+
+<span class="c"># After relogin</span>
+<span class="n">go</span> <span class="n">install</span> <span class="n">github</span><span class="p">.</span><span class="n">com</span><span class="p">/</span><span class="n">go-delve</span><span class="p">/</span><span class="n">delve</span><span class="p">/</span><span class="n">cmd</span><span class="p">/</span><span class="n">dlv</span><span class="nv">@latest</span>
+<span class="n">dlv</span> <span class="p">-</span><span class="n">-listen</span><span class="p">=</span><span class="n">127</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">1</span><span class="p">:</span><span class="n">2345</span> <span class="p">-</span><span class="n">-headless</span><span class="p">=</span><span class="n">true</span> <span class="p">-</span><span class="n">-api-version</span><span class="p">=</span><span class="n">2</span> <span class="n">exec</span> <span class="p">--</span> <span class="p">(</span><span class="nb">Get-Command</span> <span class="n">k0s</span><span class="p">).</span><span class="n">Path</span> <span class="n">worker</span>
 </code></pre></div>
 
 

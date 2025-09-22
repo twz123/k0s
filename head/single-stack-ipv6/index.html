@@ -12,13 +12,13 @@
         <meta name="author" content="Mirantis, Inc.">
       
       
-        <link rel="canonical" href="https://docs.k0sproject.io/head/user-management/">
+        <link rel="canonical" href="https://docs.k0sproject.io/head/single-stack-ipv6/">
       
       
-        <link rel="prev" href="../shell-completion/">
+        <link rel="prev" href="../dual-stack/">
       
       
-        <link rel="next" href="../environment-variables/">
+        <link rel="next" href="../high-availability/">
       
       
       <link rel="icon" href="../img/k0s-favicon-192.png">
@@ -26,7 +26,7 @@
     
     
       
-        <title>User Management - Documentation</title>
+        <title>IPv6 single-stack networking - Documentation</title>
       
     
     
@@ -87,7 +87,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#user-management" class="md-skip">
+        <a href="#ipv6-single-stack-networking" class="md-skip">
           Skip to content
         </a>
       
@@ -138,7 +138,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              User Management
+              IPv6 single-stack networking
             
           </span>
         </div>
@@ -1170,10 +1170,32 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../single-stack-ipv6/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    IPv6 single-stack networking
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1184,6 +1206,59 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#enabling-ipv6-single-stack-using-the-default-cni-kube-router" class="md-nav__link">
+    <span class="md-ellipsis">
+      Enabling IPv6 single-stack using the default CNI (Kube-router)
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Enabling IPv6 single-stack using the default CNI (Kube-router)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#configuring-the-node-cidr-mask-size" class="md-nav__link">
+    <span class="md-ellipsis">
+      Configuring the node CIDR mask size
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#important-notes-for-kube-router" class="md-nav__link">
+    <span class="md-ellipsis">
+      Important Notes for Kube-router
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1285,32 +1360,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    User Management
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../user-management/" class="md-nav__link">
         
   
   
@@ -1321,44 +1374,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#adding-a-cluster-user" class="md-nav__link">
-    <span class="md-ellipsis">
-      Adding a Cluster User
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#enabling-access-to-cluster-resources" class="md-nav__link">
-    <span class="md-ellipsis">
-      Enabling Access to Cluster Resources
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -2425,20 +2440,35 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#adding-a-cluster-user" class="md-nav__link">
+  <a href="#enabling-ipv6-single-stack-using-the-default-cni-kube-router" class="md-nav__link">
     <span class="md-ellipsis">
-      Adding a Cluster User
+      Enabling IPv6 single-stack using the default CNI (Kube-router)
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Enabling IPv6 single-stack using the default CNI (Kube-router)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#configuring-the-node-cidr-mask-size" class="md-nav__link">
+    <span class="md-ellipsis">
+      Configuring the node CIDR mask size
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#enabling-access-to-cluster-resources" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#important-notes-for-kube-router" class="md-nav__link">
     <span class="md-ellipsis">
-      Enabling Access to Cluster Resources
+      Important Notes for Kube-router
     </span>
   </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2459,28 +2489,51 @@
 
 
 <!--
-SPDX-FileCopyrightText: 2021 k0s authors
+SPDX-FileCopyrightText: 2025 k0s authors
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-<h1 id="user-management">User Management<a class="headerlink" href="#user-management" title="Permanent link">#</a></h1>
-<p>Kubernetes, and thus k0s, does not have any built-in functionality to manage users. Kubernetes relies solely on external sources for user identification and authentication. A client certificate is considered an external source in this case as Kubernetes API server "just" validates that the certificate is signed by a trusted CA. This means that it is recommended to use e.g. <a href="../examples/oidc/oidc-cluster-configuration/">OpenID Connect</a> to configure the API server to trust tokens issued by an external Identity Provider.</p>
-<p>k0s comes with some helper commands to create kubeconfig with client certificates for users. There are few caveats that one needs to take into consideration when using client certificates:</p>
-<ul>
-<li>Client certificates have long expiration time, they're valid for one year</li>
-<li>Client certificates cannot be revoked (general Kubernetes challenge)</li>
-</ul>
-<h2 id="adding-a-cluster-user">Adding a Cluster User<a class="headerlink" href="#adding-a-cluster-user" title="Permanent link">#</a></h2>
-<p>Run the <a href="../cli/k0s_kubeconfig_create/">kubeconfig create</a> command on the controller to add a user to the cluster. The command outputs a kubeconfig for the user, to use for authentication.</p>
-<div class="highlight"><pre><span></span><code>k0s<span class="w"> </span>kubeconfig<span class="w"> </span>create<span class="w"> </span><span class="o">[</span>username<span class="o">]</span>
+<h1 id="ipv6-single-stack-networking">IPv6 single-stack networking<a class="headerlink" href="#ipv6-single-stack-networking" title="Permanent link">#</a></h1>
+<p>K0s introduced experimental IPv6 single-stack networking, allowing clusters to operate
+exclusively with IPv6 addresses. IPv6 single stack is currently in alpha state and requires
+the <a href="../feature-gates/">IPv6SingleStack feature gate</a> to be enabled on every controller.</p>
+<p>IPv6 single-stack is fully compatible with both <a href="../nllb/">node-local load balancing</a> and
+<a href="../cplb/">control plane load balancing</a>.</p>
+<h2 id="enabling-ipv6-single-stack-using-the-default-cni-kube-router">Enabling IPv6 single-stack using the default CNI (Kube-router)<a class="headerlink" href="#enabling-ipv6-single-stack-using-the-default-cni-kube-router" title="Permanent link">#</a></h2>
+<p>In order to enable IPv6 single-stack networking using the default CNI provider, both an IPv6
+<code>podCIDR</code> and <code>serviceCIDR</code> must be provided. Dual stack must not be enabled. Migrations
+to dual stack are possible as long as the primary address family remains IPv6.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">spec</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">network</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">podCIDR</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fd00::/108</span>
+<span class="w">    </span><span class="nt">serviceCIDR</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fd01::/108</span>
 </code></pre></div>
-<h2 id="enabling-access-to-cluster-resources">Enabling Access to Cluster Resources<a class="headerlink" href="#enabling-access-to-cluster-resources" title="Permanent link">#</a></h2>
-<p>Create the user with the <code>system:masters</code> group to grant the user access to the cluster:</p>
-<div class="highlight"><pre><span></span><code>k0s<span class="w"> </span>kubeconfig<span class="w"> </span>create<span class="w"> </span>--groups<span class="w"> </span><span class="s2">&quot;system:masters&quot;</span><span class="w"> </span>testUser<span class="w"> </span>&gt;<span class="w"> </span>k0s.config
+<p>Ensure that every controller in the cluster is executed with the
+<a href="../feature-gates/">IPv6SingleStack feature gate</a> enabled:</p>
+<div class="highlight"><pre><span></span><code>k0s<span class="w"> </span>controller<span class="w"> </span>--feature-gates<span class="o">=</span><span class="s2">&quot;IPv6SingleStack=true&quot;</span>
 </code></pre></div>
-<p>Create a <code>roleBinding</code> to grant the user access to the resources:</p>
-<div class="highlight"><pre><span></span><code>k0s<span class="w"> </span>kubectl<span class="w"> </span>create<span class="w"> </span>clusterrolebinding<span class="w"> </span>--kubeconfig<span class="w"> </span>k0s.config<span class="w"> </span>testUser-admin-binding<span class="w"> </span>--clusterrole<span class="o">=</span>admin<span class="w"> </span>--user<span class="o">=</span>testUser
+<p>This configuration will set up all Kubernetes components and Kube-router for IPv6
+single-stack networking.</p>
+<h3 id="configuring-the-node-cidr-mask-size">Configuring the node CIDR mask size<a class="headerlink" href="#configuring-the-node-cidr-mask-size" title="Permanent link">#</a></h3>
+<p>By default, k0s uses a <code>/117</code> node CIDR mask size for IPv6, which provides
+2048 IP addresses per node and and a <code>/24</code> for IPv4 which provides 256
+addresses per node.</p>
+<p>Using the example configuration <code>IPv6PodCIDR: fd00::/108</code>, there are 9 bits
+available for node allocation (117 - 108 = 9) and 11 bits available for
+pod allocation (128 - 117 = 11). This allows 512 nodes with 2048 IPs per node.</p>
+<p>You can customize the node CIDR mask size using the controller manager's extra arguments:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">spec</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">controllerManager</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">extraArgs</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">node-cidr-mask-size</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;120&quot;</span>
+<span class="w">  </span><span class="nt">network</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">podCIDR</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fd00::/108</span>
+<span class="w">    </span><span class="nt">serviceCIDR</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fd01::/108</span>
 </code></pre></div>
+<p>With a <code>/120</code> node CIDR mask size, the cluster would support more nodes (4096 nodes maximum
+with the <code>/108</code> pod CIDR) but each node would receive 256 IP addresses.</p>
+<h3 id="important-notes-for-kube-router">Important Notes for Kube-router<a class="headerlink" href="#important-notes-for-kube-router" title="Permanent link">#</a></h3>
+<p>Currently kube-router on IPv6 doesn't pass the kubernetes network conformance tests.</p>
 
 
 
