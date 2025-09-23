@@ -12,28 +12,24 @@
         <meta name="author" content="Mirantis, Inc.">
       
       
-        <link rel="canonical" href="https://docs.k0sproject.io/head/governance/cncf/security-self-assessment/">
+        <link rel="canonical" href="https://docs.k0sproject.io/head/windows-notes/">
       
       
-        <link rel="prev" href="../gtr/">
       
       
-        <link rel="next" href="../../../commercial-support/">
-      
-      
-      <link rel="icon" href="../../../img/k0s-favicon-192.png">
+      <link rel="icon" href="../img/k0s-favicon-192.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.20">
     
     
       
-        <title>TAG-Security self-assessment - Documentation</title>
+        <title>Windows notes - Documentation</title>
       
     
     
-      <link rel="stylesheet" href="../../../assets/stylesheets/main.e53b48f4.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.e53b48f4.min.css">
       
         
-        <link rel="stylesheet" href="../../../assets/stylesheets/palette.06af60db.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
       
       
 
@@ -52,9 +48,9 @@
       
     
     
-      <link rel="stylesheet" href="../../../stylesheets/extra.css">
+      <link rel="stylesheet" href="../stylesheets/extra.css">
     
-    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
   <!-- Global site tag (gtag.js) - Google Analytics -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-JMV1409T2T"></script>
@@ -87,7 +83,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#cncf-tag-security-self-assessment" class="md-skip">
+        <a href="#check-powershell-version" class="md-skip">
           Skip to content
         </a>
       
@@ -102,12 +98,12 @@
             <div class="md-banner__inner md-grid md-typeset">
               
   You are not currently viewing the documentation for the current stable release of k0s.
-  <a href="../../../..">
+  <a href="../..">
     <strong>Click here to go to the documentation of the current stable release.</strong>
   </a>
 
             </div>
-            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL("../../.."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL(".."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
           </aside>
         
       </div>
@@ -119,9 +115,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../../.." title="Documentation" class="md-header__button md-logo" aria-label="Documentation" data-md-component="logo">
+    <a href=".." title="Documentation" class="md-header__button md-logo" aria-label="Documentation" data-md-component="logo">
       
-  <img src="../../../img/k0s-favicon-192.png" alt="logo">
+  <img src="../img/k0s-favicon-192.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -138,7 +134,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              TAG-Security self-assessment
+              Windows notes
             
           </span>
         </div>
@@ -256,9 +252,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../../.." title="Documentation" class="md-nav__button md-logo" aria-label="Documentation" data-md-component="logo">
+    <a href=".." title="Documentation" class="md-nav__button md-logo" aria-label="Documentation" data-md-component="logo">
       
-  <img src="../../../img/k0s-favicon-192.png" alt="logo">
+  <img src="../img/k0s-favicon-192.png" alt="logo">
 
     </a>
     Documentation
@@ -285,7 +281,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../.." class="md-nav__link">
+      <a href=".." class="md-nav__link">
         
   
   
@@ -345,7 +341,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../install/" class="md-nav__link">
+      <a href="../install/" class="md-nav__link">
         
   
   
@@ -368,7 +364,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../k0sctl-install/" class="md-nav__link">
+      <a href="../k0sctl-install/" class="md-nav__link">
         
   
   
@@ -429,7 +425,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../k0s-multi-node/" class="md-nav__link">
+      <a href="../k0s-multi-node/" class="md-nav__link">
         
   
   
@@ -452,7 +448,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../k0s-in-docker/" class="md-nav__link">
+      <a href="../k0s-in-docker/" class="md-nav__link">
         
   
   
@@ -475,7 +471,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../experimental-windows/" class="md-nav__link">
+      <a href="../experimental-windows/" class="md-nav__link">
         
   
   
@@ -498,7 +494,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../raspberry-pi4/" class="md-nav__link">
+      <a href="../raspberry-pi4/" class="md-nav__link">
         
   
   
@@ -521,7 +517,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../raspberry-pi5/" class="md-nav__link">
+      <a href="../raspberry-pi5/" class="md-nav__link">
         
   
   
@@ -544,7 +540,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../examples/ansible-playbook/" class="md-nav__link">
+      <a href="../examples/ansible-playbook/" class="md-nav__link">
         
   
   
@@ -567,7 +563,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../airgap-install/" class="md-nav__link">
+      <a href="../airgap-install/" class="md-nav__link">
         
   
   
@@ -590,7 +586,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../custom-ca/" class="md-nav__link">
+      <a href="../custom-ca/" class="md-nav__link">
         
   
   
@@ -621,7 +617,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../system-requirements/" class="md-nav__link">
+      <a href="../system-requirements/" class="md-nav__link">
         
   
   
@@ -644,7 +640,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../external-runtime-deps/" class="md-nav__link">
+      <a href="../external-runtime-deps/" class="md-nav__link">
         
   
   
@@ -667,7 +663,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../verifying-signs/" class="md-nav__link">
+      <a href="../verifying-signs/" class="md-nav__link">
         
   
   
@@ -735,7 +731,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../upgrade/" class="md-nav__link">
+      <a href="../upgrade/" class="md-nav__link">
         
   
   
@@ -758,7 +754,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../backup/" class="md-nav__link">
+      <a href="../backup/" class="md-nav__link">
         
   
   
@@ -781,7 +777,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../remove_controller/" class="md-nav__link">
+      <a href="../remove_controller/" class="md-nav__link">
         
   
   
@@ -804,7 +800,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../reset/" class="md-nav__link">
+      <a href="../reset/" class="md-nav__link">
         
   
   
@@ -872,7 +868,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../configuration/" class="md-nav__link">
+      <a href="../configuration/" class="md-nav__link">
         
   
   
@@ -895,7 +891,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../dynamic-configuration/" class="md-nav__link">
+      <a href="../dynamic-configuration/" class="md-nav__link">
         
   
   
@@ -918,7 +914,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../configuration-validation/" class="md-nav__link">
+      <a href="../configuration-validation/" class="md-nav__link">
         
   
   
@@ -941,7 +937,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../worker-node-config/" class="md-nav__link">
+      <a href="../worker-node-config/" class="md-nav__link">
         
   
   
@@ -964,7 +960,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../networking/" class="md-nav__link">
+      <a href="../networking/" class="md-nav__link">
         
   
   
@@ -987,7 +983,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../runtime/" class="md-nav__link">
+      <a href="../runtime/" class="md-nav__link">
         
   
   
@@ -1010,7 +1006,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../storage/" class="md-nav__link">
+      <a href="../storage/" class="md-nav__link">
         
   
   
@@ -1033,7 +1029,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../system-monitoring/" class="md-nav__link">
+      <a href="../system-monitoring/" class="md-nav__link">
         
   
   
@@ -1056,7 +1052,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../manifests/" class="md-nav__link">
+      <a href="../manifests/" class="md-nav__link">
         
   
   
@@ -1079,7 +1075,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../helm-charts/" class="md-nav__link">
+      <a href="../helm-charts/" class="md-nav__link">
         
   
   
@@ -1102,7 +1098,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../feature-gates/" class="md-nav__link">
+      <a href="../feature-gates/" class="md-nav__link">
         
   
   
@@ -1125,7 +1121,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../cloud-providers/" class="md-nav__link">
+      <a href="../cloud-providers/" class="md-nav__link">
         
   
   
@@ -1148,7 +1144,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../dual-stack/" class="md-nav__link">
+      <a href="../dual-stack/" class="md-nav__link">
         
   
   
@@ -1171,7 +1167,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../single-stack-ipv6/" class="md-nav__link">
+      <a href="../single-stack-ipv6/" class="md-nav__link">
         
   
   
@@ -1194,7 +1190,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../high-availability/" class="md-nav__link">
+      <a href="../high-availability/" class="md-nav__link">
         
   
   
@@ -1217,7 +1213,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../nllb/" class="md-nav__link">
+      <a href="../nllb/" class="md-nav__link">
         
   
   
@@ -1240,7 +1236,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../cplb/" class="md-nav__link">
+      <a href="../cplb/" class="md-nav__link">
         
   
   
@@ -1263,7 +1259,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../shell-completion/" class="md-nav__link">
+      <a href="../shell-completion/" class="md-nav__link">
         
   
   
@@ -1286,7 +1282,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../user-management/" class="md-nav__link">
+      <a href="../user-management/" class="md-nav__link">
         
   
   
@@ -1309,7 +1305,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../environment-variables/" class="md-nav__link">
+      <a href="../environment-variables/" class="md-nav__link">
         
   
   
@@ -1332,7 +1328,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../examples/oidc/oidc-cluster-configuration/" class="md-nav__link">
+      <a href="../examples/oidc/oidc-cluster-configuration/" class="md-nav__link">
         
   
   
@@ -1355,7 +1351,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../selinux/" class="md-nav__link">
+      <a href="../selinux/" class="md-nav__link">
         
   
   
@@ -1378,7 +1374,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../podsecurity/" class="md-nav__link">
+      <a href="../podsecurity/" class="md-nav__link">
         
   
   
@@ -1401,7 +1397,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../reinstall-k0sctl/" class="md-nav__link">
+      <a href="../reinstall-k0sctl/" class="md-nav__link">
         
   
   
@@ -1469,7 +1465,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../autopilot/" class="md-nav__link">
+      <a href="../autopilot/" class="md-nav__link">
         
   
   
@@ -1492,7 +1488,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../autopilot-multicommand/" class="md-nav__link">
+      <a href="../autopilot-multicommand/" class="md-nav__link">
         
   
   
@@ -1560,7 +1556,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../examples/metallb-loadbalancer/" class="md-nav__link">
+      <a href="../examples/metallb-loadbalancer/" class="md-nav__link">
         
   
   
@@ -1583,7 +1579,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../examples/nginx-ingress/" class="md-nav__link">
+      <a href="../examples/nginx-ingress/" class="md-nav__link">
         
   
   
@@ -1606,7 +1602,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../examples/traefik-ingress/" class="md-nav__link">
+      <a href="../examples/traefik-ingress/" class="md-nav__link">
         
   
   
@@ -1629,7 +1625,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../examples/rook-ceph/" class="md-nav__link">
+      <a href="../examples/rook-ceph/" class="md-nav__link">
         
   
   
@@ -1652,7 +1648,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../examples/gitops-flux/" class="md-nav__link">
+      <a href="../examples/gitops-flux/" class="md-nav__link">
         
   
   
@@ -1675,7 +1671,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../examples/openebs/" class="md-nav__link">
+      <a href="../examples/openebs/" class="md-nav__link">
         
   
   
@@ -1743,7 +1739,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../troubleshooting/FAQ/" class="md-nav__link">
+      <a href="../troubleshooting/FAQ/" class="md-nav__link">
         
   
   
@@ -1766,7 +1762,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../troubleshooting/logs/" class="md-nav__link">
+      <a href="../troubleshooting/logs/" class="md-nav__link">
         
   
   
@@ -1789,7 +1785,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../troubleshooting/troubleshooting/" class="md-nav__link">
+      <a href="../troubleshooting/troubleshooting/" class="md-nav__link">
         
   
   
@@ -1812,7 +1808,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../troubleshooting/support-dump/" class="md-nav__link">
+      <a href="../troubleshooting/support-dump/" class="md-nav__link">
         
   
   
@@ -1835,7 +1831,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../troubleshooting/certificate-authorities/" class="md-nav__link">
+      <a href="../troubleshooting/certificate-authorities/" class="md-nav__link">
         
   
   
@@ -1903,7 +1899,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../architecture/" class="md-nav__link">
+      <a href="../architecture/" class="md-nav__link">
         
   
   
@@ -1926,7 +1922,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../cli/" class="md-nav__link">
+      <a href="../cli/" class="md-nav__link">
         
   
   
@@ -1949,7 +1945,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../cis_benchmark/" class="md-nav__link">
+      <a href="../cis_benchmark/" class="md-nav__link">
         
   
   
@@ -1976,20 +1972,18 @@
       
   
   
-    
   
   
-  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
         
           
           <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
@@ -2005,7 +1999,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_9">
             <span class="md-nav__icon md-icon"></span>
             Governance
@@ -2019,7 +2013,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../security/" class="md-nav__link">
+      <a href="../security/" class="md-nav__link">
         
   
   
@@ -2042,7 +2036,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../releases/" class="md-nav__link">
+      <a href="../releases/" class="md-nav__link">
         
   
   
@@ -2062,20 +2056,18 @@
                 
   
   
-    
   
   
-  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9_3" >
         
           
           <label class="md-nav__link" for="__nav_9_3" id="__nav_9_3_label" tabindex="0">
@@ -2091,7 +2083,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_9_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_9_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_9_3">
             <span class="md-nav__icon md-icon"></span>
             CNCF
@@ -2105,7 +2097,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../gtr/" class="md-nav__link">
+      <a href="../governance/cncf/gtr/" class="md-nav__link">
         
   
   
@@ -2125,32 +2117,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    TAG-Security self-assessment
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../governance/cncf/security-self-assessment/" class="md-nav__link">
         
   
   
@@ -2161,263 +2131,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#metadata" class="md-nav__link">
-    <span class="md-ellipsis">
-      Metadata
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#security-links" class="md-nav__link">
-    <span class="md-ellipsis">
-      Security links
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#project-overview" class="md-nav__link">
-    <span class="md-ellipsis">
-      Project Overview
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#background" class="md-nav__link">
-    <span class="md-ellipsis">
-      Background
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#actors" class="md-nav__link">
-    <span class="md-ellipsis">
-      Actors
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Actors">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#control-plane" class="md-nav__link">
-    <span class="md-ellipsis">
-      Control Plane
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#data-store-etcd" class="md-nav__link">
-    <span class="md-ellipsis">
-      Data Store (etcd)
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#worker-nodes" class="md-nav__link">
-    <span class="md-ellipsis">
-      Worker Nodes
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#networking-layer" class="md-nav__link">
-    <span class="md-ellipsis">
-      Networking Layer
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#goals" class="md-nav__link">
-    <span class="md-ellipsis">
-      Goals
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Goals">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#secure-by-default-configurations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Secure-by-default configurations
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#minimized-operational-complexity" class="md-nav__link">
-    <span class="md-ellipsis">
-      Minimized operational complexity
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#compatibility-with-kubernetes-security-best-practices" class="md-nav__link">
-    <span class="md-ellipsis">
-      Compatibility with Kubernetes security best practices
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#self-assessment-use" class="md-nav__link">
-    <span class="md-ellipsis">
-      Self-assessment use
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#project-compliance" class="md-nav__link">
-    <span class="md-ellipsis">
-      Project compliance
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#secure-development-practices" class="md-nav__link">
-    <span class="md-ellipsis">
-      Secure development practices
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Secure development practices">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#development-pipeline" class="md-nav__link">
-    <span class="md-ellipsis">
-      Development pipeline
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#communication-channels" class="md-nav__link">
-    <span class="md-ellipsis">
-      Communication channels
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#security-issue-resolution" class="md-nav__link">
-    <span class="md-ellipsis">
-      Security issue resolution
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Security issue resolution">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#issue-reporting" class="md-nav__link">
-    <span class="md-ellipsis">
-      Issue Reporting
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#incident-response" class="md-nav__link">
-    <span class="md-ellipsis">
-      Incident Response
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#appendix" class="md-nav__link">
-    <span class="md-ellipsis">
-      Appendix
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Appendix">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#case-studies" class="md-nav__link">
-    <span class="md-ellipsis">
-      Case studies
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -2445,7 +2158,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../commercial-support/" class="md-nav__link">
+      <a href="../commercial-support/" class="md-nav__link">
         
   
   
@@ -2467,7 +2180,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../adopters/" class="md-nav__link">
+      <a href="../adopters/" class="md-nav__link">
         
   
   
@@ -2527,7 +2240,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../contributors/" class="md-nav__link">
+      <a href="../contributors/" class="md-nav__link">
         
   
   
@@ -2550,7 +2263,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../contributors/github_workflow/" class="md-nav__link">
+      <a href="../contributors/github_workflow/" class="md-nav__link">
         
   
   
@@ -2573,7 +2286,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../contributors/testing/" class="md-nav__link">
+      <a href="../contributors/testing/" class="md-nav__link">
         
   
   
@@ -2596,7 +2309,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../contributors/docs/" class="md-nav__link">
+      <a href="../contributors/docs/" class="md-nav__link">
         
   
   
@@ -2636,8 +2349,6 @@
   
   
   
-    
-  
   
     <label class="md-nav__title" for="__toc">
       <span class="md-nav__icon md-icon"></span>
@@ -2646,239 +2357,92 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#metadata" class="md-nav__link">
+  <a href="#check-powershell-version" class="md-nav__link">
     <span class="md-ellipsis">
-      Metadata
+      Check PowerShell version
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#security-links" class="md-nav__link">
+  <a href="#install-latest-powershell-manually" class="md-nav__link">
     <span class="md-ellipsis">
-      Security links
+      Install latest PowerShell manually
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#project-overview" class="md-nav__link">
+  <a href="#install-containers-feature" class="md-nav__link">
     <span class="md-ellipsis">
-      Project Overview
+      Install Containers feature
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#background" class="md-nav__link">
+  <a href="#set-the-default-ssh-shell-to-be-powershell" class="md-nav__link">
     <span class="md-ellipsis">
-      Background
+      Set the default SSH shell to be PowerShell
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#actors" class="md-nav__link">
+  <a href="#use-powershell-remote-sessions" class="md-nav__link">
     <span class="md-ellipsis">
-      Actors
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Actors">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#control-plane" class="md-nav__link">
-    <span class="md-ellipsis">
-      Control Plane
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#data-store-etcd" class="md-nav__link">
-    <span class="md-ellipsis">
-      Data Store (etcd)
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#worker-nodes" class="md-nav__link">
-    <span class="md-ellipsis">
-      Worker Nodes
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#networking-layer" class="md-nav__link">
-    <span class="md-ellipsis">
-      Networking Layer
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#goals" class="md-nav__link">
-    <span class="md-ellipsis">
-      Goals
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Goals">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#secure-by-default-configurations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Secure-by-default configurations
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#minimized-operational-complexity" class="md-nav__link">
-    <span class="md-ellipsis">
-      Minimized operational complexity
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#compatibility-with-kubernetes-security-best-practices" class="md-nav__link">
-    <span class="md-ellipsis">
-      Compatibility with Kubernetes security best practices
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#self-assessment-use" class="md-nav__link">
-    <span class="md-ellipsis">
-      Self-assessment use
+      Use PowerShell remote sessions
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#project-compliance" class="md-nav__link">
+  <a href="#replacement-for-top" class="md-nav__link">
     <span class="md-ellipsis">
-      Project compliance
+      Replacement for top
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#secure-development-practices" class="md-nav__link">
+  <a href="#less-for-windows" class="md-nav__link">
     <span class="md-ellipsis">
-      Secure development practices
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Secure development practices">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#development-pipeline" class="md-nav__link">
-    <span class="md-ellipsis">
-      Development pipeline
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#communication-channels" class="md-nav__link">
-    <span class="md-ellipsis">
-      Communication channels
+      less for Windows
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#security-issue-resolution" class="md-nav__link">
+  <a href="#install-k0s-worker" class="md-nav__link">
     <span class="md-ellipsis">
-      Security issue resolution
+      Install k0s worker
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Security issue resolution">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#issue-reporting" class="md-nav__link">
-    <span class="md-ellipsis">
-      Issue Reporting
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#incident-response" class="md-nav__link">
-    <span class="md-ellipsis">
-      Incident Response
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#appendix" class="md-nav__link">
+  <a href="#view-k0s-logs" class="md-nav__link">
     <span class="md-ellipsis">
-      Appendix
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Appendix">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#case-studies" class="md-nav__link">
-    <span class="md-ellipsis">
-      Case studies
+      View k0s logs
     </span>
   </a>
   
 </li>
-        
-      </ul>
-    </nav>
+      
+        <li class="md-nav__item">
+  <a href="#debug-k0s-with-delve" class="md-nav__link">
+    <span class="md-ellipsis">
+      Debug k0s with delve
+    </span>
+  </a>
   
 </li>
       
@@ -2898,164 +2462,148 @@
 
 
 
+  <h1>Windows notes</h1>
+
 <!--
 SPDX-FileCopyrightText: 2025 k0s authors
+
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-<h1 id="cncf-tag-security-self-assessment">CNCF TAG-Security self-assessment<a class="headerlink" href="#cncf-tag-security-self-assessment" title="Permanent link">#</a></h1>
-<p>This document serves as the k0s project <a href="https://tag-security.cncf.io/community/assessments/guide/self-assessment/">CNCF TAG-Security self-assessment</a>.</p>
-<h2 id="metadata">Metadata<a class="headerlink" href="#metadata" title="Permanent link">#</a></h2>
-<table>
-<thead>
-<tr>
-<th>Assessment Stage</th>
-<th style="text-align: left;">Draft</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Software</td>
-<td style="text-align: left;">https://github.com/k0sproject/k0s</td>
-</tr>
-<tr>
-<td>Security Provider</td>
-<td style="text-align: left;">No</td>
-</tr>
-<tr>
-<td>Languages</td>
-<td style="text-align: left;">Golang</td>
-</tr>
-<tr>
-<td>SBOM</td>
-<td style="text-align: left;"><a href="https://github.com/k0sproject/k0s/releases/download/v1.34.0%2Bhead/spdx.json">https://github.com/k0sproject/k0s/releases/download/v1.34.0%2Bhead/spdx.json</a></td>
-</tr>
-</tbody>
-</table>
-<h2 id="security-links">Security links<a class="headerlink" href="#security-links" title="Permanent link">#</a></h2>
-<table>
-<thead>
-<tr>
-<th>Doc</th>
-<th>URL</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Security file</td>
-<td><a href="https://github.com/k0sproject/k0s/blob/main/SECURITY.md">https://github.com/k0sproject/k0s/blob/main/SECURITY.md</a></td>
-</tr>
-</tbody>
-</table>
-<h2 id="project-overview">Project Overview<a class="headerlink" href="#project-overview" title="Permanent link">#</a></h2>
-<p><strong>Description</strong>:</p>
-<ul>
-<li>k0s is a lightweight, open-source Kubernetes distribution designed to simplify cluster setup and management. It offers an all-inclusive binary for streamlined operations with minimal dependencies.</li>
-</ul>
-<p><strong>Key Use Cases</strong>:</p>
-<ul>
-<li>Simplifying Kubernetes deployment for edge and production environments.</li>
-<li>Managing distributed workloads at scale with reduced operational overhead.</li>
-</ul>
-<p><strong>Security Goals</strong>:</p>
-<ul>
-<li>Secure defaults for deployment and operation.</li>
-<li>Flexibility for various deployment scenarios while adhering to Kubernetes security best practices.</li>
-</ul>
-<h2 id="background">Background<a class="headerlink" href="#background" title="Permanent link">#</a></h2>
-<h2 id="actors">Actors<a class="headerlink" href="#actors" title="Permanent link">#</a></h2>
-<h3 id="control-plane"><strong>Control Plane</strong><a class="headerlink" href="#control-plane" title="Permanent link">#</a></h3>
-<ul>
-<li><strong>Components</strong>: API Server, Scheduler, Controller Manager.</li>
-<li><strong>Role</strong>: Centralized management of the Kubernetes cluster, handling scheduling, API requests, and resource management.</li>
-<li><strong>Security Mechanisms</strong>:<ul>
-<li>Mutual TLS is used to secure communication between control plane components.</li>
-<li>Anonymous access is disabled by default.</li>
-<li>Role-Based Access Control (RBAC) ensures that only authorized users or processes can interact with the API Server.<ul>
-<li>K0s creates minimal RBAC for the system components it manages</li>
-</ul>
-</li>
-<li>Control plane nodes can be physically or logically separated from worker nodes to reduce exposure to potential compromise.<ul>
-<li>This is achieved with <a href="https://github.com/kubernetes-sigs/apiserver-network-proxy">konnectivity</a> and is enabled by default.</li>
-</ul>
-</li>
-<li>K0s creates and manages the CA and other needed certificates<ul>
-<li>Serving and client certs are rotated on each k0s restart<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup></li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
-<h3 id="data-store-etcd"><strong>Data Store (etcd)</strong><a class="headerlink" href="#data-store-etcd" title="Permanent link">#</a></h3>
-<ul>
-<li><strong>Components</strong>: Distributed key-value store for cluster state and secrets.</li>
-<li><strong>Role</strong>: Maintains the state of the cluster, including configuration and sensitive data such as secrets.</li>
-<li><strong>Security Mechanisms</strong>:<ul>
-<li>Etcd API is only exposed on localhost on controller nodes</li>
-<li>Access to etcd is restricted to authenticated and authorized control plane components and secured with mutual TLS</li>
-</ul>
-</li>
-</ul>
-<h3 id="worker-nodes"><strong>Worker Nodes</strong><a class="headerlink" href="#worker-nodes" title="Permanent link">#</a></h3>
-<ul>
-<li><strong>Components</strong>: Kubelet, kube-proxy, and container runtimes.</li>
-<li><strong>Role</strong>: Execute workloads and interact with the control plane for orchestration.</li>
-<li><strong>Security Mechanisms</strong>:<ul>
-<li>Worker nodes can be isolated from each other through network policies, preventing direct communication between pods unless explicitly allowed.</li>
-<li>Pod Security Standards (optional) enforce restrictions on workload capabilities, reducing the risk of lateral movement in case of a compromise.</li>
-<li>Kubelet APIs are configured with authentication.</li>
-<li>Kubelet is configured with certificate rotation.</li>
-<li>Worker nodes are joined using revocable bootstrap tokens which can be configured to be short-living too.</li>
-</ul>
-</li>
-</ul>
-<h3 id="networking-layer"><strong>Networking Layer</strong><a class="headerlink" href="#networking-layer" title="Permanent link">#</a></h3>
-<ul>
-<li><strong>Components</strong>: Cluster networking via CNI plugins, kube-proxy, or Calico</li>
-<li><strong>Role</strong>: Facilitate communication between pods, services, and external systems.</li>
-<li><strong>Security Mechanisms</strong>:<ul>
-<li>Network segmentation and policy enforcement restrict traffic between pods, nodes, and external endpoints.</li>
-</ul>
-</li>
-</ul>
-<h2 id="goals">Goals<a class="headerlink" href="#goals" title="Permanent link">#</a></h2>
-<p>Security goals for k0s can be summarized as follows:</p>
-<h3 id="secure-by-default-configurations">Secure-by-default configurations<a class="headerlink" href="#secure-by-default-configurations" title="Permanent link">#</a></h3>
-<p>K0s in its default configuration should provide a secure base-level configuration. That includes things like no anonymous authentication, TLS enabled everywhere, RBAC, etc. While that does NOT include integrations with things like AppArmor and seccomp, those configurations are exposed to users. In general, k0s allows users to fine-tune pretty much any and all Kubernetes options.</p>
-<h3 id="minimized-operational-complexity">Minimized operational complexity<a class="headerlink" href="#minimized-operational-complexity" title="Permanent link">#</a></h3>
-<p>By minimizing the operational complexity for Kubernetes the users have better and more easy control of their security configurations.</p>
-<h3 id="compatibility-with-kubernetes-security-best-practices">Compatibility with Kubernetes security best practices<a class="headerlink" href="#compatibility-with-kubernetes-security-best-practices" title="Permanent link">#</a></h3>
-<p>k0s adheres to the established security frameworks and guidelines provided by Kubernetes, such as RBAC, network policies, and encryption mechanisms. This ensures that organizations can seamlessly integrate k0s into their existing Kubernetes environments without compromising security standards.</p>
-<h2 id="self-assessment-use">Self-assessment use<a class="headerlink" href="#self-assessment-use" title="Permanent link">#</a></h2>
-<p>This document evaluates the security posture of k0s, identifies existing measures, and highlights areas for improvement. It serves as a reference for stakeholders and to advance k0s at the CNCF Sandbox level.</p>
-<h2 id="project-compliance">Project compliance<a class="headerlink" href="#project-compliance" title="Permanent link">#</a></h2>
-<p>k0s follows the <a href="https://docs.k0sproject.io/stable/cis_benchmark/">CIS Kubernetes Benchmark</a> with documented exceptions.</p>
-<h2 id="secure-development-practices">Secure development practices<a class="headerlink" href="#secure-development-practices" title="Permanent link">#</a></h2>
-<h3 id="development-pipeline">Development pipeline<a class="headerlink" href="#development-pipeline" title="Permanent link">#</a></h3>
-<p><strong>Code Reviews</strong>: All changes undergo peer review by project maintainers.</p>
-<p><strong>Dependency Management</strong>: Regular automated vulnerability scanning and updates of dependencies</p>
-<p><strong>CI/CD Security</strong>: Security checks integrated into CI/CD pipelines. For non-maintainer pull requests, we require approval to run CI which allows us to verify</p>
-<p><strong>Signed-off commits</strong>: All commits are required to be signed-off.</p>
-<h2 id="communication-channels">Communication channels<a class="headerlink" href="#communication-channels" title="Permanent link">#</a></h2>
-<p><strong>Internal:</strong> Internal, between maintainers, communication is handled mostly in Kubernetes Slack <a href="https://kubernetes.slack.com/archives/C07VAPJUECS">#k0s-dev</a> channel, and in Mirantis internal channels for Mirantis core maintainers.</p>
-<p><strong>Inbound:</strong> <a href="https://kubernetes.slack.com/archives/C0809EA06QZ">#k0s-users</a> in Kubernetes Slack and GitHub issues. Stack Overflow has also a <a href="https://stackoverflow.com/questions/tagged/k0s">k0s tag</a> for related questions.</p>
-<p><strong>External</strong>: k0s does not currently have any mailing lists. There are Mirantis-operated social media accounts that are used for communicating things like new releases etc. There’s also a <a href="https://medium.com/k0sproject">k0sproject</a> Medium account which is used for blogs.</p>
-<h2 id="security-issue-resolution">Security issue resolution<a class="headerlink" href="#security-issue-resolution" title="Permanent link">#</a></h2>
-<h3 id="issue-reporting"><strong>Issue Reporting</strong><a class="headerlink" href="#issue-reporting" title="Permanent link">#</a></h3>
-<p>Vulnerabilities can be reported via the k0s GitHub project using GitHub's <a href="https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability">private security vulnerability reporting</a> feature.</p>
-<h3 id="incident-response"><strong>Incident Response</strong><a class="headerlink" href="#incident-response" title="Permanent link">#</a></h3>
-<p>The k0s maintainers triage and resolve issues. Security patches and advisories are published as needed.</p>
-<h2 id="appendix">Appendix<a class="headerlink" href="#appendix" title="Permanent link">#</a></h2>
-<h3 id="case-studies">Case studies<a class="headerlink" href="#case-studies" title="Permanent link">#</a></h3>
-<p><a href="https://docs.k0sproject.io/head/adopters/">List of known users</a> along with some case studies.</p>
-<div class="footnote">
-<hr />
-<ol>
-<li id="fn:1">
-<p>The serving and client certs are valid for 1 year per default. Hence upgrading, and thus restarting k0s, at least once a year will rotate the certs automatically.&#160;<a class="footnote-backref" href="#fnref:1" title="Jump back to footnote 1 in the text">&#8617;</a></p>
-</li>
-</ol>
-</div>
+<p>It's a pity that UNIX shells won't like CRLF and Windows PowerShell won't like
+LF.</p>
+<h2 id="check-powershell-version">Check PowerShell version<a class="headerlink" href="#check-powershell-version" title="Permanent link">#</a></h2>
+<p>In a PowerShell session, just type <code>$PSVersionTable.PSVersion</code>.</p>
+<h2 id="install-latest-powershell-manually">Install latest PowerShell manually<a class="headerlink" href="#install-latest-powershell-manually" title="Permanent link">#</a></h2>
+<div class="highlight"><pre><span></span><code><span class="c"># Turn off progress, as updating it is ridiculously slow</span>
+<span class="nv">$ProgressPreference</span> <span class="p">=</span> <span class="s1">&#39;SilentlyContinue&#39;</span>
+<span class="c"># Stop on errors</span>
+<span class="nv">$ErrorActionPreference</span> <span class="p">=</span> <span class="s1">&#39;Stop&#39;</span>
+
+<span class="c"># Get the latest PowerShell version</span>
+<span class="nv">$latestVersion</span> <span class="p">=</span> <span class="p">(</span><span class="nb">Invoke-RestMethod</span> <span class="n">-Uri</span> <span class="s2">&quot;https://api.github.com/repos/PowerShell/PowerShell/releases/latest&quot;</span><span class="p">).</span><span class="n">tag_name</span><span class="p">.</span><span class="n">TrimStart</span><span class="p">(</span><span class="s2">&quot;v&quot;</span><span class="p">)</span>
+
+<span class="c"># Download and install it</span>
+<span class="nv">$src</span> <span class="p">=</span> <span class="s2">&quot;https://github.com/PowerShell/PowerShell/releases/latest/download/PowerShell-$latestVersion-win-x64.msi&quot;</span>
+<span class="nv">$dst</span> <span class="p">=</span> <span class="s2">&quot;$env:TEMP\pwsh-$latestVersion.msi&quot;</span>
+
+<span class="nb">Write-Host</span> <span class="s2">&quot;Latest PowerShell version: $latestVersion&quot;</span>
+<span class="nb">Write-Host</span> <span class="s2">&quot;Download URL: $src&quot;</span>
+
+<span class="nb">Invoke-WebRequest</span> <span class="n">-Uri</span> <span class="nv">$src</span> <span class="n">-OutFile</span> <span class="nv">$dst</span>
+<span class="nb">Start-Process</span> <span class="n">msiexec</span><span class="p">.</span><span class="n">exe</span> <span class="n">-Wait</span> <span class="n">-ArgumentList</span> <span class="s2">&quot;/i </span><span class="se">`&quot;</span><span class="s2">$dst</span><span class="se">`&quot;</span><span class="s2"> /quiet /norestart&quot;</span>
+
+<span class="c"># Check that the installation was successful</span>
+<span class="nb">Get-Item</span> <span class="s2">&quot;C:\Program Files\PowerShell\7\pwsh.exe&quot;</span>
+</code></pre></div>
+<h2 id="install-containers-feature">Install Containers feature<a class="headerlink" href="#install-containers-feature" title="Permanent link">#</a></h2>
+<div class="highlight"><pre><span></span><code><span class="nb">Install-WindowsFeature</span> <span class="n">-Name</span> <span class="n">Containers</span>
+<span class="nb">Restart-Computer</span> <span class="n">-Force</span>
+</code></pre></div>
+<h2 id="set-the-default-ssh-shell-to-be-powershell">Set the default SSH shell to be PowerShell<a class="headerlink" href="#set-the-default-ssh-shell-to-be-powershell" title="Permanent link">#</a></h2>
+<div class="highlight"><pre><span></span><code><span class="nv">$path</span> <span class="p">=</span> <span class="p">(</span><span class="nb">Get-Command</span> <span class="n">pwsh</span><span class="p">).</span><span class="n">Path</span>
+<span class="nb">New-ItemProperty</span> <span class="n">-Path</span> <span class="n">HKLM</span><span class="p">:\</span><span class="n">SOFTWARE</span><span class="p">\</span><span class="n">OpenSSH</span> <span class="n">-Name</span> <span class="n">DefaultShell</span> <span class="n">-PropertyType</span> <span class="n">String</span> <span class="n">-Value</span> <span class="s2">&quot;$path&quot;</span> <span class="n">-Force</span>
+</code></pre></div>
+<!-- Set-PSReadlineKeyHandler -Key Tab -Function MenuComplete -->
+
+<h2 id="use-powershell-remote-sessions">Use PowerShell remote sessions<a class="headerlink" href="#use-powershell-remote-sessions" title="Permanent link">#</a></h2>
+<p>See <a href="https://learn.microsoft.com/en-us/powershell/scripting/security/remoting/ssh-remoting-in-powershell">PowerShell remoting over SSH</a> on Microsoft Learn.</p>
+<p>Enable the subsystem on the host:</p>
+<div class="highlight"><pre><span></span><code><span class="nv">$sshdConfigPath</span> <span class="p">=</span> <span class="s2">&quot;C:\ProgramData\ssh\sshd_config&quot;</span>
+
+<span class="c"># Load config and print it</span>
+<span class="nv">$config</span> <span class="p">=</span> <span class="nb">Get-Content</span> <span class="nv">$sshdConfigPath</span>
+
+<span class="c"># We need the short 8.3 style path to Powershell</span>
+<span class="c"># https://github.com/PowerShell/Win32-OpenSSH/issues/784</span>
+<span class="nv">$pwshPath</span> <span class="p">=</span> <span class="p">(</span><span class="nb">New-Object</span> <span class="n">-ComObject</span> <span class="n">Scripting</span><span class="p">.</span><span class="n">FileSystemObject</span><span class="p">).</span><span class="n">GetFile</span><span class="p">((</span><span class="nb">Get-Command</span> <span class="n">pwsh</span><span class="p">).</span><span class="n">Path</span><span class="p">).</span><span class="n">ShortPath</span>
+
+<span class="c"># Build the powershell subsystem line</span>
+<span class="nv">$subsystemLine</span> <span class="p">=</span> <span class="s2">&quot;Subsystem powershell $pwshPath -sshs&quot;</span>
+
+<span class="c"># Replace existing line or append if not found</span>
+<span class="k">if</span> <span class="p">(</span><span class="nv">$config</span> <span class="o">-match</span> <span class="s1">&#39;^Subsystem powershell&#39;</span><span class="p">)</span> <span class="p">{</span>
+    <span class="nv">$config</span> <span class="p">=</span> <span class="nv">$config</span> <span class="o">-replace</span> <span class="s1">&#39;^Subsystem powershell.*&#39;</span><span class="p">,</span> <span class="nv">$subsystemLine</span>
+<span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+    <span class="nv">$config</span> <span class="p">+=</span> <span class="nv">$subsystemLine</span>
+<span class="p">}</span>
+
+<span class="c"># Print the modified config</span>
+<span class="nb">echo </span><span class="nv">$config</span>
+
+<span class="c"># If you&#39;re okay with it, write it back to the file</span>
+<span class="nb">Set-Content</span> <span class="n">-Path</span> <span class="nv">$sshdConfigPath</span> <span class="n">-Value</span> <span class="nv">$config</span>
+
+<span class="c"># Restart OpenSSH</span>
+<span class="nb">Restart-Service</span> <span class="n">sshd</span>
+</code></pre></div>
+<p>Then, from a client PowerShell session:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">Enter-PSSession</span> <span class="n">-HostName</span> <span class="p">&lt;...&gt;</span> <span class="n">-UserName</span> <span class="p">&lt;...&gt;</span> <span class="n">-KeyFilePath</span> <span class="p">&lt;...&gt;</span>
+</code></pre></div>
+<h2 id="replacement-for-top">Replacement for <code>top</code><a class="headerlink" href="#replacement-for-top" title="Permanent link">#</a></h2>
+<div class="highlight"><pre><span></span><code><span class="k">while</span> <span class="p">(</span><span class="nv">$true</span><span class="p">)</span> <span class="p">{</span>
+    <span class="nb">Clear-Host</span>
+    <span class="nb">Get-Process</span> <span class="p">|</span>
+        <span class="nb">Sort-Object</span> <span class="n">CPU</span> <span class="n">-Descending</span> <span class="p">|</span>
+        <span class="nb">Select-Object</span> <span class="n">-First</span> <span class="n">10</span> <span class="n">ProcessName</span><span class="p">,</span> <span class="n">CPU</span><span class="p">,</span> <span class="n">Id</span><span class="p">,</span> <span class="n">WorkingSet</span> <span class="p">|</span>
+        <span class="nb">Format-Table</span> <span class="n">-AutoSize</span>
+    <span class="nb">Start-Sleep</span> <span class="n">-Seconds</span> <span class="n">2</span>
+<span class="p">}</span>
+</code></pre></div>
+<h2 id="less-for-windows"><code>less</code> for Windows<a class="headerlink" href="#less-for-windows" title="Permanent link">#</a></h2>
+<div class="highlight"><pre><span></span><code><span class="nv">$ProgressPreference</span> <span class="p">=</span> <span class="s1">&#39;SilentlyContinue&#39;</span> <span class="c"># Turn off progress, as updating it is ridiculously slow</span>
+<span class="nv">$ErrorActionPreference</span> <span class="p">=</span> <span class="s1">&#39;Stop&#39;</span> <span class="c"># Stop on errors</span>
+
+<span class="nv">$src</span> <span class="p">=</span> <span class="s2">&quot;https://github.com/jftuga/less-Windows/releases/download/less-v679/less-x64.zip&quot;</span>
+<span class="nv">$dst</span> <span class="p">=</span> <span class="s2">&quot;$env:TEMP\less.zip&quot;</span>
+
+<span class="nb">Invoke-WebRequest</span> <span class="n">-Uri</span> <span class="nv">$src</span> <span class="n">-OutFile</span> <span class="nv">$dst</span>
+
+<span class="nb">Expand-Archive</span> <span class="n">-Path</span> <span class="nv">$dst</span> <span class="n">-DestinationPath</span> <span class="p">(</span><span class="nb">Join-Path</span> <span class="nv">$env:LOCALAPPDATA</span> <span class="s1">&#39;Microsoft\WindowsApps&#39;</span><span class="p">)</span> <span class="n">-Force</span>
+</code></pre></div>
+<h2 id="install-k0s-worker">Install k0s worker<a class="headerlink" href="#install-k0s-worker" title="Permanent link">#</a></h2>
+<div class="highlight"><pre><span></span><code><span class="nb">Move-Item</span> <span class="n">-Path</span> <span class="n">k0s</span><span class="p">.</span><span class="n">exe</span> <span class="n">-Destination</span> <span class="p">(</span><span class="nb">Join-Path</span> <span class="nv">$env:LOCALAPPDATA</span> <span class="s1">&#39;Microsoft\WindowsApps&#39;</span><span class="p">)</span>
+<span class="p">&amp;</span> <span class="n">k0s</span> <span class="n">install</span> <span class="n">worker</span> <span class="p">-</span><span class="n">-token</span><span class="o">-file</span> <span class="p">\</span><span class="n">path</span><span class="p">\</span><span class="n">to</span><span class="p">\</span><span class="n">token</span><span class="o">-file</span> <span class="p">-</span><span class="n">-debug</span>
+<span class="p">&amp;</span> <span class="n">k0s</span> <span class="nb">start</span>
+</code></pre></div>
+<h2 id="view-k0s-logs">View k0s logs<a class="headerlink" href="#view-k0s-logs" title="Permanent link">#</a></h2>
+<div class="highlight"><pre><span></span><code><span class="k">for</span> <span class="p">(</span><span class="nv">$lastRecordId</span> <span class="p">=</span> <span class="n">0</span><span class="p">;</span> <span class="nv">$true</span><span class="p">;</span> <span class="p">)</span> <span class="p">{</span>
+    <span class="nv">$filter</span> <span class="p">=</span> <span class="p">@{</span>
+        <span class="n">LogName</span>      <span class="p">=</span> <span class="s1">&#39;Application&#39;</span>
+        <span class="n">ProviderName</span> <span class="p">=</span> <span class="s1">&#39;k0sworker&#39;</span>
+        <span class="c">#StartTime    = (Get-Date).AddSeconds(-10)</span>
+    <span class="p">}</span>
+
+    <span class="nv">$newEntries</span> <span class="p">=</span> <span class="nb">Get-WinEvent</span> <span class="n">-FilterHashtable</span> <span class="nv">$filter</span> <span class="p">|</span>
+        <span class="nb">Where-Object</span> <span class="p">{</span> <span class="nv">$_</span><span class="p">.</span><span class="n">RecordId</span> <span class="o">-gt</span> <span class="nv">$lastRecordId</span> <span class="p">}</span> <span class="p">|</span>
+        <span class="nb">Sort-Object</span> <span class="n">RecordId</span>
+
+    <span class="k">foreach</span> <span class="p">(</span><span class="nv">$entry</span> <span class="k">in</span> <span class="nv">$newEntries</span><span class="p">)</span> <span class="p">{</span>
+        <span class="nv">$template</span> <span class="p">=</span> <span class="s2">&quot;[{0}] {1} - {2} - {3}&quot;</span>
+        <span class="nv">$message</span> <span class="p">=</span> <span class="nv">$entry</span><span class="p">.</span><span class="n">Message</span> <span class="o">-replace</span> <span class="s1">&#39;\s+&#39;</span><span class="p">,</span> <span class="s1">&#39; &#39;</span>
+        <span class="nv">$formatted</span> <span class="p">=</span> <span class="nv">$template</span> <span class="o">-f</span> <span class="nv">$entry</span><span class="p">.</span><span class="n">TimeCreated</span><span class="p">,</span> <span class="nv">$entry</span><span class="p">.</span><span class="n">LevelDisplayName</span><span class="p">,</span> <span class="nv">$entry</span><span class="p">.</span><span class="n">ProviderName</span><span class="p">,</span> <span class="nv">$message</span>
+        <span class="nb">Write-Output</span> <span class="nv">$formatted</span>
+
+        <span class="nv">$lastRecordId</span> <span class="p">=</span> <span class="nv">$entry</span><span class="p">.</span><span class="n">RecordId</span>
+    <span class="p">}</span>
+
+    <span class="nb">Start-Sleep</span> <span class="n">-Seconds</span> <span class="n">2</span>
+<span class="p">}</span>
+</code></pre></div>
+<h2 id="debug-k0s-with-delve">Debug k0s with delve<a class="headerlink" href="#debug-k0s-with-delve" title="Permanent link">#</a></h2>
+<div class="highlight"><pre><span></span><code><span class="nv">$ProgressPreference</span> <span class="p">=</span> <span class="s1">&#39;SilentlyContinue&#39;</span>
+<span class="nv">$ErrorActionPreference</span> <span class="p">=</span> <span class="s1">&#39;Stop&#39;</span>
+
+<span class="c"># Install Go</span>
+<span class="nv">$src</span> <span class="p">=</span> <span class="s1">&#39;https://go.dev/dl/go1.24.5.windows-amd64.msi&#39;</span>
+<span class="nv">$dst</span> <span class="p">=</span> <span class="s1">&#39;go1.24.5.windows-amd64.msi&#39;</span>
+<span class="nb">Invoke-WebRequest</span> <span class="n">-Uri</span> <span class="nv">$src</span> <span class="n">-OutFile</span> <span class="nv">$dst</span>
+<span class="nb">Start-Process</span> <span class="n">msiexec</span><span class="p">.</span><span class="n">exe</span> <span class="n">-Wait</span> <span class="n">-ArgumentList</span> <span class="s2">&quot;/i </span><span class="se">`&quot;</span><span class="s2">$dst</span><span class="se">`&quot;</span><span class="s2"> /quiet /norestart&quot;</span>
+
+<span class="c"># After relogin</span>
+<span class="n">go</span> <span class="n">install</span> <span class="n">github</span><span class="p">.</span><span class="n">com</span><span class="p">/</span><span class="n">go-delve</span><span class="p">/</span><span class="n">delve</span><span class="p">/</span><span class="n">cmd</span><span class="p">/</span><span class="n">dlv</span><span class="nv">@latest</span>
+<span class="n">dlv</span> <span class="p">-</span><span class="n">-listen</span><span class="p">=</span><span class="n">127</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">1</span><span class="p">:</span><span class="n">2345</span> <span class="p">-</span><span class="n">-headless</span><span class="p">=</span><span class="n">true</span> <span class="p">-</span><span class="n">-api-version</span><span class="p">=</span><span class="n">2</span> <span class="n">exec</span> <span class="p">--</span> <span class="p">(</span><span class="nb">Get-Command</span> <span class="n">k0s</span><span class="p">).</span><span class="n">Path</span> <span class="n">worker</span>
+</code></pre></div>
 
 
 
@@ -3148,10 +2696,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
     
     
       
-      <script id="__config" type="application/json">{"base": "../../..", "features": ["toc.autohide", "search.suggest", "search.highlight"], "search": "../../../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "stable", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"base": "..", "features": ["toc.autohide", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "stable", "provider": "mike"}}</script>
     
     
-      <script src="../../../assets/javascripts/bundle.f55a23d4.min.js"></script>
+      <script src="../assets/javascripts/bundle.f55a23d4.min.js"></script>
       
     
   </body>
