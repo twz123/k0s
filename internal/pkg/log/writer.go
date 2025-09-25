@@ -5,6 +5,9 @@ package log
 
 import (
 	"bytes"
+	"io"
+	"io/fs"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/sirupsen/logrus"
@@ -16,11 +19,14 @@ import (
 // This is in contrast to logrus's implementation of io.Writer, which simply
 // errors out if the log line gets longer than 64k.
 type Writer struct {
+	mu      sync.Mutex
 	log     logrus.FieldLogger // receives (possibly chunked) log lines
 	buf     []byte             // buffer in which to accumulate chunks; len(buf) determines the chunk length
 	len     int                // current buffer length
 	chunkNo uint               // current chunk number; 0 means "no chunk"
 }
+
+var _ io.WriteCloser = (*Writer)(nil)
 
 func NewWriter(log logrus.FieldLogger, chunkLen int) *Writer {
 	return &Writer{
@@ -29,10 +35,41 @@ func NewWriter(log logrus.FieldLogger, chunkLen int) *Writer {
 	}
 }
 
-// Write implements [io.Writer].
+// Write implements [io.WriteCloser].
 func (w *Writer) Write(in []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.buf == nil {
+		return 0, fs.ErrClosed
+	}
+
 	w.writeBytes(in)
 	return len(in), nil
+}
+
+// Write implements [io.WriteCloser].
+func (w *Writer) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.buf == nil {
+		return fs.ErrClosed
+	}
+
+	line := bytes.TrimRight(w.buf[:w.len], "\r")
+	if len(line) > 0 {
+		if w.chunkNo == 0 {
+			w.log.Infof("%s", line)
+		} else {
+			w.log.WithField("chunk", w.chunkNo+1).Infof("%s", line)
+		}
+	}
+
+	// Zero out internal state
+	w.log, w.buf, w.len, w.chunkNo = nil, nil, 0, 0
+
+	return nil
 }
 
 func (w *Writer) writeBytes(in []byte) {
