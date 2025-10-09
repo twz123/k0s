@@ -3293,7 +3293,7 @@ node-local load balancing.</p>
 </tr>
 <tr>
 <td><code>interface</code></td>
-<td>The NIC used by the virtual router. If not specified, k0s will use the interface that owns the default route.</td>
+<td>The NIC used by the virtual router. K0s allows to use either a device name or a MAC address. If not specified, k0s will use the interface that owns the default route.</td>
 </tr>
 <tr>
 <td><code>virtualRouterID</code></td>
@@ -3499,7 +3499,7 @@ by k0s.</p>
 <span class="w">  </span><span class="nt">images</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">coredns</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">quay.io/k0sproject/coredns</span>
-<span class="w">      </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.12.2-1</span>
+<span class="w">      </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.13.1</span>
 </code></pre></div>
 <p>If you want the list of default images and their versions to be included, use <code>k0s config create --include-images</code>.</p>
 <h4 id="available-keys">Available keys<a class="headerlink" href="#available-keys" title="Permanent link">#</a></h4>
