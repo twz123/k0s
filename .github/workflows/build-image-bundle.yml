@@ -58,7 +58,29 @@ jobs:
         env:
           HASH_VALUE: ${{ hashFiles('Makefile', '${{ inputs.image-bundle-name }}-images.txt', 'cmd/airgap/*', 'pkg/airgap/*') }}
         run: |
-          printf 'cache-key=build-%s-image-bundle-%s-%s-%s\n' "$IMAGE_BUNDLE_NAME" "$TARGET_OS" "$TARGET_ARCH" "$HASH_VALUE" >> "$GITHUB_OUTPUT"
+          echo ::group::Airgap image list
+          cat -- "$IMAGE_BUNDLE_NAME-images.txt"
+          echo ::endgroup::
+
+          echo ::group::Hash value
+          hash=$(
+            find -type f \( \
+                  -path ./Makefile \
+              -or -path "./$IMAGE_BUNDLE_NAME-images.txt" \
+              -or -path './cmd/airgap/*' \
+              -or -path './pkg/airgap/*' \
+            \) -print0 |
+            sort -z |
+            xargs -0 sha256sum |
+            tee /dev/stderr |
+            sha256sum
+          )
+          hash=${hash% *}
+          echo Overall file hash:      "$hash"
+          echo GitHub calculated hash: "$HASH_VALUE"
+          echo ::endgroup::
+
+          printf 'cache-key=build-%s-image-bundle-%s-%s-%s\n' "$IMAGE_BUNDLE_NAME" "$TARGET_OS" "$TARGET_ARCH" "$hash" >> "$GITHUB_OUTPUT"
 
       - name: "Cache :: Image bundle"
         id: cache-image-bundle
