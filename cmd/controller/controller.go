@@ -354,7 +354,10 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions, de
 	}
 
 	if !slices.Contains(flags.DisableComponents, constant.ControlAPIComponentName) && nodeConfig.Spec.Storage.IsJoinable() {
-		nodeComponents.Add(ctx, &controller.K0SControlAPI{RuntimeConfig: rtc})
+		nodeComponents.Add(ctx, &controller.K0SControlAPI{
+			RuntimeConfig: rtc,
+			Debug:         debug,
+		})
 	}
 
 	if !slices.Contains(flags.DisableComponents, constant.CsrApproverComponentName) {
