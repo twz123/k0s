@@ -333,7 +333,10 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions, de
 	}
 
 	if controllerMode != config.SingleNodeMode && !slices.Contains(flags.DisableComponents, constant.ControlAPIComponentName) {
-		nodeComponents.Add(ctx, &controller.K0SControlAPI{RuntimeConfig: rtc})
+		nodeComponents.Add(ctx, &controller.K0SControlAPI{
+			RuntimeConfig: rtc,
+			Debug:         debug,
+		})
 	}
 
 	if !slices.Contains(flags.DisableComponents, constant.CsrApproverComponentName) {
