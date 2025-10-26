@@ -19,6 +19,7 @@ import (
 	"github.com/containerd/platforms"
 	"github.com/fsnotify/fsnotify"
 	"github.com/sirupsen/logrus"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/pkg/component/manager"
@@ -26,7 +27,6 @@ import (
 	workercontainerd "github.com/k0sproject/k0s/pkg/component/worker/containerd"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
-	"github.com/k0sproject/k0s/pkg/debounce"
 )
 
 const (
@@ -41,9 +41,7 @@ type OCIBundleReconciler struct {
 	containerdAddress string
 	log               *logrus.Entry
 	alreadyImported   map[string]time.Time
-	mtx               sync.Mutex
-	cancel            context.CancelFunc
-	end               chan struct{}
+	stop              func()
 	*prober.EventEmitter
 }
 
@@ -57,7 +55,6 @@ func NewOCIBundleReconciler(vars *config.CfgVars) *OCIBundleReconciler {
 		log:               logrus.WithField("component", "OCIBundleReconciler"),
 		EventEmitter:      prober.NewEventEmitter(),
 		alreadyImported:   map[string]time.Time{},
-		end:               make(chan struct{}),
 	}
 }
 
@@ -91,64 +88,27 @@ func (a *OCIBundleReconciler) containerdClient(ctx context.Context) (*containerd
 }
 
 // loadOne connects to containerd and imports the provided OCI bundle.
-func (a *OCIBundleReconciler) loadOne(ctx context.Context, fpath string, modtime time.Time) error {
+func (a *OCIBundleReconciler) loadOne(ctx context.Context, fpath string, lastImportedModTime time.Time) (modTime time.Time, _ error) {
+	if finfo, err := os.Stat(fpath); err != nil {
+		return modTime, err
+	} else {
+		modTime = finfo.ModTime()
+	}
+
+	if !lastImportedModTime.IsZero() && lastImportedModTime.Equal(modTime) {
+		return lastImportedModTime, nil
+	}
+
 	client, err := a.containerdClient(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to create containerd client: %w", err)
+		return modTime, fmt.Errorf("failed to create containerd client: %w", err)
 	}
 	defer client.Close()
-	if err := a.unpackBundle(ctx, client, fpath, modtime); err != nil {
-		return fmt.Errorf("failed to process OCI bundle: %w", err)
-	}
-	return nil
-}
-
-// loadAll loads all OCI bundle files into containerd. Read all files from the OCI bundle
-// directory and loads them one by one. Errors are logged but not returned, upon failure
-// in one file this function logs the error and moves to the next file. Files are indexed
-// by name and imported only once (if the file has not been modified).
-func (a *OCIBundleReconciler) loadAll(ctx context.Context) {
-	// We are going to consume everything in the directory so we block. This keeps
-	// things simple and avoid the need to handle two imports of the same file at the
-	// same time without requiring locks based on file path.
-	a.mtx.Lock()
-	defer a.mtx.Unlock()
-
-	a.log.Info("Loading OCI bundles directory")
-	files, err := os.ReadDir(a.ociBundleDir)
-	if err != nil {
-		a.log.WithError(err).Errorf("Failed to read bundles directory")
-		return
-	}
-	a.EmitWithPayload("importing OCI bundles", files)
-	for _, file := range files {
-		fpath := filepath.Join(a.ociBundleDir, file.Name())
-		finfo, err := os.Stat(fpath)
-		if err != nil {
-			a.log.WithError(err).Errorf("failed to stat %s", fpath)
-			continue
-		}
-
-		modtime := finfo.ModTime()
-		if when, ok := a.alreadyImported[fpath]; ok && when.Equal(modtime) {
-			continue
-		}
-
-		a.log.Infof("Loading OCI bundle %s", fpath)
-		if err := a.loadOne(ctx, fpath, modtime); err != nil {
-			a.log.WithError(err).Errorf("Failed to load OCI bundle %s", fpath)
-			continue
-		}
-
-		a.alreadyImported[fpath] = modtime
-		a.log.Infof("OCI bundle %s loaded", fpath)
+	if err := a.unpackBundle(ctx, client, fpath, modTime); err != nil {
+		return modTime, fmt.Errorf("failed to process OCI bundle: %w", err)
 	}
 
-	if err := a.unpinAll(ctx); err != nil {
-		a.log.WithError(err).Errorf("Failed to unpin images")
-	}
-
-	a.Emit("finished importing OCI bundles")
+	return modTime, nil
 }
 
 // unpin unpins containerd images from the image store. we unpin an image if
@@ -216,11 +176,33 @@ func (a *OCIBundleReconciler) unpinOne(ctx context.Context, image images.Image, 
 	return err
 }
 
-// installWatcher creates a fs watcher on the oci bundle directory. This function calls
-// loadAll every time a new file is created or updated on the oci directory. Events are
-// debounced with a timeout of 10 seconds. Watcher is started with a buffer so we don't
-// miss events.
-func (a *OCIBundleReconciler) installWatcher(ctx context.Context) error {
+// Starts initiate the OCI bundle loader. It does an initial load of the directory and
+// once it is done, it starts a watcher on its own goroutine.
+func (a *OCIBundleReconciler) Start(context.Context) error {
+	imported := make(map[string]time.Time)
+
+	stopErr := errors.New("OCI bundle importer is stopping")
+	ctx, cancel := context.WithCancelCause(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		wait.UntilWithContext(ctx, func(ctx context.Context) {
+			if err := a.runImporter(ctx, imported); !errors.Is(err, stopErr) {
+				a.log.WithError(err).Error("Failed to watch OCI bundle directory")
+			}
+		}, 30*time.Second)
+	}()
+
+	a.stop = func() {
+		cancel(stopErr)
+		<-done
+	}
+
+	return nil
+}
+
+func (a *OCIBundleReconciler) runImporter(ctx context.Context, imported map[string]time.Time) error {
 	watcher, err := fsnotify.NewBufferedWatcher(10)
 	if err != nil {
 		return fmt.Errorf("failed to create watcher: %w", err)
@@ -230,46 +212,92 @@ func (a *OCIBundleReconciler) installWatcher(ctx context.Context) error {
 		return fmt.Errorf("failed to add watcher: %w", err)
 	}
 
-	debouncer := debounce.Debouncer[fsnotify.Event]{
-		Input:   watcher.Events,
-		Timeout: 10 * time.Second,
-		Callback: func(ev fsnotify.Event) {
-			a.loadAll(ctx)
-		},
+	var pendingBundles map[string]time.Time
+	if paths, err := os.ReadDir(a.ociBundleDir); err != nil {
+		return fmt.Errorf("failed to read bundles directory: %w", err)
+	} else {
+		now := time.Now()
+		for _, path := range paths {
+			path := filepath.Join(a.ociBundleDir, path.Name())
+			pendingBundles[path] = now
+		}
 	}
 
+	ctx, cancel := context.WithCancelCause(ctx)
+
+	var (
+		wg sync.WaitGroup
+		mu sync.Mutex
+	)
+
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+		defer func() {
+			err = errors.Join(err, watcher.Close())
+		}()
+
 		for {
-			if err, ok := <-watcher.Errors; ok {
-				a.log.WithError(err).Error("Error watching OCI bundle directory")
-				continue
+			select {
+			case err = <-watcher.Errors:
+				cancel(err)
+				return
+
+			case ev := <-watcher.Events:
+				due := time.Now().Add(10 * time.Second)
+				mu.Lock()
+				pendingBundles[ev.Name] = due
+				mu.Unlock()
+
+			case <-ctx.Done():
+				return
 			}
-			return
 		}
 	}()
 
+	wg.Add(1)
 	go func() {
-		defer close(a.end)
-		a.log.Infof("Started to watch events on %s", a.ociBundleDir)
-		_ = debouncer.Run(ctx)
-		if err := watcher.Close(); err != nil {
-			a.log.Errorf("Failed to close watcher: %s", err)
+		defer wg.Done()
+
+		for {
+			var (
+				nextPath string
+				nextDue  time.Time
+			)
+
+			mu.Lock()
+			for path, due := range pendingBundles {
+				if due.Before(nextDue) || nextDue.IsZero() {
+					nextPath, nextDue = path, due
+				}
+			}
+			delete(pendingBundles, nextPath)
+			mu.Unlock()
+
+			select {
+			case <-time.After(nextDue.Sub(time.Now())):
+				mu.Lock()
+				_, ok := pendingBundles[nextPath]
+				mu.Unlock()
+				if ok {
+					continue
+				}
+
+				if err := a.loadOne(ctx, nextPath, nextDue); err != nil {
+					a.log.WithError(err).Error("Failed to import OCI bundle")
+					mu.Lock()
+					if due, ok := pendingBundles[nextPath]; !ok || due.Equal(nextDue) {
+						pendingBundles[nextPath] = time.Now().Add(1 * time.Minute)
+					}
+					mu.Unlock()
+				}
+
+			case <-ctx.Done():
+				return
+			}
 		}
-		a.log.Info("OCI bundle watch bouncer ended")
 	}()
 
-	return nil
-}
-
-// Starts initiate the OCI bundle loader. It does an initial load of the directory and
-// once it is done, it starts a watcher on its own goroutine.
-func (a *OCIBundleReconciler) Start(ctx context.Context) error {
-	ictx, cancel := context.WithCancel(context.Background())
-	a.cancel = cancel
-	if err := a.installWatcher(ictx); err != nil {
-		return fmt.Errorf("failed to install watcher: %w", err)
-	}
-	a.loadAll(ictx)
 	return nil
 }
 
@@ -318,10 +346,9 @@ func (a *OCIBundleReconciler) unpackBundle(ctx context.Context, client *containe
 }
 
 func (a *OCIBundleReconciler) Stop() error {
-	a.log.Info("Stopping OCI bundle loader watcher")
-	a.cancel()
-	<-a.end
-	a.log.Info("OCI bundle loader stopped")
+	if stop := a.stop; stop != nil {
+		stop()
+	}
 	return nil
 }
 
