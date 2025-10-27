@@ -249,7 +249,7 @@ lint-go: $(GO_ENV_REQUISITES) go.sum bindata
 .PHONY: lint
 lint: lint-copyright lint-go
 
-airgap-images.txt: k0s $(GO_ENV_REQUISITES)
+airgap-images.txt: $(if $(filter windows,$(TARGET_OS)),k0s.exe,k0s) $(GO_ENV_REQUISITES)
 	$(GO_ENV) ./k0s airgap list-images --all > '$@'
 
 airgap-image-bundle-linux-amd64.tar:   TARGET_PLATFORM := linux/amd64
@@ -279,7 +279,7 @@ ipv6-test-image-bundle-linux-riscv64.tar: TARGET_PLATFORM := linux/riscv64
 ipv6-test-image-bundle-linux-amd64.tar \
 ipv6-test-image-bundle-linux-arm64.tar \
 ipv6-test-image-bundle-linux-arm.tar \
-ipv6-test-image-bundle-linux-riscv64.tar: k0s ipv6-test-images.txt
+ipv6-test-image-bundle-linux-riscv64.tar: $(if $(filter windows,$(TARGET_OS)),k0s.exe,k0s) ipv6-test-images.txt
 	./k0s airgap bundle-artifacts -v --platform='$(TARGET_PLATFORM)' -o '$@' <ipv6-test-images.txt
 
 .PHONY: $(smoketests)
@@ -346,7 +346,8 @@ docs-serve-dev:
 	  -p '$(DOCS_DEV_PORT):8000' \
 	  $(DOCKER_RUN_OPTS) k0sdocs.docker-image.serve-dev
 
-spdx.json: syft.yaml go.mod .bins.$(TARGET_OS).stamp
+spdx.json: syft.yaml go.mod $(if $(filter none,$(EMBEDDED_BINS_BUILDMODE)),,.bins.$(TARGET_OS).stamp)
+	mkdir -p 'embedded-bins/staging/$(TARGET_OS)/bin'
 	$(DOCKER) run --rm \
 	  -v '$(CURDIR)/syft.yaml':/k0s/syft.yaml:ro \
 	  -v '$(CURDIR)/go.mod':/k0s/go.mod:ro \

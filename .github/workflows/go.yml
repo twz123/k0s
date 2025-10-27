@@ -96,20 +96,27 @@ jobs:
 
   build-k0s:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target-os: linux
             target-arch: amd64
+            embed-binaries: true
+          - target-os: linux
+            target-arch: amd64
+            embed-binaries: false
           - target-os: linux
             target-arch: arm64
           - target-os: windows
             target-arch: amd64
 
-    name: "Build :: k0s :: ${{ matrix.target-os }}-${{ matrix.target-arch }}"
+    name: "Build :: k0s :: ${{ matrix.target-arch }}"
     uses: ./.github/workflows/build-k0s.yml
     with:
       target-os: ${{ matrix.target-os }}
       target-arch: ${{ matrix.target-arch }}
+      embed-binaries: ${{ matrix.embed-binaries == true }}
+      upload-image-lists: ${{ matrix.target-os != 'windows' && matrix.embed-binaries == true }}
 
   build-airgap-image-bundle:
     strategy:
