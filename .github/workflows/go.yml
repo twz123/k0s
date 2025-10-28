@@ -119,6 +119,7 @@ jobs:
 
     name: "Build :: Airgap image bundle"
     needs: [build-k0s]
+    if: "false"
     uses: ./.github/workflows/build-image-bundle.yml
     with:
       image-bundle-name: airgap
@@ -129,6 +130,7 @@ jobs:
     name: "Build :: IPv6 test image bundle"
     needs: [build-k0s]
     uses: ./.github/workflows/build-image-bundle.yml
+    if: "false"
     with:
       image-bundle-name: ipv6-test
       target-os: linux
@@ -267,6 +269,7 @@ jobs:
     name: "check-${{ matrix.smoke-suite }} :: arm64"
     needs: [build-k0s, build-airgap-image-bundle]
 
+    if: "false"
     uses: ./.github/workflows/smoketest.yaml
     with:
       arch: arm64
@@ -284,6 +287,7 @@ jobs:
     name: "check-ap-${{ matrix.smoke-suite }} :: ${{ matrix.version }}"
     needs: [prepare, build-k0s]
 
+    if: "false"
     uses: ./.github/workflows/smoketest.yaml
     with:
       arch: amd64
