@@ -4,6 +4,7 @@
 package common
 
 import (
+	"context"
 	"os"
 
 	"github.com/k0sproject/k0s/internal/pkg/flags"
@@ -17,13 +18,13 @@ const (
 // FindEffectiveHostname attempts to find the effective hostname, first inspecting
 // for an AUTOPILOT_HOSTNAME environment variable, falling back to whatever the OS
 // returns.
-func FindEffectiveHostname() (string, error) {
-	nodeName, err := node.GetNodeName(os.Getenv(envAutopilotHostname))
+func FindEffectiveHostname(ctx context.Context) (string, error) {
+	nodeName, err := node.GetNodeName(ctx, os.Getenv(envAutopilotHostname))
 	return string(nodeName), err
 }
 
-func FindKubeletHostname(kubeletExtraArgs string) string {
-	defaultNodename, _ := node.GetNodeName("")
+func FindKubeletHostname(ctx context.Context, kubeletExtraArgs string) string {
+	defaultNodename, _ := node.GetNodeName(ctx, "")
 	if kubeletExtraArgs != "" {
 		extras := flags.Split(kubeletExtraArgs)
 		nodeName, ok := extras["--hostname-override"]

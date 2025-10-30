@@ -25,7 +25,7 @@ const (
 func RegisterControllers(ctx context.Context, logger *logrus.Entry, mgr crman.Manager, delegate apdel.ControllerDelegate, k0sDataDir string) error {
 	logger = logger.WithField("controller", delegate.Name())
 
-	hostname, err := apcomm.FindEffectiveHostname()
+	hostname, err := apcomm.FindEffectiveHostname(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to determine hostname: %w", err)
 	}

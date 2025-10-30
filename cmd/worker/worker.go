@@ -65,6 +65,7 @@ func NewWorkerCmd() *cobra.Command {
 		Args:             cobra.MaximumNArgs(1),
 		PersistentPreRun: debugFlags.Run,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
 			opts, err := config.GetCmdOpts(cmd)
 			if err != nil {
 				return err
@@ -85,7 +86,7 @@ func NewWorkerCmd() *cobra.Command {
 				return err
 			}
 
-			nodeName, kubeletExtraArgs, err := GetNodeName(&c.WorkerOptions)
+			nodeName, kubeletExtraArgs, err := GetNodeName(ctx, &c.WorkerOptions)
 			if err != nil {
 				return fmt.Errorf("failed to determine node name: %w", err)
 			}
@@ -130,7 +131,7 @@ func NewWorkerCmd() *cobra.Command {
 	return cmd
 }
 
-func GetNodeName(opts *config.WorkerOptions) (apitypes.NodeName, stringmap.StringMap, error) {
+func GetNodeName(ctx context.Context, opts *config.WorkerOptions) (apitypes.NodeName, stringmap.StringMap, error) {
 	// The node name used during bootstrapping needs to match the node name
 	// selected by kubelet. Otherwise, kubelet will have problems interacting
 	// with a Node object that doesn't match the name in the certificates.
@@ -143,7 +144,7 @@ func GetNodeName(opts *config.WorkerOptions) (apitypes.NodeName, stringmap.Strin
 	// exactly matches the behavior of kubelet.
 
 	kubeletExtraArgs := flags.Split(opts.KubeletExtraArgs)
-	nodeName, err := node.GetNodeName(kubeletExtraArgs["--hostname-override"])
+	nodeName, err := node.GetNodeName(ctx, kubeletExtraArgs["--hostname-override"])
 	if err != nil {
 		return "", nil, err
 	}

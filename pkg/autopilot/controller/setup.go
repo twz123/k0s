@@ -67,14 +67,14 @@ func (sc *setupController) Run(ctx context.Context) error {
 		}
 	}
 
-	controlNodeName, err := apcomm.FindEffectiveHostname()
+	controlNodeName, err := apcomm.FindEffectiveHostname(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to determine hostname for signal node setup: %w", err)
 	}
 
 	kubeletNodeName := controlNodeName
 	if sc.enableWorker {
-		kubeletNodeName = apcomm.FindKubeletHostname(sc.kubeletExtraArgs)
+		kubeletNodeName = apcomm.FindKubeletHostname(ctx, sc.kubeletExtraArgs)
 	}
 
 	logger.Infof("Using effective hostname = '%v', kubelet hostname = '%v'", controlNodeName, kubeletNodeName)

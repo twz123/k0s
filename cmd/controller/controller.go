@@ -289,7 +289,8 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions, de
 		DisableEndpointReconciler: enableK0sEndpointReconciler,
 	})
 
-	nodeName, kubeletExtraArgs, err := workercmd.GetNodeName(&c.WorkerOptions)
+	nodeName, kubeletExtraArgs, err := workercmd.GetNodeName(ctx, &c.WorkerOptions)
+
 	if err != nil {
 		return fmt.Errorf("failed to determine node name: %w", err)
 	}

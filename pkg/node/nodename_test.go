@@ -16,7 +16,7 @@ import (
 
 func TestGetNodeName(t *testing.T) {
 	t.Run("should_always_return_override_if_given", func(t *testing.T) {
-		name, err := GetNodeName("override")
+		name, err := GetNodeName(t.Context(), "override")
 		if assert.NoError(t, err) {
 			assert.Equal(t, apitypes.NodeName("override"), name)
 		}
@@ -27,7 +27,7 @@ func TestGetNodeName(t *testing.T) {
 		require.NoError(t, err)
 
 		t.Run("should_call_kubernetes_hostname_helper_on_linux", func(t *testing.T) {
-			name, err := GetNodeName("")
+			name, err := GetNodeName(t.Context(), "")
 			if assert.NoError(t, err) {
 				assert.Equal(t, apitypes.NodeName(kubeHostname), name)
 			}

@@ -196,6 +196,7 @@ func (s *BootlooseSuite) SetupSuite() {
 		// Get a fresh context for the cleanup tasks.
 		ctx, cancel := k0scontext.ShutdownContext(t.Context())
 		defer cancel(nil)
+		//nolint:contextcheck // intentionally detached from parent context
 		s.cleanupSuite(ctx, t)
 	}()
 

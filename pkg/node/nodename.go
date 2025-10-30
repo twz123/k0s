@@ -12,11 +12,7 @@ import (
 )
 
 // GetNodeName returns the node name for the node taking OS, cloud provider and override into account
-func GetNodeName(override string) (apitypes.NodeName, error) {
-	return getNodeName(context.TODO(), override)
-}
-
-func getNodeName(ctx context.Context, override string) (apitypes.NodeName, error) {
+func GetNodeName(ctx context.Context, override string) (apitypes.NodeName, error) {
 	if override == "" {
 		var err error
 		override, err = defaultNodeNameOverride(ctx)

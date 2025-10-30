@@ -7,13 +7,28 @@ run:
   allow-parallel-runners: true
 linters:
   enable:
+    - asasalint         # Check for pass []any as any in variadic func(...any)
+    - asciicheck        # Checks that all code identifiers does not have non-ASCII symbols in the name
+    - bidichk           # Checks for dangerous unicode character sequences
+    - bodyclose         # Checks whether HTTP response body is closed successfully.
+    # - containedctx      # Detects struct containing context.Context fields
+    - contextcheck      # Check whether functions use a non-inherited context
     - copyloopvar       # Detects unnecessary copies of loop variables for Go >= 1.22
+    # - decorder          # Check declaration order and count of types, constants, variables and functions
     - depguard          # Checks if package imports are in a list of acceptable packages
+    # - dupl              # Detects duplicate fragments of code
     - dupword           # Finds word repetitions
+    # - durationcheck     # Detects erroneous multiplication of duration values
     - errorlint         # Find code that will cause problems with Go's error wrapping scheme
     - exptostd          # Detects functions from golang.org/x/exp/ that can be replaced by std functions
+    # - forcetypeassert   # Find forced type assertions
+    # - gochecknoglobals  # Check that no global variables exist
+    # - goconst           # Finds repeated strings that could be replaced by a constant
+    # - godot             # Check if comments end in a period
     - gocritic          # another style/metalinter (dynamic rules supported)
     - goheader          # Checks is file headers matches a given pattern
+    # - iface             # Detect the incorrect use of interfaces, helping developers avoid interface pollution
+    # - importas          # Enforces consistent import aliases
     - intrange          # Checking for loops that could use an integer range
     - iotamixing        # Checks if iotas are being used in const blocks with other non-iota declarations
     - misspell          # Finds commonly misspelled English words
@@ -76,6 +91,9 @@ linters:
       settings:
         ifElseChain:
           minThreshold: 5
+    godot:
+      scope: noinline
+      capital: true
     goheader:
       values:
         regexp:
