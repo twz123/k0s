@@ -1475,7 +1475,7 @@ func (s *BootlooseSuite) AssertSomeKubeSystemPods(client *kubernetes.Clientset) 
 }
 
 func (s *BootlooseSuite) IsDockerIPv6Enabled() (bool, error) {
-	cmd := exec.Command("docker", "inspect", "bridge", "--format", "\"{{ .EnableIPv6 }}\"")
+	cmd := exec.Command("docker", "inspect", "myv6", "--format", "\"{{ .EnableIPv6 }}\"")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return false, fmt.Errorf("failed to run docker inspect: %w", err)

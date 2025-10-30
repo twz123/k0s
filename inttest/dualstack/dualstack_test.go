@@ -83,6 +83,10 @@ func (s *DualstackSuite) SetupSuite() {
 	s.Require().True(isDockerIPv6Enabled, "Please enable IPv6 in docker before running this test")
 	s.BootlooseSuite.SetupSuite()
 
+	ctx := s.Context()
+
+	common.ConfigureIPv6ResolvConf(&s.BootlooseSuite)
+
 	target := os.Getenv("K0S_INTTEST_TARGET")
 
 	k0sConfig := k0sConfigWithCalicoDualStack
@@ -110,10 +114,10 @@ func (s *DualstackSuite) SetupSuite() {
 	s.Require().NoError(err)
 
 	for i := range s.WorkerCount {
-		ssh, err := s.SSH(s.Context(), s.WorkerNode(i))
+		ssh, err := s.SSH(ctx, s.WorkerNode(i))
 		s.Require().NoError(err)
 		defer ssh.Disconnect()
-		output, err := ssh.ExecWithOutput(s.Context(), "cat /proc/sys/net/ipv6/conf/all/disable_ipv6")
+		output, err := ssh.ExecWithOutput(ctx, "cat /proc/sys/net/ipv6/conf/all/disable_ipv6")
 		s.Require().NoError(err)
 		s.T().Logf("worker%d: /proc/sys/net/ipv6/conf/all/disable_ipv6=%s", i, output)
 	}
@@ -123,7 +127,8 @@ func (s *DualstackSuite) SetupSuite() {
 	restConfig, err := s.GetKubeConfig("controller0", "")
 	s.Require().NoError(err)
 
-	createdTargetPod, err := kc.CoreV1().Pods("default").Create(s.Context(), &corev1.Pod{
+	s.T().Log("Deploying a pod on worker0")
+	createdTargetPod, err := kc.CoreV1().Pods("default").Create(ctx, &corev1.Pod{
 		TypeMeta:   metav1.TypeMeta{Kind: "Pod", APIVersion: "v1"},
 		ObjectMeta: metav1.ObjectMeta{Name: "nginx-worker0"},
 		Spec: corev1.PodSpec{
@@ -134,12 +139,12 @@ func (s *DualstackSuite) SetupSuite() {
 		},
 	}, metav1.CreateOptions{})
 	s.Require().NoError(err)
-	s.Require().NoError(common.WaitForPod(s.Context(), kc, "nginx-worker0", "default"), "nginx-worker0 pod did not start")
 
-	targetPod, err := kc.CoreV1().Pods(createdTargetPod.Namespace).Get(s.Context(), createdTargetPod.Name, metav1.GetOptions{})
+	targetPod, err := kc.CoreV1().Pods(createdTargetPod.Namespace).Get(ctx, createdTargetPod.Name, metav1.GetOptions{})
 	s.Require().NoError(err)
 
-	sourcePod, err := kc.CoreV1().Pods("default").Create(s.Context(), &corev1.Pod{
+	s.T().Log("Deploying a pod on worker1")
+	sourcePod, err := kc.CoreV1().Pods("default").Create(ctx, &corev1.Pod{
 		TypeMeta:   metav1.TypeMeta{Kind: "Pod", APIVersion: "v1"},
 		ObjectMeta: metav1.ObjectMeta{Name: "nginx-worker1"},
 		Spec: corev1.PodSpec{
@@ -150,18 +155,34 @@ func (s *DualstackSuite) SetupSuite() {
 		},
 	}, metav1.CreateOptions{})
 	s.Require().NoError(err)
-	s.NoError(common.WaitForPod(s.Context(), kc, "nginx-worker1", "default"), "nginx-worker1 pod did not start")
+
+	s.T().Log("Waiting to see konnectivity-agent pods ready")
+	s.Require().NoError(common.WaitForDaemonSet(ctx, client, "konnectivity-agent", "kube-system"), "konnectivity-agent did not start")
+	s.T().Log("Waiting to get logs from pods")
+	s.Require().NoError(common.WaitForPodLogs(ctx, client, "kube-system"))
+
+	s.Require().NoError(common.WaitForPod(ctx, kc, "nginx-worker0", "default"), "nginx-worker0 pod did not start")
+	s.Require().NoError(common.WaitForPod(ctx, kc, "nginx-worker1", "default"), "nginx-worker1 pod did not start")
 
 	// test ipv6 address
-	err = wait.PollImmediateWithContext(s.Context(), 100*time.Millisecond, time.Minute, func(ctx context.Context) (done bool, err error) {
-		s.Require().Len(targetPod.Status.PodIPs, 2)
+	err = wait.PollUntilContextCancel(ctx, 3*time.Second, true, func(ctx context.Context) (done bool, err error) {
+		targetPod, err := kc.CoreV1().Pods("default").Get(ctx, "nginx-worker0", metav1.GetOptions{})
+		if err != nil {
+			s.T().Log("Failed to get pod on worker0:", err)
+			return false, nil
+		}
+		if len(targetPod.Status.PodIPs) != 2 {
+			s.T().Log("Expected two pid IPs, got", targetPod.Status.PodIPs)
+			return false, nil
+		}
 		podIP := targetPod.Status.PodIPs[1].IP
 		targetIP := net.ParseIP(podIP)
 		s.Require().NotNil(targetIP)
+		s.T().Log("Trying to reach the pod on worker0 from the pod on worker1 via", targetIP)
 		out, err := common.PodExecCmdOutput(kc, restConfig, sourcePod.Name, sourcePod.Namespace, fmt.Sprintf("/usr/bin/wget -qO- %s", targetIP))
 		s.T().Log(out, err)
 		if err != nil {
-			s.T().Log("error calling ipv6 address: ", err)
+			s.T().Log("error calling ipv6 address:", err)
 			return false, nil
 		}
 		s.T().Log("server response", out)
@@ -170,7 +191,7 @@ func (s *DualstackSuite) SetupSuite() {
 	s.Require().NoError(err)
 
 	// test ipv4 address
-	err = wait.PollImmediateWithContext(s.Context(), 100*time.Millisecond, time.Minute, func(ctx context.Context) (done bool, err error) {
+	err = wait.PollUntilContextCancel(ctx, 100*time.Millisecond, true, func(ctx context.Context) (done bool, err error) {
 		s.Require().Len(targetPod.Status.PodIPs, 2)
 		podIP := targetPod.Status.PodIPs[0].IP
 		targetIP := net.ParseIP(podIP)
@@ -205,6 +226,7 @@ func TestDualStack(t *testing.T) {
 		common.BootlooseSuite{
 			ControllerCount: 1,
 			WorkerCount:     2,
+			Networks:        []string{"myv6"},
 		},
 		nil,
 		false,
