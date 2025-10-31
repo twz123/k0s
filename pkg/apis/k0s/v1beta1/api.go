@@ -126,10 +126,6 @@ func (a *APISpec) Sans() []string {
 	return stringslice.Unique(sans)
 }
 
-func isAnyAddress(address string) bool {
-	return address == "0.0.0.0" || address == "::"
-}
-
 // Validate validates APISpec struct
 func (a *APISpec) Validate() []error {
 	if a == nil {
@@ -138,10 +134,9 @@ func (a *APISpec) Validate() []error {
 
 	var errors []error
 
-	if !govalidator.IsIP(a.Address) {
+	if ip := net.ParseIP(a.Address); ip == nil {
 		errors = append(errors, field.Invalid(field.NewPath("address"), a.Address, "invalid IP address"))
-	}
-	if isAnyAddress(a.Address) {
+	} else if ip.IsUnspecified() {
 		errors = append(errors, field.Invalid(field.NewPath("address"), a.Address, "invalid INADDR_ANY"))
 	}
 
@@ -154,8 +149,8 @@ func (a *APISpec) Validate() []error {
 
 	if a.ExternalAddress != "" {
 		validateIPAddressOrDNSName(field.NewPath("externalAddress"), a.ExternalAddress)
-		if isAnyAddress(a.ExternalAddress) {
-			errors = append(errors, field.Invalid(field.NewPath("externalAddress"), a.Address, "invalid INADDR_ANY"))
+		if ip := net.ParseIP(a.ExternalAddress); ip.IsUnspecified() {
+			errors = append(errors, field.Invalid(field.NewPath("externalAddress"), a.ExternalAddress, "invalid INADDR_ANY"))
 		}
 	}
 

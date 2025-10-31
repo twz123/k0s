@@ -18,11 +18,17 @@ package iface
 
 import (
 	"fmt"
+	"iter"
 	"net"
 	"strings"
 
 	"github.com/sirupsen/logrus"
 )
+
+type Interface interface {
+	Name() string
+	IPs() (iter.Seq[IP], error)
+}
 
 type IP interface {
 	IP() net.IP
@@ -65,20 +71,20 @@ func CollectAllIPs() (addresses []net.IP, err error) {
 // FirstPublicAddress return the first found non-local IPv4 address that's not part of pod network
 // if any interface does not have any IPv4 address then return the first found non-local IPv6 address
 func FirstPublicAddress() (string, error) {
-	ifs, err := net.Interfaces()
+	ifs, err := All()
 	if err != nil {
 		return "127.0.0.1", fmt.Errorf("failed to list network interfaces: %w", err)
 	}
 
-	var ipv6 net.IP
+	var ipv4, ipv6 net.IP
 	for i := range ifs {
 		i := &ifs[i]
-		switch {
-		case isCNIInterface(i): // Skip all CNI related interfaces
-			continue
-		case i.Name == "dummyvip0": // Skip k0s CPLB interface
-			continue
-		}
+		// switch {
+		// case isCNIInterface(i): // Skip all CNI related interfaces
+		// 	continue
+		// case i.Name == "dummyvip0": // Skip k0s CPLB interface
+		// 	continue
+		// }
 
 		ips, err := interfaceIPs(i)
 		if err != nil {
@@ -106,9 +112,10 @@ func FirstPublicAddress() (string, error) {
 			}
 
 			if ip := addr.To4(); ip != nil {
-				return ip.String(), nil
-			}
-			if ipv6 == nil {
+				if ipv4 == nil {
+					ipv4 = ip
+				}
+			} else if ipv6 == nil {
 				if ip := addr.To16(); ip != nil {
 					ipv6 = ip
 				}

@@ -25,11 +25,41 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func interfaceIPs(i *net.Interface) (iter.Seq[IP], error) {
-	link, err := netlink.LinkByName(i.Name)
+func All() (iter.Seq[Interface], error) {
+	links, err := netlink.LinkList()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get link by name: %w", err)
+		return nil, err
 	}
+
+	return func(yield func(Interface) bool) {
+		for i := range links {
+			if !yield(&netlinkLink{links[i]}) {
+				return
+			}
+		}
+	}, nil
+}
+
+type netlinkLink struct {
+	netlink.Link
+}
+
+func (l netlinkLink) Name() string {
+	return l.Attrs().Name
+}
+
+func (link *netlinkLink) IPs() (iter.Seq[IP], error) {
+	attrs := link.Attrs()
+	fmt.Printf("Name: %s (%T)\n", attrs.Name, link)
+	fmt.Printf("  Type: %s\n", link.Type())
+	fmt.Printf("  MasterIndex: %d\n", link.Attrs().MasterIndex)
+	fmt.Printf("  Namespace: %+v\n", link.Attrs().NetNsID)
+
+	// If the link is a veth, get peer name
+	if veth, ok := link.Link.(*netlink.Veth); ok {
+		fmt.Printf("  PeerName: %s\n", veth.PeerName)
+	}
+	fmt.Println()
 
 	addresses, err := netlink.AddrList(link, netlink.FAMILY_ALL)
 	if err != nil {

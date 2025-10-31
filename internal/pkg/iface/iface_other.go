@@ -25,7 +25,28 @@ import (
 	"net"
 )
 
-func interfaceIPs(i *net.Interface) (iter.Seq[IP], error) {
+func All() (iter.Seq[Interface], error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+
+	return func(yield func(Interface) bool) {
+		for i := range interfaces {
+			if !yield(&genericInterface{&interfaces[i]}) {
+				return
+			}
+		}
+	}, nil
+}
+
+type genericInterface struct{ *net.Interface }
+
+func (i *genericInterface) Name() string {
+	return i.Interface.Name
+}
+
+func (i *genericInterface) IPs() (iter.Seq[IP], error) {
 	addresses, err := i.Addrs()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list interface addresses: %w", err)
