@@ -227,12 +227,18 @@ type startWatch struct {
 func (w *Watcher[T]) run(ctx context.Context, condition Condition[T]) error {
 	startWatch, err := w.list(ctx, condition)
 	if err != nil {
+		if errors.Is(err, ctx.Err()) {
+			return context.Cause(ctx)
+		}
 		return err
 	}
 
 	for startWatch != nil {
 		startWatch, err = w.watch(ctx, startWatch.resourceVersion, condition)
 		if err != nil {
+			if errors.Is(err, ctx.Err()) {
+				return context.Cause(ctx)
+			}
 			return err
 		}
 	}
@@ -409,7 +415,7 @@ func retry(ctx context.Context, errorCallback ErrorCallback, runWatch func(conte
 			select {
 			case <-ctx.Done():
 				timer.Stop()
-				return ctx.Err()
+				return context.Cause(ctx)
 			case <-timer.C:
 				continue
 			}

@@ -43,7 +43,7 @@ func (e etcdStep) Name() string {
 
 func (e etcdStep) Backup() (StepResult, error) {
 	ctx := context.TODO()
-	etcdClient, err := etcd.NewClient(e.certRootDir, e.etcdCertDir, nil)
+	etcdClient, err := etcd.NewClient(context.TODO(), e.certRootDir, e.etcdCertDir, nil)
 	if err != nil {
 		return StepResult{}, err
 	}

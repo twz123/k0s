@@ -21,6 +21,7 @@ var _ manager.Component = (*Dummy)(nil)
 func (l *Dummy) Init(_ context.Context) error { return nil }
 func (l *Dummy) Stop() error                  { return nil }
 func (l *Dummy) IsLeader() bool               { return l.Leader }
+func (l *Dummy) YieldLease()                  {}
 
 func (l *Dummy) AddAcquiredLeaseCallback(fn func()) {
 	l.callbacks = append(l.callbacks, fn)

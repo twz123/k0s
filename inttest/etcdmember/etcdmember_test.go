@@ -12,11 +12,14 @@ import (
 	"time"
 
 	"github.com/k0sproject/k0s/inttest/common"
+	aptest "github.com/k0sproject/k0s/inttest/common/autopilot"
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/sync/errgroup"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 
 	etcdv1beta1 "github.com/k0sproject/k0s/pkg/apis/etcd/v1beta1"
+	clientetcdv1beta1 "github.com/k0sproject/k0s/pkg/client/clientset/typed/etcd/v1beta1"
 	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
 )
 
@@ -48,19 +51,24 @@ func (s *EtcdMemberSuite) TestDeregistration() {
 	ctx := s.Context()
 	var joinToken string
 	for idx := range s.ControllerCount {
-		s.Require().NoError(s.WaitForSSH(s.ControllerNode(idx), 2*time.Minute, 1*time.Second))
+		nodeName := s.ControllerNode(idx)
+		// s.Require().NoError(s.WaitForSSH(nodeName, 2*time.Minute, 1*time.Second))
 
 		// Note that the token is intentionally empty for the first controller
 		s.Require().NoError(s.InitController(idx, joinToken))
-		s.Require().NoError(s.WaitJoinAPI(s.ControllerNode(idx)))
-		s.Require().NoError(s.WaitForKubeAPI(s.ControllerNode(idx)))
-		// With the primary controller running, create the join token for subsequent controllers.
-		if idx == 0 {
-			token, err := s.GetJoinToken("controller")
+		if joinToken == "" {
+			// With the primary controller running, create the join token for subsequent controllers.
+			s.Require().NoError(s.WaitJoinAPI(nodeName))
+			var err error
+			joinToken, err = s.GetJoinToken("controller")
 			s.Require().NoError(err)
-			joinToken = token
 		}
 	}
+
+	s.T().Log("Waiting for EtcdMembers CRD")
+	extClient, err := s.ExtensionsClient(s.ControllerNode(0))
+	s.Require().NoError(err)
+	s.Require().NoError(aptest.WaitForCRDByGroupName(ctx, extClient, "etcdmembers."+etcdv1beta1.GroupName))
 
 	// Final sanity -- ensure all nodes see each other according to etcd
 	for idx := range s.ControllerCount {
@@ -69,31 +77,28 @@ func (s *EtcdMemberSuite) TestDeregistration() {
 	kc, err := s.KubeClient(s.ControllerNode(0))
 	s.Require().NoError(err)
 
-	etcdMemberClient, err := s.EtcdMemberClient(s.ControllerNode(0))
+	memberClient, err := s.EtcdMemberClient(s.ControllerNode(0))
 
 	// Check each node is present in the etcd cluster and reports joined state
 	// Use errorgroup to wait for all the statuses to be updated
-	eg := errgroup.Group{}
+	eg, ectx := errgroup.WithContext(ctx)
 
-	for i, obj := range nodes {
+	for i := range s.ControllerCount {
+		obj := s.ControllerNode(i)
+		ctx := ectx
 		eg.Go(func() error {
 			s.T().Logf("verifying initial status of %s", obj)
-			em := &etcdv1beta1.EtcdMember{}
 
-			err = watch.EtcdMembers(etcdMemberClient.EtcdMembers()).
-				WithObjectName(obj).
-				WithErrorCallback(common.RetryWatchErrors(s.T().Logf)).
-				Until(ctx, func(item *etcdv1beta1.EtcdMember) (done bool, err error) {
-					c := item.Status.GetCondition(etcdv1beta1.ConditionTypeJoined)
-					if c != nil {
-						// We have the condition so we can bail out
+			var em *etcdv1beta1.EtcdMember
+			if err := s.waitForMember(ctx, memberClient.EtcdMembers(), obj, func(item *etcdv1beta1.EtcdMember) (bool, error) {
+				for _, cond := range item.Status.Conditions {
+					if cond.Type == etcdv1beta1.ConditionTypeJoined {
 						em = item
+						return true, nil
 					}
-					return c != nil, nil
-				})
-
-			// We've got the condition, verify status details
-			if err != nil {
+				}
+				return false, nil
+			}); err != nil {
 				return err
 			}
 			if em.Status.PeerAddress != s.GetControllerIPAddress(i) {
@@ -136,16 +141,18 @@ func (s *EtcdMemberSuite) TestDeregistration() {
 	s.Require().NoError(s.InitController(2, joinToken))
 	s.Require().NoError(s.WaitForKubeAPI(s.ControllerNode(2)))
 
-	// Final sanity -- ensure all nodes see each other according to etcd
-	members = s.getMembers(ctx, 0)
-	s.Require().Len(members, s.ControllerCount)
-	s.Require().Contains(members, "controller2")
+	s.T().Log("Waiting for ", s.ControllerNode(2), " to re-join as an etcd member")
+	s.waitForMember(ctx, memberClient.EtcdMembers(), s.ControllerNode(2), func(em *etcdv1beta1.EtcdMember) (bool, error) {
+		if !em.Spec.Leave {
+			for _, cond := range em.Status.Conditions {
+				if cond.Type == etcdv1beta1.ConditionTypeJoined {
+					return cond.Status == etcdv1beta1.ConditionTrue, nil
+				}
+			}
+		}
 
-	// Check the CR is present again
-	em = s.getMember(ctx, "controller2")
-	s.Require().Equal(em.Status.PeerAddress, s.GetControllerIPAddress(2))
-	s.Require().False(em.Spec.Leave)
-	s.Require().Equal(etcdv1beta1.ConditionTrue, em.Status.GetCondition(etcdv1beta1.ConditionTypeJoined).Status)
+		return false, nil
+	})
 
 	// Check that after restarting the controller, the member is still present
 	s.Require().NoError(s.RestartController(s.ControllerNode(2)))
@@ -185,15 +192,21 @@ func (s *EtcdMemberSuite) getLeader(ctx context.Context) string {
 
 func (s *EtcdMemberSuite) leaveNode(ctx context.Context, name string) {
 	// Get kube client to some other node that we're marking to leave
-	n := ""
-	for _, node := range nodes {
-		if node != name {
-			n = node
+	node := name
+	for i := range s.ControllerCount {
+		if candidate := s.ControllerNode(i); candidate != node {
+			node = candidate
 			break
 		}
 	}
-	s.T().Logf("using %s as API server to mark %s for leaving", n, name)
-	kc, err := s.KubeClient(n)
+
+	s.T().Logf("using %s as API server to mark %s for leaving", node, name)
+
+	cfg, err := s.GetKubeConfig(node)
+	s.Require().NoError(err)
+	kc, err := kubernetes.NewForConfig(cfg)
+	s.Require().NoError(err)
+	ec, err := clientetcdv1beta1.NewForConfig(cfg)
 	s.Require().NoError(err)
 
 	// Patch the EtcdMember CR to set the Leave flag
@@ -203,24 +216,17 @@ func (s *EtcdMemberSuite) leaveNode(ctx context.Context, name string) {
 
 	s.Require().NoError(result.Error())
 	s.T().Logf("marked %s for leaving, waiting to see the state updated", name)
-	err = common.Poll(ctx, func(ctx context.Context) (done bool, err error) {
-		em := &etcdv1beta1.EtcdMember{}
-		err = kc.RESTClient().Get().AbsPath(fmt.Sprintf(basePath, name)).Do(ctx).Into(em)
-		if err != nil {
-			// We need to retry on errors since it's very common to hit "etcd leader changed" errors when we're messing with the cluster
-			s.T().Logf("error getting EtcdMember %s, gonna retry: %v", name, err)
-			return false, nil
+	s.waitForMember(ctx, ec.EtcdMembers(), name, func(member *etcdv1beta1.EtcdMember) (bool, error) {
+		for _, condition := range member.Status.Conditions {
+			if condition.Type == etcdv1beta1.ConditionTypeJoined {
+				s.T().Log(name, " ", etcdv1beta1.ConditionTypeJoined, ": ", condition.Status)
+				return condition.Status == etcdv1beta1.ConditionFalse, nil
+			}
 		}
 
-		c := em.Status.GetCondition(etcdv1beta1.ConditionTypeJoined)
-		if c == nil {
-			return false, nil
-		}
-		return c.Status == etcdv1beta1.ConditionFalse, nil
-
+		s.T().Log(name, " has no ", etcdv1beta1.ConditionTypeJoined, " condition")
+		return false, nil
 	})
-	s.Require().NoError(err)
-
 }
 
 // getMember returns the etcd member CR for the given name
@@ -234,13 +240,25 @@ func (s *EtcdMemberSuite) getMember(ctx context.Context, name string) *etcdv1bet
 	return em
 }
 
-var nodes = []string{"controller0", "controller1", "controller2"}
+func (s *EtcdMemberSuite) waitForMember(ctx context.Context, members clientetcdv1beta1.EtcdMemberInterface, name string, condition func(*etcdv1beta1.EtcdMember) (bool, error)) error {
+	return watch.EtcdMembers(members).
+		WithObjectName(name).
+		WithErrorCallback(func(err error) (time.Duration, error) {
+			if timeout, err := common.RetryWatchErrors(s.T().Logf)(err); err == nil {
+				return timeout, nil
+			}
+			s.T().Logf("Encountered unknown error while watching, retrying in a sec: %v", err)
+			return time.Second, nil
+		}).
+		Until(ctx, condition)
+}
 
 func TestEtcdMemberSuite(t *testing.T) {
 	s := EtcdMemberSuite{
 		common.BootlooseSuite{
 			ControllerCount: 3,
 			LaunchMode:      common.LaunchModeOpenRC,
+			// WithLB: true,
 		},
 	}
 

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/k0sproject/k0s/internal/sync/value"
 	"github.com/k0sproject/k0s/pkg/component/manager"
@@ -25,11 +26,15 @@ type LeasePool struct {
 	invocationID      string
 	status            value.Latest[leaderelection.Status]
 	kubeClientFactory kubeutil.ClientFactoryInterface
-	stop              func()
+	name              string
+	client            *leaderelection.Client
+
+	mu     sync.Mutex
+	cancel context.CancelCauseFunc
+	done   <-chan struct{}
 
 	acquiredLeaseCallbacks []func()
 	lostLeaseCallbacks     []func()
-	name                   string
 }
 
 var (
@@ -47,35 +52,87 @@ func NewLeasePool(invocationID string, kubeClientFactory kubeutil.ClientFactoryI
 	}
 }
 
-func (l *LeasePool) Init(_ context.Context) error {
+func (l *LeasePool) Init(context.Context) error {
 	return nil
 }
 
 func (l *LeasePool) Start(context.Context) error {
-	kubeClient, err := l.kubeClientFactory.GetClient()
-	if err != nil {
-		return fmt.Errorf("can't create kubernetes rest client for lease pool: %w", err)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.cancel != nil {
+		return nil
 	}
 
-	client, err := leaderelection.NewClient(&leaderelection.LeaseConfig{
-		Namespace: corev1.NamespaceNodeLease,
-		Name:      l.name,
-		Identity:  l.invocationID,
-		Client:    kubeClient.CoordinationV1(),
-	})
-	if err != nil {
-		return err
+	if l.client == nil {
+		kubeClient, err := l.kubeClientFactory.GetClient()
+		if err != nil {
+			return fmt.Errorf("can't create kubernetes rest client for lease pool: %w", err)
+		}
+
+		l.client, err = leaderelection.NewClient(&leaderelection.LeaseConfig{
+			Namespace: corev1.NamespaceNodeLease,
+			Name:      l.name,
+			Identity:  l.invocationID,
+			Client:    kubeClient.CoordinationV1(),
+		})
+		if err != nil {
+			return err
+		}
 	}
 
 	ctx, cancel := context.WithCancelCause(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		l.run(ctx)
+	}()
+
+	l.cancel, l.done = cancel, done
+
+	return nil
+}
+
+func (l *LeasePool) run(ctx context.Context) {
 	var wg sync.WaitGroup
 
 	wg.Add(2)
-	go func() { defer wg.Done(); client.Run(ctx, l.status.Set) }()
+	go func() { defer wg.Done(); l.client.Run(ctx, l.status.Set) }()
 	go func() { defer wg.Done(); l.invokeCallbacks(ctx) }()
+	wg.Wait()
+}
 
-	l.stop = func() { cancel(errors.New("lease pool is stopping")); wg.Wait() }
-	return nil
+func (l *LeasePool) YieldLease() {
+	ctx, cancelYield := context.WithCancelCause(context.Background())
+	yieldDone := make(chan struct{})
+
+	l.mu.Lock()
+	cancel, done := l.cancel, l.done
+	if cancel == nil {
+		l.mu.Unlock()
+		cancelYield(nil) // The context is not used, cancel it just to silence linters.
+		return
+	}
+	l.cancel, l.done = cancelYield, yieldDone
+	l.mu.Unlock()
+
+	l.log.Info("Suspending for 30 seconds")
+	delay := time.After(30 * time.Second)
+
+	go func() {
+		defer close(yieldDone)
+		cancel(errors.New("lease pool is yielding"))
+		<-done
+
+		select {
+		case <-delay:
+			l.log.Info("Resuming operations")
+			l.run(ctx)
+
+		case <-ctx.Done():
+		}
+	}()
 }
 
 func (l *LeasePool) invokeCallbacks(ctx context.Context) {
@@ -107,9 +164,18 @@ func (l *LeasePool) AddLostLeaseCallback(fn func()) {
 }
 
 func (l *LeasePool) Stop() error {
-	if l.stop != nil {
-		l.stop()
+	l.mu.Lock()
+	cancel, done := l.cancel, l.done
+	l.cancel = nil
+	l.mu.Unlock()
+
+	if cancel != nil {
+		cancel(errors.New("lease pool is stopping"))
 	}
+	if done != nil {
+		<-done
+	}
+
 	return nil
 }
 

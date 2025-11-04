@@ -25,7 +25,7 @@ type Client struct {
 }
 
 // NewClient creates new Client
-func NewClient(certDir, etcdCertDir string, etcdConf *v1beta1.EtcdConfig) (*Client, error) {
+func NewClient(ctx context.Context, certDir, etcdCertDir string, etcdConf *v1beta1.EtcdConfig) (*Client, error) {
 	client := &Client{}
 
 	var tlsConfig *tls.Config
@@ -44,6 +44,7 @@ func NewClient(certDir, etcdCertDir string, etcdConf *v1beta1.EtcdConfig) (*Clie
 	}
 
 	cfg := clientv3.Config{
+		Context:   ctx,
 		Endpoints: etcdConf.GetEndpoints(),
 		TLS:       tlsConfig,
 	}

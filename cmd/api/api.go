@@ -153,7 +153,7 @@ func etcdHandler(certRootDir, etcdCertDir string) http.Handler {
 			return
 		}
 
-		etcdClient, err := etcd.NewClient(certRootDir, etcdCertDir, nil)
+		etcdClient, err := etcd.NewClient(context.TODO(), certRootDir, etcdCertDir, nil)
 		if err != nil {
 			sendError(err, resp)
 			return

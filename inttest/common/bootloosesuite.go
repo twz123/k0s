@@ -1308,7 +1308,7 @@ func newSuiteContext(t *testing.T) (context.Context, context.CancelCauseFunc) {
 	// ... but at least 20 seconds.
 	reservedTeardownDuration = time.Duration(math.Max(float64(20*time.Second), float64(reservedTeardownDuration)))
 	// Then construct the context accordingly.
-	deadlineCtx, subCancel := context.WithDeadline(signalCtx, deadline.Add(-reservedTeardownDuration))
+	deadlineCtx, subCancel := context.WithDeadlineCause(signalCtx, deadline.Add(-reservedTeardownDuration), errors.New("integration test timed out"))
 	_ = subCancel // Silence linter: the deadlined context is implicitly canceled when canceling the signal context
 
 	return deadlineCtx, cancel

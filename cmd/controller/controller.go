@@ -307,6 +307,7 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions, de
 	var leaderElector interface {
 		leaderelector.Interface
 		manager.Component
+		YieldLease()
 	}
 
 	// One leader elector per controller
@@ -374,7 +375,7 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions, de
 			return err
 		}
 		clusterComponents.Add(ctx, controller.NewCRD(c.K0sVars.ManifestsDir, "etcd", controller.WithStackName("etcd-member")))
-		nodeComponents.Add(ctx, etcdReconciler)
+		clusterComponents.Add(ctx, etcdReconciler)
 	}
 
 	perfTimer.Checkpoint("starting-certificates-init")

@@ -33,8 +33,8 @@ import (
 var _ manager.Component = (*EtcdMemberReconciler)(nil)
 
 func NewEtcdMemberReconciler(kubeClientFactory kubeutil.ClientFactoryInterface, k0sVars *config.CfgVars, etcdConfig *v1beta1.EtcdConfig, leaderElector leaderelector.Interface) (*EtcdMemberReconciler, error) {
-
 	return &EtcdMemberReconciler{
+		log:           logrus.WithField("component", "etcdMemberReconciler"),
 		clientFactory: kubeClientFactory,
 		k0sVars:       k0sVars,
 		etcdConfig:    etcdConfig,
@@ -43,6 +43,7 @@ func NewEtcdMemberReconciler(kubeClientFactory kubeutil.ClientFactoryInterface, 
 }
 
 type EtcdMemberReconciler struct {
+	log           *logrus.Entry
 	clientFactory kubeutil.ClientFactoryInterface
 	k0sVars       *config.CfgVars
 	etcdConfig    *v1beta1.EtcdConfig
@@ -74,41 +75,18 @@ func (e *EtcdMemberReconciler) resync(ctx context.Context, client etcdclient.Etc
 }
 
 func (e *EtcdMemberReconciler) Start(ctx context.Context) error {
-	log := logrus.WithField("component", "EtcdMemberReconciler")
-
 	client, err := e.clientFactory.GetEtcdMemberClient()
 	if err != nil {
 		return err
 	}
 
-	ctx, cancel := context.WithCancelCause(context.Background())
-	done := make(chan struct{})
-
-	go func() {
-		defer close(done)
-		wait.UntilWithContext(ctx, func(ctx context.Context) {
-			e.reconcile(ctx, log, client)
-		}, 1*time.Minute)
-	}()
-
-	e.stop = func() {
-		cancel(errors.New("etcd member reconciler is stopping"))
-		<-done
-	}
-
-	return nil
-}
-
-func (e *EtcdMemberReconciler) reconcile(ctx context.Context, log logrus.FieldLogger, client etcdclient.EtcdMemberInterface) {
-	err := e.waitForCRD(ctx)
-	if err != nil {
-		log.WithError(err).Errorf("didn't see EtcdMember CRD ready in time")
-		return
+	if err := e.waitForCRD(ctx); err != nil {
+		return fmt.Errorf("didn't see EtcdMember CRD ready in time: %w", err)
 	}
 
 	// Create the object for this node
 	// Need to be done in retry loop as during the initial startup the etcd might not be stable
-	err = retry.Do(
+	if err := retry.Do(
 		func() error {
 			return e.createMemberObject(ctx, client)
 		},
@@ -117,53 +95,40 @@ func (e *EtcdMemberReconciler) reconcile(ctx context.Context, log logrus.FieldLo
 		retry.Context(ctx),
 		retry.LastErrorOnly(true),
 		retry.RetryIf(func(retryErr error) bool {
-			log.Debugf("retrying createMemberObject: %v", retryErr)
+			e.log.Debugf("retrying createMemberObject: %v", retryErr)
 			// During etcd cluster bootstrap, it's common to see k8s giving 500 errors due to etcd timeouts
 			return apierrors.IsInternalError(retryErr)
 		}),
-	)
-	if err != nil {
-		log.WithError(err).Error("failed to create EtcdMember object for this controller")
+	); err != nil {
+		return fmt.Errorf("failed to create EtcdMember resource for this controller: %w", err)
 	}
 
-	leaderelection.RunLeaderTasks(ctx, e.leaderElector.CurrentStatus, func(ctx context.Context) {
-		var lastObservedVersion string
-		err = watch.EtcdMembers(client).
-			WithErrorCallback(func(err error) (time.Duration, error) {
-				retryDelay, e := watch.IsRetryable(err)
-				if e == nil {
-					log.WithError(err).Debugf(
-						"Encountered transient error while watching etcd members"+
-							", last observed resource version was %q"+
-							", retrying in %s",
-						lastObservedVersion, retryDelay,
-					)
-					return retryDelay, nil
-				}
-				log.WithError(e).Error("bailing out watch")
-				return 0, err
-			}).
-			Until(ctx, func(member *etcdv1beta1.EtcdMember) (bool, error) {
-				lastObservedVersion = member.ResourceVersion
-				log.Debugf("watch triggered on %s", member.Name)
-				if err := e.resync(ctx, client); err != nil {
-					log.WithError(err).Error("failed to resync etcd members")
-				}
-				// Never stop the watch
-				return false, nil
-			})
+	stopErr := errors.New("etcd member reconciler is stopping")
+	ctx, cancel := context.WithCancelCause(context.Background())
+	done := make(chan struct{})
 
-		if canceled := context.Cause(ctx); errors.Is(err, canceled) {
-			log.WithError(err).Info("Watch terminated")
-		} else {
-			log.WithError(err).Error("Watch terminated unexpectedly")
-		}
-	})
+	go func() {
+		defer close(done)
+		leaderelection.RunLeaderTasks(ctx, e.leaderElector.CurrentStatus, func(ctx context.Context) {
+			wait.UntilWithContext(ctx, func(ctx context.Context) {
+				err = e.watch(ctx, client)
+				if !errors.Is(err, stopErr) && !errors.Is(err, leaderelection.ErrLostLead) {
+					e.log.WithError(err).Error("Error while watching EtcdMember resources")
+				}
+			}, 1*time.Minute)
+
+			e.log.Info("No longer watching for EtcdMember resources: ", err)
+		})
+	}()
+
+	e.stop = func() { cancel(stopErr); <-done }
+
+	return nil
 }
 
 func (e *EtcdMemberReconciler) Stop() error {
-	if e.stop != nil {
-		e.stop()
+	if stop := e.stop; stop != nil {
+		stop()
 	}
 	return nil
 }
@@ -173,14 +138,17 @@ func (e *EtcdMemberReconciler) waitForCRD(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	ctx, cancel := context.WithTimeoutCause(ctx, 1*time.Minute, errors.New("timed out while waiting for EtcdMember CRD"))
+	defer cancel()
+
 	var lastObservedVersion string
-	log := logrus.WithField("component", "etcdMemberReconciler")
-	log.Info("waiting to see EtcdMember CRD ready")
+	e.log.Info("waiting to see EtcdMember CRD ready")
 	return watch.CRDs(client.ApiextensionsV1().CustomResourceDefinitions()).
-		WithObjectName(fmt.Sprintf("%s.%s", "etcdmembers", "etcd.k0sproject.io")).
+		WithObjectName("etcdmembers."+etcdv1beta1.GroupName).
 		WithErrorCallback(func(err error) (time.Duration, error) {
-			if retryAfter, e := watch.IsRetryable(err); e == nil {
-				log.WithError(err).Infof(
+			if retryAfter, notRetryable := watch.IsRetryable(err); notRetryable == nil {
+				e.log.WithError(err).Infof(
 					"Transient error while watching etcdmember CRD"+
 						", last observed version is %q"+
 						", starting over after %s ...",
@@ -190,7 +158,7 @@ func (e *EtcdMemberReconciler) waitForCRD(ctx context.Context) error {
 			}
 
 			retryAfter := 10 * time.Second
-			log.WithError(err).Errorf(
+			e.log.WithError(err).Errorf(
 				"Failed to watch for etcdmember CRD"+
 					", last observed version is %q"+
 					", starting over after %s ...",
@@ -202,7 +170,7 @@ func (e *EtcdMemberReconciler) waitForCRD(ctx context.Context) error {
 			lastObservedVersion = item.ResourceVersion
 			for _, cond := range item.Status.Conditions {
 				if cond.Type == apiextensionsv1.Established {
-					log.Infof("EtcdMember CRD status: %s", cond.Status)
+					e.log.Info("EtcdMember CRD status: ", cond.Status)
 					return cond.Status == apiextensionsv1.ConditionTrue, nil
 				}
 			}
@@ -213,11 +181,11 @@ func (e *EtcdMemberReconciler) waitForCRD(ctx context.Context) error {
 }
 
 func (e *EtcdMemberReconciler) createMemberObject(ctx context.Context, client etcdclient.EtcdMemberInterface) error {
-	log := logrus.WithFields(logrus.Fields{"component": "etcdMemberReconciler", "phase": "createMemberObject"})
+	log := e.log.WithField("phase", "createMemberObject")
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	// find the member ID for this node
-	etcdClient, err := etcd.NewClient(e.k0sVars.CertRootDir, e.k0sVars.EtcdCertDir, e.etcdConfig)
+	etcdClient, err := etcd.NewClient(context.TODO(), e.k0sVars.CertRootDir, e.k0sVars.EtcdCertDir, e.etcdConfig)
 	if err != nil {
 		return err
 	}
@@ -290,9 +258,34 @@ func (e *EtcdMemberReconciler) createMemberObject(ctx context.Context, client et
 	return nil
 }
 
+func (e *EtcdMemberReconciler) watch(ctx context.Context, client etcdclient.EtcdMemberInterface) error {
+	var lastObservedVersion string
+	return watch.EtcdMembers(client).
+		WithErrorCallback(func(err error) (time.Duration, error) {
+			if retryDelay, notRetryable := watch.IsRetryable(err); notRetryable == nil {
+				e.log.WithError(err).Debugf(
+					"Encountered transient error while watching etcd members"+
+						", last observed resource version was %q"+
+						", retrying in %s",
+					lastObservedVersion, retryDelay,
+				)
+				return retryDelay, nil
+			}
+			return 0, err
+		}).
+		Until(ctx, func(member *etcdv1beta1.EtcdMember) (bool, error) {
+			lastObservedVersion = member.ResourceVersion
+			e.log.Debugf("watch triggered on %s", member.Name)
+			if err := e.resync(ctx, client); err != nil {
+				e.log.WithError(err).Error("failed to resync etcd members")
+			}
+			// Never stop the watch
+			return false, nil
+		})
+}
+
 func (e *EtcdMemberReconciler) reconcileMember(ctx context.Context, client etcdclient.EtcdMemberInterface, member *etcdv1beta1.EtcdMember) {
-	log := logrus.WithFields(logrus.Fields{
-		"component":   "etcdMemberReconciler",
+	log := e.log.WithFields(logrus.Fields{
 		"phase":       "reconcile",
 		"name":        member.Name,
 		"memberID":    member.Status.MemberID,
@@ -306,7 +299,24 @@ func (e *EtcdMemberReconciler) reconcileMember(ctx context.Context, client etcdc
 		return
 	}
 
-	etcdClient, err := etcd.NewClient(e.k0sVars.CertRootDir, e.k0sVars.EtcdCertDir, e.etcdConfig)
+	if e.etcdConfig.PeerAddress == member.Status.PeerAddress {
+		if le, ok := e.leaderElector.(interface{ YieldLease() }); ok {
+			log.Info("Requested to leave the etcd cluster, yielding the leader lease")
+			le.YieldLease()
+		} else {
+			msg := "Requested to leave the etcd cluster, but cannot yield the leader lease"
+			log.Error(msg)
+			member.Status.ReconcileStatus = etcdv1beta1.ReconcileStatusFailed
+			member.Status.Message = msg
+			if _, err := client.UpdateStatus(ctx, member, metav1.UpdateOptions{}); err != nil {
+				log.WithError(err).Error("Failed to update member state")
+			}
+		}
+
+		return
+	}
+
+	etcdClient, err := etcd.NewClient(context.TODO(), e.k0sVars.CertRootDir, e.k0sVars.EtcdCertDir, e.etcdConfig)
 	if err != nil {
 		log.WithError(err).Warn("failed to create etcd client")
 		member.Status.ReconcileStatus = etcdv1beta1.ReconcileStatusFailed

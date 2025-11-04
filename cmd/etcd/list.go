@@ -4,6 +4,7 @@
 package etcd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -28,7 +29,7 @@ func etcdListCmd() *cobra.Command {
 				return err
 			}
 			ctx := cmd.Context()
-			etcdClient, err := etcd.NewClient(opts.K0sVars.CertRootDir, opts.K0sVars.EtcdCertDir, nodeConfig.Spec.Storage.Etcd)
+			etcdClient, err := etcd.NewClient(context.TODO(), opts.K0sVars.CertRootDir, opts.K0sVars.EtcdCertDir, nodeConfig.Spec.Storage.Etcd)
 			if err != nil {
 				return fmt.Errorf("can't list etcd cluster members: %w", err)
 			}
