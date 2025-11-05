@@ -28,10 +28,10 @@ type LeasePool struct {
 	kubeClientFactory kubeutil.ClientFactoryInterface
 	name              string
 	client            leaseClient
+	suspendUntil      value.Latest[time.Time]
 
-	mu     sync.Mutex
-	cancel context.CancelCauseFunc
-	done   <-chan struct{}
+	mu   sync.Mutex
+	stop func()
 
 	acquiredLeaseCallbacks []func()
 	lostLeaseCallbacks     []func()
@@ -64,7 +64,7 @@ func (l *LeasePool) Start(context.Context) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if l.cancel != nil {
+	if l.stop != nil {
 		return nil
 	}
 
@@ -85,62 +85,83 @@ func (l *LeasePool) Start(context.Context) error {
 		}
 	}
 
-	ctx, cancel := context.WithCancelCause(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 
 	go func() {
 		defer close(done)
-		l.run(ctx)
+		for ctx.Err() == nil {
+			l.runClient(ctx)
+		}
 	}()
 
-	l.cancel, l.done = cancel, done
+	l.stop = func() { cancel(); <-done }
 
 	return nil
 }
 
-func (l *LeasePool) run(ctx context.Context) {
-	var wg sync.WaitGroup
+func (l *LeasePool) runClient(ctx context.Context) {
+	suspendUntilChanged := l.waitForResume(ctx)
+	if suspendUntilChanged == nil {
+		return
+	}
 
+	runCtx, cancelRun := context.WithCancelCause(context.Background())
+
+	var wg sync.WaitGroup
 	wg.Add(2)
-	go func() { defer wg.Done(); l.client.Run(ctx, l.status.Set) }()
-	go func() { defer wg.Done(); l.invokeCallbacks(ctx) }()
-	wg.Wait()
+	go func() { defer wg.Done(); l.client.Run(runCtx, l.status.Set) }()
+	go func() { defer wg.Done(); l.invokeCallbacks(runCtx) }()
+
+	select {
+	case <-ctx.Done():
+		cancelRun(errors.New("lease pool is stopping"))
+		wg.Wait()
+		return
+
+	case <-suspendUntilChanged:
+		l.log.Debug("Yielding")
+		cancelRun(errors.New("lease pool is yielding"))
+		wg.Wait()
+	}
+}
+
+func (l *LeasePool) waitForResume(ctx context.Context) <-chan struct{} {
+	suspendUntil, suspendUntilChanged := l.suspendUntil.Peek()
+
+	d := time.Until(suspendUntil)
+	if d <= 0 {
+		return suspendUntilChanged
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	l.log.Info("Suspending until ", suspendUntil)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-suspendUntilChanged:
+			suspendUntil, suspendUntilChanged = l.suspendUntil.Peek()
+			timer.Reset(time.Until(suspendUntil))
+			l.log.Info("Suspending until ", suspendUntil)
+		case <-timer.C:
+			return suspendUntilChanged
+		}
+	}
 }
 
 func (l *LeasePool) YieldLease() {
 	l.suspendFor(30 * time.Second)
 }
 
-func (l *LeasePool) suspendFor(suspend time.Duration) {
-	ctx, cancelYield := context.WithCancelCause(context.Background())
-	yieldDone := make(chan struct{})
-
+func (l *LeasePool) suspendFor(duration time.Duration) {
 	l.mu.Lock()
-	cancel, done := l.cancel, l.done
-	if cancel == nil {
-		l.mu.Unlock()
-		cancelYield(nil) // The context is not used, cancel it just to silence linters.
-		return
+	defer l.mu.Unlock()
+	if l.stop != nil {
+		l.suspendUntil.Set(time.Now().Add(duration))
 	}
-	l.cancel, l.done = cancelYield, yieldDone
-	l.mu.Unlock()
-
-	l.log.Info("Suspending for ", suspend)
-	delay := time.After(suspend)
-
-	go func() {
-		defer close(yieldDone)
-		cancel(errors.New("lease pool is yielding"))
-		<-done
-
-		select {
-		case <-delay:
-			l.log.Info("Resuming operations")
-			l.run(ctx)
-
-		case <-ctx.Done():
-		}
-	}()
 }
 
 func (l *LeasePool) invokeCallbacks(ctx context.Context) {
@@ -173,17 +194,12 @@ func (l *LeasePool) AddLostLeaseCallback(fn func()) {
 
 func (l *LeasePool) Stop() error {
 	l.mu.Lock()
-	cancel, done := l.cancel, l.done
-	l.cancel = nil
-	l.mu.Unlock()
-
-	if cancel != nil {
-		cancel(errors.New("lease pool is stopping"))
+	defer l.mu.Unlock()
+	if l.stop != nil {
+		l.stop()
+		l.stop = nil
+		l.suspendUntil.Set(time.Time{})
 	}
-	if done != nil {
-		<-done
-	}
-
 	return nil
 }
 

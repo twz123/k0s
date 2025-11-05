@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 k0s authors
+// SPDX-License-Identifier: Apache-2.0
+
 package leaderelector
 
 import (
@@ -27,7 +30,7 @@ func TestLeasePoolYieldSuspendsAndResumes(t *testing.T) {
 
 	select {
 	case <-firstRunCtx.Done():
-		require.Fail(t, "Lease run finished unexpectedly early: %v", context.Cause(firstRunCtx))
+		require.Failf(t, "Lease run finished unexpectedly early", "%v", context.Cause(firstRunCtx))
 	default:
 	}
 
