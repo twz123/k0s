@@ -306,6 +306,30 @@ func (e *EtcdMemberReconciler) reconcileMember(ctx context.Context, client etcdc
 		return
 	}
 
+	if e.etcdConfig.PeerAddress == member.Status.PeerAddress {
+		if le, ok := e.leaderElector.(interface{ YieldLease() }); ok {
+			msg := "Waiting for another controller to take over" +
+				"; either bring another controller online or clear spec.leave"
+			log.Info(msg)
+			member.Status.Message = msg
+			member.Status.ReconcileStatus = ""
+			if _, err := client.UpdateStatus(ctx, member, metav1.UpdateOptions{}); err != nil {
+				log.WithError(err).Error("Failed to update member state")
+			}
+			le.YieldLease()
+		} else {
+			msg := "Requested to leave the etcd cluster, but cannot yield the lease"
+			log.Error(msg)
+			member.Status.Message = msg
+			member.Status.ReconcileStatus = etcdv1beta1.ReconcileStatusFailed
+			if _, err := client.UpdateStatus(ctx, member, metav1.UpdateOptions{}); err != nil {
+				log.WithError(err).Error("Failed to update member state")
+			}
+		}
+
+		return
+	}
+
 	etcdClient, err := etcd.NewClient(e.k0sVars.CertRootDir, e.k0sVars.EtcdCertDir, e.etcdConfig)
 	if err != nil {
 		log.WithError(err).Warn("failed to create etcd client")
