@@ -99,6 +99,7 @@ func (c *rootController) Run(ctx context.Context) error {
 	le, err := c.newLeaderElector(&leaderelection.LeaseConfig{
 		Namespace: apconst.AutopilotNamespace,
 		Name:      apconst.AutopilotNamespace + "-controller",
+		Labels:    map[string]string{apconst.ManagesCordoningAnnotation: c.cfg.InvocationID},
 		Identity:  c.cfg.InvocationID,
 		Client:    kubeClient.CoordinationV1(),
 	})
@@ -240,7 +241,7 @@ func (c *rootController) startSubControllerRoutine(ctx context.Context, logger *
 	}
 	clusterID := string(ns.UID)
 
-	if err := signal.RegisterControllers(ctx, logger, mgr, delegateMap[apdel.ControllerDelegateController], c.cfg.K0sDataDir, clusterID); err != nil {
+	if err := signal.RegisterControllers(ctx, logger, mgr, delegateMap[apdel.ControllerDelegateController], c.cfg.K0sDataDir, clusterID, event); err != nil {
 		logger.WithError(err).Error("unable to register signal controllers")
 		return err
 	}

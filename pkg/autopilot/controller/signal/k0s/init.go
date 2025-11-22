@@ -12,17 +12,23 @@ import (
 	"path/filepath"
 
 	apcomm "github.com/k0sproject/k0s/pkg/autopilot/common"
+	"github.com/k0sproject/k0s/pkg/autopilot/constant"
 	apdel "github.com/k0sproject/k0s/pkg/autopilot/controller/delegate"
 	apsigpred "github.com/k0sproject/k0s/pkg/autopilot/controller/signal/common/predicate"
 	"github.com/k0sproject/k0s/pkg/component/status"
+	"github.com/k0sproject/k0s/pkg/leaderelection"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
+	applycoordinationv1 "k8s.io/client-go/applyconfigurations/coordination/v1"
 
 	"github.com/sirupsen/logrus"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	crman "sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
 // RegisterControllers registers all of the autopilot controllers used for updating `k0s`
 // to the controller-runtime manager.
-func RegisterControllers(ctx context.Context, logger *logrus.Entry, mgr crman.Manager, delegate apdel.ControllerDelegate, clusterID string) error {
+func RegisterControllers(ctx context.Context, logger *logrus.Entry, mgr crman.Manager, delegate apdel.ControllerDelegate, clusterID string, leaseStatus leaderelection.Status) error {
 	logger = logger.WithField("controller", delegate.Name())
 
 	hostname, err := apcomm.FindEffectiveHostname()
@@ -42,6 +48,13 @@ func RegisterControllers(ctx context.Context, logger *logrus.Entry, mgr crman.Ma
 		return getK0sVersion(status.DefaultSocketPath)
 	}
 
+	if err := mgr.GetClient().Apply(ctx, applycoordinationv1.
+		Lease(hostname, corev1.NamespaceNodeLease).
+		WithLabels(map[string]string{constant.ManagesCordoningAnnotation: "false"}),
+		client.FieldOwner("k0s/autopilot"), client.ForceOwnership); err != nil {
+		return fmt.Errorf("unable to apply lease labels: %w", err)
+	}
+
 	if err := registerSignalController(logger, mgr, signalControllerEventFilter(hostname, apsigpred.DefaultErrorHandler(logger, "k0s signal")), delegate, clusterID, k0sVersionHandler); err != nil {
 		return fmt.Errorf("unable to register signal controller: %w", err)
 	}
@@ -50,7 +63,7 @@ func RegisterControllers(ctx context.Context, logger *logrus.Entry, mgr crman.Ma
 		return fmt.Errorf("unable to register downloading controller: %w", err)
 	}
 
-	if err := registerCordoning(logger, mgr, cordoningEventFilter(hostname, apsigpred.DefaultErrorHandler(logger, "k0s cordoning")), delegate); err != nil {
+	if err := registerCordoning(logger, mgr, cordoningEventFilter(apsigpred.DefaultErrorHandler(logger, "k0s cordoning")), delegate, types.NodeName(hostname), leaseStatus); err != nil {
 		return fmt.Errorf("unable to register cordoning controller: %w", err)
 	}
 
@@ -66,7 +79,7 @@ func RegisterControllers(ctx context.Context, logger *logrus.Entry, mgr crman.Ma
 		return fmt.Errorf("unable to register restarted controller: %w", err)
 	}
 
-	if err := registerUncordoning(logger, mgr, unCordoningEventFilter(hostname, apsigpred.DefaultErrorHandler(logger, "k0s uncordoning")), delegate); err != nil {
+	if err := registerUncordoning(logger, mgr, unCordoningEventFilter(apsigpred.DefaultErrorHandler(logger, "k0s uncordoning")), delegate, types.NodeName(hostname), leaseStatus); err != nil {
 		return fmt.Errorf("unable to register uncordoning controller: %w", err)
 	}
 
