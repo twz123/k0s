@@ -13,10 +13,8 @@ import (
 	"time"
 
 	autopilotv1beta2 "github.com/k0sproject/k0s/pkg/apis/autopilot/v1beta2"
-	apcomm "github.com/k0sproject/k0s/pkg/autopilot/common"
 	apdel "github.com/k0sproject/k0s/pkg/autopilot/controller/delegate"
 	apsigcomm "github.com/k0sproject/k0s/pkg/autopilot/controller/signal/common"
-	apsigpred "github.com/k0sproject/k0s/pkg/autopilot/controller/signal/common/predicate"
 	apsigv2 "github.com/k0sproject/k0s/pkg/autopilot/signaling/v2"
 
 	"github.com/sirupsen/logrus"
@@ -25,39 +23,16 @@ import (
 	"k8s.io/kubectl/pkg/drain"
 	cr "sigs.k8s.io/controller-runtime"
 	crcli "sigs.k8s.io/controller-runtime/pkg/client"
-	crev "sigs.k8s.io/controller-runtime/pkg/event"
 	crman "sigs.k8s.io/controller-runtime/pkg/manager"
-	crpred "sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 const UnCordoning = "UnCordoning"
-
-// unCordoningEventFilter creates a controller-runtime predicate that governs which objects
-// will make it into reconciliation, and which will be ignored.
-func unCordoningEventFilter(hostname string, handler apsigpred.ErrorHandler) crpred.Predicate {
-	return crpred.And(
-		crpred.AnnotationChangedPredicate{},
-		apsigpred.SignalNamePredicate(hostname),
-		apsigpred.NewSignalDataPredicateAdapter(handler).And(
-			signalDataUpdateCommandK0sPredicate(),
-			apsigpred.SignalDataStatusPredicate(UnCordoning),
-		),
-		apcomm.FalseFuncs{
-			CreateFunc: func(ce crev.CreateEvent) bool {
-				return true
-			},
-			UpdateFunc: func(ue crev.UpdateEvent) bool {
-				return true
-			},
-		},
-	)
-}
 
 type uncordoning struct {
 	log       *logrus.Entry
 	client    crcli.Client
 	delegate  apdel.ControllerDelegate
-	clientset *kubernetes.Clientset
+	clientset kubernetes.Interface
 }
 
 // registerUncordoning registers the 'uncordoning' controller to the
@@ -66,20 +41,14 @@ type uncordoning struct {
 // This controller is only interested when autopilot signaling annotations have
 // moved to a `Cordoning` status. At this point, it will attempt to cordong & drain
 // the node.
-func registerUncordoning(logger *logrus.Entry, mgr crman.Manager, eventFilter crpred.Predicate, delegate apdel.ControllerDelegate) error {
+func registerUncordoning(logger *logrus.Entry, mgr crman.Manager, delegate apdel.ControllerDelegate, clientset kubernetes.Interface) error {
 	name := strings.ToLower(delegate.Name()) + "_k0s_uncordoning"
 	logger.Info("Registering reconciler: ", name)
-
-	// create the clientset
-	clientset, err := kubernetes.NewForConfig(mgr.GetConfig())
-	if err != nil {
-		return err
-	}
 
 	return cr.NewControllerManagedBy(mgr).
 		Named(name).
 		For(delegate.CreateObject()).
-		WithEventFilter(eventFilter).
+		WithEventFilter(controlPlaneSignalEventFilter(UnCordoning)).
 		Complete(
 			&uncordoning{
 				log:       logger.WithFields(logrus.Fields{"reconciler": "k0s-uncordoning", "object": delegate.Name()}),

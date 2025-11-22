@@ -8,6 +8,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/k0sproject/k0s/internal/sync/value"
@@ -229,8 +231,15 @@ func (c *rootController) startSubControllerRoutine(ctx context.Context, logger *
 	}
 	clusterID := string(ns.UID)
 
-	if err := signal.RegisterControllers(ctx, logger, mgr, delegateMap[apdel.ControllerDelegateController], c.cfg.K0sDataDir, clusterID); err != nil {
-		logger.WithError(err).Error("unable to register signal controllers")
+	if leaderMode {
+		if err := signal.RegisterControlPlaneControllers(logger, mgr, slices.Collect(maps.Values(delegateMap))); err != nil {
+			logger.WithError(err).Error("unable to register signal control plane controllers")
+			return err
+		}
+	}
+
+	if err := signal.RegisterNodeControllers(ctx, logger, mgr, delegateMap[apdel.ControllerDelegateController], c.cfg.K0sDataDir, clusterID); err != nil {
+		logger.WithError(err).Error("unable to register signal node controllers")
 		return err
 	}
 

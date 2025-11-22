@@ -13,17 +13,13 @@ import (
 	"time"
 
 	autopilotv1beta2 "github.com/k0sproject/k0s/pkg/apis/autopilot/v1beta2"
-	apcomm "github.com/k0sproject/k0s/pkg/autopilot/common"
 	apconst "github.com/k0sproject/k0s/pkg/autopilot/constant"
 	apdel "github.com/k0sproject/k0s/pkg/autopilot/controller/delegate"
-	apsigpred "github.com/k0sproject/k0s/pkg/autopilot/controller/signal/common/predicate"
 	apsigv2 "github.com/k0sproject/k0s/pkg/autopilot/signaling/v2"
 
 	cr "sigs.k8s.io/controller-runtime"
 	crcli "sigs.k8s.io/controller-runtime/pkg/client"
-	crev "sigs.k8s.io/controller-runtime/pkg/event"
 	crman "sigs.k8s.io/controller-runtime/pkg/manager"
-	crpred "sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
@@ -32,27 +28,6 @@ import (
 )
 
 const Cordoning = "Cordoning"
-
-// cordoningEventFilter creates a controller-runtime predicate that governs which objects
-// will make it into reconciliation, and which will be ignored.
-func cordoningEventFilter(hostname string, handler apsigpred.ErrorHandler) crpred.Predicate {
-	return crpred.And(
-		crpred.AnnotationChangedPredicate{},
-		apsigpred.SignalNamePredicate(hostname),
-		apsigpred.NewSignalDataPredicateAdapter(handler).And(
-			signalDataUpdateCommandK0sPredicate(),
-			apsigpred.SignalDataStatusPredicate(Cordoning),
-		),
-		apcomm.FalseFuncs{
-			CreateFunc: func(ce crev.CreateEvent) bool {
-				return true
-			},
-			UpdateFunc: func(ue crev.UpdateEvent) bool {
-				return true
-			},
-		},
-	)
-}
 
 type cordoning struct {
 	log       *logrus.Entry
@@ -67,20 +42,14 @@ type cordoning struct {
 // This controller is only interested when autopilot signaling annotations have
 // moved to a `Cordoning` status. At this point, it will attempt to cordong & drain
 // the node.
-func registerCordoning(logger *logrus.Entry, mgr crman.Manager, eventFilter crpred.Predicate, delegate apdel.ControllerDelegate) error {
+func registerCordoning(logger *logrus.Entry, mgr crman.Manager, delegate apdel.ControllerDelegate, clientset *kubernetes.Clientset) error {
 	name := strings.ToLower(delegate.Name()) + "_k0s_cordoning"
 	logger.Info("Registering reconciler: ", name)
-
-	// create the clientset
-	clientset, err := kubernetes.NewForConfig(mgr.GetConfig())
-	if err != nil {
-		return err
-	}
 
 	return cr.NewControllerManagedBy(mgr).
 		Named(name).
 		For(delegate.CreateObject()).
-		WithEventFilter(eventFilter).
+		WithEventFilter(controlPlaneSignalEventFilter(Cordoning)).
 		Complete(
 			&cordoning{
 				log:       logger.WithFields(logrus.Fields{"reconciler": "k0s-cordoning", "object": delegate.Name()}),

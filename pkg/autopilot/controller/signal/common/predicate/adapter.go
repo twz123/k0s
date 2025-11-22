@@ -30,14 +30,24 @@ func NewSignalDataPredicateAdapter(handler ErrorHandler) SignalDataPredicateAdap
 	}
 }
 
-// And performs an AND operation across the provided `SignalDataPredicate`s, stopping
-// at the first unsuccessful predicate.
+// And performs an AND operation across the provided `SignalDataPredicate`s,
+// stopping at the first unsuccessful predicate.
+func And(preds ...SignalDataPredicate) crpred.Predicate {
+	return and(func(err error) bool { return false }, preds...)
+}
+
+// And performs an AND operation across the provided `SignalDataPredicate`s,
+// stopping at the first unsuccessful predicate.
 func (sdp signalDataPredicateAdapter) And(preds ...SignalDataPredicate) crpred.Predicate {
+	return and(sdp.handler, preds...)
+}
+
+func and(handler ErrorHandler, preds ...SignalDataPredicate) crpred.Predicate {
 	return crpred.NewPredicateFuncs(func(obj crcli.Object) bool {
 		var signalData apsigv2.SignalData
 
 		if err := signalData.Unmarshal(obj.GetAnnotations()); err != nil {
-			return sdp.handler(err)
+			return handler(err)
 		}
 
 		for _, pred := range preds {

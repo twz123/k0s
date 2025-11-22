@@ -14,7 +14,9 @@ import (
 type ErrorHandler func(err error) bool
 
 // DefaultErrorHandler is a predicate error handler that simply logs.
-func DefaultErrorHandler(logger *logrus.Entry, name string) ErrorHandler {
+//
+// Deprecated: Use And directly.
+func DefaultErrorHandler(logrus.FieldLogger, string) ErrorHandler {
 	return func(err error) bool {
 		return false
 	}
