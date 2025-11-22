@@ -17,10 +17,18 @@ import (
 	crman "sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-// RegisterControllers registers all of the autopilot controllers used by both controller
+func RegisterControlPlaneControllers(logger *logrus.Entry, mgr crman.Manager, delegates []apdel.ControllerDelegate) error {
+	if err := k0s.RegisterControlPlaneControllers(logger, mgr, delegates); err != nil {
+		return fmt.Errorf("unable to register k0s controllers: %w", err)
+	}
+
+	return nil
+}
+
+// RegisterNodeControllers registers all of the autopilot controllers used by both controller
 // and worker modes.
-func RegisterControllers(ctx context.Context, logger *logrus.Entry, mgr crman.Manager, delegate apdel.ControllerDelegate, k0sDataDir, clusterID string) error {
-	if err := k0s.RegisterControllers(ctx, logger, mgr, delegate, clusterID); err != nil {
+func RegisterNodeControllers(ctx context.Context, logger *logrus.Entry, mgr crman.Manager, delegate apdel.ControllerDelegate, k0sDataDir, clusterID string) error {
+	if err := k0s.RegisterNodeControllers(ctx, logger, mgr, delegate, clusterID); err != nil {
 		return fmt.Errorf("unable to register k0s controllers: %w", err)
 	}
 
