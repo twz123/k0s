@@ -23,7 +23,7 @@ import (
 	crpred "sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-func RegisterControlPlaneControllers(logger *logrus.Entry, mgr crman.Manager, delegates []apdel.ControllerDelegate) error {
+func RegisterControlPlaneControllers(logger *logrus.Entry, mgr crman.Manager, delegates map[string]apdel.ControllerDelegate) error {
 	// create the clientset
 	clientset, err := kubernetes.NewForConfig(mgr.GetConfig())
 	if err != nil {
@@ -46,8 +46,10 @@ func RegisterControlPlaneControllers(logger *logrus.Entry, mgr crman.Manager, de
 }
 
 func controlPlaneSignalEventFilter(signalDataStatus string) crpred.Predicate {
-	return crpred.And(
-		crpred.AnnotationChangedPredicate{},
+	var predicates []crpred.Predicate
+
+	predicates = append(predicates, crpred.AnnotationChangedPredicate{})
+	predicates = append(predicates,
 		apsigpred.And(
 			signalDataUpdateCommandK0sPredicate(),
 			apsigpred.SignalDataStatusPredicate(signalDataStatus),
@@ -57,6 +59,8 @@ func controlPlaneSignalEventFilter(signalDataStatus string) crpred.Predicate {
 			UpdateFunc: func(crev.UpdateEvent) bool { return true },
 		},
 	)
+
+	return crpred.And(predicates...)
 }
 
 // RegisterNodeControllers registers all of the autopilot controllers used for updating `k0s`

@@ -17,7 +17,7 @@ import (
 	crman "sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-func RegisterControlPlaneControllers(logger *logrus.Entry, mgr crman.Manager, delegates []apdel.ControllerDelegate) error {
+func RegisterControlPlaneControllers(logger *logrus.Entry, mgr crman.Manager, delegates map[string]apdel.ControllerDelegate) error {
 	if err := k0s.RegisterControlPlaneControllers(logger, mgr, delegates); err != nil {
 		return fmt.Errorf("unable to register k0s controllers: %w", err)
 	}

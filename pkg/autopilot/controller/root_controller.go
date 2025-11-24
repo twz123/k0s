@@ -8,8 +8,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"maps"
-	"slices"
 	"time"
 
 	"github.com/k0sproject/k0s/internal/sync/value"
@@ -232,7 +230,7 @@ func (c *rootController) startSubControllerRoutine(ctx context.Context, logger *
 	clusterID := string(ns.UID)
 
 	if leaderMode {
-		if err := signal.RegisterControlPlaneControllers(logger, mgr, slices.Collect(maps.Values(delegateMap))); err != nil {
+		if err := signal.RegisterControlPlaneControllers(logger, mgr, delegateMap); err != nil {
 			logger.WithError(err).Error("unable to register signal control plane controllers")
 			return err
 		}
