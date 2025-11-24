@@ -4,16 +4,21 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
+	"github.com/k0sproject/k0s/pkg/applier"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/constant"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/k0sproject/k0s/static"
 )
 
@@ -34,6 +39,8 @@ type crdOpts struct {
 type CRDOption func(*crdOpts)
 
 // NewCRD build new CRD
+//
+// Deprecated: Use [NewCRDStack] instead.
 func NewCRD(manifestsDir, bundle string, opts ...CRDOption) *CRD {
 	var options crdOpts
 	for _, opt := range opts {
@@ -91,5 +98,64 @@ func (c CRD) Start(context.Context) error {
 }
 
 func (c CRD) Stop() error {
+	return nil
+}
+
+type CRDStack struct {
+	clients kubernetes.ClientFactoryInterface
+	bundle  string
+
+	crdOpts
+}
+
+// Creates a new CRD stack for the given bundle.
+func NewCRDStack(clients kubernetes.ClientFactoryInterface, bundle string, opts ...CRDOption) *CRDStack {
+	var options crdOpts
+	for _, opt := range opts {
+		opt(&options)
+	}
+
+	if options.assetsDir == "" {
+		options.stackName = bundle
+		options.assetsDir = bundle
+	}
+
+	return &CRDStack{
+		clients: clients,
+		bundle:  bundle,
+		crdOpts: options,
+	}
+}
+
+// Applies this CRD stack. Implements [manager.Component].
+func (c *CRDStack) Init(ctx context.Context) error {
+	var crds []io.Reader
+	if crdFiles, err := fs.ReadDir(static.CRDs, c.assetsDir); err != nil {
+		return fmt.Errorf("failed to read %s CRD stack: %w", c.bundle, err)
+	} else {
+		for _, entry := range crdFiles {
+			filename := entry.Name()
+			content, err := fs.ReadFile(static.CRDs, path.Join(c.assetsDir, filename))
+			if err != nil {
+				return fmt.Errorf("failed to fetch %s CRD manifest %s: %w", c.bundle, filename, err)
+			}
+			crds = append(crds, strings.NewReader("\n---\n"), bytes.NewReader(content))
+		}
+	}
+
+	if err := applier.ApplyStack(ctx, c.clients, io.MultiReader(crds...), c.bundle, c.stackName); err != nil {
+		return fmt.Errorf("failed to apply %s CRD stack: %w", c.bundle, err)
+	}
+
+	return nil
+}
+
+// Start implements [manager.Component]. It does nothing.
+func (c *CRDStack) Start(context.Context) error {
+	return nil
+}
+
+// Stop implements [manager.Component]. It does nothing.
+func (*CRDStack) Stop() error {
 	return nil
 }

@@ -324,6 +324,7 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions, de
 			K0sVars:           c.K0sVars,
 			KubeClientFactory: adminClientFactory,
 			IgnoredStacks: []string{
+				controller.AutopilotStackName,
 				controller.ClusterConfigStackName,
 				controller.SystemRBACStackName,
 				controller.WindowsStackName,
@@ -448,7 +449,7 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions, de
 	}
 
 	if !slices.Contains(flags.DisableComponents, constant.AutopilotComponentName) {
-		clusterComponents.Add(ctx, controller.NewCRD(c.K0sVars.ManifestsDir, "autopilot"))
+		clusterComponents.Add(ctx, controller.NewCRDStack(adminClientFactory, controller.AutopilotStackName))
 	}
 
 	if enableK0sEndpointReconciler {
