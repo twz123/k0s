@@ -10,7 +10,6 @@ import (
 // TODO: decide on renaming root.RootConfig -> root.Config
 type RootConfig struct {
 	InvocationID        string
-	KubeConfig          string
 	K0sDataDir          string
 	KubeletExtraArgs    string
 	KubeAPIPort         int
