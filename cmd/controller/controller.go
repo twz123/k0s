@@ -452,10 +452,6 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions, de
 		))
 	}
 
-	if !slices.Contains(flags.DisableComponents, constant.AutopilotComponentName) {
-		clusterComponents.Add(ctx, controller.NewCRDStack(adminClientFactory, controller.AutopilotStackName))
-	}
-
 	if enableK0sEndpointReconciler {
 		clusterComponents.Add(ctx, controller.NewEndpointReconciler(
 			nodeConfig,
@@ -582,13 +578,16 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions, de
 		logrus.Info("Telemetry is disabled")
 	}
 
-	clusterComponents.Add(ctx, &controller.Autopilot{
-		K0sVars:            c.K0sVars,
-		KubeletExtraArgs:   c.KubeletExtraArgs,
-		KubeAPIPort:        nodeConfig.Spec.API.Port,
-		AdminClientFactory: adminClientFactory,
-		Workloads:          controllerMode.WorkloadsEnabled(),
-	})
+	if !slices.Contains(flags.DisableComponents, constant.AutopilotComponentName) {
+		clusterComponents.Add(ctx, controller.NewCRDStack(adminClientFactory, controller.AutopilotStackName))
+		clusterComponents.Add(ctx, &controller.Autopilot{
+			K0sVars:            c.K0sVars,
+			KubeletExtraArgs:   c.KubeletExtraArgs,
+			KubeAPIPort:        nodeConfig.Spec.API.Port,
+			AdminClientFactory: adminClientFactory,
+			Workloads:          controllerMode.WorkloadsEnabled(),
+		})
+	}
 
 	if !slices.Contains(flags.DisableComponents, constant.UpdateProberComponentName) {
 		clusterComponents.Add(ctx, controller.NewUpdateProber(
