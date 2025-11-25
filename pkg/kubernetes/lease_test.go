@@ -5,37 +5,54 @@ package kubernetes
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	coordination "k8s.io/api/coordination/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
+
+	"github.com/stretchr/testify/assert"
 )
 
-func TestValidLease(t *testing.T) {
-	leaseDuration := int32(60)
-	microNow := metav1.NowMicro()
-
-	lease := coordination.Lease{
-		Spec: coordination.LeaseSpec{
-			LeaseDurationSeconds: &leaseDuration,
-			RenewTime:            &microNow,
-		},
+func TestIsValidLease(t *testing.T) {
+	template := func() coordination.LeaseSpec {
+		return coordination.LeaseSpec{
+			HolderIdentity:       ptr.To(t.Name()),
+			RenewTime:            ptr.To(metav1.NowMicro()),
+			LeaseDurationSeconds: ptr.To[int32](3600),
+		}
 	}
 
-	assert.True(t, IsValidLease(lease))
-}
+	t.Run("NilValuesAreInvalid", func(t *testing.T) {
+		assert.True(t, IsValidLease(ptr.To(template())))
 
-func TestExpiredLease(t *testing.T) {
-	leaseDuration := int32(60)
-	renew := metav1.NewMicroTime(time.Now().Add(-62 * time.Second))
+		nilHodler := template()
+		nilHodler.HolderIdentity = nil
+		assert.False(t, IsValidLease(&nilHodler))
 
-	lease := coordination.Lease{
-		Spec: coordination.LeaseSpec{
-			LeaseDurationSeconds: &leaseDuration,
-			RenewTime:            &renew,
-		},
-	}
+		emptyHodler := template()
+		emptyHodler.HolderIdentity = ptr.To("")
+		assert.False(t, IsValidLease(&emptyHodler))
 
-	assert.False(t, IsValidLease(lease))
+		nilRenewTime := template()
+		nilRenewTime.RenewTime = nil
+		assert.False(t, IsValidLease(&nilRenewTime))
+
+		nilLeaseDurationSecs := template()
+		nilLeaseDurationSecs.LeaseDurationSeconds = nil
+		assert.False(t, IsValidLease(&nilLeaseDurationSecs))
+	})
+
+	t.Run("Expires", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			leaseSpec := template()
+
+			assert.True(t, IsValidLease(&leaseSpec))
+			time.Sleep(3600*time.Second - time.Nanosecond)
+			assert.True(t, IsValidLease(&leaseSpec))
+			time.Sleep(time.Nanosecond)
+			assert.False(t, IsValidLease(&leaseSpec))
+		})
+	})
 }

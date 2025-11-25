@@ -15,12 +15,16 @@ import (
 )
 
 // IsValidLease check whether or not the lease is expired
-func IsValidLease(lease coordinationv1.Lease) bool {
-	leaseDur := time.Duration(*lease.Spec.LeaseDurationSeconds)
+func IsValidLease(leaseSpec *coordinationv1.LeaseSpec) bool {
+	if leaseSpec.HolderIdentity == nil || *leaseSpec.HolderIdentity == "" {
+		return false
+	}
+	if leaseSpec.RenewTime == nil || leaseSpec.LeaseDurationSeconds == nil {
+		return false
+	}
 
-	leaseExpiry := lease.Spec.RenewTime.Add(leaseDur * time.Second)
-
-	return leaseExpiry.After(time.Now())
+	leaseDuration := time.Duration(*leaseSpec.LeaseDurationSeconds) * time.Second
+	return leaseSpec.RenewTime.Add(leaseDuration).After(time.Now())
 }
 
 func CountActiveControllerLeases(ctx context.Context, kubeClient kubernetes.Interface) (count uint, _ error) {
@@ -29,10 +33,7 @@ func CountActiveControllerLeases(ctx context.Context, kubeClient kubernetes.Inte
 		return 0, err
 	}
 	for _, l := range leases.Items {
-		switch {
-		case !strings.HasPrefix(l.Name, "k0s-ctrl-"):
-		case l.Spec.HolderIdentity == nil || *l.Spec.HolderIdentity == "":
-		case IsValidLease(l):
+		if strings.HasPrefix(l.Name, "k0s-ctrl-") && IsValidLease(&l.Spec) {
 			count++
 		}
 	}
