@@ -365,8 +365,12 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions, de
 			K0sVars:       c.K0sVars,
 			ClusterConfig: nodeConfig,
 		},
-		Socket:      c.K0sVars.StatusSocketPath,
-		CertManager: worker.NewCertificateManager(c.K0sVars.KubeletAuthConfigPath),
+		Socket: c.K0sVars.StatusSocketPath,
+		KubeletClientFactory: &kubernetes.ClientFactory{
+			LoadRESTConfig: func() (*rest.Config, error) {
+				return worker.NewCertificateManager(c.K0sVars.KubeletAuthConfigPath).GetRestConfig(ctx)
+			},
+		},
 	})
 
 	if nodeConfig.Spec.Storage.Type == v1beta1.EtcdStorageType && !nodeConfig.Spec.Storage.Etcd.IsExternalClusterUsed() {

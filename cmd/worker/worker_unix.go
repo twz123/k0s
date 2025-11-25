@@ -15,11 +15,12 @@ import (
 	"github.com/k0sproject/k0s/pkg/component/status"
 	"github.com/k0sproject/k0s/pkg/component/worker"
 	"github.com/k0sproject/k0s/pkg/config"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
 )
 
 func initLogging(context.Context, string) error { return nil }
 
-func addPlatformSpecificComponents(ctx context.Context, m *manager.Manager, k0sVars *config.CfgVars, controller EmbeddingController, certManager *worker.CertificateManager) {
+func addPlatformSpecificComponents(ctx context.Context, m *manager.Manager, k0sVars *config.CfgVars, controller EmbeddingController, kubeletClientFactory kubernetes.ClientFactoryInterface) {
 	// if running inside a controller, status component is already running
 	if controller == nil {
 		m.Add(ctx, &status.Status{
@@ -36,13 +37,13 @@ func addPlatformSpecificComponents(ctx context.Context, m *manager.Manager, k0sV
 				// todo: if it's needed, a worker side config client can be set up and used to load the config
 				ClusterConfig: nil,
 			},
-			CertManager: certManager,
-			Socket:      k0sVars.StatusSocketPath,
+			KubeletClientFactory: kubeletClientFactory,
+			Socket:               k0sVars.StatusSocketPath,
 		})
 	}
 
 	m.Add(ctx, &worker.Autopilot{
-		K0sVars:     k0sVars,
-		CertManager: certManager,
+		DataDir:       k0sVars.DataDir,
+		ClientFactory: kubeletClientFactory,
 	})
 }

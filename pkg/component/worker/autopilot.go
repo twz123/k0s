@@ -12,27 +12,26 @@ import (
 	"time"
 
 	apcli "github.com/k0sproject/k0s/pkg/autopilot/client"
+	autopilotconstant "github.com/k0sproject/k0s/pkg/autopilot/constant"
 	apcont "github.com/k0sproject/k0s/pkg/autopilot/controller"
 	aproot "github.com/k0sproject/k0s/pkg/autopilot/controller/root"
 	"github.com/k0sproject/k0s/pkg/component/manager"
-	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/kubernetes"
+	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
+
+	coordinationv1 "k8s.io/api/coordination/v1"
+	coordinationv1client "k8s.io/client-go/kubernetes/typed/coordination/v1"
+
 	"github.com/sirupsen/logrus"
-
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/rest"
-)
-
-const (
-	defaultPollDuration = 5 * time.Second
-	defaultPollTimeout  = 5 * time.Minute
 )
 
 var _ manager.Component = (*Autopilot)(nil)
 
 type Autopilot struct {
-	K0sVars     *config.CfgVars
-	CertManager *CertificateManager
+	DataDir       string
+	ClientFactory kubernetes.ClientFactoryInterface
+
+	stop func()
 }
 
 func (a *Autopilot) Init(ctx context.Context) error {
@@ -40,62 +39,97 @@ func (a *Autopilot) Init(ctx context.Context) error {
 }
 
 func (a *Autopilot) Start(ctx context.Context) error {
-	log := logrus.WithFields(logrus.Fields{"component": "autopilot"})
+	log := logrus.WithField("component", "autopilot")
 
-	// Wait 5 mins till we see kubelet auth config in place
-	timeout, cancel := context.WithTimeout(ctx, defaultPollTimeout)
-	defer cancel()
-
-	var restConfig *rest.Config
-	// wait.PollUntilWithContext passes it is own ctx argument as a ctx to the given function
-	// Poll until the kubelet config can be loaded successfully, as this is the access to the kube api
-	// needed by autopilot.
-	if err := wait.PollUntilWithContext(timeout, defaultPollDuration, func(ctx context.Context) (done bool, err error) {
-		log.Debugf("Attempting to load autopilot client config")
-		if restConfig, err = a.CertManager.GetRestConfig(ctx); err != nil {
-			log.WithError(err).Warnf("Failed to load autopilot client config, retrying in %v", defaultPollDuration)
-			return false, nil
-		}
-
-		return true, nil
-	}); err != nil {
-		return fmt.Errorf("unable to create autopilot client: %w", err)
-	}
-
-	// Without the config, there is nothing that we can do.
-
-	if restConfig == nil {
-		return errors.New("unable to create an autopilot client -- timed out")
-	}
-
-	autopilotClientFactory := &apcli.ClientFactory{ClientFactoryInterface: &kubernetes.ClientFactory{
-		LoadRESTConfig: func() (*rest.Config, error) { return restConfig, nil },
-	}}
-
-	log.Info("Autopilot client factory created, booting up worker root controller")
-	autopilotRoot, err := apcont.NewRootWorker(aproot.RootConfig{
-		K0sDataDir:          a.K0sVars.DataDir,
-		Mode:                "worker",
-		ManagerPort:         8899,
-		MetricsBindAddr:     "0",
-		HealthProbeBindAddr: "0",
-	}, log, autopilotClientFactory)
+	clients, err := a.ClientFactory.GetClient()
 	if err != nil {
-		return fmt.Errorf("failed to create autopilot worker: %w", err)
+		return err
 	}
+
+	stopErr := errors.New("Autopilot is stopping")
+	ctx, cancel := context.WithCancelCause(context.Background())
+	done := make(chan struct{})
 
 	go func() {
-		if err := autopilotRoot.Run(ctx); err != nil {
-			logrus.WithError(err).Error("Error running autopilot")
+		defer close(done)
 
-			// TODO: We now have a service with nothing running.. now what?
+		for {
+			err := a.run(ctx, log, clients.CoordinationV1().Leases(autopilotconstant.AutopilotNamespace))
+			switch {
+			case errors.Is(err, stopErr):
+				return
+			case err != nil:
+				log.WithError(err).Error("Failed to run Autopilot")
+			default:
+				log.Error("Autopilot returned unexpectedly")
+			}
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(30 * time.Second):
+				log.Info("Starting over")
+			}
 		}
 	}()
+
+	a.stop = func() { cancel(stopErr); <-done }
 
 	return nil
 }
 
 // Stop stops Autopilot
 func (a *Autopilot) Stop() error {
+	if stop := a.stop; stop != nil {
+		stop()
+	}
 	return nil
+}
+
+func (a *Autopilot) run(ctx context.Context, log *logrus.Entry, leases coordinationv1client.LeaseInterface) error {
+	log.Info("Waiting for Autopilot controller")
+	if err := a.waitForLease(ctx, log, leases); err != nil {
+		return fmt.Errorf("while waiting for Autopilot controller: %w", err)
+	}
+
+	autopilotRoot, err := apcont.NewRootWorker(aproot.RootConfig{
+		K0sDataDir:          a.DataDir,
+		Mode:                "worker",
+		ManagerPort:         8899,
+		MetricsBindAddr:     "0",
+		HealthProbeBindAddr: "0",
+	}, log, &apcli.ClientFactory{ClientFactoryInterface: a.ClientFactory})
+	if err != nil {
+		return err
+	}
+
+	return autopilotRoot.Run(ctx)
+}
+
+func (a *Autopilot) waitForLease(ctx context.Context, log logrus.FieldLogger, leases coordinationv1client.LeaseInterface) error {
+	ctx, cancel := context.WithTimeoutCause(ctx, 5*time.Minute, fmt.Errorf("%w: no active Autopilot controller found", errors.ErrUnsupported))
+	defer cancel()
+
+	return watch.Leases(leases).
+		WithObjectName(autopilotconstant.AutopilotNamespace+"-controller").
+		WithErrorCallback(func(err error) (time.Duration, error) {
+			if retryAfter, e := watch.IsRetryable(err); e == nil {
+				log.WithError(err).Infof("Transient error while waiting for Autopilot controller, starting over after %s ...", retryAfter)
+				return retryAfter, nil
+			}
+			return 0, err
+		}).
+		Until(ctx, func(l *coordinationv1.Lease) (done bool, err error) {
+			switch {
+			case l.Spec.HolderIdentity == nil || *l.Spec.HolderIdentity == "":
+				log.Debugf("Autopilot controller lease doesn't have a holder identity (%s), continue waiting", l.ResourceVersion)
+				return false, nil
+			case kubernetes.IsValidLease(&l.Spec):
+				log.Debugf("Autopilot controller lease is valid (%s)", l.ResourceVersion)
+				return true, nil
+			default:
+				log.Debugf("Autopilot controller lease is invalid (%s), continue waiting", l.ResourceVersion)
+				return false, nil
+			}
+		})
 }

@@ -22,7 +22,6 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 )
 
 type Stater interface {
@@ -30,17 +29,14 @@ type Stater interface {
 }
 
 type Status struct {
-	StatusInformation K0sStatus
-	Prober            Stater
-	Socket            string
-	L                 *logrus.Entry
-	httpserver        http.Server
-	listener          net.Listener
-	CertManager       certManager
-}
+	StatusInformation    K0sStatus
+	Prober               Stater
+	Socket               string
+	L                    *logrus.Entry
+	KubeletClientFactory kubeutil.ClientFactoryInterface
 
-type certManager interface {
-	GetRestConfig(ctx context.Context) (*rest.Config, error)
+	httpserver http.Server
+	listener   net.Listener
 }
 
 var _ manager.Component = (*Status)(nil)
@@ -155,11 +151,7 @@ func (sh *statusHandler) buildWorkerSideKubeAPIClient(ctx context.Context) (clie
 	timeout, cancel := context.WithTimeout(ctx, defaultPollTimeout)
 	defer cancel()
 	if err := wait.PollUntilWithContext(timeout, defaultPollDuration, func(ctx context.Context) (done bool, err error) {
-		factory := kubeutil.ClientFactory{LoadRESTConfig: func() (*rest.Config, error) {
-			return sh.Status.CertManager.GetRestConfig(ctx)
-		}}
-
-		client, err = factory.GetClient()
+		client, err = sh.Status.KubeletClientFactory.GetClient()
 		return err == nil, nil
 	}); err != nil {
 		return nil, err

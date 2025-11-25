@@ -32,6 +32,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/token"
 
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
@@ -294,9 +295,13 @@ func (c *Command) Start(ctx context.Context, nodeName apitypes.NodeName, kubelet
 			DualStackEnabled:    workerConfig.DualStackEnabled,
 		})
 
-	certManager := worker.NewCertificateManager(kubeletKubeconfigPath)
+	kubeletClientFactory := &kubernetes.ClientFactory{
+		LoadRESTConfig: func() (*rest.Config, error) {
+			return worker.NewCertificateManager(kubeletKubeconfigPath).GetRestConfig(ctx)
+		},
+	}
 
-	addPlatformSpecificComponents(ctx, componentManager, c.K0sVars, controller, certManager)
+	addPlatformSpecificComponents(ctx, componentManager, c.K0sVars, controller, kubeletClientFactory)
 
 	// extract needed components
 	if err := componentManager.Init(ctx); err != nil {
