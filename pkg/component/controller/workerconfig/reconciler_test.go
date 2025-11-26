@@ -59,7 +59,7 @@ func TestReconciler_Lifecycle(t *testing.T) {
 				},
 			},
 			clients,
-			&leaderelector.Dummy{Leader: true},
+			leaderelector.Off(),
 			true,
 			false,
 		)
@@ -317,7 +317,7 @@ func TestReconciler_ResourceGeneration(t *testing.T) {
 			},
 		},
 		clients,
-		&leaderelector.Dummy{Leader: true},
+		leaderelector.Off(),
 		true,
 		false,
 	)
@@ -503,7 +503,7 @@ func TestReconciler_ReconcilesOnChangesOnly(t *testing.T) {
 			},
 		},
 		clients,
-		&leaderelector.Dummy{Leader: true},
+		leaderelector.Off(),
 		true,
 		false,
 	)
@@ -589,7 +589,7 @@ func TestReconciler_ReconcilesOnChangesOnly(t *testing.T) {
 func TestReconciler_runReconcileLoop(t *testing.T) {
 	underTest := Reconciler{
 		log:           newTestLogger(t),
-		leaderElector: &leaderelector.Dummy{Leader: true},
+		leaderElector: leaderelector.Off(),
 	}
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
