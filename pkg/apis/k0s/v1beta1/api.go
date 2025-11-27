@@ -4,6 +4,7 @@
 package v1beta1
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -80,14 +81,6 @@ func (a *APISpec) LocalURL() *url.URL {
 	return &url.URL{Scheme: "https", Host: host}
 }
 
-// APIAddress ...
-func (a *APISpec) APIAddress() string {
-	if a.ExternalAddress != "" {
-		return a.ExternalHost()
-	}
-	return a.Address
-}
-
 func (a *APISpec) APIServerHostPort() (*k0snet.HostPort, error) {
 	if a.ExternalAddress != "" {
 		if ip := net.ParseIP(a.ExternalAddress); ip != nil {
@@ -134,7 +127,7 @@ func (a *APISpec) APIAddressURL() string {
 // If the address used to detect it, isn't an IP address but a hostname or if
 // both are unset, it will default to IPv4
 func (a *APISpec) DetectPrimaryAddressFamily() PrimaryAddressFamilyType {
-	addr := a.APIAddress()
+	addr := cmp.Or(a.ExternalHost(), a.Address)
 	if ip := net.ParseIP(addr); ip != nil && ip.To4() == nil {
 		return PrimaryFamilyIPv6
 	}
