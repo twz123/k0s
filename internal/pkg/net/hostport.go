@@ -23,10 +23,9 @@ func (h *HostPort) Host() string { return h.host }
 func (h *HostPort) Port() uint16 { return h.port }
 
 func NewHostPort(host string, port uint16) (*HostPort, error) {
-	if !govalidator.IsIP(host) && !govalidator.IsDNSName(host) {
-		return nil, errors.New("host is neither an IP address nor a DNS name")
+	if err := validateHost(host); err != nil {
+		return nil, err
 	}
-
 	if port == 0 {
 		return nil, errors.New("port is zero")
 	}
@@ -39,19 +38,35 @@ func ParseHostPort(hostPort string) (*HostPort, error) {
 }
 
 func ParseHostPortWithDefault(hostPort string, defaultPort uint16) (*HostPort, error) {
+	if govalidator.IsIP(hostPort) {
+		if defaultPort == 0 {
+			return nil, errors.New("missing port in address")
+		}
+		return &HostPort{hostPort, defaultPort}, nil
+	}
+
 	var port uint16
 	host, portStr, err := net.SplitHostPort(hostPort)
 	if err != nil {
 		addrErr := &net.AddrError{}
-		if errors.As(err, &addrErr) {
-			if defaultPort != 0 && addrErr.Err == "missing port in address" {
+		if !errors.As(err, &addrErr) {
+			return nil, err
+		}
+
+		if addrErr.Err == "missing port in address" {
+			if defaultPort != 0 {
 				host = addrErr.Addr
 				port = defaultPort
 			} else {
+				if _, ok := unwrapIPv6Literal(addrErr.Addr); !ok {
+					if err := validateHost(addrErr.Addr); err != nil {
+						return nil, err
+					}
+				}
 				return nil, errors.New(addrErr.Err)
 			}
 		} else {
-			return nil, err
+			return nil, errors.New(addrErr.Err)
 		}
 	} else {
 		parsed, err := strconv.ParseUint(portStr, 10, 16)
@@ -68,6 +83,10 @@ func ParseHostPortWithDefault(hostPort string, defaultPort uint16) (*HostPort, e
 			return nil, err
 		}
 		port = uint16(parsed)
+	}
+
+	if literal, ok := unwrapIPv6Literal(host); ok {
+		return &HostPort{literal, port}, nil
 	}
 
 	return NewHostPort(host, port)
@@ -95,4 +114,25 @@ func (h *HostPort) UnmarshalText(text []byte) error {
 	}
 	*h = *parsed
 	return err
+}
+
+func unwrapIPv6Literal(host string) (string, bool) {
+	if len := len(host); len > 2 && host[0] == '[' && host[len-1] == ']' {
+		if host := host[1 : len-1]; govalidator.IsIPv6(host) {
+			return host, true
+		}
+	}
+
+	return host, false
+}
+
+func validateHost(host string) error {
+	switch {
+	case govalidator.IsIP(host):
+		return nil
+	case govalidator.IsDNSName(host):
+		return nil
+	default:
+		return errors.New("host is neither an IP address nor a DNS name")
+	}
 }
