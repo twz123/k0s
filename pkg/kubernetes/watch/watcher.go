@@ -291,7 +291,7 @@ func (w *Watcher[T]) watch(ctx context.Context, resourceVersion string, conditio
 	for startWatch != nil {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, context.Cause(ctx)
 
 		case <-watchTimeout.C:
 			return nil, apierrors.NewTimeoutError("server unexpectedly didn't close the watch", 1)
@@ -409,7 +409,7 @@ func retry(ctx context.Context, errorCallback ErrorCallback, runWatch func(conte
 			select {
 			case <-ctx.Done():
 				timer.Stop()
-				return ctx.Err()
+				return context.Cause(ctx)
 			case <-timer.C:
 				continue
 			}

@@ -31,6 +31,7 @@ import (
 	etcdmemberclient "github.com/k0sproject/k0s/pkg/client/clientset/typed/etcd/v1beta1"
 	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/k0scontext"
+	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
 	extclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 
@@ -772,6 +773,12 @@ func (s *BootlooseSuite) StopWorker(name string) error {
 	s.Require().NoError(err)
 	defer ssh.Disconnect()
 	return s.launchDelegate.StopWorker(s.Context(), ssh)
+}
+
+func (s *BootlooseSuite) ClientFactory(node string, k0sKubeconfigArgs ...string) kubeutil.ClientFactoryInterface {
+	return &kubeutil.ClientFactory{LoadRESTConfig: func() (*rest.Config, error) {
+		return s.GetKubeConfig(node, k0sKubeconfigArgs...)
+	}}
 }
 
 // KubeClient return kube client by loading the admin access config from given node
