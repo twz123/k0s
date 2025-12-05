@@ -60,7 +60,7 @@ func (sc *setupController) Run(ctx context.Context) error {
 	logger.Infof("Creating namespace '%s'", apconst.AutopilotNamespace)
 	if _, err := createNamespace(ctx, sc.clientFactory, apconst.AutopilotNamespace); err != nil {
 		if !errors.IsAlreadyExists(err) {
-			return fmt.Errorf("unable to create required namespace '%s'", apconst.AutopilotNamespace)
+			return fmt.Errorf("unable to create required namespace '%s': %w", apconst.AutopilotNamespace, err)
 		}
 	}
 
