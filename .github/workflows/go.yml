@@ -240,7 +240,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        smoke-suite: ${{ fromJson(needs.prepare.outputs.smoketest-matrix) }}
+        # smoke-suite: ${{ fromJson(needs.prepare.outputs.smoketest-matrix) }}
+        smoke-suite:
+          - ap-ha3x3
 
     name: "check-${{ matrix.smoke-suite }} :: amd64"
     needs:

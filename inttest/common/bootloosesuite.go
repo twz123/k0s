@@ -337,7 +337,7 @@ func (s *BootlooseSuite) TearDownSuite() {
 // cleanupSuite does the cleanup work, namely destroy the bootloose machines.
 // Intended to be called after the suite's context has been canceled.
 func (s *BootlooseSuite) cleanupSuite(ctx context.Context, t *testing.T) {
-	if t.Failed() {
+	if true || t.Failed() {
 		var wg sync.WaitGroup
 		tmpDir := os.TempDir()
 
