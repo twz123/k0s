@@ -90,7 +90,8 @@ jobs:
         run: make -C inttest "$SMOKETEST_NAME"
 
       - name: Collect k0s logs, support bundle and conformance test results
-        if: failure()
+        # if: failure()
+        if: always()
         uses: actions/upload-artifact@v5
         with:
           name: ${{ inputs.name }}-${{ inputs.arch }}-files
