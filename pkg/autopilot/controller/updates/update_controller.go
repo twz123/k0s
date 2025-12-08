@@ -33,7 +33,7 @@ type updateController struct {
 	parentCtx context.Context
 }
 
-func RegisterControllers(ctx context.Context, logger *logrus.Entry, mgr crman.Manager, clientFactory apcli.FactoryInterface, leaderMode bool, clusterID string) error {
+func RegisterControllers(ctx context.Context, logger *logrus.Entry, mgr crman.Manager, clientFactory apcli.FactoryInterface, clusterID string) error {
 	return cr.NewControllerManagedBy(mgr).
 		Named("updater").
 		For(&apv1beta2.UpdateConfig{}).

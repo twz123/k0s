@@ -17,15 +17,18 @@ import (
 	"github.com/k0sproject/k0s/pkg/kubernetes"
 
 	"github.com/sirupsen/logrus"
+	"k8s.io/utils/ptr"
 	cr "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	crev "sigs.k8s.io/controller-runtime/pkg/event"
 	crman "sigs.k8s.io/controller-runtime/pkg/manager"
 	crpred "sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // RegisterControllers registers all of the autopilot controllers used by `plans`
 // to the controller-runtime manager when running in 'controller' mode.
-func RegisterControllers(ctx context.Context, logger *logrus.Entry, mgr crman.Manager, cf kubernetes.ClientFactoryInterface, leaderMode bool, controllerDelegateMap apdel.ControllerDelegateMap, excludeFromPlans []string) error {
+func RegisterControllers(ctx context.Context, logger *logrus.Entry, mgr crman.Manager, cf kubernetes.ClientFactoryInterface, controllerDelegateMap apdel.ControllerDelegateMap, excludeFromPlans []string) error {
 	logger = logger.WithField("controller", "plans")
 
 	cmdProviders := []appc.PlanCommandProvider{
@@ -33,18 +36,16 @@ func RegisterControllers(ctx context.Context, logger *logrus.Entry, mgr crman.Ma
 		appagupdate.NewAirgapUpdatePlanCommandProvider(logger, mgr.GetClient(), controllerDelegateMap, cf, excludeFromPlans),
 	}
 
-	if leaderMode {
-		if err := registerNewPlanStateController(logger, mgr, cmdProviders); err != nil {
-			return fmt.Errorf("unable to register newplan controller: %w", err)
-		}
+	if err := registerNewPlanStateController(logger, mgr, cmdProviders); err != nil {
+		return fmt.Errorf("unable to register newplan controller: %w", err)
+	}
 
-		if err := registerSchedulableWaitStateController(logger, mgr, cmdProviders); err != nil {
-			return fmt.Errorf("unable to register schedulablewait controller: %w", err)
-		}
+	if err := registerSchedulableWaitStateController(logger, mgr, cmdProviders); err != nil {
+		return fmt.Errorf("unable to register schedulablewait controller: %w", err)
+	}
 
-		if err := registerSchedulableStateController(logger, mgr, cmdProviders); err != nil {
-			return fmt.Errorf("unable to register schedulable controller: %w", err)
-		}
+	if err := registerSchedulableStateController(logger, mgr, cmdProviders); err != nil {
+		return fmt.Errorf("unable to register schedulable controller: %w", err)
 	}
 
 	return nil
@@ -100,6 +101,9 @@ func registerPlanStateController(name string, logger *logrus.Entry, mgr crman.Ma
 		Named("planstate_" + name).
 		For(&apv1beta2.Plan{}).
 		WithEventFilter(eventFilter).
+		WithOptions(controller.TypedOptions[reconcile.Request]{
+			NeedLeaderElection: ptr.To(true),
+		}).
 		Complete(
 			appc.NewPlanStateController(name, logger, mgr.GetClient(), handler),
 		)

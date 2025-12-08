@@ -8,11 +8,14 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
+
 	apcli "github.com/k0sproject/k0s/pkg/autopilot/client"
 	apcont "github.com/k0sproject/k0s/pkg/autopilot/controller"
 	aproot "github.com/k0sproject/k0s/pkg/autopilot/controller/root"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/config"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/sirupsen/logrus"
@@ -55,9 +58,11 @@ func (a *Autopilot) Start(ctx context.Context) error {
 	}
 
 	go func() {
-		if err := autopilotRoot.Run(ctx); err != nil {
-			log.WithError(err).Error("Error while running autopilot")
-		}
+		wait.UntilWithContext(ctx, func(ctx context.Context) {
+			if err := autopilotRoot.Run(ctx); err != nil {
+				log.WithError(err).Error("Error while running autopilot")
+			}
+		}, 30*time.Second)
 	}()
 
 	return nil
