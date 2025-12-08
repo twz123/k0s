@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,7 +23,9 @@ import (
 	crman "sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/sirupsen/logrus"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/kubectl/pkg/drain"
 )
@@ -77,6 +80,15 @@ func (r *cordoning) Reconcile(ctx context.Context, req cr.Request) (cr.Result, e
 		logger.Infof("ignoring non worker node")
 
 		return cr.Result{}, r.moveToNextState(ctx, signalNode, ApplyingUpdate)
+	}
+
+	var lease coordinationv1.Lease
+	if err := r.client.Get(ctx, types.NamespacedName{Namespace: corev1.NamespaceNodeLease, Name: signalNode.GetName()}, &lease); err != nil {
+		return cr.Result{}, err
+	}
+	if lease.Labels[apconst.WorkerSelfCordoningAnnotation] != strconv.FormatBool(false) {
+		logger.Info("Ignoring self-cordoning node ", signalNode.GetName())
+		return cr.Result{}, nil
 	}
 
 	logger.Infof("starting to cordon node %s", signalNode.GetName())

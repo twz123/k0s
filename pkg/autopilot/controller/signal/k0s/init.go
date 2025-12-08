@@ -10,14 +10,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	apcomm "github.com/k0sproject/k0s/pkg/autopilot/common"
+	"github.com/k0sproject/k0s/pkg/autopilot/constant"
 	apdel "github.com/k0sproject/k0s/pkg/autopilot/controller/delegate"
 	apsigpred "github.com/k0sproject/k0s/pkg/autopilot/controller/signal/common/predicate"
 	"github.com/k0sproject/k0s/pkg/component/status"
+	corev1 "k8s.io/api/core/v1"
+	applycoordinationv1 "k8s.io/client-go/applyconfigurations/coordination/v1"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/sirupsen/logrus"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	crev "sigs.k8s.io/controller-runtime/pkg/event"
 	crman "sigs.k8s.io/controller-runtime/pkg/manager"
 	crpred "sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -83,6 +88,13 @@ func RegisterNodeControllers(ctx context.Context, logger *logrus.Entry, mgr crma
 
 	k0sVersionHandler := func() (string, error) {
 		return getK0sVersion(status.DefaultSocketPath)
+	}
+
+	if err := mgr.GetClient().Apply(ctx, applycoordinationv1.
+		Lease(hostname, corev1.NamespaceNodeLease).
+		WithLabels(map[string]string{constant.WorkerSelfCordoningAnnotation: strconv.FormatBool(false)}),
+		client.FieldOwner("k0s/autopilot"), client.ForceOwnership); err != nil {
+		return fmt.Errorf("unable to apply lease labels: %w", err)
 	}
 
 	if err := registerSignalController(logger, mgr, signalControllerEventFilter(hostname, apsigpred.DefaultErrorHandler(logger, "k0s signal")), delegate, clusterID, k0sVersionHandler); err != nil {
