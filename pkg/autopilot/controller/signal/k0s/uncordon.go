@@ -9,16 +9,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	autopilotv1beta2 "github.com/k0sproject/k0s/pkg/apis/autopilot/v1beta2"
+	apconst "github.com/k0sproject/k0s/pkg/autopilot/constant"
 	apdel "github.com/k0sproject/k0s/pkg/autopilot/controller/delegate"
 	apsigcomm "github.com/k0sproject/k0s/pkg/autopilot/controller/signal/common"
 	apsigv2 "github.com/k0sproject/k0s/pkg/autopilot/signaling/v2"
 
 	"github.com/sirupsen/logrus"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/kubectl/pkg/drain"
 	cr "sigs.k8s.io/controller-runtime"
@@ -77,6 +81,15 @@ func (r *uncordoning) Reconcile(ctx context.Context, req cr.Request) (cr.Result,
 		logger.Infof("ignoring non worker node")
 
 		return cr.Result{}, r.moveToNextState(ctx, signalNode, apsigcomm.Completed)
+	}
+
+	var lease coordinationv1.Lease
+	if err := r.client.Get(ctx, types.NamespacedName{Namespace: corev1.NamespaceNodeLease, Name: signalNode.GetName()}, &lease); err != nil {
+		return cr.Result{}, err
+	}
+	if lease.Labels[apconst.WorkerSelfCordoningAnnotation] != strconv.FormatBool(false) {
+		logger.Info("Ignoring self-cordoning node ", signalNode.GetName())
+		return cr.Result{}, nil
 	}
 
 	logger.Infof("starting to un-cordon node %s", signalNode.GetName())
