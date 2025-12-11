@@ -37,7 +37,6 @@ type SetupController interface {
 type setupController struct {
 	log              *logrus.Entry
 	clientFactory    apcli.FactoryInterface
-	k0sDataDir       string
 	enableWorker     bool
 	kubeletExtraArgs string
 }
@@ -45,11 +44,10 @@ type setupController struct {
 var _ SetupController = (*setupController)(nil)
 
 // NewSetupController creates a `SetupController`
-func NewSetupController(logger *logrus.Entry, cf apcli.FactoryInterface, k0sDataDir, kubeletExtraArgs string, enableWorker bool) SetupController {
+func NewSetupController(logger *logrus.Entry, cf apcli.FactoryInterface, kubeletExtraArgs string, enableWorker bool) SetupController {
 	return &setupController{
 		log:              logger.WithField("controller", "setup"),
 		clientFactory:    cf,
-		k0sDataDir:       k0sDataDir,
 		kubeletExtraArgs: kubeletExtraArgs,
 		enableWorker:     enableWorker,
 	}
