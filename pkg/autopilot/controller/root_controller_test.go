@@ -7,15 +7,22 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"io/fs"
 	"net/netip"
 	"sync"
 	"testing"
 	"testing/synctest"
 
 	aptu "github.com/k0sproject/k0s/internal/autopilot/testutil"
-	apcli "github.com/k0sproject/k0s/pkg/autopilot/client"
 	aproot "github.com/k0sproject/k0s/pkg/autopilot/controller/root"
 	"github.com/k0sproject/k0s/pkg/leaderelection"
+	"github.com/k0sproject/k0s/static"
+
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"sigs.k8s.io/yaml"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -46,6 +53,24 @@ func TestModeSwitch(t *testing.T) {
 		logger := logrus.New().WithField("app", "autopilot-test")
 		clientFactory := aptu.NewFakeClientFactory()
 
+		for _, name := range []string{"controlnodes"} {
+			raw, err := fs.ReadFile(static.CRDs, fmt.Sprintf("autopilot/autopilot.k0sproject.io_%s.yaml", name))
+			require.NoError(t, err)
+			var crd unstructured.Unstructured
+			require.NoError(t, yaml.Unmarshal(raw, &crd.Object))
+			require.NoError(t, unstructured.SetNestedSlice(crd.Object, []any{
+				map[string]any{
+					"type":   string(apiextensionsv1.Established),
+					"status": string(apiextensionsv1.ConditionTrue),
+				},
+			}, "status", "conditions"))
+
+			gvr := apiextensionsv1.SchemeGroupVersion.WithResource("customresourcedefinitions")
+			crds := clientFactory.DynamicClient.Resource(gvr)
+			_, err = crds.Create(t.Context(), &crd, metav1.CreateOptions{})
+			require.NoError(t, err)
+		}
+
 		rootControllerInterface, err := NewRootController(aproot.RootConfig{}, logger, false, clientFactory, netip.IPv4Unspecified())
 		assert.NoError(t, err)
 
@@ -65,9 +90,6 @@ func TestModeSwitch(t *testing.T) {
 			seenEvents = append(seenEvents, "start: "+event.String())
 			<-ctx.Done()
 			seenEvents = append(seenEvents, "stop: "+event.String())
-			return nil
-		}
-		rootController.setupHandler = func(ctx context.Context, cf apcli.FactoryInterface) error {
 			return nil
 		}
 
