@@ -107,11 +107,13 @@ func (c *rootController) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to create leader elector: %w", err)
 	}
 
+	// ctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		le.Run(ctx, status.Set)
 	}()
+	// defer func() { cancel(); <-done }()
 
 	// Start controllers
 	leaseEventStatus, leaseEventStatusExpired := status.Peek()
@@ -126,6 +128,19 @@ func (c *rootController) Run(ctx context.Context) error {
 				return fmt.Errorf("while shutting down sub controllers: %w", err)
 			}
 			return nil
+
+		// case err := <-errCh:
+		// 	c.log.WithError(err).Error("Error while running autopilot root controller")
+		// 	select {
+		// 	case <-time.After(30 * time.Second):
+		// 	case <-leaseEventStatusExpired:
+		// 		leaseEventStatus, leaseEventStatusExpired = status.Peek()
+		// 	case <-ctx.Done():
+		// 		c.log.Info("Shutting down")
+		// 		return nil
+		// 	}
+
+		// 	cancelControllers, errCh = c.startSubControllers(ctx, leaseEventStatus)
 
 		case <-leaseEventStatusExpired:
 			lastLeaseEventStatus := leaseEventStatus
