@@ -9,50 +9,28 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	autopilotv1beta2 "github.com/k0sproject/k0s/pkg/apis/autopilot/v1beta2"
-	apcomm "github.com/k0sproject/k0s/pkg/autopilot/common"
 	apconst "github.com/k0sproject/k0s/pkg/autopilot/constant"
 	apdel "github.com/k0sproject/k0s/pkg/autopilot/controller/delegate"
-	apsigpred "github.com/k0sproject/k0s/pkg/autopilot/controller/signal/common/predicate"
 	apsigv2 "github.com/k0sproject/k0s/pkg/autopilot/signaling/v2"
 
 	cr "sigs.k8s.io/controller-runtime"
 	crcli "sigs.k8s.io/controller-runtime/pkg/client"
-	crev "sigs.k8s.io/controller-runtime/pkg/event"
 	crman "sigs.k8s.io/controller-runtime/pkg/manager"
-	crpred "sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/sirupsen/logrus"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/kubectl/pkg/drain"
 )
 
 const Cordoning = "Cordoning"
-
-// cordoningEventFilter creates a controller-runtime predicate that governs which objects
-// will make it into reconciliation, and which will be ignored.
-func cordoningEventFilter(hostname string, handler apsigpred.ErrorHandler) crpred.Predicate {
-	return crpred.And(
-		crpred.AnnotationChangedPredicate{},
-		apsigpred.SignalNamePredicate(hostname),
-		apsigpred.NewSignalDataPredicateAdapter(handler).And(
-			signalDataUpdateCommandK0sPredicate(),
-			apsigpred.SignalDataStatusPredicate(Cordoning),
-		),
-		apcomm.FalseFuncs{
-			CreateFunc: func(ce crev.CreateEvent) bool {
-				return true
-			},
-			UpdateFunc: func(ue crev.UpdateEvent) bool {
-				return true
-			},
-		},
-	)
-}
 
 type cordoning struct {
 	log       *logrus.Entry
@@ -67,20 +45,14 @@ type cordoning struct {
 // This controller is only interested when autopilot signaling annotations have
 // moved to a `Cordoning` status. At this point, it will attempt to cordong & drain
 // the node.
-func registerCordoning(logger *logrus.Entry, mgr crman.Manager, eventFilter crpred.Predicate, delegate apdel.ControllerDelegate) error {
+func registerCordoning(logger *logrus.Entry, mgr crman.Manager, delegate apdel.ControllerDelegate, clientset *kubernetes.Clientset) error {
 	name := strings.ToLower(delegate.Name()) + "_k0s_cordoning"
 	logger.Info("Registering reconciler: ", name)
-
-	// create the clientset
-	clientset, err := kubernetes.NewForConfig(mgr.GetConfig())
-	if err != nil {
-		return err
-	}
 
 	return cr.NewControllerManagedBy(mgr).
 		Named(name).
 		For(delegate.CreateObject()).
-		WithEventFilter(eventFilter).
+		WithEventFilter(controlPlaneSignalEventFilter(Cordoning)).
 		Complete(
 			&cordoning{
 				log:       logger.WithFields(logrus.Fields{"reconciler": "k0s-cordoning", "object": delegate.Name()}),
@@ -108,6 +80,15 @@ func (r *cordoning) Reconcile(ctx context.Context, req cr.Request) (cr.Result, e
 		logger.Infof("ignoring non worker node")
 
 		return cr.Result{}, r.moveToNextState(ctx, signalNode, ApplyingUpdate)
+	}
+
+	var lease coordinationv1.Lease
+	if err := r.client.Get(ctx, types.NamespacedName{Namespace: corev1.NamespaceNodeLease, Name: signalNode.GetName()}, &lease); err != nil {
+		return cr.Result{}, err
+	}
+	if lease.Labels[apconst.WorkerSelfCordoningAnnotation] != strconv.FormatBool(false) {
+		logger.Info("Ignoring self-cordoning node ", signalNode.GetName())
+		return cr.Result{}, nil
 	}
 
 	logger.Infof("starting to cordon node %s", signalNode.GetName())
@@ -181,10 +162,10 @@ func (r *cordoning) drainNode(ctx context.Context, signalNode crcli.Object) erro
 		IgnoreAllDaemonSets: true,
 		Ctx:                 ctx,
 		Out:                 logger.Writer(),
-		ErrOut:              logger.Writer(),
+		ErrOut:              logger.WriterLevel(logrus.ErrorLevel),
 		// We want to proceed even when pods are using emptyDir volumes
 		DeleteEmptyDirData: true,
-		Timeout:            time.Duration(120) * time.Second,
+		Timeout:            120 * time.Second,
 		OnPodDeletedOrEvicted: func(pod *corev1.Pod, usingEviction bool) {
 			logger.Infof("evicted pod: %s/%s", pod.Namespace, pod.Name)
 		},

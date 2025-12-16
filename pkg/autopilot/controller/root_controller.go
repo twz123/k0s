@@ -25,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/utils/ptr"
 	cr "sigs.k8s.io/controller-runtime"
 	crcli "sigs.k8s.io/controller-runtime/pkg/client"
@@ -86,11 +87,14 @@ func NewRootController(cfg aproot.RootConfig, logger *logrus.Entry, enableWorker
 }
 
 func (c *rootController) Run(ctx context.Context) error {
-	ctx, cancel := context.WithCancel(ctx)
-	_ = cancel
-
 	// Create / initialize kubernetes objects as needed
-	if err := c.setupHandler(ctx, c.autopilotClientFactory); err != nil {
+	if err := wait.PollUntilContextCancel(ctx, 10*time.Second, true, func(ctx context.Context) (done bool, err error) {
+		if err := c.setupHandler(ctx, c.autopilotClientFactory); err != nil {
+			c.log.WithError(err).Error("Setup controller failed to complete, retrying in 10 seconds")
+			return false, nil
+		}
+		return true, nil
+	}); err != nil {
 		return fmt.Errorf("setup controller failed to complete: %w", err)
 	}
 
@@ -225,8 +229,15 @@ func (c *rootController) startSubControllerRoutine(ctx context.Context, logger *
 	}
 	clusterID := string(ns.UID)
 
-	if err := signal.RegisterControllers(ctx, logger, mgr, delegateMap[apdel.ControllerDelegateController], c.cfg.K0sDataDir, clusterID); err != nil {
-		logger.WithError(err).Error("unable to register signal controllers")
+	if leaderMode {
+		if err := signal.RegisterControlPlaneControllers(logger, mgr, delegateMap); err != nil {
+			logger.WithError(err).Error("unable to register signal control plane controllers")
+			return err
+		}
+	}
+
+	if err := signal.RegisterNodeControllers(ctx, logger, mgr, delegateMap[apdel.ControllerDelegateController], c.cfg.K0sDataDir, clusterID); err != nil {
+		logger.WithError(err).Error("unable to register signal node controllers")
 		return err
 	}
 
