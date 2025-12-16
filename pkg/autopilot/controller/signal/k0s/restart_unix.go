@@ -124,6 +124,15 @@ func (r *restart) Reconcile(ctx context.Context, req cr.Request) (cr.Result, err
 		return cr.Result{}, nil
 	}
 
+	// Wait at least ten seconds before a restart. This is trying to mitigate
+	// some problems around missed status updates after "ApplyingUpdate".
+	if statusTime, err := time.Parse(time.RFC3339, signalData.Status.Timestamp); err != nil {
+		logger.WithError(err).Warn("Ignoring invalid status time")
+	} else if delay := (10 * time.Second) - time.Since(statusTime); delay > 0 {
+		logger.Info("Delaying restart by ", delay)
+		return cr.Result{RequeueAfter: delay}, nil
+	}
+
 	// If the found k0s version does not match the updated version, restart k0s.
 	// The fact that the version of k0s was determined by the status socket, the
 	// old k0s is still running.
