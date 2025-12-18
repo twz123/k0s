@@ -67,10 +67,13 @@ type Status struct {
 	Conditions []JoinCondition `json:"conditions,omitempty"`
 }
 
+// +kubebuilder:validation:Enum=Joined;AwaitingShutdown
 type ConditionType string
 
 const (
 	ConditionTypeJoined ConditionType = "Joined"
+	// Indicates that it's expected for the member to shutdown.
+	ConditionTypeAwaitingShutdown ConditionType = "AwaitingShutdown"
 )
 
 // +kubebuilder:validation:Enum=True;False;Unknown
@@ -86,7 +89,6 @@ const (
 )
 
 type JoinCondition struct {
-	// +kubebuilder:validation:Enum=Joined
 	Type   ConditionType   `json:"type"`
 	Status ConditionStatus `json:"status"`
 	// Last time the condition transitioned from one status to another.

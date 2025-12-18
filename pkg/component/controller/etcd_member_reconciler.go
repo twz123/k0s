@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/avast/retry-go"
@@ -23,6 +24,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/kubernetes/watch"
 	"github.com/k0sproject/k0s/pkg/leaderelection"
 	"github.com/sirupsen/logrus"
+	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,7 +34,7 @@ import (
 
 var _ manager.Component = (*EtcdMemberReconciler)(nil)
 
-func NewEtcdMemberReconciler(kubeClientFactory kubeutil.ClientFactoryInterface, k0sVars *config.CfgVars, etcdConfig *v1beta1.EtcdConfig, leaderElector leaderelector.Interface, controllerCount func() uint) (*EtcdMemberReconciler, error) {
+func NewEtcdMemberReconciler(kubeClientFactory kubeutil.ClientFactoryInterface, k0sVars *config.CfgVars, etcdConfig *v1beta1.EtcdConfig, leaderElector leaderelector.Interface, controllerCount func() uint, shutdown context.CancelCauseFunc) (*EtcdMemberReconciler, error) {
 
 	return &EtcdMemberReconciler{
 		clientFactory:   kubeClientFactory,
@@ -40,6 +42,7 @@ func NewEtcdMemberReconciler(kubeClientFactory kubeutil.ClientFactoryInterface, 
 		etcdConfig:      etcdConfig,
 		leaderElector:   leaderElector,
 		controllerCount: controllerCount,
+		shutdown:        shutdown,
 	}, nil
 }
 
@@ -49,6 +52,7 @@ type EtcdMemberReconciler struct {
 	etcdConfig      *v1beta1.EtcdConfig
 	leaderElector   leaderelector.Interface
 	controllerCount func() uint
+	shutdown        context.CancelCauseFunc
 	stop            func()
 }
 
@@ -82,7 +86,7 @@ func (e *EtcdMemberReconciler) resync(ctx context.Context, client etcdclient.Etc
 }
 
 func (e *EtcdMemberReconciler) Start(ctx context.Context) error {
-	log := logrus.WithField("component", "EtcdMemberReconciler")
+	log := logrus.WithField("component", "etcdMemberReconciler")
 
 	client, err := e.clientFactory.GetEtcdMemberClient()
 	if err != nil {
@@ -90,18 +94,34 @@ func (e *EtcdMemberReconciler) Start(ctx context.Context) error {
 	}
 
 	ctx, cancel := context.WithCancelCause(context.Background())
-	done := make(chan struct{})
+	var wg sync.WaitGroup
 
-	go func() {
-		defer close(done)
+	wg.Go(func() {
 		wait.UntilWithContext(ctx, func(ctx context.Context) {
 			e.reconcile(ctx, log, client)
 		}, 1*time.Minute)
-	}()
+	})
+
+	wg.Go(func() {
+		wait.UntilWithContext(ctx, func(ctx context.Context) {
+			err := watch.EtcdMembers(client).
+				WithObjectName(e.etcdConfig.GetMemberName()).
+				Until(ctx, func(item *etcdv1beta1.EtcdMember) (bool, error) {
+					sr := item.Status.GetCondition(etcdv1beta1.ConditionTypeAwaitingShutdown)
+					return sr != nil && sr.Status == etcdv1beta1.ConditionTrue, nil
+				})
+			if err == nil {
+				log.Info("Etcd member shutdown expected; stopping components and waiting for external termination")
+				e.shutdown(errors.New("etcd member shutdown expected"))
+			} else if ctxErr := context.Cause(ctx); !errors.Is(err, ctxErr) {
+				logrus.WithError(err).Error("Error watching etcd member object")
+			}
+		}, 30*time.Second)
+	})
 
 	e.stop = func() {
 		cancel(errors.New("etcd member reconciler is stopping"))
-		<-done
+		wg.Wait()
 	}
 
 	return nil
@@ -428,6 +448,27 @@ func (e *EtcdMemberReconciler) reconcileMember(ctx context.Context, client etcdc
 	if joinStatus != nil && joinStatus.Status == etcdv1beta1.ConditionFalse && !ok {
 		log.Debug("member already left, no action needed")
 		return true
+	}
+
+	clients, err := e.clientFactory.GetClient()
+	if err != nil {
+		log.WithError(err).Error("Failed to get Kubernetes client")
+		return false
+	}
+
+	if memberLease, err := clients.CoordinationV1().Leases(corev1.NamespaceNodeLease).Get(ctx, "k0s-ctrl-"+member.Name, metav1.GetOptions{}); err != nil {
+		log.WithError(err).Error("Failed to get etcd member lease")
+		return false
+	} else if ident := memberLease.Spec.HolderIdentity; ident != nil && *ident != "" && kubeutil.IsValidLease(*memberLease) {
+		msg := "Controller is still active; waiting for it to shutdown"
+		log.Info(msg)
+		member.Status.SetCondition(etcdv1beta1.ConditionTypeAwaitingShutdown, etcdv1beta1.ConditionTrue, msg, time.Now())
+		member.Status.Message = msg
+		member.Status.ReconcileStatus = ""
+		if _, err := client.UpdateStatus(ctx, member, metav1.UpdateOptions{}); err != nil {
+			log.WithError(err).Error("Failed to update member state")
+		}
+		return false
 	}
 
 	// Convert the memberID to uint64
