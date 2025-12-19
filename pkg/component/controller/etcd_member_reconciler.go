@@ -232,15 +232,37 @@ func (e *EtcdMemberReconciler) watchEtcdMembers(ctx context.Context, client etcd
 }
 
 func (e *EtcdMemberReconciler) shutdownIfExpected(ctx context.Context, log logrus.FieldLogger, client etcdclient.EtcdMemberInterface) {
-	log.Info("Starting to watch etcd member object")
+	name := e.etcdConfig.GetMemberName()
+	name, err := nodeutil.GetHostname(name)
+	if err != nil {
+		log.WithError(err).Error("Failed to get name for etcd member")
+		return
+	}
 
-	err := watch.EtcdMembers(client).
-		WithObjectName(e.etcdConfig.GetMemberName()).
-		Until(ctx, func(item *etcdv1beta1.EtcdMember) (bool, error) {
-			as := item.Status.GetCondition(etcdv1beta1.ConditionTypeAwaitingShutdown)
+	log.Info("Starting to watch etcd member object ", name)
+
+	var lastObservedVersion string
+	err = watch.EtcdMembers(client).
+		WithObjectName(name).
+		WithErrorCallback(func(err error) (time.Duration, error) {
+			retryDelay, e := watch.IsRetryable(err)
+			if e == nil {
+				log.WithError(err).Debugf(
+					"Encountered transient error while watching etcd members"+
+						", last observed resource version was %q"+
+						", retrying in %s",
+					lastObservedVersion, retryDelay,
+				)
+				return retryDelay, nil
+			}
+			return 0, err
+		}).
+		Until(ctx, func(member *etcdv1beta1.EtcdMember) (bool, error) {
+			as := member.Status.GetCondition(etcdv1beta1.ConditionTypeAwaitingShutdown)
 			log.Debug("Awaiting shutdown condition: ", as)
 			return as != nil && as.Status == etcdv1beta1.ConditionTrue, nil
 		})
+
 	if err == nil {
 		log.Info("Etcd member shutdown expected; stopping components and waiting for external termination")
 		e.shutdown(errors.New("etcd member shutdown expected"))
