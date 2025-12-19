@@ -80,7 +80,7 @@ spec:
                     type:
                       enum:
                       - Joined
-                      - ShutdownRequested
+                      - AwaitingShutdown
                       type: string
                   required:
                   - status

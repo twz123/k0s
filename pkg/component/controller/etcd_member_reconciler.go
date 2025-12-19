@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/avast/retry-go"
@@ -28,7 +27,6 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
 	nodeutil "k8s.io/component-helpers/node/util"
 )
 
@@ -93,45 +91,8 @@ func (e *EtcdMemberReconciler) Start(ctx context.Context) error {
 		return err
 	}
 
-	ctx, cancel := context.WithCancelCause(context.Background())
-	var wg sync.WaitGroup
-
-	wg.Go(func() {
-		wait.UntilWithContext(ctx, func(ctx context.Context) {
-			e.reconcile(ctx, log, client)
-		}, 1*time.Minute)
-	})
-
-	wg.Go(func() {
-		wait.UntilWithContext(ctx, func(ctx context.Context) {
-			err := watch.EtcdMembers(client).
-				WithObjectName(e.etcdConfig.GetMemberName()).
-				Until(ctx, func(item *etcdv1beta1.EtcdMember) (bool, error) {
-					sr := item.Status.GetCondition(etcdv1beta1.ConditionTypeAwaitingShutdown)
-					return sr != nil && sr.Status == etcdv1beta1.ConditionTrue, nil
-				})
-			if err == nil {
-				log.Info("Etcd member shutdown expected; stopping components and waiting for external termination")
-				e.shutdown(errors.New("etcd member shutdown expected"))
-			} else if ctxErr := context.Cause(ctx); !errors.Is(err, ctxErr) {
-				logrus.WithError(err).Error("Error watching etcd member object")
-			}
-		}, 30*time.Second)
-	})
-
-	e.stop = func() {
-		cancel(errors.New("etcd member reconciler is stopping"))
-		wg.Wait()
-	}
-
-	return nil
-}
-
-func (e *EtcdMemberReconciler) reconcile(ctx context.Context, log logrus.FieldLogger, client etcdclient.EtcdMemberInterface) {
-	err := e.waitForCRD(ctx)
-	if err != nil {
-		log.WithError(err).Errorf("didn't see EtcdMember CRD ready in time")
-		return
+	if err := e.waitForCRD(ctx); err != nil {
+		return fmt.Errorf("didn't see EtcdMember CRD ready in time: %w", err)
 	}
 
 	// Create the object for this node
@@ -151,15 +112,59 @@ func (e *EtcdMemberReconciler) reconcile(ctx context.Context, log logrus.FieldLo
 		}),
 	)
 	if err != nil {
-		log.WithError(err).Error("failed to create EtcdMember object for this controller")
+		return fmt.Errorf("failed to create EtcdMember object for this controller: %w", err)
 	}
 
-	leaderelection.RunLeaderTasks(ctx, e.leaderElector.CurrentStatus, func(ctx context.Context) {
-		e.watchAndResync(ctx, client, log)
-	})
+	ctx, cancel := context.WithCancelCause(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		e.reconcile(ctx, log, client)
+	}()
+
+	e.stop = func() {
+		cancel(errors.New("etcd member reconciler is stopping"))
+		<-done
+	}
+
+	return nil
+}
+
+func (e *EtcdMemberReconciler) reconcile(ctx context.Context, log logrus.FieldLogger, client etcdclient.EtcdMemberInterface) {
+	for {
+		status, statusExpired := e.leaderElector.CurrentStatus()
+		statusCtx, cancelStatus := context.WithCancelCause(ctx)
+
+		go func() {
+			select {
+			case <-statusExpired:
+				cancelStatus(errors.New("leader status changed"))
+			case <-statusCtx.Done():
+			}
+		}()
+
+		switch status {
+		case leaderelection.StatusLeading:
+			e.watchAndResync(statusCtx, client, log)
+
+		case leaderelection.StatusPending:
+			e.shutdownIfExpected(statusCtx, log, client)
+		}
+
+		cancelStatus(nil)
+
+		select {
+		case <-time.After(30 * time.Second):
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 func (e *EtcdMemberReconciler) watchAndResync(ctx context.Context, client etcdclient.EtcdMemberInterface, log logrus.FieldLogger) {
+	log.Info("Starting to watch and resync etcd member objects")
+
 	trigger := make(chan struct{}, 1)
 	done := make(chan struct{})
 	go func() {
@@ -177,6 +182,8 @@ func (e *EtcdMemberReconciler) watchAndResync(ctx context.Context, client etcdcl
 			if retry != nil {
 				continue
 			}
+		case <-done:
+			return
 		case <-ctx.Done():
 			return
 		}
@@ -221,6 +228,24 @@ func (e *EtcdMemberReconciler) watchEtcdMembers(ctx context.Context, client etcd
 		log.WithError(err).Info("Watch terminated")
 	} else {
 		log.WithError(err).Error("Watch terminated unexpectedly")
+	}
+}
+
+func (e *EtcdMemberReconciler) shutdownIfExpected(ctx context.Context, log logrus.FieldLogger, client etcdclient.EtcdMemberInterface) {
+	log.Info("Starting to watch etcd member object")
+
+	err := watch.EtcdMembers(client).
+		WithObjectName(e.etcdConfig.GetMemberName()).
+		Until(ctx, func(item *etcdv1beta1.EtcdMember) (bool, error) {
+			as := item.Status.GetCondition(etcdv1beta1.ConditionTypeAwaitingShutdown)
+			log.Debug("Awaiting shutdown condition: ", as)
+			return as != nil && as.Status == etcdv1beta1.ConditionTrue, nil
+		})
+	if err == nil {
+		log.Info("Etcd member shutdown expected; stopping components and waiting for external termination")
+		e.shutdown(errors.New("etcd member shutdown expected"))
+	} else if ctxErr := context.Cause(ctx); !errors.Is(err, ctxErr) {
+		log.WithError(err).Error("Error watching etcd member object")
 	}
 }
 
