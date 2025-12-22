@@ -7,19 +7,20 @@ package fake
 
 import (
 	v1beta1 "github.com/k0sproject/k0s/pkg/apis/etcd/v1beta1"
-	etcdv1beta1 "github.com/k0sproject/k0s/pkg/client/clientset/typed/etcd/v1beta1"
+	etcdv1beta1 "github.com/k0sproject/k0s/pkg/client/applyconfigurations/etcd/v1beta1"
+	typedetcdv1beta1 "github.com/k0sproject/k0s/pkg/client/clientset/typed/etcd/v1beta1"
 	gentype "k8s.io/client-go/gentype"
 )
 
 // fakeEtcdMembers implements EtcdMemberInterface
 type fakeEtcdMembers struct {
-	*gentype.FakeClientWithList[*v1beta1.EtcdMember, *v1beta1.EtcdMemberList]
+	*gentype.FakeClientWithListAndApply[*v1beta1.EtcdMember, *v1beta1.EtcdMemberList, *etcdv1beta1.EtcdMemberApplyConfiguration]
 	Fake *FakeEtcdV1beta1
 }
 
-func newFakeEtcdMembers(fake *FakeEtcdV1beta1) etcdv1beta1.EtcdMemberInterface {
+func newFakeEtcdMembers(fake *FakeEtcdV1beta1) typedetcdv1beta1.EtcdMemberInterface {
 	return &fakeEtcdMembers{
-		gentype.NewFakeClientWithList[*v1beta1.EtcdMember, *v1beta1.EtcdMemberList](
+		gentype.NewFakeClientWithListAndApply[*v1beta1.EtcdMember, *v1beta1.EtcdMemberList, *etcdv1beta1.EtcdMemberApplyConfiguration](
 			fake.Fake,
 			"",
 			v1beta1.SchemeGroupVersion.WithResource("etcdmembers"),

@@ -19,7 +19,6 @@ import (
 // +kubebuilder:printcolumn:name="Joined",type=string,JSONPath=`.status.conditions[?(@.type=="Joined")].status`
 // +kubebuilder:printcolumn:name="Reconcile Status",type=string,JSONPath=`.status.reconcileStatus`
 // +genclient
-// +genclient:onlyVerbs=create,delete,list,get,watch,update,updateStatus,patch
 // +genclient:nonNamespaced
 type EtcdMember struct {
 	metav1.TypeMeta `json:",inline"`

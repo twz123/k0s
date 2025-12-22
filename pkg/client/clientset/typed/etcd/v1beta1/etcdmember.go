@@ -9,6 +9,7 @@ import (
 	context "context"
 
 	etcdv1beta1 "github.com/k0sproject/k0s/pkg/apis/etcd/v1beta1"
+	applyconfigurationsetcdv1beta1 "github.com/k0sproject/k0s/pkg/client/applyconfigurations/etcd/v1beta1"
 	scheme "github.com/k0sproject/k0s/pkg/client/clientset/scheme"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
@@ -29,22 +30,26 @@ type EtcdMemberInterface interface {
 	// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
 	UpdateStatus(ctx context.Context, etcdMember *etcdv1beta1.EtcdMember, opts v1.UpdateOptions) (*etcdv1beta1.EtcdMember, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
+	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
 	Get(ctx context.Context, name string, opts v1.GetOptions) (*etcdv1beta1.EtcdMember, error)
 	List(ctx context.Context, opts v1.ListOptions) (*etcdv1beta1.EtcdMemberList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
 	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *etcdv1beta1.EtcdMember, err error)
+	Apply(ctx context.Context, etcdMember *applyconfigurationsetcdv1beta1.EtcdMemberApplyConfiguration, opts v1.ApplyOptions) (result *etcdv1beta1.EtcdMember, err error)
+	// Add a +genclient:noStatus comment above the type to avoid generating ApplyStatus().
+	ApplyStatus(ctx context.Context, etcdMember *applyconfigurationsetcdv1beta1.EtcdMemberApplyConfiguration, opts v1.ApplyOptions) (result *etcdv1beta1.EtcdMember, err error)
 	EtcdMemberExpansion
 }
 
 // etcdMembers implements EtcdMemberInterface
 type etcdMembers struct {
-	*gentype.ClientWithList[*etcdv1beta1.EtcdMember, *etcdv1beta1.EtcdMemberList]
+	*gentype.ClientWithListAndApply[*etcdv1beta1.EtcdMember, *etcdv1beta1.EtcdMemberList, *applyconfigurationsetcdv1beta1.EtcdMemberApplyConfiguration]
 }
 
 // newEtcdMembers returns a EtcdMembers
 func newEtcdMembers(c *EtcdV1beta1Client) *etcdMembers {
 	return &etcdMembers{
-		gentype.NewClientWithList[*etcdv1beta1.EtcdMember, *etcdv1beta1.EtcdMemberList](
+		gentype.NewClientWithListAndApply[*etcdv1beta1.EtcdMember, *etcdv1beta1.EtcdMemberList, *applyconfigurationsetcdv1beta1.EtcdMemberApplyConfiguration](
 			"etcdmembers",
 			c.RESTClient(),
 			scheme.ParameterCodec,

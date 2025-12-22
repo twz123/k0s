@@ -175,10 +175,22 @@ $(register_gen_targets): $(GO_ENV_REQUISITES) hack/tools/boilerplate.go.txt embe
 	  }
 	mv -- '$(dir $@)_$(notdir $@).tmp' '$@'
 
-# Generate the k0s client-go clientset based on all custom API group versions.
+# Generate the k0s client-go clientset and apply configurations based on all custom API group versions.
 clientset_input_dirs := $(foreach gv,$(api_group_versions),pkg/apis/$(gv))
-codegen_targets += pkg/client/clientset/.client-gen.stamp
-pkg/client/clientset/.client-gen.stamp: $(shell $(FIND) $(clientset_input_dirs) -type f -name "*.go" -not -name "*_test.go" -not -name "zz_generated*")
+pkg/client/applyconfigurations/.applyconfiguration-gen.stamp pkg/client/clientset/.client-gen.stamp: $(shell $(FIND) $(clientset_input_dirs) -type f -name "*.go" -not -name "*_test.go" -not -name "zz_generated*")
+codegen_targets += pkg/client/applyconfigurations/.applyconfiguration-gen.stamp
+pkg/client/applyconfigurations/.applyconfiguration-gen.stamp: $(GO_ENV_REQUISITES) hack/tools/boilerplate.go.txt embedded-bins/Makefile.variables
+	gendir="$$(mktemp -d .applyconfiguration-gen.tmp.XXXXXX)" \
+	  && trap "rm -rf -- $$gendir" INT EXIT \
+	  && CGO_ENABLED=0 $(GO) run k8s.io/code-generator/cmd/applyconfiguration-gen@v$(kubernetes_version:1.%=0.%) \
+	    --go-header-file=hack/tools/boilerplate.go.txt \
+	    --output-pkg=github.com/k0sproject/k0s/pkg/client/applyconfigurations \
+	    --output-dir="$$gendir/out/applyconfigurations" \
+	    $(clientset_input_dirs:%=github.com/k0sproject/k0s/%) \
+	  && { [ ! -e pkg/client/applyconfigurations ] || mv -- pkg/client/applyconfigurations "$$gendir/old"; } \
+	  && mv -f -- "$$gendir/out/applyconfigurations" pkg/client/.
+	touch -- '$@'
+codegen_targets += pkg/client/applyconfigurations/.applyconfiguration-gen.stamp pkg/client/clientset/.client-gen.stamp
 pkg/client/clientset/.client-gen.stamp: $(GO_ENV_REQUISITES) hack/tools/boilerplate.go.txt embedded-bins/Makefile.variables
 	gendir="$$(mktemp -d .client-gen.tmp.XXXXXX)" \
 	  && trap "rm -rf -- $$gendir" INT EXIT \
@@ -188,6 +200,7 @@ pkg/client/clientset/.client-gen.stamp: $(GO_ENV_REQUISITES) hack/tools/boilerpl
 	    --input=$(subst $(space),$(comma),$(clientset_input_dirs:%=github.com/k0sproject/k0s/%)) \
 	    --output-pkg=github.com/k0sproject/k0s/pkg/client \
 	    --clientset-name=clientset \
+	    --apply-configuration-package=github.com/k0sproject/k0s/pkg/client/applyconfigurations \
 	    --output-dir="$$gendir/out" \
 	  && { [ ! -e pkg/client/clientset ] || mv -- pkg/client/clientset "$$gendir/old"; } \
 	  && mv -f -- "$$gendir/out/clientset" pkg/client/.
