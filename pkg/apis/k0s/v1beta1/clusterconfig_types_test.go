@@ -42,8 +42,13 @@ metadata:
 	c, err := ConfigFromBytes(yamlData)
 	assert.NoError(t, err)
 	assert.Equal(t, EtcdStorageType, c.Spec.Storage.Type)
-	addr, err := iface.FirstPublicAddress()
-	assert.NoError(t, err)
+	var addr string
+	for a, err := range iface.AllGlobalAddresses() {
+		if assert.NoError(t, err) {
+			addr = a.IP().String()
+			break
+		}
+	}
 	assert.Equal(t, addr, c.Spec.Storage.Etcd.PeerAddress)
 }
 
@@ -122,8 +127,14 @@ spec:
 	c, err := ConfigFromBytes(yamlData)
 	assert.NoError(t, err)
 	assert.Equal(t, EtcdStorageType, c.Spec.Storage.Type)
-	addr, err := iface.FirstPublicAddress()
-	assert.NoError(t, err)
+	var addr string
+	for a, err := range iface.AllGlobalAddresses() {
+		if assert.NoError(t, err) {
+			addr = a.IP().String()
+			break
+		}
+	}
+	assert.NotEmpty(t, addr)
 	assert.Equal(t, addr, c.Spec.Storage.Etcd.PeerAddress)
 }
 

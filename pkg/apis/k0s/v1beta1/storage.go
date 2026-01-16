@@ -4,10 +4,12 @@
 package v1beta1
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"path/filepath"
 	"slices"
@@ -16,10 +18,9 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/iface"
 	"github.com/k0sproject/k0s/pkg/config/kine"
 	"github.com/k0sproject/k0s/pkg/constant"
+	"github.com/sirupsen/logrus"
 
 	"k8s.io/apimachinery/pkg/util/validation/field"
-
-	"github.com/sirupsen/logrus"
 )
 
 var _ Validateable = (*StorageSpec)(nil)
@@ -156,14 +157,14 @@ type ExternalCluster struct {
 
 // DefaultEtcdConfig creates EtcdConfig with sane defaults
 func DefaultEtcdConfig() *EtcdConfig {
-	addr, err := iface.FirstPublicAddress()
+	v4, v6, err := iface.FirstAddresses(iface.AllGlobalAddresses())
+	peerAddress := cmp.Or(v4, v6, netip.AddrFrom4([4]byte{127, 0, 0, 1})).String()
 	if err != nil {
-		logrus.Warnf("failed to resolve etcd peering address automatically, using loopback")
-		addr = "127.0.0.1"
+		logrus.WithError(err).Debug("Some errors occurred while auto-detecing etcd peering address, using ", peerAddress)
 	}
 	return &EtcdConfig{
 		ExternalCluster: nil,
-		PeerAddress:     addr,
+		PeerAddress:     peerAddress,
 		ExtraArgs:       make(map[string]string),
 		CA:              DefaultCA(),
 	}

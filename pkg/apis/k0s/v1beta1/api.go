@@ -8,12 +8,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"strconv"
 
 	"github.com/k0sproject/k0s/internal/pkg/iface"
 	k0snet "github.com/k0sproject/k0s/internal/pkg/net"
 	"github.com/k0sproject/k0s/internal/pkg/stringslice"
+	"github.com/sirupsen/logrus"
 
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -66,7 +68,6 @@ type APISpec struct {
 func DefaultAPISpec() *APISpec {
 	a := new(APISpec)
 	a.setDefaults()
-	a.SANs, _ = iface.AllAddresses()
 	return a
 }
 
@@ -152,8 +153,15 @@ func (a *APISpec) getExternalURIForPort(port int) string {
 }
 
 // Sans return the given SANS plus all local addresses and externalAddress if given
-func (a *APISpec) Sans() []string {
-	sans, _ := iface.AllAddresses()
+func (a *APISpec) Sans() (sans []string) {
+	for addr, err := range iface.AllAddresses() {
+		if err != nil {
+			continue
+		}
+
+		sans = append(sans, addr.IP().WithZone("").String())
+	}
+
 	sans = append(sans, a.Address)
 	sans = append(sans, a.SANs...)
 	if a.ExternalAddress != "" {
@@ -161,10 +169,6 @@ func (a *APISpec) Sans() []string {
 	}
 
 	return stringslice.Unique(sans)
-}
-
-func isAnyAddress(address string) bool {
-	return address == "0.0.0.0" || address == "::"
 }
 
 // Validate validates APISpec struct
@@ -175,10 +179,9 @@ func (a *APISpec) Validate() []error {
 
 	var errors []error
 
-	if !govalidator.IsIP(a.Address) {
+	if ip := net.ParseIP(a.Address); ip == nil {
 		errors = append(errors, field.Invalid(field.NewPath("address"), a.Address, "invalid IP address"))
-	}
-	if isAnyAddress(a.Address) {
+	} else if ip.IsUnspecified() {
 		errors = append(errors, field.Invalid(field.NewPath("address"), a.Address, "invalid INADDR_ANY"))
 	}
 
@@ -191,8 +194,8 @@ func (a *APISpec) Validate() []error {
 
 	if a.ExternalAddress != "" {
 		validateIPAddressOrDNSName(field.NewPath("externalAddress"), a.ExternalHost())
-		if isAnyAddress(a.ExternalAddress) {
-			errors = append(errors, field.Invalid(field.NewPath("externalAddress"), a.Address, "invalid INADDR_ANY"))
+		if ip := net.ParseIP(a.ExternalAddress); ip.IsUnspecified() {
+			errors = append(errors, field.Invalid(field.NewPath("externalAddress"), a.ExternalAddress, "invalid INADDR_ANY"))
 		}
 	}
 
@@ -227,7 +230,11 @@ func (a *APISpec) UnmarshalJSON(data []byte) error {
 
 func (a *APISpec) setDefaults() {
 	if a.Address == "" {
-		a.Address, _ = iface.FirstPublicAddress()
+		v4, v6, err := iface.FirstAddresses(iface.AllGlobalAddresses())
+		a.Address = cmp.Or(v4, v6, netip.AddrFrom4([4]byte{127, 0, 0, 1})).String()
+		if err != nil {
+			logrus.WithError(err).Debug("Some errors occurred while auto-detecing API server address, using ", a.Address)
+		}
 	}
 	if a.K0sAPIPort == 0 {
 		a.K0sAPIPort = 9443

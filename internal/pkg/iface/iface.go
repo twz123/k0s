@@ -4,122 +4,150 @@
 package iface
 
 import (
+	"errors"
 	"fmt"
+	"iter"
 	"net"
+	"net/netip"
 	"strings"
-
-	"github.com/sirupsen/logrus"
 )
 
-type IP interface {
-	IP() net.IP
+type Interface interface {
+	Name() string
+	Flags() net.Flags
+	Addresses() (iter.Seq[Address], error)
 
-	isSecondary() (bool, error)
+	netItem
 }
 
-// AllAddresses returns a list of all network addresses on a node
-func AllAddresses() ([]string, error) {
-	addresses, err := CollectAllIPs()
-	if err != nil {
-		return nil, err
-	}
-	strings := make([]string, len(addresses))
-	for i, addr := range addresses {
-		strings[i] = addr.String()
-	}
-	return strings, nil
+type Address interface {
+	IP() netip.Addr
+
+	netItem
 }
 
-// CollectAllIPs returns a list of all network addresses on a node
-func CollectAllIPs() (addresses []net.IP, err error) {
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return nil, fmt.Errorf("failed to list network interfaces: %w", err)
-	}
-
-	for _, a := range addrs {
-		// check the address type and skip if loopback
-		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ipnet.IP.To4() != nil || ipnet.IP.To16() != nil {
-				addresses = append(addresses, ipnet.IP)
-			}
-		}
-	}
-
-	return addresses, nil
+type netItem interface {
+	isGlobal() bool
 }
 
-// FirstPublicAddress return the first found non-local IPv4 address that's not part of pod network
-// if any interface does not have any IPv4 address then return the first found non-local IPv6 address
-func FirstPublicAddress() (string, error) {
-	ifs, err := net.Interfaces()
-	if err != nil {
-		return "127.0.0.1", fmt.Errorf("failed to list network interfaces: %w", err)
-	}
-
-	var ipv6 net.IP
-	for i := range ifs {
-		i := &ifs[i]
-		switch {
-		case isCNIInterface(i): // Skip all CNI related interfaces
-			continue
-		case i.Name == "dummyvip0": // Skip k0s CPLB interface
-			continue
-		}
-
-		ips, err := interfaceIPs(i)
+func All() iter.Seq2[Interface, error] {
+	return func(yield func(Interface, error) bool) {
+		ifaces, err := List()
 		if err != nil {
-			logrus.WithError(err).Warn("Skipping network interface ", i.Name)
+			yield(nil, err)
+			return
+		}
+
+		for _, i := range ifaces {
+			if !yield(i, nil) {
+				return
+			}
+		}
+	}
+}
+
+func AllAddresses() iter.Seq2[Address, error] {
+	return Addresses(All())
+}
+
+func Addresses(interfaces iter.Seq2[Interface, error]) iter.Seq2[Address, error] {
+	return func(yield func(Address, error) bool) {
+		for i, err := range interfaces {
+			if err != nil {
+				if !yield(nil, err) {
+					return
+				}
+				continue
+			}
+
+			addrs, err := i.Addresses()
+			if err != nil {
+				if !yield(nil, fmt.Errorf("failed to get addresses of network interface %s: %w", i.Name(), err)) {
+					return
+				}
+				continue
+			}
+
+			for addr := range addrs {
+				if !yield(addr, nil) {
+					return
+				}
+			}
+		}
+	}
+}
+
+func AllGlobalAddresses() iter.Seq2[Address, error] {
+	return global(Addresses(global(All())))
+}
+
+func FirstAddresses(addresses iter.Seq2[Address, error]) (v4, v6 netip.Addr, _ error) {
+	var errs []error
+	for addr, err := range addresses {
+		if err != nil {
+			errs = append(errs, err)
 			continue
 		}
-		for ip := range ips {
-			addr := ip.IP()
-			switch {
-			// Skip unspecified IPs
-			case addr == nil, addr.IsUnspecified():
-				continue
-			// Skip multicast IPs
-			case addr.IsMulticast():
-				continue
-			// Skip interface-local IPs (interface-local multicast already excluded above)
-			case addr.IsLoopback():
-				continue
-			}
 
-			// Skip secondary IPs. This is to avoid returning VIPs as the public address.
-			// https://github.com/k0sproject/k0s/issues/4664
-			if secondary, err := ip.isSecondary(); err == nil && secondary {
-				continue
+		if ip := addr.IP(); ip.Is4() {
+			if !v4.IsValid() {
+				v4 = ip
+				if v6.IsValid() {
+					break
+				}
 			}
-
-			if ip := addr.To4(); ip != nil {
-				return ip.String(), nil
-			}
-			if ipv6 == nil {
-				if ip := addr.To16(); ip != nil {
-					ipv6 = ip
+		} else if ip.Is6() {
+			if !v6.IsValid() {
+				v6 = ip
+				if v4.IsValid() {
+					break
 				}
 			}
 		}
 	}
 
-	if ipv6 != nil {
-		return ipv6.String(), nil
-	}
-
-	logrus.Warn("failed to find any non-local, non podnetwork addresses on host, defaulting public address to 127.0.0.1")
-	return "127.0.0.1", nil
+	return v4, v6, errors.Join(errs...)
 }
 
-func isCNIInterface(i *net.Interface) bool {
+func global[T netItem](seq iter.Seq2[T, error]) iter.Seq2[T, error] {
+	return func(yield func(T, error) bool) {
+		for item, err := range seq {
+			if err == nil && !item.isGlobal() {
+				continue
+			}
+			if !yield(item, err) {
+				return
+			}
+		}
+	}
+}
+
+func isGlobalInterface[T Interface](i T) bool {
 	switch {
-	case strings.HasPrefix(i.Name, "veth"): // kube-router pod CNI interfaces
-	case strings.HasPrefix(i.Name, "cali"): // Calico pod CNI interfaces
-	case i.Name == "kube-bridge": // kube-router CNI interface
-	case i.Name == "vxlan.calico": // Calico CNI interface
+	case i.Flags()&(net.FlagUp) == 0: // Skip disabled interfaces
+	case i.Flags()&(net.FlagLoopback|net.FlagPointToPoint) != 0: // Skip loopback and P2P interfaces
+	case isCNIInterface(i.Name()): // Skip all CNI related interfaces
+	case i.Name() == "dummyvip0": // Skip k0s CPLB interface
+	default: // All other interfaces are considered "global"
+		return true
+	}
+
+	return false
+}
+
+func isCNIInterface(name string) bool {
+	switch {
+	case strings.HasPrefix(name, "veth"): // kube-router pod CNI interfaces
+	case strings.HasPrefix(name, "cali"): // Calico pod CNI interfaces
+	case name == "kube-bridge": // kube-router CNI interface
+	case name == "vxlan.calico": // Calico CNI interface
 	default: // All other interfaces are not considered to be related to CNI.
 		return false
 	}
 
 	return true
+}
+
+func isGlobalIP(ip netip.Addr) bool {
+	return ip.IsGlobalUnicast()
 }
