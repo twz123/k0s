@@ -9,8 +9,8 @@ golang_buildimage=docker.io/library/golang:$(go_version)-alpine$(alpine_version)
 # renovate: datasource=github-releases depName=opencontainers/runc
 runc_version = 1.4.0
 runc_buildimage = $(golang_buildimage)
-runc_build_go_tags = "seccomp"
-#runc_build_go_cgo_enabled =
+runc_build_go_tags = seccomp
+runc_build_go_cgo_enabled = 1
 #runc_build_go_cgo_cflags =
 #runc_build_go_flags =
 runc_build_go_ldflags = -w -s
