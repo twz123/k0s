@@ -154,7 +154,7 @@ $(controller_gen_targets): $(GO_ENV_REQUISITES) hack/tools/boilerplate.go.txt ha
 	rm -rf 'static/_crds/$(dir $(@:pkg/apis/%/.controller-gen.stamp=%))'
 	gendir="$$(mktemp -d .controller-gen.tmp.XXXXXX)" \
 	  && trap "rm -rf -- $$gendir" INT EXIT \
-	  && CGO_ENABLED=0 $(GO) run sigs.k8s.io/controller-tools/cmd/controller-gen@v$(controller-tools_version) \
+	  && GOARCH= CGO_ENABLED=0 $(GO) run sigs.k8s.io/controller-tools/cmd/controller-gen@v$(controller-tools_version) \
 	    paths="./$(dir $@)..." \
 	    object:headerFile=hack/tools/boilerplate.go.txt output:object:dir="$$gendir" \
 	    crd output:crd:dir='static/_crds/$(dir $(@:pkg/apis/%/.controller-gen.stamp=%))' \
@@ -165,7 +165,7 @@ $(controller_gen_targets): $(GO_ENV_REQUISITES) hack/tools/boilerplate.go.txt ha
 register_gen_targets := $(foreach gv,$(api_group_versions),pkg/apis/$(gv)/zz_generated.register.go)
 codegen_targets += $(register_gen_targets)
 $(register_gen_targets): $(GO_ENV_REQUISITES) hack/tools/boilerplate.go.txt embedded-bins/Makefile.variables
-	CGO_ENABLED=0 $(GO) run k8s.io/code-generator/cmd/register-gen@v$(kubernetes_version:1.%=0.%) \
+	GOARCH= CGO_ENABLED=0 $(GO) run k8s.io/code-generator/cmd/register-gen@v$(kubernetes_version:1.%=0.%) \
 	  --go-header-file=hack/tools/boilerplate.go.txt \
 	  --output-file='_$(notdir $@).tmp' \
 	  'github.com/k0sproject/k0s/$(dir $@)' || { \
@@ -182,7 +182,7 @@ pkg/client/clientset/.client-gen.stamp: $(shell $(FIND) $(clientset_input_dirs) 
 pkg/client/clientset/.client-gen.stamp: $(GO_ENV_REQUISITES) hack/tools/boilerplate.go.txt embedded-bins/Makefile.variables
 	gendir="$$(mktemp -d .client-gen.tmp.XXXXXX)" \
 	  && trap "rm -rf -- $$gendir" INT EXIT \
-	  && CGO_ENABLED=0 $(GO) run k8s.io/code-generator/cmd/client-gen@v$(kubernetes_version:1.%=0.%) \
+	  && GOARCH= CGO_ENABLED=0 $(GO) run k8s.io/code-generator/cmd/client-gen@v$(kubernetes_version:1.%=0.%) \
 	    --go-header-file=hack/tools/boilerplate.go.txt \
 	    --input-base='' \
 	    --input=$(subst $(space),$(comma),$(clientset_input_dirs:%=github.com/k0sproject/k0s/%)) \
@@ -201,7 +201,7 @@ zz_os = $(patsubst pkg/assets/zz_generated_offsets_%.go,%,$@)
 pkg/assets/zz_generated_offsets_linux.go: .bins.linux.stamp
 pkg/assets/zz_generated_offsets_windows.go: .bins.windows.stamp
 pkg/assets/zz_generated_offsets_linux.go pkg/assets/zz_generated_offsets_windows.go: $(GO_ENV_REQUISITES) go.sum
-	GOOS=${GOHOSTOS} $(GO) run -tags=hack hack/gen-bindata/cmd/main.go -o bindata_$(zz_os) -pkg assets \
+	GOARCH= CGO_ENABLED=0 $(GO) run -tags=hack hack/gen-bindata/cmd/main.go -o bindata_$(zz_os) -pkg assets \
 	     -gofile pkg/assets/zz_generated_offsets_$(zz_os).go \
 	     -prefix embedded-bins/staging/$(zz_os)/ embedded-bins/staging/$(zz_os)/bin
 endif
