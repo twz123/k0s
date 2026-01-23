@@ -71,6 +71,12 @@ konnectivity_build_go_ldflags_extra = -extldflags=-static
 
 iptables_version = 1.8.11
 iptables_buildimage = docker.io/library/alpine:$(alpine_patch_version)
+# -D__UAPI_DEF_ETHHDR is required to build on musl.
+# If this CFLAG isn't defined, itpables will define it in include/xtables.h
+# and will have a conflict with musl, which defines it in
+# /usr/include/netinet/if_ether.h
+iptables_build_go_cgo_cflags = -Os -D__UAPI_DEF_ETHHDR=0
+iptables_build_go_ldflags = -all-static
 
 # renovate: datasource=github-tags depName=acassen/keepalived
 keepalived_version = 2.3.4
