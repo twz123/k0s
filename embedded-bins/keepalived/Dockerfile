@@ -1,5 +1,6 @@
 ARG BUILDIMAGE
-FROM $BUILDIMAGE AS build
+FROM $BUILDIMAGE AS build-base
+WORKDIR /keepalived
 
 RUN if [ ! -z "$(which apt)" ]; then \
        apt update && apt install -y build-essential curl \
@@ -15,15 +16,21 @@ RUN if [ ! -z "$(which apt)" ]; then \
        exit 1; \
     fi
 
-ARG VERSION
-RUN curl --proto '=https' --tlsv1.2 -L https://www.keepalived.org/software/keepalived-$VERSION.tar.gz \
-	| tar -C / -zx
 
-RUN cd /keepalived-$VERSION \
-	&& CFLAGS='-static -s' LDFLAGS=-static ./configure  --disable-dynamic-linking \
-	&& make -j$(nproc)
+FROM build-base AS sources
+ARG VERSION
+RUN --mount=type=tmpfs,target=/tmp \
+  curl --proto '=https' --tlsv1.2 --retry 5 --retry-all-errors -sSLfo /tmp/src.tar.gz https://www.keepalived.org/software/keepalived-$VERSION.tar.gz \
+  && tar xf /tmp/src.tar.gz --strip-components=1
+
+
+FROM sources AS build
+ARG BUILD_GO_CGO_CFLAGS BUILD_GO_LDFLAGS
+RUN --mount=type=tmpfs,target=/tmp \
+  --network=none \
+  CFLAGS="$BUILD_GO_CGO_CFLAGS" LDFLAGS="$BUILD_GO_LDFLAGS" ./configure --disable-dynamic-linking && \
+  make -j$(nproc)
+
 
 FROM scratch
-ARG VERSION
-COPY --from=build /keepalived-$VERSION/bin/keepalived \
-	/bin/keepalived
+COPY --from=build /keepalived/bin/keepalived /bin/keepalived
