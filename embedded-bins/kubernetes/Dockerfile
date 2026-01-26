@@ -1,60 +1,54 @@
 ARG BUILDIMAGE
-FROM $BUILDIMAGE AS build
-
-ARG VERSION
+FROM --platform=$BUILDPLATFORM $BUILDIMAGE AS build-base
+ENV GOTOOLCHAIN=local GOTELEMETRY=off
+WORKDIR /go/src/kubernetes
 
 RUN if [ ! -z "$(which apt)" ]; then \
-       apt update && apt install -y build-essential git rsync grep coreutils bash; \
+       apt update && apt install -y build-essential git bash; \
     elif [ ! -z "$(which apk)" ]; then \
-       apk add build-base git linux-headers rsync grep coreutils bash; \
+       apk add --no-cache git make bash; \
     else \
        echo "unsupported package manager"; \
        exit 1; \
     fi
 
-RUN mkdir -p $GOPATH/src/github.com/kubernetes/kubernetes
-RUN git -c advice.detachedHead=false clone -b v$VERSION --depth=1 https://github.com/kubernetes/kubernetes.git $GOPATH/src/github.com/kubernetes/kubernetes
-WORKDIR /go/src/github.com/kubernetes/kubernetes
+
+FROM build-base AS build
+ARG VERSION
+RUN --mount=source=riscv64.patch,target=/run/patches/riscv64.patch,ro \
+  git -C /go/src -c advice.detachedHead=false clone -b v$VERSION --depth=1 https://github.com/kubernetes/kubernetes.git && \
+  git apply </run/patches/riscv64.patch
+RUN go mod download -x
 
 ARG TARGET_OS \
+  TARGETARCH \
   SOURCE_DATE_EPOCH \
   BUILD_GO_TAGS \
   BUILD_GO_CGO_ENABLED \
   BUILD_GO_FLAGS \
   BUILD_GO_LDFLAGS \
   KUBERNETES_BINS
-
-COPY riscv64.patch .
-
-RUN \
-  set -ex; \
-  git apply < riscv64.patch; \
-  export GOPATH=/go; \
-  if [ "${TARGET_OS}" = windows ]; then \
-    commands="${KUBERNETES_BINS}"; \
-    binarySuffix=.exe; \
-    export KUBE_BUILD_PLATFORMS=windows/amd64; \
-  else \
-    commands="${KUBERNETES_BINS}"; \
-    binarySuffix=''; \
-  fi; \
+RUN --mount=type=tmpfs,target=/tmp \
+  --mount=type=cache,id=kubernetes-go-cache-$TARGETARCH,target=/root/.cache/go-build \
+  --network=none \
+  set -e && \
+  export KUBE_BUILD_PLATFORMS=$TARGET_OS/$TARGETARCH && \
   # Ensure that all of the binaries are built with CGO \
-  if [ ${BUILD_GO_CGO_ENABLED:-0} -eq 1 ]; then \
-    export KUBE_CGO_OVERRIDES=$commands; \
+  if [ "$BUILD_GO_CGO_ENABLED" == 1 ]; then \
+    export KUBE_CGO_OVERRIDES="$KUBERNETES_BINS"; \
   else \
-    export KUBE_STATIC_OVERRIDES=$commands; \
-  fi; \
-  mkdir /out; \
-  export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH; \
-  export FORCE_HOST_GO=y; \
-  export KUBE_VERBOSE=9; \
-  export KUBE_GIT_TREE_STATE=clean; \
-  export KUBE_GIT_VERSION="v$VERSION+k0s"; \
-  for cmd in $commands; do \
-    make GOFLAGS="${BUILD_GO_FLAGS} -tags=${BUILD_GO_TAGS}" GOLDFLAGS="${BUILD_GO_LDFLAGS}" WHAT=cmd/$cmd; \
-    mv /go/src/github.com/kubernetes/kubernetes/_output/local/bin/*/*/$cmd$binarySuffix /out/; \
+    export KUBE_STATIC_OVERRIDES="$KUBERNETES_BINS"; \
+  fi && \
+  mkdir /out && \
+  export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH && \
+  export FORCE_HOST_GO=y && \
+  export KUBE_VERBOSE=9 && \
+  export KUBE_GIT_TREE_STATE=clean && \
+  export KUBE_GIT_VERSION=v$VERSION+k0s && \
+  for cmd in $KUBERNETES_BINS; do \
+    make GOFLAGS="$BUILD_GO_FLAGS -tags=$BUILD_GO_TAGS" GOLDFLAGS="$BUILD_GO_LDFLAGS" WHAT=cmd/$cmd && \
+    mv _output/local/bin/*/*/$cmd$(GOOS=$TARGET_OS go env GOEXE) /out/; \
   done
 
-FROM scratch
+FROM --platform=$BUILDPLATFORM scratch
 COPY --from=build out/* /bin/
-
