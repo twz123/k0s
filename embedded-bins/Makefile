@@ -1,36 +1,30 @@
 include Makefile.variables
 
-GOOS ?= linux
-export GOOS
-
 TARGET_OS ?= linux
-export TARGET_OS
-
 DOCKER ?= docker
 
 # https://reproducible-builds.org/docs/source-date-epoch/#makefile
 # https://reproducible-builds.org/docs/source-date-epoch/#git
 SOURCE_DATE_EPOCH ?= $(shell git log -1 --pretty=%ct || date -u +%s)
 
-bindir = staging/${TARGET_OS}/bin
 posix_bins = runc kubelet containerd containerd-shim containerd-shim-runc-v2 kube-apiserver kube-scheduler kube-controller-manager etcd kine konnectivity-server xtables-legacy-multi xtables-nft-multi keepalived
 windows_bins = kubelet.exe containerd.exe containerd-shim-runhcs-v1.exe
 
 ifeq ($(TARGET_OS),windows)
-bins = ${windows_bins}
+bins = $(windows_bins)
 # suffix .exe is added to the binaries in the original build pipelines
 containerd_bins = containerd containerd-shim-runhcs-v1
 kubernetes_bins = kubelet kube-proxy
 else
 containerd_bins = containerd containerd-shim containerd-shim-runc-v2
 kubernetes_bins = kubelet kube-apiserver kube-scheduler kube-controller-manager
-bins = ${posix_bins}
+bins = $(posix_bins)
 endif
 
 .DELETE_ON_ERROR:
 
 .PHONY: all
-all: $(addprefix $(bindir)/, $(bins))
+all: $(addprefix staging/$(TARGET_OS)/bin/,$(bins))
 
 .PHONY: clean
 clean: IID_FILES = .docker-image.*.stamp
@@ -44,29 +38,33 @@ clean:
 	rm -rf staging
 	@echo 'cleaned up; you may want to run `docker system prune` in order to free dangling resources ...'
 
-$(bindir):
-	mkdir -p $@
-
 dockerfiles := $(wildcard */Dockerfile)
 images := $(patsubst %/Dockerfile,%,$(dockerfiles))
 
 containers: $(images:%=.container.%)
 docker-images: $(images:%=.docker-image.%.stamp)
 
-$(bindir)/runc: .container.runc
-$(bindir)/containerd $(bindir)/containerd-shim $(bindir)/containerd-shim-runc-v2: .container.containerd
-$(bindir)/etcd: .container.etcd
-$(bindir)/kine: .container.kine
-$(bindir)/konnectivity-server: .container.konnectivity
-$(bindir)/kubelet $(bindir)/kube-apiserver $(bindir)/kube-scheduler $(bindir)/kube-controller-manager: .container.kubernetes
-$(bindir)/xtables-legacy-multi: .container.iptables
-$(bindir)/xtables-nft-multi: .container.iptables
-$(bindir)/keepalived: .container.keepalived
+staging/linux/bin/runc: .container.runc
+staging/linux/bin/containerd: .container.containerd
+staging/linux/bin/containerd-shim: .container.containerd
+staging/linux/bin/containerd-shim-runc-v2: .container.containerd
+staging/linux/bin/etcd: .container.etcd
+staging/linux/bin/kine: .container.kine
+staging/linux/bin/konnectivity-server: .container.konnectivity
+staging/linux/bin/kube-apiserver: .container.kubernetes
+staging/linux/bin/kube-scheduler: .container.kubernetes
+staging/linux/bin/kube-controller-manager: .container.kubernetes
+staging/linux/bin/kubelet: .container.kubernetes
+staging/linux/bin/xtables-legacy-multi: .container.iptables
+staging/linux/bin/xtables-nft-multi: .container.iptables
+staging/linux/bin/keepalived: .container.keepalived
 
-$(bindir)/kubelet.exe: .container.kubernetes.windows
-$(bindir)/containerd.exe $(bindir)/containerd-shim-runhcs-v1.exe: .container.containerd.windows
+staging/windows/bin/kubelet.exe: .container.kubernetes.windows
+staging/windows/bin/containerd.exe: .container.containerd.windows
+staging/windows/bin/containerd-shim-runhcs-v1.exe: .container.containerd.windows
 
-$(addprefix $(bindir)/, $(bins)): | $(bindir)
+$(addprefix staging/linux/bin/,$(posix_bins)) $(addprefix staging/windows/bin/,$(windows_bins)):
+	mkdir -p -- '$(dir $@)'
 	tardir=$$(mktemp -d -- '.$(notdir $@).tmp.XXXXXX') \
 	  && trap "rm -rf -- $$tardir" INT EXIT \
 	  && $(DOCKER) export "$$(cat $<)" \
