@@ -37,10 +37,10 @@ ARG TARGET_OS \
 
 RUN go version
 RUN make \
-  CGO_ENABLED=${BUILD_GO_CGO_ENABLED} \
-  BUILDTAGS="${BUILD_GO_TAGS}" \
-  EXTRA_FLAGS="${BUILD_GO_FLAGS}" \
-  EXTRA_LDFLAGS="${BUILD_GO_LDFLAGS}"
+  CGO_ENABLED=$BUILD_GO_CGO_ENABLED \
+  BUILDTAGS="$BUILD_GO_TAGS" \
+  EXTRA_FLAGS="$BUILD_GO_FLAGS" \
+  EXTRA_LDFLAGS="$BUILD_GO_LDFLAGS"
 
 FROM scratch
 COPY --from=build /go/src/github.com/opencontainers/runc/runc /bin/runc
