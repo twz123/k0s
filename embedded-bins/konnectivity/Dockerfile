@@ -14,12 +14,10 @@ ARG VERSION
 RUN git -c advice.detachedHead=false clone -b v$VERSION --depth=1 https://github.com/kubernetes-sigs/apiserver-network-proxy.git /apiserver-network-proxy
 WORKDIR /apiserver-network-proxy
 
-ARG TARGET_OS \
-  BUILD_GO_TAGS \
+ARG BUILD_GO_TAGS \
   BUILD_GO_CGO_ENABLED \
   BUILD_GO_FLAGS \
   BUILD_GO_LDFLAGS
-
 # for mockgen and protoc-gen-* versions, see:
 # https://github.com/kubernetes-sigs/apiserver-network-proxy/blob/v0.34.0/README.md#build
 RUN go install go.uber.org/mock/mockgen@v0.6.0 \

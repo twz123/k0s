@@ -16,16 +16,16 @@ RUN mkdir -p $GOPATH/src/github.com/kubernetes/kubernetes
 RUN git -c advice.detachedHead=false clone -b v$VERSION --depth=1 https://github.com/kubernetes/kubernetes.git $GOPATH/src/github.com/kubernetes/kubernetes
 WORKDIR /go/src/github.com/kubernetes/kubernetes
 
-ARG TARGET_OS \
-  SOURCE_DATE_EPOCH \
-  BUILD_GO_TAGS \
-  BUILD_GO_CGO_ENABLED \
-  BUILD_GO_FLAGS \
-  BUILD_GO_LDFLAGS \
-  KUBERNETES_BINS
-
 COPY riscv64.patch .
 
+ARG KUBERNETES_BINS \
+  SOURCE_DATE_EPOCH \
+  TARGET_OS \
+  BUILD_GO_TAGS \
+  BUILD_GO_CGO_ENABLED \
+  BUILD_GO_CGO_CFLAGS \
+  BUILD_GO_FLAGS \
+  BUILD_GO_LDFLAGS
 RUN \
   set -ex \
   && git apply < riscv64.patch \

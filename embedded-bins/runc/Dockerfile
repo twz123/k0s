@@ -29,12 +29,10 @@ RUN mkdir -p $GOPATH/src/github.com/opencontainers/runc
 RUN git -c advice.detachedHead=false clone -b v$VERSION --depth=1 https://github.com/opencontainers/runc.git $GOPATH/src/github.com/opencontainers/runc
 WORKDIR /go/src/github.com/opencontainers/runc
 
-ARG TARGET_OS \
-  BUILD_GO_TAGS \
+ARG BUILD_GO_TAGS \
   BUILD_GO_CGO_ENABLED \
   BUILD_GO_FLAGS \
   BUILD_GO_LDFLAGS
-
 RUN make \
   CGO_ENABLED=$BUILD_GO_CGO_ENABLED \
   BUILDTAGS="$BUILD_GO_TAGS" \

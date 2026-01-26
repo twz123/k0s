@@ -14,13 +14,11 @@ ARG VERSION
 RUN cd / && git -c advice.detachedHead=false clone -b v$VERSION --depth=1 https://github.com/rancher/kine.git
 WORKDIR /kine
 
-ARG TARGET_OS \
-  BUILD_GO_TAGS \
+ARG BUILD_GO_TAGS \
   BUILD_GO_CGO_ENABLED \
   BUILD_GO_CGO_CFLAGS \
   BUILD_GO_FLAGS \
   BUILD_GO_LDFLAGS
-
 RUN CGO_ENABLED=$BUILD_GO_CGO_ENABLED \
     CGO_CFLAGS="$BUILD_GO_CGO_CFLAGS" go build \
     $BUILD_GO_FLAGS \

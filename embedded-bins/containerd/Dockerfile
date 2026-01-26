@@ -26,22 +26,21 @@ RUN \
   && git -C $GOPATH/src/github.com/containerd/containerd apply "$(realpath 01.patch)"
 WORKDIR /go/src/github.com/containerd/containerd
 
-ARG TARGET_OS \
+ARG CONTAINERD_BINS \
+  TARGET_OS \
   BUILD_GO_TAGS \
   BUILD_GO_CGO_ENABLED \
   BUILD_SHIM_GO_CGO_ENABLED \
   BUILD_GO_FLAGS \
-  BUILD_GO_LDFLAGS \
-  CONTAINERD_BINS
-
+  BUILD_GO_LDFLAGS
 RUN make \
+    COMMANDS="$CONTAINERD_BINS" \
+    GOOS="$TARGET_OS" \
     CGO_ENABLED=$BUILD_GO_CGO_ENABLED \
     SHIM_CGO_ENABLED=$BUILD_SHIM_GO_CGO_ENABLED \
     GO_TAGS="-tags=$BUILD_GO_TAGS" \
-    COMMANDS="$CONTAINERD_BINS" \
     GO_BUILD_FLAGS="$BUILD_GO_FLAGS" \
-    EXTRA_LDFLAGS="$BUILD_GO_LDFLAGS" \
-    GOOS="$TARGET_OS"
+    EXTRA_LDFLAGS="$BUILD_GO_LDFLAGS"
 
 FROM scratch
 COPY --from=build /go/src/github.com/containerd/containerd/bin/* /bin/
