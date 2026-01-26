@@ -14,7 +14,6 @@ RUN if [ ! -z "$(which apt)" ]; then \
 ARG VERSION
 RUN cd / && git -c advice.detachedHead=false clone -b v$VERSION --depth=1 https://github.com/etcd-io/etcd.git
 WORKDIR /etcd/server
-RUN go version
 
 ARG TARGET_OS \
   BUILD_GO_TAGS \
