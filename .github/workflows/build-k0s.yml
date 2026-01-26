@@ -85,7 +85,13 @@ jobs:
       - name: "Build :: k0s"
         env:
           EMBEDDED_BINS_CACHED: "${{ steps.cache-embedded-bins.outputs.cache-hit }}"
+          TARGET_ARCH: "${{ inputs.target-arch }}"
         run: |
+          if [ "$TARGET_ARCH" == riscv64 ]; then
+            docker run --privileged --rm tonistiigi/binfmt --install "$TARGET_ARCH"
+            export GOARCH="$TARGET_ARCH"
+            export MAKEFLAGS="$MAKEFLAGS BUILD_GO_CGO_ENABLED=0"
+          fi
           make .k0sbuild.docker-image.k0s
           touch go.sum
           if [ "$EMBEDDED_BINS_CACHED" == true ]; then

@@ -109,6 +109,13 @@ jobs:
       target-os: ${{ matrix.target-os }}
       target-arch: ${{ matrix.target-arch }}
 
+  build-k0s-linux-riscv64:
+    name: "Build :: k0s :: linux-riscv64"
+    uses: ./.github/workflows/build-k0s.yml
+    with:
+      target-os: linux
+      target-arch: riscv64
+
   build-airgap-image-bundle:
     strategy:
       fail-fast: false
