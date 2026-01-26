@@ -1,7 +1,7 @@
 ARG BUILDIMAGE
-FROM $BUILDIMAGE AS build
-
-ENV GOPATH=/go
+FROM --platform=$BUILDPLATFORM $BUILDIMAGE AS build-base
+ENV GOTOOLCHAIN=local GOTELEMETRY=off
+WORKDIR /go/src/containerd
 
 RUN if [ ! -z "$(which apt)" ]; then \
        apt update && apt install -y \
@@ -18,30 +18,36 @@ RUN if [ ! -z "$(which apt)" ]; then \
        exit 1; \
     fi
 
+FROM build-base AS build
 ARG VERSION
-RUN mkdir -p $GOPATH/src/github.com/containerd/containerd
-RUN \
-  git -c advice.detachedHead=false clone -b v$VERSION --depth=1 https://github.com/containerd/containerd.git $GOPATH/src/github.com/containerd/containerd \
-  && wget -O 01.patch https://github.com/containerd/containerd/commit/0eaa09e35a3eca10094173a0b0210c90810a3674.patch \
-  && git -C $GOPATH/src/github.com/containerd/containerd apply "$(realpath 01.patch)"
-WORKDIR /go/src/github.com/containerd/containerd
+RUN --mount=type=tmpfs,target=/tmp \
+  git -C /go/src -c advice.detachedHead=false clone -b v$VERSION --depth=1 https://github.com/containerd/containerd.git \
+  && wget -O /tmp/01.patch https://github.com/containerd/containerd/commit/0eaa09e35a3eca10094173a0b0210c90810a3674.patch \
+  && git apply /tmp/01.patch \
+  && go mod download -x
 
-ARG TARGET_OS \
-  BUILD_GO_TAGS \
+ARG CONTAINERD_BINS \
+  TARGETARCH \
+  TARGET_OS \
+  BUILD_MAKEFLAGS \
   BUILD_GO_CGO_ENABLED \
   BUILD_SHIM_GO_CGO_ENABLED \
+  BUILD_GO_TAGS \
   BUILD_GO_FLAGS \
-  BUILD_GO_LDFLAGS \
-  CONTAINERD_BINS
+  BUILD_GO_LDFLAGS
 
-RUN make \
-	CGO_ENABLED=${BUILD_GO_CGO_ENABLED} \
-	SHIM_CGO_ENABLED=${BUILD_SHIM_GO_CGO_ENABLED} \
-	GO_TAGS="-tags=${BUILD_GO_TAGS}" \
-	COMMANDS="${CONTAINERD_BINS}" \
-	GO_BUILD_FLAGS="${BUILD_GO_FLAGS}" \
-	EXTRA_LDFLAGS="${BUILD_GO_LDFLAGS}" \
-	GOOS="${TARGET_OS}"
+RUN echo yo
+
+RUN MAKEFLAGS="$BUILD_MAKEFLAGS" make \
+  REVISION="$(git rev-parse HEAD)" \
+  COMMANDS="$CONTAINERD_BINS" \
+  GOARCH=$TARGETARCH \
+  GOOS=$TARGET_OS \
+  CGO_ENABLED=$BUILD_GO_CGO_ENABLED \
+  SHIM_CGO_ENABLED=$BUILD_SHIM_GO_CGO_ENABLED \
+  BUILDTAGS+="$BUILD_GO_TAGS" \
+  GO_BUILD_FLAGS="-v $BUILD_GO_FLAGS" \
+  EXTRA_LDFLAGS="$BUILD_GO_LDFLAGS"
 
 FROM scratch
-COPY --from=build /go/src/github.com/containerd/containerd/bin/* /bin/
+COPY --from=build /go/src/containerd/bin/* /bin/

@@ -19,13 +19,14 @@ runc_build_go_ldflags_extra = -extldflags=-static
 # renovate: datasource=github-releases depName=containerd/containerd
 containerd_version = 1.7.30
 containerd_buildimage = $(golang_buildimage)
-containerd_build_go_tags = "apparmor,selinux"
+containerd_build_makeflags = STATIC=1
+containerd_build_go_tags = "apparmor selinux"
 containerd_build_shim_go_cgo_enabled = 0
 #containerd_build_go_cgo_enabled =
 #containerd_build_go_cgo_cflags =
-#containerd_build_go_flags =
+containerd_build_go_flags = "-trimpath -buildvcs=false"
 containerd_build_go_ldflags = -w -s
-containerd_build_go_ldflags_extra = -extldflags=-static
+#containerd_build_go_ldflags_extra = -extldflags=-static
 
 # renovate: datasource=github-releases depName=kubernetes/kubernetes
 kubernetes_version = 1.35.0

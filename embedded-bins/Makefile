@@ -93,6 +93,7 @@ build_docker_image = \
 	  --build-arg VERSION=$($(patsubst %/Dockerfile,%,$<)_version) \
 	  --build-arg SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) \
 	  --build-arg BUILDIMAGE=$($(patsubst %/Dockerfile,%,$<)_buildimage) \
+	  --build-arg BUILD_MAKEFLAGS=$($(patsubst %/Dockerfile,%,$<)_build_makeflags) \
 	  --build-arg BUILD_GO_TAGS=$($(patsubst %/Dockerfile,%,$<)_build_go_tags) \
 	  --build-arg BUILD_GO_CGO_ENABLED=$($(patsubst %/Dockerfile,%,$<)_build_go_cgo_enabled) \
 	  --build-arg BUILD_GO_CGO_CFLAGS='$($(patsubst %/Dockerfile,%,$<)_build_go_cgo_cflags)' \
