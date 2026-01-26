@@ -2,13 +2,13 @@ ARG BUILDIMAGE
 FROM $BUILDIMAGE AS build
 
 RUN if [ ! -z "$(which apt)" ]; then \
-       apt update && apt install -y build-essential make protobuf-compiler git; \
-    elif [ ! -z "$(which apk)" ]; then \
-       apk add build-base git make protoc; \
-    else \
-       echo "unsupported package manager"; \
-       exit 1; \
-    fi
+    apt update && apt install -y build-essential make protobuf-compiler git; \
+  elif [ ! -z "$(which apk)" ]; then \
+    apk add build-base git make protoc; \
+  else \
+    echo "unsupported package manager"; \
+    exit 1; \
+  fi
 
 ARG VERSION
 RUN git -c advice.detachedHead=false clone -b v$VERSION --depth=1 https://github.com/kubernetes-sigs/apiserver-network-proxy.git /apiserver-network-proxy
@@ -23,16 +23,16 @@ ARG TARGET_OS \
 # for mockgen and protoc-gen-* versions, see:
 # https://github.com/kubernetes-sigs/apiserver-network-proxy/blob/v0.34.0/README.md#build
 RUN go install go.uber.org/mock/mockgen@v0.6.0 && \
-    go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.27.1 && \
-    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.2 && \
-    make gen DESIRED_MOCKGEN=v0.6.0 && \
-    CGO_ENABLED=${BUILD_GO_CGO_ENABLED} \
+  go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.27.1 && \
+  go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.2 && \
+  make gen DESIRED_MOCKGEN=v0.6.0 && \
+  CGO_ENABLED=${BUILD_GO_CGO_ENABLED} \
     GOOS=linux \
     go build \
-        ${BUILD_GO_FLAGS} \
-        -tags="${BUILD_GO_TAGS}" \
-        -ldflags="${BUILD_GO_LDFLAGS}" \
-        -o bin/proxy-server cmd/server/main.go
+      ${BUILD_GO_FLAGS} \
+      -tags="${BUILD_GO_TAGS}" \
+      -ldflags="${BUILD_GO_LDFLAGS}" \
+      -o bin/proxy-server cmd/server/main.go
 
 FROM scratch
 COPY --from=build /apiserver-network-proxy/bin/proxy-server /bin/konnectivity-server

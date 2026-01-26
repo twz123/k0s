@@ -4,19 +4,19 @@ FROM $BUILDIMAGE AS build
 ENV GOPATH=/go
 
 RUN if [ ! -z "$(which apt)" ]; then \
-       apt update && apt install -y \
-        build-essential git \
-        btrfs-progs protobuf-compiler \
-        bash; \
-    elif [ ! -z "$(which apk)" ]; then \
-       apk upgrade -U -a && apk add \
-        build-base git \
-        btrfs-progs-dev btrfs-progs-static \
-        protoc bash; \
-    else \
-       echo "unsupported package manager"; \
-       exit 1; \
-    fi
+    apt update && apt install -y \
+      build-essential git \
+      btrfs-progs protobuf-compiler \
+      bash; \
+  elif [ ! -z "$(which apk)" ]; then \
+    apk upgrade -U -a && apk add \
+      build-base git \
+      btrfs-progs-dev btrfs-progs-static \
+      protoc bash; \
+  else \
+    echo "unsupported package manager"; \
+    exit 1; \
+  fi
 
 ARG VERSION
 RUN mkdir -p $GOPATH/src/github.com/containerd/containerd
@@ -35,13 +35,13 @@ ARG TARGET_OS \
   CONTAINERD_BINS
 
 RUN make \
-	CGO_ENABLED=${BUILD_GO_CGO_ENABLED} \
-	SHIM_CGO_ENABLED=${BUILD_SHIM_GO_CGO_ENABLED} \
-	GO_TAGS="-tags=${BUILD_GO_TAGS}" \
-	COMMANDS="${CONTAINERD_BINS}" \
-	GO_BUILD_FLAGS="${BUILD_GO_FLAGS}" \
-	EXTRA_LDFLAGS="${BUILD_GO_LDFLAGS}" \
-	GOOS="${TARGET_OS}"
+    CGO_ENABLED=${BUILD_GO_CGO_ENABLED} \
+    SHIM_CGO_ENABLED=${BUILD_SHIM_GO_CGO_ENABLED} \
+    GO_TAGS="-tags=${BUILD_GO_TAGS}" \
+    COMMANDS="${CONTAINERD_BINS}" \
+    GO_BUILD_FLAGS="${BUILD_GO_FLAGS}" \
+    EXTRA_LDFLAGS="${BUILD_GO_LDFLAGS}" \
+    GOOS="${TARGET_OS}"
 
 FROM scratch
 COPY --from=build /go/src/github.com/containerd/containerd/bin/* /bin/
