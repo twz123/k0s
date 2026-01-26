@@ -74,7 +74,7 @@ $(addprefix staging/linux/bin/,$(posix_bins)) $(addprefix staging/windows/bin/,$
 
 build_docker_container = \
 	rm -f -- '$@'; \
-	$(DOCKER) create --cidfile='$@' --entrypoint=/dev/null '$(shell cat -- $<)'
+	$(DOCKER) create $(if $(GOARCH),--platform=linux/$(GOARCH)) --cidfile='$@' --entrypoint=/dev/null '$(shell cat -- $<)'
 
 .container.%: .docker-image.%.stamp
 	$(build_docker_container)
@@ -84,6 +84,7 @@ build_docker_container = \
 
 build_docker_image = \
 	$(DOCKER) build --progress=plain --iidfile '$@' -t k0sbuild$(basename $@):latest \
+	  $(if $(GOARCH),--platform=linux/$(GOARCH)) \
 	  --build-arg BUILDKIT_DOCKERFILE_CHECK=skip=InvalidDefaultArgInFrom \
 	  --build-arg TARGET_OS=$(if $(findstring .windows.stamp,$@),windows,linux) \
 	  --build-arg CONTAINERD_BINS="$(containerd_bins)" \
