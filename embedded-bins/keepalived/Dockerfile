@@ -18,15 +18,16 @@ RUN --mount=type=tmpfs,target=/var/lib/apt/lists \
     exit 1; \
   fi
 
+WORKDIR /keepalived
 ARG VERSION
-RUN curl --proto '=https' --tlsv1.2 -L https://www.keepalived.org/software/keepalived-$VERSION.tar.gz \
-  | tar -C / -zx
+RUN --mount=type=tmpfs,target=/tmp \
+  curl --proto '=https' --tlsv1.2 --retry 5 --retry-all-errors -sSLfo /tmp/src.tar.gz https://www.keepalived.org/software/keepalived-$VERSION.tar.gz \
+  && tar xf /tmp/src.tar.gz --strip-components=1 --no-same-owner
 
-RUN cd /keepalived-$VERSION \
-  && CFLAGS='-static -s' LDFLAGS=-static ./configure  --disable-dynamic-linking \
+RUN --network=none \
+  CFLAGS='-static -s' LDFLAGS=-static ./configure --disable-dynamic-linking \
   && make -j$(nproc)
 
+
 FROM scratch
-ARG VERSION
-COPY --from=build /keepalived-$VERSION/bin/keepalived \
-  /bin/keepalived
+COPY --from=build /keepalived/bin/keepalived /bin/keepalived

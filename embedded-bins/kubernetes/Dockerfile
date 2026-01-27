@@ -19,11 +19,12 @@ RUN --mount=type=tmpfs,target=/var/lib/apt/lists \
     exit 1; \
   fi
 
-RUN mkdir -p $GOPATH/src/github.com/kubernetes/kubernetes
-RUN git -c advice.detachedHead=false clone -b v$VERSION --depth=1 https://github.com/kubernetes/kubernetes.git $GOPATH/src/github.com/kubernetes/kubernetes
-WORKDIR /go/src/github.com/kubernetes/kubernetes
-
-COPY riscv64.patch .
+WORKDIR /go/src/kubernetes
+ARG VERSION
+RUN --mount=source=riscv64.patch,target=/run/patches/riscv64.patch,ro \
+  git -C .. -c advice.detachedHead=false clone -b v$VERSION --depth=1 https://github.com/kubernetes/kubernetes.git \
+  && git apply </run/patches/riscv64.patch
+RUN go mod download
 
 ARG KUBERNETES_BINS \
   SOURCE_DATE_EPOCH \
@@ -33,23 +34,16 @@ ARG KUBERNETES_BINS \
   BUILD_GO_CGO_CFLAGS \
   BUILD_GO_FLAGS \
   BUILD_GO_LDFLAGS
-RUN \
+RUN --network=none \
   set -ex \
-  && git apply < riscv64.patch \
-  && export GOPATH=/go \
   && if [ "$TARGET_OS" = windows ]; then \
-    commands="$KUBERNETES_BINS" \
-    && binarySuffix=.exe \
-    && export KUBE_BUILD_PLATFORMS=windows/amd64; \
-  else \
-    commands="$KUBERNETES_BINS" \
-    && binarySuffix=''; \
+    export KUBE_BUILD_PLATFORMS=windows/amd64; \
   fi \
   # Ensure that all of the binaries are built with CGO \
-  && if [ $BUILD_GO_CGO_ENABLED:-0 -eq 1 ]; then \
-    export KUBE_CGO_OVERRIDES=$commands; \
+  && if [ "$BUILD_GO_CGO_ENABLED" == 1 ]; then \
+    export KUBE_CGO_OVERRIDES="$KUBERNETES_BINS"; \
   else \
-    export KUBE_STATIC_OVERRIDES=$commands; \
+    export KUBE_STATIC_OVERRIDES="$KUBERNETES_BINS"; \
   fi \
   && mkdir /out \
   && export SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH \
@@ -57,9 +51,9 @@ RUN \
   && export KUBE_VERBOSE=9 \
   && export KUBE_GIT_TREE_STATE=clean \
   && export KUBE_GIT_VERSION="v$VERSION+k0s" \
-  && for cmd in $commands; do \
+  && for cmd in $KUBERNETES_BINS; do \
     make GOFLAGS="$BUILD_GO_FLAGS -tags=$BUILD_GO_TAGS" GOLDFLAGS="$BUILD_GO_LDFLAGS" WHAT=cmd/$cmd \
-    && mv /go/src/github.com/kubernetes/kubernetes/_output/local/bin/*/*/$cmd$binarySuffix /out/; \
+    && mv _output/local/bin/*/*/$cmd$(GOOS=$TARGET_OS go env GOEXE) /out/; \
   done
 
 FROM scratch

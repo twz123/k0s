@@ -3,8 +3,6 @@ FROM $BUILDIMAGE AS build
 ENV GOTOOLCHAIN=local
 RUN dir="${XDG_CONFIG_HOME-$HOME/.config}"/go/telemetry && mkdir -p -- "$dir" && echo off >"$dir/mode"
 
-ENV GOPATH=/go
-
 RUN --mount=type=tmpfs,target=/var/lib/apt/lists \
   if [ ! -z "$(which apt)" ]; then \
     export DEBIAN_FRONTEND=noninteractive \
@@ -21,13 +19,13 @@ RUN --mount=type=tmpfs,target=/var/lib/apt/lists \
     exit 1; \
   fi
 
+WORKDIR /go/src/containerd
 ARG VERSION
-RUN mkdir -p $GOPATH/src/github.com/containerd/containerd
-RUN \
-  git -c advice.detachedHead=false clone -b v$VERSION --depth=1 https://github.com/containerd/containerd.git $GOPATH/src/github.com/containerd/containerd \
-  && wget -O 01.patch https://github.com/containerd/containerd/commit/0eaa09e35a3eca10094173a0b0210c90810a3674.patch \
-  && git -C $GOPATH/src/github.com/containerd/containerd apply "$(realpath 01.patch)"
-WORKDIR /go/src/github.com/containerd/containerd
+RUN git -C .. -c advice.detachedHead=false clone -b v$VERSION --depth=1 https://github.com/containerd/containerd.git
+RUN --mount=type=tmpfs,target=/tmp \
+  wget -O /tmp/01.patch https://github.com/containerd/containerd/commit/0eaa09e35a3eca10094173a0b0210c90810a3674.patch \
+  && git apply /tmp/01.patch
+RUN go mod download
 
 ARG CONTAINERD_BINS \
   TARGET_OS \
@@ -45,5 +43,6 @@ RUN make \
     GO_BUILD_FLAGS="$BUILD_GO_FLAGS" \
     EXTRA_LDFLAGS="$BUILD_GO_LDFLAGS"
 
+
 FROM scratch
-COPY --from=build /go/src/github.com/containerd/containerd/bin/* /bin/
+COPY --from=build /go/src/containerd/bin/* /bin/

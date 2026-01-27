@@ -15,21 +15,23 @@ RUN --mount=type=tmpfs,target=/var/lib/apt/lists \
     exit 1; \
   fi
 
+WORKDIR /go/src/kine
 ARG VERSION
-RUN cd / && git -c advice.detachedHead=false clone -b v$VERSION --depth=1 https://github.com/rancher/kine.git
-WORKDIR /kine
+RUN git -C .. -c advice.detachedHead=false clone -b v$VERSION --depth=1 https://github.com/rancher/kine.git
+RUN go mod download
 
 ARG BUILD_GO_TAGS \
   BUILD_GO_CGO_ENABLED \
   BUILD_GO_CGO_CFLAGS \
   BUILD_GO_FLAGS \
   BUILD_GO_LDFLAGS
-RUN CGO_ENABLED=$BUILD_GO_CGO_ENABLED \
+RUN --network=none \
+  CGO_ENABLED=$BUILD_GO_CGO_ENABLED \
     CGO_CFLAGS="$BUILD_GO_CGO_CFLAGS" go build \
     $BUILD_GO_FLAGS \
     -tags="$BUILD_GO_TAGS" \
-    -ldflags="$BUILD_GO_LDFLAGS -X github.com/k3s-io/kine/pkg/version.Version=v$VERSION -X github.com/k3s-io/kine/pkg/version.GitCommit=$(git rev-parse --short HEAD)" \
-    -o kine
+    -ldflags="$BUILD_GO_LDFLAGS -X github.com/k3s-io/kine/pkg/version.Version=v$VERSION -X github.com/k3s-io/kine/pkg/version.GitCommit=$(git rev-parse --short HEAD)"
+
 
 FROM scratch
-COPY --from=build /kine/kine /bin/kine
+COPY --from=build /go/src/kine/kine /bin/kine
