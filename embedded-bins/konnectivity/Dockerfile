@@ -1,10 +1,15 @@
 ARG BUILDIMAGE
 FROM $BUILDIMAGE AS build
 
-RUN if [ ! -z "$(which apt)" ]; then \
-    apt update && apt install -y build-essential make protobuf-compiler git; \
+RUN --mount=type=tmpfs,target=/var/lib/apt/lists \
+  if [ ! -z "$(which apt)" ]; then \
+    export DEBIAN_FRONTEND=noninteractive \
+    && apt-get update \
+    && apt-get install --no-install-recommends -y build-essential git \
+      protobuf-compiler; \
   elif [ ! -z "$(which apk)" ]; then \
-    apk add build-base git make protoc; \
+    apk add --no-cache build-base git \
+      protoc; \
   else \
     echo "unsupported package manager"; \
     exit 1; \

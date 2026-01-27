@@ -1,10 +1,13 @@
 ARG BUILDIMAGE
 FROM $BUILDIMAGE AS build
 
-RUN if [ ! -z "$(which apt)" ]; then \
-    apt update && apt install -y build-essential git; \
+RUN --mount=type=tmpfs,target=/var/lib/apt/lists \
+  if [ ! -z "$(which apt)" ]; then \
+    export DEBIAN_FRONTEND=noninteractive \
+    && apt-get update \
+    && apt-get install --no-install-recommends -y build-essential git; \
   elif [ ! -z "$(which apk)" ]; then \
-    apk add build-base git; \
+    apk add --no-cache build-base git; \
   else \
     echo "unsupported package manager"; \
     exit 1; \

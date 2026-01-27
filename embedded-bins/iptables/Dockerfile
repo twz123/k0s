@@ -1,13 +1,17 @@
 ARG BUILDIMAGE
 FROM $BUILDIMAGE AS build
 
-RUN if [ ! -z "$(which apt)" ]; then \
-    apt update && apt install -y build-essential curl \
+RUN --mount=type=tmpfs,target=/var/lib/apt/lists \
+  if [ ! -z "$(which apt)" ]; then \
+    export DEBIAN_FRONTEND=noninteractive \
+    && apt-get update \
+    && apt-get install --no-install-recommends -y build-essential curl ca-certificates \
       pkg-config \
-      libmnl-dev libnftnl-dev; \
+      libmnl-dev libnftnl-dev \
+      file pax-utils; \
   elif [ ! -z "$(which apk)" ]; then \
-    apk add build-base curl pkgconf \
-      linux-headers \
+    apk add --no-cache build-base curl \
+      pkgconf \
       libmnl-dev libmnl-static \
       libnftnl-dev; \
   else \

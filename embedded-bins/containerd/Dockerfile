@@ -3,16 +3,17 @@ FROM $BUILDIMAGE AS build
 
 ENV GOPATH=/go
 
-RUN if [ ! -z "$(which apt)" ]; then \
-    apt update && apt install -y \
-      build-essential git \
-      btrfs-progs protobuf-compiler \
-      bash; \
+RUN --mount=type=tmpfs,target=/var/lib/apt/lists \
+  if [ ! -z "$(which apt)" ]; then \
+    export DEBIAN_FRONTEND=noninteractive \
+    && apt-get update \
+    && apt-get install --no-install-recommends -y build-essential git \
+      bash \
+      btrfs-progs; \
   elif [ ! -z "$(which apk)" ]; then \
-    apk upgrade -U -a && apk add \
-      build-base git \
-      btrfs-progs-dev btrfs-progs-static \
-      protoc bash; \
+    apk add --no-cache build-base git \
+      bash \
+      btrfs-progs-dev btrfs-progs-static; \
   else \
     echo "unsupported package manager"; \
     exit 1; \

@@ -1,12 +1,15 @@
 ARG BUILDIMAGE
 FROM $BUILDIMAGE AS build
 
-RUN if [ ! -z "$(which apt)" ]; then \
-    apt update && apt install -y build-essential curl \
-      openssl libssl-dev \
-      libnl-3-dev libnl-3-200 libnl-genl-3-dev; \
+RUN --mount=type=tmpfs,target=/var/lib/apt/lists \
+  if [ ! -z "$(which apt)" ]; then \
+    export DEBIAN_FRONTEND=noninteractive \
+    && apt-get update \
+    && apt-get install --no-install-recommends -y build-essential curl ca-certificates \
+      libssl-dev \
+      libnl-3-dev libnl-genl-3-dev; \
   elif [ ! -z "$(which apk)" ]; then \
-    apk add build-base curl \
+    apk add --no-cache build-base curl \
       linux-headers \
       openssl-dev openssl-libs-static \
       libnl3-dev libnl3-static; \
