@@ -1,5 +1,7 @@
 ARG BUILDIMAGE
 FROM $BUILDIMAGE AS build
+ENV GOTOOLCHAIN=local
+RUN dir="${XDG_CONFIG_HOME-$HOME/.config}"/go/telemetry && mkdir -p -- "$dir" && echo off >"$dir/mode"
 
 RUN --mount=type=tmpfs,target=/var/lib/apt/lists \
   if [ ! -z "$(which apt)" ]; then \

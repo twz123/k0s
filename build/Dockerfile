@@ -1,5 +1,7 @@
 ARG BUILDIMAGE
 FROM $BUILDIMAGE
+ENV GOTOOLCHAIN=local
+RUN dir="${XDG_CONFIG_HOME-$HOME/.config}"/go/telemetry && mkdir -p -- "$dir" && echo off >"$dir/mode"
 
 ARG TARGETARCH
 RUN --mount=type=tmpfs,target=/var/lib/apt/lists \
@@ -26,5 +28,4 @@ ENV \
   PATH="/run/k0s-build/go/bin:$PATH" \
   GOBIN="/run/k0s-build/go/bin" \
   GOCACHE="/run/k0s-build/go/build" \
-  GOMODCACHE="/run/k0s-build/go/mod" \
-  GOTELEMETRY="off"
+  GOMODCACHE="/run/k0s-build/go/mod"
