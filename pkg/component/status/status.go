@@ -16,8 +16,6 @@ import (
 	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
 
@@ -26,12 +24,12 @@ type Stater interface {
 }
 
 type Status struct {
-	StatusInformation K0sStatus
-	Prober            Stater
-	Socket            string
-	L                 *logrus.Entry
-	httpserver        http.Server
-	CertManager       certManager
+	StatusInformation    K0sStatus
+	Prober               Stater
+	Socket               string
+	L                    *logrus.Entry
+	KubeletClientFactory kubeutil.ClientFactoryInterface
+	httpserver           http.Server
 }
 
 type certManager interface {
@@ -46,7 +44,7 @@ const defaultMaxEvents = 5
 func (s *Status) Init(_ context.Context) error {
 	s.L = logrus.WithFields(logrus.Fields{"component": "status"})
 	mux := http.NewServeMux()
-	mux.Handle("/status", &statusHandler{Status: s})
+	mux.Handle("/status", &statusHandler{s.StatusInformation, s.KubeletClientFactory})
 	mux.HandleFunc("/components", func(w http.ResponseWriter, r *http.Request) {
 		maxCount, err := strconv.ParseInt(r.URL.Query().Get("maxCount"), 10, 32)
 		if err != nil {
@@ -92,8 +90,8 @@ func (s *Status) Stop() error {
 }
 
 type statusHandler struct {
-	Status *Status
-	client kubernetes.Interface
+	statusInformation    K0sStatus
+	kubeletClientFactory kubeutil.ClientFactoryInterface
 }
 
 // ServerHTTP implementation of handler interface
@@ -112,40 +110,22 @@ const (
 )
 
 func (sh *statusHandler) getCurrentStatus(ctx context.Context) K0sStatus {
-	status := sh.Status.StatusInformation
+	status := sh.statusInformation
 	if !status.Workloads {
 		return status
 	}
 
-	if sh.client == nil {
-		kubeClient, err := sh.buildWorkerSideKubeAPIClient(ctx)
-		if err != nil {
-			status.WorkerToAPIConnectionStatus.Message = "failed to create kube-api client required for kube-api status reports, probably kubelet failed to init: " + err.Error()
-			return status
-		}
-		sh.client = kubeClient
+	client, err := sh.kubeletClientFactory.GetClient()
+	if err != nil {
+		status.WorkerToAPIConnectionStatus.Message = "failed to create kube-api client required for kube-api status reports, probably kubelet failed to init: " + err.Error()
+		return status
 	}
-	_, err := sh.client.CoreV1().Nodes().List(context.Background(), v1.ListOptions{})
+
+	_, err = client.CoreV1().Nodes().List(context.Background(), v1.ListOptions{})
 	if err != nil {
 		status.WorkerToAPIConnectionStatus.Message = err.Error()
 		return status
 	}
 	status.WorkerToAPIConnectionStatus.Success = true
 	return status
-}
-
-func (sh *statusHandler) buildWorkerSideKubeAPIClient(ctx context.Context) (client kubernetes.Interface, _ error) {
-	timeout, cancel := context.WithTimeout(ctx, defaultPollTimeout)
-	defer cancel()
-	if err := wait.PollUntilWithContext(timeout, defaultPollDuration, func(ctx context.Context) (done bool, err error) {
-		factory := kubeutil.ClientFactory{LoadRESTConfig: func() (*rest.Config, error) {
-			return sh.Status.CertManager.GetRestConfig(ctx)
-		}}
-
-		client, err = factory.GetClient()
-		return err == nil, nil
-	}); err != nil {
-		return nil, err
-	}
-	return client, nil
 }

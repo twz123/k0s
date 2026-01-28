@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/k0sproject/k0s/cmd/internal"
@@ -40,7 +41,6 @@ import (
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/component/prober"
 	"github.com/k0sproject/k0s/pkg/component/status"
-	"github.com/k0sproject/k0s/pkg/component/worker"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/kubernetes"
@@ -376,6 +376,8 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions, de
 			),
 		)
 	}
+
+	var kubeletKubeconfigPath atomic.Pointer[string]
 	nodeComponents.Add(ctx, &status.Status{
 		Prober: prober.DefaultProber,
 		StatusInformation: status.K0sStatus{
@@ -388,8 +390,14 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions, de
 			K0sVars:       c.K0sVars,
 			ClusterConfig: nodeConfig,
 		},
-		Socket:      c.K0sVars.StatusSocketPath,
-		CertManager: worker.NewCertificateManager(c.K0sVars.KubeletAuthConfigPath),
+		Socket: c.K0sVars.StatusSocketPath,
+		KubeletClientFactory: &kubernetes.ClientFactory{LoadRESTConfig: func() (*rest.Config, error) {
+			path := kubeletKubeconfigPath.Load()
+			if path == nil {
+				return nil, errors.New("no kubelet kubeconfig available")
+			}
+			return kubernetes.ClientConfig(kubernetes.KubeconfigFromFile(*path))
+		}},
 	})
 
 	perfTimer.Checkpoint("starting-certificates-init")
@@ -670,7 +678,9 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions, de
 	perfTimer.Output()
 
 	if controllerMode.WorkloadsEnabled() {
-		return c.startWorker(ctx, nodeName, kubeletExtraArgs, flags)
+		return c.startWorker(ctx, nodeName, kubeletExtraArgs, flags, func(path string) {
+			kubeletKubeconfigPath.Store(&path)
+		})
 	}
 
 	if supervised := supervised.Get(ctx); supervised != nil {
@@ -685,7 +695,7 @@ func (c *command) start(ctx context.Context, flags *config.ControllerOptions, de
 	return nil
 }
 
-func (c *command) startWorker(ctx context.Context, nodeName apitypes.NodeName, kubeletExtraArgs stringmap.StringMap, opts *config.ControllerOptions) error {
+func (c *command) startWorker(ctx context.Context, nodeName apitypes.NodeName, kubeletExtraArgs stringmap.StringMap, opts *config.ControllerOptions, setKubeletKubeconfigPath func(string)) error {
 	// Cast and make a copy of the controller command so it can use the same
 	// opts to start the worker. Needs to be a copy so the original token and
 	// possibly other args won't get messed up.
@@ -694,14 +704,22 @@ func (c *command) startWorker(ctx context.Context, nodeName apitypes.NodeName, k
 	if opts.Mode() == config.ControllerPlusWorkerMode && !opts.NoTaints {
 		wc.Taints = append(wc.Taints, constants.ControlPlaneTaint.ToString())
 	}
-	return wc.Start(ctx, nodeName, kubeletExtraArgs, kubernetes.KubeconfigFromFile(c.K0sVars.AdminKubeConfigPath), (*embeddingController)(opts))
+	return wc.Start(ctx, nodeName, kubeletExtraArgs, kubernetes.KubeconfigFromFile(c.K0sVars.AdminKubeConfigPath), &embeddingController{opts, setKubeletKubeconfigPath})
 }
 
-type embeddingController config.ControllerOptions
+type embeddingController struct {
+	*config.ControllerOptions
+	setKubeletKubeconfigPath func(string)
+}
 
 // IsSingleNode implements [workercmd.EmbeddingController].
 func (c *embeddingController) IsSingleNode() bool {
-	return (*config.ControllerOptions)(c).Mode() == config.SingleNodeMode
+	return c.Mode() == config.SingleNodeMode
+}
+
+// SetKubeletKubeconfigPath implements [workercmd.EmbeddingController].
+func (e embeddingController) SetKubeletKubeconfigPath(kubeletKubeconfigPath string) {
+	e.setKubeletKubeconfigPath(kubeletKubeconfigPath)
 }
 
 // If we've got an etcd data directory in place for embedded etcd, or a ca for

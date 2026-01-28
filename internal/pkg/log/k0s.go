@@ -45,19 +45,22 @@ func InitLogging() (Backend, ShutdownLoggingFunc) {
 func SetDebugLevel() {
 	logrus.SetLevel(logrus.DebugLevel)
 	cfssllog.Level = cfssllog.LevelDebug
-	klogVerbosity.Set("5")
+	logrus.Info("Setting klog level to 5")
+	_ = klogVerbosity.Set("5")
 }
 
 func SetInfoLevel() {
 	logrus.SetLevel(logrus.InfoLevel)
 	cfssllog.Level = cfssllog.LevelInfo
-	klogVerbosity.Set("2")
+	logrus.Info("Setting klog level to 2")
+	_ = klogVerbosity.Set("2")
 }
 
 func SetWarnLevel() {
 	logrus.SetLevel(logrus.WarnLevel)
 	cfssllog.Level = cfssllog.LevelWarning
-	klogVerbosity.Set("1")
+	logrus.Info("Setting klog level to 1")
+	_ = klogVerbosity.Set("1")
 }
 
 type grpcAdapter struct{ *logrus.Entry }

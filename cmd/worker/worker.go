@@ -34,6 +34,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/token"
 
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
@@ -46,6 +47,7 @@ type Command config.CLIOptions
 // Interface between an embedded worker and its embedding controller.
 type EmbeddingController interface {
 	IsSingleNode() bool
+	SetKubeletKubeconfigPath(kubeletKubeconfigPath string)
 }
 
 func NewWorkerCmd() *cobra.Command {
@@ -269,6 +271,10 @@ func (c *Command) Start(ctx context.Context, nodeName apitypes.NodeName, kubelet
 		componentManager.Add(ctx, reconciler)
 	}
 
+	if controller != nil {
+		controller.SetKubeletKubeconfigPath(kubeletKubeconfigPath)
+	}
+
 	if c.CriSocket == "" {
 		componentManager.Add(ctx, containerd.NewComponent(c.LogLevels.Containerd, c.K0sVars, workerConfig))
 		componentManager.Add(ctx, worker.NewOCIBundleReconciler(c.K0sVars))
@@ -316,8 +322,10 @@ func (c *Command) Start(ctx context.Context, nodeName apitypes.NodeName, kubelet
 				// todo: if it's needed, a worker side config client can be set up and used to load the config
 				ClusterConfig: nil,
 			},
-			CertManager: certManager,
-			Socket:      c.K0sVars.StatusSocketPath,
+			Socket: c.K0sVars.StatusSocketPath,
+			KubeletClientFactory: &kubernetes.ClientFactory{LoadRESTConfig: func() (*rest.Config, error) {
+				return kubernetes.ClientConfig(kubernetes.KubeconfigFromFile(kubeletKubeconfigPath))
+			}},
 		})
 	}
 

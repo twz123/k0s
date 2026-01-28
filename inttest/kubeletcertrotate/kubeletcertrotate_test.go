@@ -70,6 +70,10 @@ func (s *kubeletCertRotateSuite) SetupTest() {
 	s.Require().NoError(err)
 	s.Require().True(found)
 	s.Require().True(success)
+	out, err := workerSSH.ExecWithOutput(s.Context(), "grep 'Certificate rotation detected, shutting down client connections to start using new credentials' /var/log/k0s.log")
+	s.Require().NoError(err)
+	s.T().Logf("Found log file entry: %s", out)
+
 	s.TestApply()
 }
 

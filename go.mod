@@ -85,6 +85,8 @@ require (
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4
 )
 
+require k8s.io/klog/v2 v2.130.1
+
 require (
 	cel.dev/expr v0.24.0 // indirect
 	cyphar.com/go-pathrs v0.2.1 // indirect
@@ -273,7 +275,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/controller-manager v0.35.0 // indirect
 	k8s.io/cri-client v0.35.0 // indirect
-	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kms v0.35.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20250910181357-589584f1c912 // indirect
 	k8s.io/metrics v0.35.0 // indirect
