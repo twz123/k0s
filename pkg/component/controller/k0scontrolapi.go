@@ -18,6 +18,7 @@ import (
 // K0SControlAPI implements the k0s control API component
 type K0SControlAPI struct {
 	RuntimeConfig *config.RuntimeConfig
+	Debug         bool
 
 	supervisor *supervisor.Supervisor
 }
@@ -44,12 +45,17 @@ func (m *K0SControlAPI) Start(ctx context.Context) error {
 		return err
 	}
 
+	args := []string{"api"}
+	if m.Debug {
+		args = append(args, "--debug")
+	}
+
 	m.supervisor = &supervisor.Supervisor{
 		Name:    "k0s-control-api",
 		BinPath: selfExe,
 		RunDir:  m.RuntimeConfig.Spec.K0sVars.RunDir,
 		DataDir: m.RuntimeConfig.Spec.K0sVars.DataDir,
-		Args:    []string{"api"},
+		Args:    args,
 		Stdin:   func() io.Reader { return bytes.NewReader(runtimeConfig) },
 	}
 
