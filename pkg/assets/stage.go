@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"syscall"
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
@@ -32,25 +33,32 @@ func StageExecutable(dir, name string) (string, error) {
 
 	executableName := name + constant.ExecutableSuffix
 	path := filepath.Join(dir, executableName)
-	err := stage(executableName, path, 0750)
-	if err == nil {
-		return path, nil
-	}
 
-	// If the executable is not embedded, try to find an existing one.
-	if !errors.Is(err, errNoPayloadAttached) && !errors.Is(err, errNotEmbedded) {
+	// First, check if the destination path exists and is not a directory.
+	fileInfo, err := os.Stat(path)
+	if err == nil {
+		if fileInfo.IsDir() {
+			return path, fmt.Errorf("%w (%s)", syscall.EISDIR, path)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		// If the error doesn't indicate a non-existing path, then it's likely
+		// that the asset can't be staged anyways, so be fail-fast.
 		return path, err
 	}
 
-	// First, check if the destination path exists and is not a directory.
-	stat, statErr := os.Stat(path)
-	if statErr == nil {
-		if !stat.IsDir() {
-			logrus.WithField("path", path).WithError(err).Debug("Using existing executable")
-			return path, nil
-		}
+	if err := stage(executableName, path, fileInfo, 0750); err == nil {
+		return path, nil
+	} else if !errors.Is(err, errNoPayloadAttached) && !errors.Is(err, errNotEmbedded) {
+		// Pass on the error to the caller if it doesn't indicate that the
+		// executable is not embedded.
+		return path, err
+	}
 
-		statErr = fmt.Errorf("%w (%s)", syscall.EISDIR, path)
+	// If the executable is not embedded and an executable already exists at the
+	// target path, use that one.
+	if fileInfo != nil && fileInfo.Mode().IsRegular() && (runtime.GOOS == "windows" || fileInfo.Mode()&0111 != 0) {
+		logrus.WithField("path", path).Debug("Re-use existing file")
+		return path, nil
 	}
 
 	// If we still haven't found the executable, look for it in the PATH.
@@ -62,10 +70,10 @@ func StageExecutable(dir, name string) (string, error) {
 		return lookedUpPath, nil
 	}
 
-	return path, fmt.Errorf("%w, %w, %w", err, statErr, lookErr)
+	return path, fmt.Errorf("%w, %w", err, lookErr)
 }
 
-func stage(name, path string, perm os.FileMode) error {
+func stage(name, path string, info os.FileInfo, perm os.FileMode) error {
 	log := logrus.WithField("path", path)
 	log.Infof("Staging")
 
@@ -108,15 +116,9 @@ func stage(name, path string, perm os.FileMode) error {
 	// Skip extraction if the path is up to date, i.e. if its modification time
 	// matches the one of the k0s executable and its file size matches the one
 	// of the to-be-staged file.
-	if info, err := os.Stat(path); err == nil {
-		if !exinfo.IsDir() && exinfo.ModTime().Equal(info.ModTime()) && info.Size() == fileInfo.Size() {
-			log.Debug("Re-use existing file")
-			return nil
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		// If the error doesn't indicate a non-existing path, then it's likely
-		// that the asset can't be staged anyways, so be fail-fast.
-		return err
+	if info != nil && info.Size() == fileInfo.Size() && exinfo.ModTime().Equal(info.ModTime()) {
+		log.Debug("Re-use existing file")
+		return nil
 	}
 
 	// Get a reader for the uncompressed file contents
