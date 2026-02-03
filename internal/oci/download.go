@@ -23,14 +23,52 @@ import (
 // Download downloads the OCI artifact present at the given registry URL.
 // Usage example:
 //
-// artifact := "docker.io/company/k0s:latest"
-// fp, _ := os.CreateTemp("", "k0s-oci-artifact-*")
-// err := oci.Download(ctx, artifact, fp)
+//	artifact := "docker.io/company/k0s:latest"
+//	fp, _ := os.CreateTemp("", "k0s-oci-artifact-*")
+//	err := oci.Download(ctx, artifact, fp)
 //
 // This function expects at least one artifact to be present, if none is found
 // this returns an error. The artifact name can be specified using the
-// WithArtifactName option.
+// [WithArtifactName] option.
 func Download(ctx context.Context, url string, target io.Writer, options ...DownloadOption) (err error) {
+	artifact, err := Fetch(ctx, url, options...)
+	if err != nil {
+		return fmt.Errorf("failed to fetch: %w", err)
+	}
+	defer func() { err = errors.Join(err, artifact.Close()) }()
+
+	// Copy over the blob to its target.
+	if _, err := io.Copy(target, artifact); err != nil {
+		return fmt.Errorf("failed to copy: %w", err)
+	}
+
+	// Verify artifact length and digest.
+	return artifact.Verify()
+}
+
+type Artifact struct {
+	desc   ocispec.Descriptor
+	reader *content.VerifyReader
+	close  func() error
+}
+
+func (a *Artifact) Size() int64                { return a.desc.Size }
+func (a *Artifact) Read(b []byte) (int, error) { return a.reader.Read(b) }
+func (a *Artifact) Verify() error              { return a.reader.Verify() }
+func (a *Artifact) Close() error               { return a.close() }
+
+// Fetches the OCI artifact present at the given registry URL.
+// Usage example:
+//
+//	artifact := "docker.io/company/k0s:latest"
+//	reader, _ := oci.Fetch(ctx, artifact)
+//	defer reader.Close()
+//	data, _ := io.ReadAll(reader)
+//
+// This function expects at least one artifact to be present, if none is found
+// this returns an error. The artifact name can be specified using the
+// [WithArtifactName] option.
+func Fetch(ctx context.Context, url string, options ...DownloadOption) (*Artifact, error) {
 	opts := downloadOptions{}
 	for _, opt := range options {
 		opt(&opts)
@@ -38,37 +76,31 @@ func Download(ctx context.Context, url string, target io.Writer, options ...Down
 
 	repo, err := newRepository(ctx, url, &opts)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	tag := repo.Reference.Reference
 	successors, err := fetchSuccessors(ctx, repo, tag)
 	if err != nil {
-		return fmt.Errorf("failed to fetch successors: %w", err)
+		return nil, fmt.Errorf("failed to fetch successors: %w", err)
 	}
 
 	source, err := findArtifactDescriptor(successors, &opts)
 	if err != nil {
-		return fmt.Errorf("failed to find artifact: %w", err)
+		return nil, fmt.Errorf("failed to find artifact: %w", err)
 	}
 
 	// Get a reader to the blob.
 	raw, err := repo.Fetch(ctx, source)
 	if err != nil {
-		return fmt.Errorf("failed to fetch blob: %w", err)
-	}
-	defer func() { err = errors.Join(err, raw.Close()) }()
-
-	// Wrap the reader so that its length and digest will be verified.
-	verified := content.NewVerifyReader(raw, source)
-
-	// Copy over the blob to its target.
-	if _, err := io.Copy(target, verified); err != nil {
-		return fmt.Errorf("failed to copy blob: %w", err)
+		return nil, fmt.Errorf("failed to fetch blob: %w", err)
 	}
 
-	// Verify the digest.
-	return verified.Verify()
+	return &Artifact{
+		source,
+		content.NewVerifyReader(raw, source),
+		raw.Close,
+	}, nil
 }
 
 func newRepository(ctx context.Context, url string, opts *downloadOptions) (*remote.Repository, error) {
