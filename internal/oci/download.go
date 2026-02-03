@@ -20,6 +20,11 @@ import (
 	"oras.land/oras-go/v2/registry/remote/credentials"
 )
 
+type ImageStore interface {
+	registry.ReferenceFetcher
+	content.Fetcher
+}
+
 // Download downloads the OCI artifact present at the given registry URL.
 // Usage example:
 //
@@ -74,13 +79,12 @@ func Fetch(ctx context.Context, url string, options ...DownloadOption) (*Artifac
 		opt(&opts)
 	}
 
-	repo, err := newRepository(ctx, url, &opts)
+	reference, repo, err := newImageStore(ctx, url, &opts)
 	if err != nil {
 		return nil, err
 	}
 
-	tag := repo.Reference.Reference
-	successors, err := fetchSuccessors(ctx, repo, tag)
+	successors, err := fetchSuccessors(ctx, repo, reference)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch successors: %w", err)
 	}
@@ -103,15 +107,24 @@ func Fetch(ctx context.Context, url string, options ...DownloadOption) (*Artifac
 	}, nil
 }
 
-func newRepository(ctx context.Context, url string, opts *downloadOptions) (*remote.Repository, error) {
+func newImageStore(ctx context.Context, url string, opts *downloadOptions) (string, ImageStore, error) {
+	if opts.imageStore != nil {
+		ref, err := registry.ParseReference(url)
+		if err != nil {
+			return "", nil, err
+		}
+
+		return ref.Reference, opts.imageStore, nil
+	}
+
 	creds, err := opts.auth.CredentialStore(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create credential store: %w", err)
+		return "", nil, fmt.Errorf("failed to create credential store: %w", err)
 	}
 
 	repo, err := remote.NewRepository(url)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create repository: %w", err)
+		return "", nil, fmt.Errorf("failed to create repository: %w", err)
 	}
 
 	if opts.plainHTTP {
@@ -127,7 +140,7 @@ func newRepository(ctx context.Context, url string, opts *downloadOptions) (*rem
 		Client:     &http.Client{Transport: transp},
 		Credential: creds.Get,
 	}
-	return repo, nil
+	return repo.Reference.Reference, repo, nil
 }
 
 // Fetches the manifest for the given reference and returns all of its successors.
@@ -178,6 +191,7 @@ func findArtifactDescriptor(all []ocispec.Descriptor, opts *downloadOptions) (oc
 
 // downloadOptions holds the options used when downloading OCI artifacts.
 type downloadOptions struct {
+	imageStore            ImageStore
 	insecureSkipTLSVerify bool
 	auth                  DockerConfig
 	artifactName          string
@@ -186,6 +200,13 @@ type downloadOptions struct {
 
 // DownloadOption is a function that sets an option for the OCI download.
 type DownloadOption func(*downloadOptions)
+
+// Sets the image store used for the download.
+func WithImageStore(imageStore ImageStore) DownloadOption {
+	return func(opts *downloadOptions) {
+		opts.imageStore = imageStore
+	}
+}
 
 // WithInsecureSkipTLSVerify sets the insecureSkipTLSVerify option to true.
 func WithInsecureSkipTLSVerify() DownloadOption {
