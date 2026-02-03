@@ -42,7 +42,7 @@ func Download(ctx context.Context, url string, target io.Writer, options ...Down
 	}
 
 	tag := repo.Reference.Reference
-	successors, err := fetchSuccessors(ctx, repo.Manifests(), tag)
+	successors, err := fetchSuccessors(ctx, repo, tag)
 	if err != nil {
 		return fmt.Errorf("failed to fetch successors: %w", err)
 	}
@@ -53,7 +53,7 @@ func Download(ctx context.Context, url string, target io.Writer, options ...Down
 	}
 
 	// Get a reader to the blob.
-	raw, err := repo.Blobs().Fetch(ctx, source)
+	raw, err := repo.Fetch(ctx, source)
 	if err != nil {
 		return fmt.Errorf("failed to fetch blob: %w", err)
 	}
