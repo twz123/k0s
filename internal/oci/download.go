@@ -36,42 +36,18 @@ func Download(ctx context.Context, url string, target io.Writer, options ...Down
 		opt(&opts)
 	}
 
-	creds, err := opts.auth.CredentialStore(ctx)
+	repo, err := newRepository(ctx, url, &opts)
 	if err != nil {
-		return fmt.Errorf("failed to create credential store: %w", err)
+		return err
 	}
 
-	imgref, err := registry.ParseReference(url)
-	if err != nil {
-		return fmt.Errorf("failed to parse artifact reference: %w", err)
-	}
-
-	repo, err := remote.NewRepository(url)
-	if err != nil {
-		return fmt.Errorf("failed to create repository: %w", err)
-	}
-
-	if opts.plainHTTP {
-		repo.PlainHTTP = true
-	}
-
-	transp := http.DefaultTransport.(*http.Transport).Clone()
-	if opts.insecureSkipTLSVerify {
-		transp.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	}
-
-	repo.Client = &auth.Client{
-		Client:     &http.Client{Transport: transp},
-		Credential: creds.Get,
-	}
-
-	tag := imgref.Reference
+	tag := repo.Reference.Reference
 	successors, err := fetchSuccessors(ctx, repo.Manifests(), tag)
 	if err != nil {
 		return fmt.Errorf("failed to fetch successors: %w", err)
 	}
 
-	source, err := findArtifactDescriptor(successors, opts)
+	source, err := findArtifactDescriptor(successors, &opts)
 	if err != nil {
 		return fmt.Errorf("failed to find artifact: %w", err)
 	}
@@ -93,6 +69,33 @@ func Download(ctx context.Context, url string, target io.Writer, options ...Down
 
 	// Verify the digest.
 	return verified.Verify()
+}
+
+func newRepository(ctx context.Context, url string, opts *downloadOptions) (*remote.Repository, error) {
+	creds, err := opts.auth.CredentialStore(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create credential store: %w", err)
+	}
+
+	repo, err := remote.NewRepository(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create repository: %w", err)
+	}
+
+	if opts.plainHTTP {
+		repo.PlainHTTP = true
+	}
+
+	transp := http.DefaultTransport.(*http.Transport).Clone()
+	if opts.insecureSkipTLSVerify {
+		transp.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+
+	repo.Client = &auth.Client{
+		Client:     &http.Client{Transport: transp},
+		Credential: creds.Get,
+	}
+	return repo, nil
 }
 
 // Fetches the manifest for the given reference and returns all of its successors.
@@ -124,7 +127,7 @@ func fetchSuccessors(ctx context.Context, repo registry.ReferenceFetcher, refere
 // findArtifactDescriptor filters, out of the provided list of descriptors, the
 // one that matches the given options. If no artifact name is provided, it
 // returns the first descriptor.
-func findArtifactDescriptor(all []ocispec.Descriptor, opts downloadOptions) (ocispec.Descriptor, error) {
+func findArtifactDescriptor(all []ocispec.Descriptor, opts *downloadOptions) (ocispec.Descriptor, error) {
 	for _, desc := range all {
 		if desc.MediaType == ocispec.MediaTypeEmptyJSON {
 			continue
