@@ -15,6 +15,7 @@
 /k0s.bare
 /k0s.exe
 /k0s.bare.exe
+/k0s-artifacts.tar
 /spdx.json
 .*.stamp
 *.tmp

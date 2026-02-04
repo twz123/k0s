@@ -229,6 +229,13 @@ endif
 	  SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH)
 	touch $@
 
+k0s-artifacts.tar: $(GO_ENV_REQUISITES) go.sum hack/gen-oci-archive/* embedded-bins/Makefile.variables
+	$(MAKE) -C embedded-bins TARGET_OS=$(TARGET_OS)
+	CGO_ENABLED=0 $(GO) run -tags=hack hack/gen-oci-archive/main.go \
+	  quay.io/k0sproject/k0s-artifacts:$(subst +,-,$(VERSION)) $(TARGET_OS)/amd64 \
+  	  $(foreach bin,$($(TARGET_OS)_bins),embedded-bins/staging/$(TARGET_OS)/bin/$(bin)) \
+ 	  >$@
+
 .PHONY: codegen
 codegen: $(codegen_targets)
 
