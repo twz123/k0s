@@ -1,0 +1,63 @@
+name: k0s-artifacts-oci-archive
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        type: string
+        required: true
+      image-tag:
+        type: string
+        required: true
+
+jobs:
+  build:
+    name: k0s-artifacts-oci-archive
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: "Build :: Checkout"
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          show-progress: false
+
+      - name: "Build :: Prepare"
+        id: build-prepare
+        run: .github/workflows/prepare-build-env.sh
+
+      - name: "Setup :: Go"
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: "Download :: embedded-binaries"
+        uses: actions/download-artifact@v7
+        with:
+          pattern: embedded-binaries-*
+
+      # TODO: SOURCE_DATE_EPOCH
+      - name: "Build :: k0s-artifacts.tar"
+        env:
+          IMAGE_NAME: ${{ inputs.image-name }}
+          IMAGE_TAG: ${{ inputs.image-tag }}
+        run: |
+          set -euxo pipefail
+
+          set -- go run -tags=hack hack/gen-oci-archive/main.go
+          set -- "$@" "$IMAGE_NAME:$IMAGE_TAG"
+
+          ls -lah embedded-binaries-*/*
+
+          for platform in linux-amd64 linux-arm64 windows-amd64; do
+            [ -d embedded-binaries-$platform ] || continue
+            ( cd embedded-binaries-$platform && unzip embedded-binaries-*.zip && rm embedded-binaries-*.zip )
+            set -- "$@" -- ${platform/-//} embedded-binaries-$platform/*
+          done
+
+          "$@" >k0s-artifacts.tar
+
+          printf %s 'k0s-artifacts.tar image digest: '
+          skopeo inspect --raw oci-archive:k0s-artifacts.tar | sha256sum
+          skopeo copy --all --preserve-digests oci-archive:k0s-artifacts.tar "docker://ttl.sh/$GITHUB_REPOSITORY_OWNER-k0s-artifacts-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT:1d"

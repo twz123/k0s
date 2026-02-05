@@ -465,3 +465,12 @@ jobs:
     name: "Windows WSL Smoketest"
     needs: [build-k0s]
     uses: ./.github/workflows/win-wsl.yaml
+
+  k0s-artifacts-oci-archive:
+    name: "k0s artifacts OCI archive"
+    needs: [build-k0s]
+    uses: ./.github/workflows/k0s-artifacts-oci-archive.yaml
+    with:
+      # TODO
+      image-name: quay.io/k0sproject/k0s-artifacts
+      image-tag: dev

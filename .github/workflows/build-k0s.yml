@@ -102,6 +102,13 @@ jobs:
           path: |
             k0s${{ steps.build-prepare.outputs.executable-suffix }}
 
+      - name: "Upload :: embedded-binaries-${{ inputs.target-os }}.zip"
+        uses: actions/upload-artifact@v5
+        with:
+          name: embedded-binaries-${{ inputs.target-os }}-${{ inputs.target-arch }}
+          path: |
+            embedded-binaries-${{ inputs.target-os }}.zip
+
       - name: "Build :: SBOM"
         run: make spdx.json
 
