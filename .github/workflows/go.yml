@@ -14,6 +14,7 @@ on:
       - "!.github/workflows/go.yml"
       - "!.github/workflows/build-image-bundle.yml"
       - "!.github/workflows/build-k0s.yml"
+      - "!.github/workflows/k0s-artifacts-oci-archive.yaml"
       - "!.github/workflows/smoketest.yaml"
       - .github/CODEOWNERS
       - .github/dependabot.yml
@@ -36,6 +37,7 @@ on:
       - "!.github/workflows/go.yml"
       - "!.github/workflows/build-image-bundle.yml"
       - "!.github/workflows/build-k0s.yml"
+      - "!.github/workflows/k0s-artifacts-oci-archive.yaml"
       - "!.github/workflows/smoketest.yaml"
       - .github/CODEOWNERS
       - .github/dependabot.yml
