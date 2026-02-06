@@ -58,6 +58,10 @@ jobs:
 
           "$@" >k0s-artifacts.tar
 
-          printf %s 'k0s-artifacts.tar image digest: '
-          skopeo inspect --raw oci-archive:k0s-artifacts.tar | sha256sum
-          skopeo copy --all --preserve-digests oci-archive:k0s-artifacts.tar "docker://ttl.sh/$GITHUB_REPOSITORY_OWNER-k0s-artifacts-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT:1d"
+          # skopeo copy --all --preserve-digests oci-archive:k0s-artifacts.tar "docker://ttl.sh/$GITHUB_REPOSITORY_OWNER-k0s-artifacts-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT:1d"
+
+      - name: "Upload :: k0s-artifacts.tar"
+        uses: actions/upload-artifact@v6
+        with:
+          name: k0s-artifacts
+          path: k0s-artifacts.tar
