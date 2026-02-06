@@ -161,17 +161,27 @@ func writeOCIArchive(ctx context.Context, w io.Writer, imageRef reference.Refere
 			if err := ociArchive.writeBlob(f.desc, f.compressedData); err != nil {
 				return fmt.Errorf("failed to write layer for %s: %w: %+#v", f.name, err, f.desc)
 			}
-			fmt.Fprintln(os.Stderr, "Written blob for", f.name)
+			fmt.Fprintf(os.Stderr, "Written blob for %s for %s: %s\n", f.name, platforms.Format(spec.platform), f.desc.Digest)
 			layers = append(layers, f.desc)
+		}
+
+		configData, err := json.Marshal(spec.platform)
+		if err != nil {
+			return err
 		}
 
 		manifest := imagespecv1.Manifest{
 			Versioned:    imagespecs.Versioned{SchemaVersion: 2},
 			MediaType:    imagespecv1.MediaTypeImageManifest,
-			ArtifactType: "application/octet-stream",
-			Config:       imagespecv1.DescriptorEmptyJSON,
-			Layers:       layers,
-			Annotations:  imageAnnotations,
+			ArtifactType: imagespecv1.MediaTypeImageConfig,
+			Config: imagespecv1.Descriptor{
+				MediaType: imagespecv1.MediaTypeImageConfig,
+				Digest:    digest.Canonical.FromBytes(configData),
+				Size:      int64(len(configData)),
+				Data:      configData,
+			},
+			Layers:      layers,
+			Annotations: imageAnnotations,
 		}
 
 		manifestData, err := json.Marshal(&manifest)
@@ -180,21 +190,19 @@ func writeOCIArchive(ctx context.Context, w io.Writer, imageRef reference.Refere
 		}
 
 		manifestDesc := imagespecv1.Descriptor{
-			MediaType:   manifest.MediaType,
-			Digest:      digest.FromBytes(manifestData),
-			Size:        int64(len(manifestData)),
-			Annotations: imageAnnotations,
-			Platform:    &spec.platform,
+			MediaType:    manifest.MediaType,
+			ArtifactType: manifest.ArtifactType,
+			Digest:       digest.FromBytes(manifestData),
+			Size:         int64(len(manifestData)),
+			//	Annotations: imageAnnotations,
+			Platform: &spec.platform,
 		}
 
+		if err := ociArchive.writeBlob(manifest.Config, configData); err != nil {
+			return fmt.Errorf("failed to write config: %w", err)
+		}
 		if err := ociArchive.writeBlob(manifestDesc, manifestData); err != nil {
 			return fmt.Errorf("failed to write manifest: %w", err)
-		}
-
-		// Write the empty descriptor.
-		// Some tools won't use the embedded data field and would fail otherwise.
-		if err := ociArchive.writeBlob(imagespecv1.DescriptorEmptyJSON, imagespecv1.DescriptorEmptyJSON.Data); err != nil {
-			return fmt.Errorf("failed to write empty descriptor: %w", err)
 		}
 
 		manifests = append(manifests, manifestDesc)
@@ -266,7 +274,7 @@ func compressFile(ctx context.Context, filePath string) (*compressedFile, error)
 		compressedData:   data,
 		uncompressedSize: uint64(bytesCopied),
 		desc: imagespecv1.Descriptor{
-			MediaType: "application/gzip",
+			MediaType: imagespecv1.MediaTypeImageLayerGzip,
 			Size:      int64(len(data)),
 			Digest:    digest.FromBytes(data),
 			Annotations: map[string]string{
