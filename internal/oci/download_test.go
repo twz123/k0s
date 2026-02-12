@@ -158,6 +158,14 @@ func startOCIMockServer(t *testing.T, tname string, test testFile) url.URL {
 
 			// serve the manifest.
 			if strings.Contains(r.URL.Path, "/manifests/") {
+				ref := path.Base(r.URL.Path)
+				if _, digest, ok := strings.Cut(ref, "sha256:"); ok && digest != "" {
+					if _, ok := test.Artifacts[digest]; ok {
+						assert.Failf(t, "unexpected request", "blob digest fetched via manifests API: %s", r.URL.Path)
+						w.WriteHeader(http.StatusNotFound)
+						return
+					}
+				}
 				w.Header().Add("Content-Type", cmp.Or(test.ManifestMediaType, "application/vnd.oci.image.manifest.v1+json"))
 				_, _ = w.Write([]byte(test.Manifest))
 				return
@@ -165,14 +173,17 @@ func startOCIMockServer(t *testing.T, tname string, test testFile) url.URL {
 
 			// serve a layer or the config blob.
 			if strings.Contains(r.URL.Path, "/blobs/") {
-				for sha, content := range test.Artifacts {
-					if !strings.Contains(r.URL.Path, sha) {
-						continue
-					}
+				ref := path.Base(r.URL.Path)
+				if _, digest, ok := strings.Cut(ref, "sha256:"); !ok || digest == "" {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				} else if content, ok := test.Artifacts[digest]; ok {
 					w.Header().Add("Content-Length", strconv.Itoa(len(content)))
 					_, _ = w.Write([]byte(content))
 					return
 				}
+				w.WriteHeader(http.StatusNotFound)
+				return
 			}
 
 			assert.Failf(t, "unexpected request", "%s", r.URL.Path)
