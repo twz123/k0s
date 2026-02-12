@@ -10,9 +10,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sync/atomic"
 
+	"github.com/containerd/platforms"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"k8s.io/utils/ptr"
+	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote"
@@ -66,7 +68,7 @@ func Download(ctx context.Context, url string, target io.Writer, options ...Down
 	}
 
 	tag := imgref.Reference
-	successors, err := fetchSuccessors(ctx, repo.Manifests(), tag)
+	successors, err := fetchSuccessors(ctx, repo, tag, ptr.To(platforms.DefaultSpec()))
 	if err != nil {
 		return fmt.Errorf("failed to fetch successors: %w", err)
 	}
@@ -96,29 +98,26 @@ func Download(ctx context.Context, url string, target io.Writer, options ...Down
 }
 
 // Fetches the manifest for the given reference and returns all of its successors.
-func fetchSuccessors(ctx context.Context, repo registry.ReferenceFetcher, reference string) ([]ocispec.Descriptor, error) {
-	var dataConsumed atomic.Bool
-	desc, data, err := repo.FetchReference(ctx, reference)
+func fetchSuccessors(ctx context.Context, repo oras.ReadOnlyTarget, reference string, targetPlatform *ocispec.Platform) ([]ocispec.Descriptor, error) {
+	desc, err := repo.Resolve(ctx, reference)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch manifest: %w", err)
+		return nil, fmt.Errorf("failed to resolve reference: %w", err)
 	}
-	defer func() {
-		if dataConsumed.Swap(true) {
-			return
-		}
-		if closeErr := data.Close(); closeErr != nil {
-			err = errors.Join(err, closeErr)
-		}
-	}()
 
-	fetcher := content.FetcherFunc(func(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
-		if target.Digest == desc.Digest && !dataConsumed.Swap(true) {
-			return data, nil
+	switch desc.MediaType {
+	case "application/vnd.docker.distribution.manifest.list.v2+json", ocispec.MediaTypeImageIndex:
+		// For indexes, select the matching manifest. For plain manifests, don't
+		// enforce target platform since artifact configs are often empty.
+		resolved, err := oras.Resolve(ctx, repo, reference, oras.ResolveOptions{
+			TargetPlatform: targetPlatform,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve reference: %w", err)
 		}
-		return nil, errors.ErrUnsupported
-	})
+		desc = resolved
+	}
 
-	return content.Successors(ctx, fetcher, desc)
+	return content.Successors(ctx, repo, desc)
 }
 
 // findArtifactDescriptor filters, out of the provided list of descriptors, the
