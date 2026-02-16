@@ -3848,6 +3848,14 @@ node-local load balancing.</p>
 <td><code>disableLoadBalancer</code></td>
 <td>Disables the load balancer. Default: <code>false</code></td>
 </tr>
+<tr>
+<td><code>configTemplateVRRP</code></td>
+<td>Path to a custom Keepalived configuration template for VRRP. Default: empty .</td>
+</tr>
+<tr>
+<td><code>configTemplateVS</code></td>
+<td>Path to a custom Keepalived configuration template for Virtual Servers. Default: empty</td>
+</tr>
 </tbody>
 </table>
 <h5 id="specnetworkcontrolplaneloadbalancingkeepalivedvrrpinstances"><code>spec.network.controlPlaneLoadBalancing.keepalived.vrrpInstances</code><a class="headerlink" href="#specnetworkcontrolplaneloadbalancingkeepalivedvrrpinstances" title="Permanent link">#</a></h5>
@@ -4101,11 +4109,11 @@ by k0s.</p>
 <span class="w">      </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v3.31.3-0</span>
 <span class="w">  </span><span class="nt">metricsserver</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">repo.acme.corp/k0sproject/metrics-server</span>
-<span class="w">    </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v0.7.2-0</span>
+<span class="w">    </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v0.8.1-0</span>
 </code></pre></div>
 <p>In the runtime the image names are calculated as
 <code>airgap-repo.local/k0sproject/calico-kube-controllers:v3.31.3-0</code> and
-<code>airgap-repo.local/k0sproject/metrics-server:v0.7.2-0</code>. This only
+<code>airgap-repo.local/k0sproject/metrics-server:v0.8.1-0</code>. This only
 affects the image pull location, and thus omitting an image specification here
 will not disable component deployment.</p>
 <h3 id="specextensionshelm"><code>spec.extensions.helm</code><a class="headerlink" href="#specextensionshelm" title="Permanent link">#</a></h3>
