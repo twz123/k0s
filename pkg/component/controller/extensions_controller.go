@@ -460,6 +460,12 @@ func (cr *ChartReconciler) updateOrInstallChart(ctx context.Context, chart helmv
 	defer cleanup()
 
 	if chart.Status.ReleaseName == "" {
+		if err := helmCmd.UninstallRelease(ctx, chart.Spec.ReleaseName, chart.Spec.Namespace); err == nil {
+			cr.L.Info("Uninstalled release ", chart.Spec.ReleaseName, " in order to reinstall it")
+		} else if !errors.Is(err, driver.ErrReleaseNotFound) {
+			return fmt.Errorf("failed to uninstall prior to reinstall: %w", err)
+		}
+
 		// new chartRelease
 		cr.L.Tracef("Start update or install %s", chartName)
 		chartRelease, err = helmCmd.InstallChart(ctx,
@@ -471,6 +477,17 @@ func (cr *ChartReconciler) updateOrInstallChart(ctx context.Context, chart helmv
 			timeout,
 		)
 		if err != nil {
+			if !errors.Is(err, driver.ErrReleaseExists) {
+				select {
+				case <-ctx.Done():
+					err = fmt.Errorf("%w (will be uninstalled in a subsequent reconciliation)", err)
+				default:
+					if uninstallErr := helmCmd.UninstallRelease(ctx, chart.Spec.ReleaseName, chart.Spec.Namespace); uninstallErr != nil {
+						err = fmt.Errorf("an error occurred while uninstalling: %w; original install error: %w", uninstallErr, err)
+					}
+				}
+			}
+
 			err = fmt.Errorf("can't reconcile installation for %q: %w", chart.GetName(), err)
 			return
 		}
