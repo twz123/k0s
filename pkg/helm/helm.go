@@ -21,6 +21,7 @@ import (
 	"helm.sh/helm/v3/pkg/registry"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/repo"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
@@ -334,36 +335,8 @@ func (hc *Commands) InstallChart(ctx context.Context, chartName string, version 
 	if err != nil {
 		return nil, fmt.Errorf("can't reload loadedChart `%s`: %w", chartDir, err)
 	}
-	chartRelease, err := install.RunWithContext(ctx, loadedChart, values)
-	if err == nil {
-		return chartRelease, nil
-	}
 
-	select {
-	case <-ctx.Done():
-		return nil, fmt.Errorf("release %s failed and will be uninstalled the next time the chart will be reconciled: %w (%w)", install.ReleaseName, err, context.Cause(ctx))
-	default:
-	}
-
-	cfg.Log("Release %s failed, uninstalling: %v", install.ReleaseName, err)
-
-	uninstall := action.NewUninstall(cfg)
-	uninstall.DisableHooks = install.DisableHooks
-	uninstall.KeepHistory = false
-	uninstall.Timeout = install.Timeout
-
-	done := make(chan error, 1)
-	go func() { _, err := uninstall.Run(install.ReleaseName); done <- err }()
-
-	select {
-	case <-ctx.Done():
-		return nil, fmt.Errorf("release %s failed, and the uninstallation has been interrupted: %w; original install error: %w", install.ReleaseName, context.Cause(ctx), err)
-	case uninstallErr := <-done:
-		if uninstallErr == nil {
-			return nil, fmt.Errorf("release %s failed, and has been uninstalled: %w", install.ReleaseName, err)
-		}
-		return nil, fmt.Errorf("release %s failed, and an error occurred while uninstalling: %w; original install error: %w", install.ReleaseName, uninstallErr, err)
-	}
+	return install.RunWithContext(ctx, loadedChart, values)
 }
 
 // UpgradeChart upgrades a helm chart.
@@ -419,20 +392,24 @@ func (hc *Commands) UpgradeChart(ctx context.Context, chartName string, version 
 
 // UninstallRelease uninstalls a release.
 // InstallChart, UpgradeChart and UninstallRelease(releaseName are *NOT* thread-safe
-func (hc *Commands) UninstallRelease(ctx context.Context, releaseName string, namespace string) error {
+func (hc *Commands) UninstallRelease(ctx context.Context, releaseName, namespace string) error {
 	cfg, disable, err := hc.getActionCfg(namespace)
 	if err != nil {
 		return fmt.Errorf("can't create helmAction configuration: %w", err)
 	}
 	defer disable()
-	helmAction := action.NewUninstall(cfg)
-	deadline, ok := ctx.Deadline()
-	if ok {
-		helmAction.Timeout = time.Until(deadline)
-	}
 
-	if _, err := helmAction.Run(releaseName); err != nil {
-		return fmt.Errorf("can't uninstall release `%s`: %w", releaseName, err)
+	uninstall := action.NewUninstall(cfg)
+	uninstall.Wait = true
+	uninstall.DeletionPropagation = string(metav1.DeletePropagationForeground)
+
+	done := make(chan error, 1)
+	go func() { _, err := uninstall.Run(releaseName); done <- err }()
+
+	select {
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	case err := <-done:
+		return err
 	}
-	return nil
 }
