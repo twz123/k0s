@@ -16,18 +16,16 @@ import (
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
-	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/downloader"
 	"helm.sh/helm/v3/pkg/getter"
 	"helm.sh/helm/v3/pkg/registry"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/repo"
-	"k8s.io/cli-runtime/pkg/genericclioptions"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/yaml"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/pkg/constant"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
 )
 
 // Repository represents a Helm chart repository configuration.
@@ -56,11 +54,11 @@ func (r *Repository) IsInsecure() bool {
 // Commands run different helm command in the same way as CLI tool
 // This struct isn't thread-safe. Check on a per function basis.
 type Commands struct {
+	clients         kubernetes.ClientFactoryInterface
 	registryManager *ociRegistryManager
 
 	repoFile     string
 	helmCacheDir string
-	kubeConfig   string
 }
 
 func logFn(format string, args ...any) {
@@ -83,7 +81,7 @@ var getters = getter.Providers{
 // If repo is provided, it will be initialized in the temporary environment.
 // If tmpDir is empty, a new temporary directory will be created.
 // Returns the Commands instance and a cleanup function that must be called to remove temporary files.
-func NewCommands(kubeConfig string, repo *Repository) (*Commands, func(), error) {
+func NewCommands(clients kubernetes.ClientFactoryInterface, repo *Repository) (*Commands, func(), error) {
 	// Create temporary directory for ephemeral Helm environment
 	var err error
 	tmpDir, err := os.MkdirTemp("", "k0s-helm-*")
@@ -101,10 +99,10 @@ func NewCommands(kubeConfig string, repo *Repository) (*Commands, func(), error)
 	helmCacheDir := filepath.Join(tmpDir, "cache")
 
 	commands := &Commands{
+		clients:         clients,
 		repoFile:        repoFile,
 		registryManager: newOCIRegistryManager(),
 		helmCacheDir:    helmCacheDir,
-		kubeConfig:      kubeConfig,
 	}
 
 	// Initialize repository if provided
@@ -163,31 +161,13 @@ func (hc *Commands) prepareCertFiles(repo *Repository, tmpDir string) error {
 	return nil
 }
 
-func (hc *Commands) getActionCfg(namespace string) (*action.Configuration, error) {
-	// Construct new helm env so we get the retrying roundtripper etc. setup
-	// See https://github.com/helm/helm/pull/11426/commits/b5378b3a5dd435e5c364ac0cfa717112ad686bd0
-	helmEnv := cli.New()
-	helmFlags, ok := helmEnv.RESTClientGetter().(*genericclioptions.ConfigFlags)
-	if !ok {
-		return nil, errors.New("failed to construct Helm REST client")
+func (hc *Commands) getActionCfg(namespace string) (*action.Configuration, func(), error) {
+	getter := newControlledRESTClientGetter(namespace, hc.clients.GetRESTConfig)
+	actionConfig := new(action.Configuration)
+	if err := actionConfig.Init(getter, namespace, "secret", logFn); err != nil {
+		return nil, nil, err
 	}
-
-	insecure := false
-	var impersonateGroup []string
-	cfg := &genericclioptions.ConfigFlags{
-		Insecure:         &insecure,
-		Timeout:          ptr.To("0"),
-		KubeConfig:       ptr.To(hc.kubeConfig),
-		CacheDir:         ptr.To(hc.helmCacheDir),
-		Namespace:        ptr.To(namespace),
-		ImpersonateGroup: &impersonateGroup,
-		WrapConfigFn:     helmFlags.WrapConfigFn, // This contains the retrying round tripper
-	}
-	actionConfig := &action.Configuration{}
-	if err := actionConfig.Init(cfg, namespace, "secret", logFn); err != nil {
-		return nil, err
-	}
-	return actionConfig, nil
+	return actionConfig, getter.disable, nil
 }
 
 // initRepository initializes a single repository in the ephemeral Helm environment
@@ -309,10 +289,11 @@ func (hc *Commands) isInstallable(chart *chart.Chart) bool {
 // InstallChart installs a helm chart
 // InstallChart, UpgradeChart and UninstallRelease(releaseName are *NOT* thread-safe
 func (hc *Commands) InstallChart(ctx context.Context, chartName string, version string, releaseName string, namespace string, values map[string]any, timeout time.Duration) (*release.Release, error) {
-	cfg, err := hc.getActionCfg(namespace)
+	cfg, disable, err := hc.getActionCfg(namespace)
 	if err != nil {
 		return nil, fmt.Errorf("can't create action configuration: %w", err)
 	}
+	defer disable()
 
 	cfg.RegistryClient, err = hc.registryManager.GetRegistryClient(chartName)
 	if err != nil {
@@ -364,10 +345,11 @@ func (hc *Commands) InstallChart(ctx context.Context, chartName string, version 
 // UpgradeChart upgrades a helm chart.
 // InstallChart, UpgradeChart and UninstallRelease(releaseName are *NOT* thread-safe
 func (hc *Commands) UpgradeChart(ctx context.Context, chartName string, version string, releaseName string, namespace string, values map[string]any, timeout time.Duration, force bool) (*release.Release, error) {
-	cfg, err := hc.getActionCfg(namespace)
+	cfg, disable, err := hc.getActionCfg(namespace)
 	if err != nil {
 		return nil, fmt.Errorf("can't create action configuration: %w", err)
 	}
+	defer disable()
 
 	cfg.RegistryClient, err = hc.registryManager.GetRegistryClient(chartName)
 	if err != nil {
@@ -412,10 +394,11 @@ func (hc *Commands) UpgradeChart(ctx context.Context, chartName string, version 
 }
 
 func (hc *Commands) ListReleases(namespace string) ([]*release.Release, error) {
-	cfg, err := hc.getActionCfg(namespace)
+	cfg, disable, err := hc.getActionCfg(namespace)
 	if err != nil {
 		return nil, fmt.Errorf("can't create helmAction configuration: %w", err)
 	}
+	defer disable()
 	helmAction := action.NewList(cfg)
 	return helmAction.Run()
 }
@@ -423,10 +406,11 @@ func (hc *Commands) ListReleases(namespace string) ([]*release.Release, error) {
 // UninstallRelease uninstalls a release.
 // InstallChart, UpgradeChart and UninstallRelease(releaseName are *NOT* thread-safe
 func (hc *Commands) UninstallRelease(ctx context.Context, releaseName string, namespace string) error {
-	cfg, err := hc.getActionCfg(namespace)
+	cfg, disable, err := hc.getActionCfg(namespace)
 	if err != nil {
 		return fmt.Errorf("can't create helmAction configuration: %w", err)
 	}
+	defer disable()
 	helmAction := action.NewUninstall(cfg)
 	deadline, ok := ctx.Deadline()
 	if ok {
