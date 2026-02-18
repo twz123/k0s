@@ -310,7 +310,6 @@ func (hc *Commands) InstallChart(ctx context.Context, chartName string, version 
 		return nil, err
 	}
 	install.Namespace = namespace
-	install.Atomic = true
 	install.ReleaseName = releaseName
 	name, _, err := install.NameAndChart([]string{chartName})
 	install.ReleaseName = name
@@ -336,10 +335,35 @@ func (hc *Commands) InstallChart(ctx context.Context, chartName string, version 
 		return nil, fmt.Errorf("can't reload loadedChart `%s`: %w", chartDir, err)
 	}
 	chartRelease, err := install.RunWithContext(ctx, loadedChart, values)
-	if err != nil {
-		return nil, fmt.Errorf("can't install loadedChart `%s`: %w", loadedChart.Name(), err)
+	if err == nil {
+		return chartRelease, nil
 	}
-	return chartRelease, nil
+
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("release %s failed and will be uninstalled the next time the chart will be reconciled: %w (%w)", install.ReleaseName, err, context.Cause(ctx))
+	default:
+	}
+
+	cfg.Log("Release %s failed, uninstalling: %v", install.ReleaseName, err)
+
+	uninstall := action.NewUninstall(cfg)
+	uninstall.DisableHooks = install.DisableHooks
+	uninstall.KeepHistory = false
+	uninstall.Timeout = install.Timeout
+
+	done := make(chan error, 1)
+	go func() { _, err := uninstall.Run(install.ReleaseName); done <- err }()
+
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("release %s failed, and the uninstallation has been interrupted: %w; original install error: %w", install.ReleaseName, context.Cause(ctx), err)
+	case uninstallErr := <-done:
+		if uninstallErr == nil {
+			return nil, fmt.Errorf("release %s failed, and has been uninstalled: %w", install.ReleaseName, err)
+		}
+		return nil, fmt.Errorf("release %s failed, and an error occurred while uninstalling: %w; original install error: %w", install.ReleaseName, uninstallErr, err)
+	}
 }
 
 // UpgradeChart upgrades a helm chart.
