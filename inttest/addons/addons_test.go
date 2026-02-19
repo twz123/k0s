@@ -4,12 +4,16 @@
 package addons
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto"
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path"
@@ -56,7 +60,6 @@ import (
 const (
 	registryCACertContainerPath = "/tmp/registry-ca.crt"
 	echoServerTgzPath           = "./testdata/chart/echo-server-0.5.0.tgz"
-	slowHookChartPath           = "./testdata/slow-hook-0.1.0.tgz"
 )
 
 type AddonsSuite struct {
@@ -623,11 +626,6 @@ func (as *AddonsSuite) testControllerRestartRecovery(ctx context.Context, kc *k8
 	restartAddonName := "restart-test-addon"
 	chartName := "k0s-addon-chart-" + restartAddonName
 
-	// Read the slow-hook chart and push it to the controller
-	chartBytes, err := os.ReadFile(slowHookChartPath)
-	as.Require().NoError(err)
-	as.PutFile(as.ControllerNode(0), "/tmp/slow-hook.tgz", string(chartBytes))
-
 	// Create a Chart with slow post-install hook that will be interrupted
 	chart := &helmv1beta1.Chart{
 		TypeMeta: metav1.TypeMeta{
@@ -642,7 +640,7 @@ func (as *AddonsSuite) testControllerRestartRecovery(ctx context.Context, kc *k8
 			},
 		},
 		Spec: helmv1beta1.ChartSpec{
-			ChartName:   "/tmp/slow-hook.tgz",
+			ChartName:   as.uploadChart("slow-hook-chart"),
 			ReleaseName: restartAddonName,
 			Version:     "0.1.0",
 			Namespace:   metav1.NamespaceDefault,
@@ -691,6 +689,62 @@ func (as *AddonsSuite) testControllerRestartRecovery(ctx context.Context, kc *k8
 	as.waitForTestRelease(restartAddonName, "1.0", metav1.NamespaceDefault, 1)
 
 	as.T().Logf("Successfully recovered from interrupted install: %s is now deployed", restartAddonName)
+}
+
+func (as *AddonsSuite) uploadChart(chartName string) string {
+	var chartArchive bytes.Buffer
+	gz := gzip.NewWriter(&chartArchive)
+	as.Require().NoError(tarFS(os.DirFS("testdata"), chartName, gz), gz)
+	as.Require().NoError(gz.Close())
+
+	remotePath := path.Join("/tmp", chartName+".tar.gz")
+	for i := range as.ControllerCount {
+		as.WriteFileContent(as.ControllerNode(i), remotePath, chartArchive.Bytes())
+	}
+
+	return remotePath
+}
+
+func tarFS(src fs.FS, path string, out io.Writer) (err error) {
+	tw := tar.NewWriter(out)
+	defer func() {
+		if err == nil {
+			err = tw.Close()
+		}
+	}()
+
+	return fs.WalkDir(src, path, func(name string, entry fs.DirEntry, err error) error {
+		switch {
+		case err != nil || name == ".":
+			return err
+
+		case entry.IsDir():
+			return tw.WriteHeader(&tar.Header{
+				Name:     strings.TrimSuffix(name, "/") + "/",
+				Typeflag: tar.TypeDir,
+				Mode:     0o755,
+			})
+
+		case entry.Type().IsRegular():
+			content, err := fs.ReadFile(src, name)
+			if err != nil {
+				return err
+			}
+			if err := tw.WriteHeader(&tar.Header{
+				Name:     name,
+				Typeflag: tar.TypeReg,
+				Mode:     0o644,
+				Size:     int64(len(content)),
+			}); err != nil {
+				return err
+			}
+			_, err = tw.Write(content)
+			return err
+
+		default:
+			return nil
+		}
+	})
 }
 
 func TestAddonsSuite(t *testing.T) {
