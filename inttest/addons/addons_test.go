@@ -40,6 +40,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	k8s "k8s.io/client-go/kubernetes"
 	"k8s.io/utils/ptr"
@@ -664,22 +665,17 @@ func (as *AddonsSuite) testControllerRestartRecovery(ctx context.Context, kc *k8
 	// the controller while Helm is actively managing the release.
 	as.T().Log("Waiting for Helm release secret to appear...")
 
-	as.Require().NoError(wait.PollUntilContextTimeout(ctx, 2*time.Second, 1*time.Minute, true, func(ctx context.Context) (bool, error) {
-		secretList, err := kc.CoreV1().Secrets(metav1.NamespaceDefault).List(ctx, metav1.ListOptions{})
-		if err != nil {
-			as.T().Logf("Error listing secrets: %v", err)
-			return false, err
-		}
-
-		for _, secret := range secretList.Items {
-			if secret.Labels["name"] == restartAddonName && secret.Labels["owner"] == "helm" {
-				as.T().Logf("Found secret for release %s: %s", restartAddonName, secret.Name)
-				return true, nil
-			}
-		}
-
-		return false, nil
-	}))
+	secrets := kc.CoreV1().Secrets(metav1.NamespaceDefault)
+	as.Require().NoError(watch.FromClient[*corev1.SecretList, corev1.Secret](secrets).
+		WithLabels(labels.Set{
+			"owner": "helm",
+			"name":  restartAddonName,
+		}).
+		Until(ctx, func(secret *corev1.Secret) (done bool, err error) {
+			b, _ := yaml.Marshal(secret)
+			as.T().Logf("Found secret for release %s: %s\n%s", restartAddonName, secret.Name, b)
+			return true, nil
+		}))
 
 	as.T().Log("Helm started its job, restarting controller...")
 
@@ -695,7 +691,6 @@ func (as *AddonsSuite) testControllerRestartRecovery(ctx context.Context, kc *k8
 	as.waitForTestRelease(restartAddonName, "1.0", metav1.NamespaceDefault, 1)
 
 	as.T().Logf("Successfully recovered from interrupted install: %s is now deployed", restartAddonName)
-
 }
 
 func TestAddonsSuite(t *testing.T) {
