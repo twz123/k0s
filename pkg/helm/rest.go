@@ -4,7 +4,9 @@
 package helm
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,18 +16,21 @@ import (
 	"sync/atomic"
 
 	"github.com/k0sproject/k0s/pkg/kubernetes"
-	"github.com/sirupsen/logrus"
-	"helm.sh/helm/v3/pkg/kube"
+
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/transport"
+
+	"github.com/sirupsen/logrus"
+	"helm.sh/helm/v3/pkg/kube"
 )
 
-var errDisabled = errors.New("disabled")
+var errDisabled = errors.New("transport has been disabled")
 
 // Allows bricking REST traffic for a specific action configuration.
 type controlledRESTClientGetter struct {
@@ -175,7 +180,7 @@ func (c *transportControl) roundTripper(rt http.RoundTripper) http.RoundTripper 
 func (c *transportControl) roundTrip(rt http.RoundTripper, req *http.Request) (*http.Response, error) {
 	select {
 	case <-c.disabled:
-		return nil, errDisabled
+		return c.disabledResponse(req), nil
 	default:
 	}
 
@@ -253,6 +258,33 @@ func (c *transportControl) dial(ctx context.Context, dial func(context.Context) 
 	}()
 
 	return &closeWrappingConn{conn, close}, nil
+}
+
+func (c *transportControl) disabledResponse(req *http.Request) *http.Response {
+	status := metav1.Status{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Status",
+			APIVersion: "v1",
+		},
+		Status:  metav1.StatusFailure,
+		Code:    http.StatusLocked,
+		Reason:  metav1.StatusReasonUnknown,
+		Message: errDisabled.Error(),
+	}
+	body, _ := json.Marshal(status)
+	return &http.Response{
+		Status:        http.StatusText(http.StatusLocked) + ": " + status.Message,
+		StatusCode:    http.StatusLocked,
+		Proto:         req.Proto,
+		ProtoMajor:    req.ProtoMajor,
+		ProtoMinor:    req.ProtoMinor,
+		Header:        http.Header{"Content-Type": []string{"application/json"}},
+		ContentLength: int64(len(body)),
+		Body:          io.NopCloser(bytes.NewReader(body)),
+		Close:         true,
+		Request:       req,
+		TLS:           req.TLS,
+	}
 }
 
 type roundTripperFunc func(req *http.Request) (*http.Response, error)
