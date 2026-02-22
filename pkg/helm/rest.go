@@ -58,7 +58,7 @@ func newControlledRESTClientGetter(namespace string, loadRESTConfig func() (*res
 
 // ToRESTConfig implements [genericclioptions.RESTClientGetter].
 func (g *controlledRESTClientGetter) ToRESTConfig() (*rest.Config, error) {
-	return g.clients.GetRESTConfig()
+	return g.ClientConfig()
 }
 
 // ToDiscoveryClient implements [genericclioptions.RESTClientGetter].
@@ -91,7 +91,12 @@ func (g *controlledRESTClientGetter) ToRawKubeConfigLoader() clientcmd.ClientCon
 }
 
 func (g *controlledRESTClientGetter) ClientConfig() (*rest.Config, error) {
-	return g.clients.GetRESTConfig()
+	config, err := g.clients.GetRESTConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	return rest.CopyConfig(config), nil
 }
 
 // ConfigAccess implements [clientcmd.ClientConfig].

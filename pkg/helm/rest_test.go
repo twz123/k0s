@@ -11,9 +11,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 
 	"github.com/k0sproject/k0s/pkg/k0scontext"
 
@@ -142,23 +144,63 @@ func TestControlledRESTClientGetter_DisableInterruptsInflightDials(t *testing.T)
 	}
 }
 
-func TestControlledRESTClientGetter_RejectsNonHTTPTransportInput(t *testing.T) {
+func TestControlledRESTClientGetter_RejectsUnsupportedTransports(t *testing.T) {
 	underTest := newControlledRESTClientGetter("ns", func() (*rest.Config, error) {
 		return &rest.Config{Host: "https://does-not-matter.example.com"}, nil
 	})
 
-	cfg, err := underTest.ToRESTConfig()
-	require.NoError(t, err)
-	require.Nil(t, cfg.Transport)
-	cfg.Transport = roundTripperFunc(func(*http.Request) (*http.Response, error) {
-		panic("unreachable: not an *http.Transport")
+	t.Run("OnlyHTTPTransports", func(t *testing.T) {
+		cfg, err := underTest.ToRESTConfig()
+		require.NoError(t, err)
+		require.Nil(t, cfg.Transport)
+		cfg.Transport = roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			panic("unreachable")
+		})
+
+		clients, err := kubernetes.NewForConfig(cfg)
+		require.NoError(t, err)
+
+		result := clients.RESTClient().Get().Do(t.Context())
+		assert.ErrorContains(t, result.Error(), "expected an *http.Transport")
 	})
 
-	clients, err := kubernetes.NewForConfig(cfg)
-	require.NoError(t, err)
+	t.Run("NoDeprecatedDial", func(t *testing.T) {
+		cfg, err := underTest.ToRESTConfig()
+		require.NoError(t, err)
+		cfg.Transport = &http.Transport{
+			Dial: func(_, _ string) (net.Conn, error) {
+				panic("unreachable")
+			},
+		}
 
-	result := clients.RESTClient().Get().Do(t.Context())
-	assert.ErrorContains(t, result.Error(), "expected an *http.Transport")
+		clients, err := kubernetes.NewForConfig(cfg)
+		require.NoError(t, err)
+
+		result := clients.RESTClient().Get().Do(t.Context())
+		var urlErr *url.Error
+		if assert.ErrorAs(t, result.Error(), &urlErr) && assert.Error(t, urlErr.Err) {
+			assert.Equal(t, "cannot deal with the deprecated transport.Dial", urlErr.Err.Error())
+		}
+	})
+
+	t.Run("NoDeprecatedDialTLS", func(t *testing.T) {
+		cfg, err := underTest.ToRESTConfig()
+		require.NoError(t, err)
+		cfg.Transport = &http.Transport{
+			DialTLS: func(_, _ string) (net.Conn, error) {
+				panic("unreachable")
+			},
+		}
+
+		clients, err := kubernetes.NewForConfig(cfg)
+		require.NoError(t, err)
+
+		result := clients.RESTClient().Get().Do(t.Context())
+		var urlErr *url.Error
+		if assert.ErrorAs(t, result.Error(), &urlErr) && assert.Error(t, urlErr.Err) {
+			assert.Equal(t, "cannot deal with the deprecated transport.DialTLS", urlErr.Err.Error())
+		}
+	})
 }
 
 func TestControlledRESTClientGetter_ResponseBodyClosePropagates(t *testing.T) {
@@ -333,6 +375,149 @@ func TestControlledRESTClientGetter_DisableInterruptsWatchStream(t *testing.T) {
 	assert.True(t, conn.isClosed())
 }
 
+var (
+	errReadForwarded  = errors.New("read forwarded")
+	errCloseForwarded = errors.New("close forwarded")
+	errWriteForwarded = errors.New("write forwarded")
+)
+
+func TestTransportControl_WrapBody_NilBody(t *testing.T) {
+	tc := &transportControl{disabled: make(chan struct{})}
+	body := tc.wrapBody(nil, func(error) {})
+	require.NotNil(t, body)
+	defer func() { assert.NoError(t, body.Close()) }()
+
+	b, err := io.ReadAll(body)
+	require.NoError(t, err)
+	assert.Empty(t, b)
+}
+
+func TestTransportControl_RoundTrip(t *testing.T) {
+	underTest := (&transportControl{make(<-chan struct{})})
+
+	t.Run("NilBody", func(t *testing.T) {
+		var requestContext context.Context
+		resp, err := underTest.roundTrip(roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			requestContext = req.Context()
+			return &http.Response{Body: nil}, nil
+		}), &http.Request{})
+		require.NoError(t, err)
+		require.NotNil(t, resp.Body)
+
+		b, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		assert.Empty(t, b)
+
+		assert.NoError(t, requestContext.Err())
+		assert.NoError(t, resp.Body.Close())
+		assert.Equal(t, errHTTPBodyClosed, context.Cause(requestContext))
+	})
+
+	for _, tt := range []struct {
+		name         string
+		body         io.ReadCloser
+		flush, write bool
+	}{
+		{"WrapsReader", &fakeReadCloser{}, false, false},
+		{"WrapsFlushableReader", &fakeFlushableReadCloser{}, true, false},
+		{"WrapsReadWriter", &fakeReadWriteCloser{}, false, true},
+		{"WrapsFlushableReadWriter", &fakeFlushableReadWriteCloser{}, true, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+
+			var requestContext context.Context
+			resp, err := underTest.roundTrip(roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				requestContext = req.Context()
+				return &http.Response{Body: tt.body}, nil
+			}), &http.Request{})
+			require.NoError(t, err)
+			assert.NotEqual(t, tt.body, resp.Body)
+			require.NotNil(t, resp.Body)
+
+			var b [1]byte
+			n, err := resp.Body.Read(b[:])
+			assert.Equal(t, errReadForwarded, err)
+			assert.Zero(t, n)
+
+			if tt.write {
+				if w, ok := resp.Body.(io.Writer); assert.True(t, ok) {
+					var b [1]byte
+					n, err := w.Write(b[:])
+					assert.Equal(t, 0, n)
+					assert.Same(t, errWriteForwarded, err)
+				}
+			} else {
+				var writer io.Writer
+				assert.IsNotType(t, writer, tt.body)
+				assert.IsNotType(t, writer, resp.Body)
+			}
+
+			if tt.flush {
+				unwrapped := tt.body.(interface{ flushesSeen() uint32 })
+				if f, ok := resp.Body.(http.Flusher); assert.True(t, ok) {
+					assert.Zero(t, unwrapped.flushesSeen())
+					f.Flush()
+					assert.Equal(t, uint32(1), unwrapped.flushesSeen())
+				}
+			} else {
+				var flusher http.Flusher
+				assert.IsNotType(t, flusher, tt.body)
+				assert.IsNotType(t, flusher, resp.Body)
+			}
+
+			assert.NoError(t, requestContext.Err())
+			assert.Equal(t, errCloseForwarded, resp.Body.Close())
+			assert.Equal(t, errHTTPBodyClosed, context.Cause(requestContext))
+		})
+	}
+
+	t.Run("DoesNotDoubleWrapInterruptedError", func(t *testing.T) {
+		expected := fmt.Errorf("injected: %w", errHelmOperationInterrupted)
+		body := io.NopCloser(iotest.ErrReader(expected))
+		disabled := make(chan struct{})
+		underTest := transportControl{disabled}
+
+		resp, err := underTest.roundTrip(roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{Body: body}, nil
+		}), &http.Request{})
+		require.NoError(t, err)
+		assert.NotEqual(t, body, resp.Body)
+
+		close(disabled)
+		var b [1]byte
+		_, err = resp.Body.Read(b[:])
+		assert.Equal(t, expected, err)
+	})
+}
+
+func TestHelmOperationInterruptedErr(t *testing.T) {
+	underTest := helmOperationInterruptedErr{}
+
+	t.Run("Status", func(t *testing.T) {
+		status := underTest.Status()
+		assert.Equal(t, metav1.StatusFailure, status.Status)
+		assert.EqualValues(t, http.StatusLocked, status.Code)
+		assert.Equal(t, errHelmOperationInterrupted.Error(), status.Message)
+	})
+
+	t.Run("AsStatusError", func(t *testing.T) {
+		var asTarget *apierrors.StatusError
+		ok := errors.As(underTest, &asTarget)
+		require.True(t, ok)
+		require.NotNil(t, asTarget)
+		assert.EqualValues(t, http.StatusLocked, asTarget.ErrStatus.Code)
+	})
+
+	t.Run("AsUnrelatedError", func(t *testing.T) {
+		// Non-matching target type should not be set by As.
+		var targetErr error
+		ok := underTest.As(&targetErr)
+		assert.False(t, ok)
+		//nolint:testifylint // In this context, it's an assigned value, not an error
+		assert.Zero(t, targetErr)
+	})
+}
+
 func startHTTPPipeServer(t *testing.T) *http.Transport {
 	server := http.Server{
 		Addr: "pipe",
@@ -447,4 +632,28 @@ func (p *pipeListner) Addr() net.Addr {
 func (p *pipeListner) Close() error {
 	close(p.done)
 	return nil
+}
+
+type fakeReadCloser struct{}
+
+func (f *fakeReadCloser) Read(p []byte) (int, error) { return 0, errReadForwarded }
+func (f *fakeReadCloser) Close() error               { return errCloseForwarded }
+
+type fakeReadWriteCloser struct{ fakeReadCloser }
+
+func (f *fakeReadWriteCloser) Write(p []byte) (int, error) { return 0, errWriteForwarded }
+
+type flushCounter atomic.Uint32
+
+func (f *flushCounter) Flush()              { (*atomic.Uint32)(f).Add(1) }
+func (f *flushCounter) flushesSeen() uint32 { return (*atomic.Uint32)(f).Load() }
+
+type fakeFlushableReadCloser struct {
+	fakeReadCloser
+	flushCounter
+}
+
+type fakeFlushableReadWriteCloser struct {
+	fakeReadWriteCloser
+	flushCounter
 }
