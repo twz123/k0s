@@ -20,7 +20,6 @@ import (
 	"github.com/k0sproject/k0s/pkg/k0scontext"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
@@ -73,7 +72,7 @@ func TestControlledRESTClientGetter_ToRESTMapperCachesMapper(t *testing.T) {
 	assert.Same(t, m1, m2)
 }
 
-func TestControlledRESTClientGetter_InterruptedReturnsStructuredLockedResponse(t *testing.T) {
+func TestControlledRESTClientGetter_InterruptsRegularRequests(t *testing.T) {
 	stop := make(chan struct{})
 	underTest := newControlledRESTClientGetter("ns", stop, func() (*rest.Config, error) {
 		return &rest.Config{Host: "https://does-not-matter.example.com"}, nil
@@ -88,13 +87,7 @@ func TestControlledRESTClientGetter_InterruptedReturnsStructuredLockedResponse(t
 	close(stop)
 
 	_, err = clients.CoreV1().Namespaces().List(t.Context(), metav1.ListOptions{})
-	var apiErr apierrors.APIStatus
-	if assert.ErrorAs(t, err, &apiErr) {
-		status := apiErr.Status()
-		assert.Equal(t, metav1.StatusFailure, status.Status)
-		assert.EqualValues(t, http.StatusLocked, status.Code)
-		assert.Equal(t, errHelmOperationInterrupted.Error(), status.Message)
-	}
+	assert.ErrorIs(t, err, errHelmOperationInterrupted)
 }
 
 func TestControlledRESTClientGetter_InterruptsInflightDials(t *testing.T) {
@@ -134,16 +127,7 @@ func TestControlledRESTClientGetter_InterruptsInflightDials(t *testing.T) {
 
 	<-listDone
 
-	//nolint:testifylint // We need this error to be of this exact type.
-	// Helm 3.20.0 doesn't use errors.As, but an explicit type check.
-	if assert.IsType(t, &apierrors.StatusError{}, listErr) {
-		//nolint:errorlint // We need this error to be of this exact type.
-		// Helm 3.20.0 doesn't use errors.As, but an explicit type check.
-		listErr := listErr.(*apierrors.StatusError)
-		assert.Equal(t, metav1.StatusFailure, listErr.ErrStatus.Status)
-		assert.EqualValues(t, http.StatusLocked, listErr.ErrStatus.Code)
-		assert.Equal(t, errHelmOperationInterrupted.Error(), listErr.ErrStatus.Message)
-	}
+	assert.ErrorIs(t, listErr, errHelmOperationInterrupted)
 }
 
 func TestControlledRESTClientGetter_RejectsUnsupportedTransports(t *testing.T) {
@@ -473,34 +457,6 @@ func TestTransportControl_RoundTrip(t *testing.T) {
 		var b [1]byte
 		_, err = resp.Body.Read(b[:])
 		assert.Equal(t, expected, err)
-	})
-}
-
-func TestHelmOperationInterruptedErr(t *testing.T) {
-	underTest := helmOperationInterruptedErr{}
-
-	t.Run("Status", func(t *testing.T) {
-		status := underTest.Status()
-		assert.Equal(t, metav1.StatusFailure, status.Status)
-		assert.EqualValues(t, http.StatusLocked, status.Code)
-		assert.Equal(t, errHelmOperationInterrupted.Error(), status.Message)
-	})
-
-	t.Run("AsStatusError", func(t *testing.T) {
-		var asTarget *apierrors.StatusError
-		ok := errors.As(underTest, &asTarget)
-		require.True(t, ok)
-		require.NotNil(t, asTarget)
-		assert.EqualValues(t, http.StatusLocked, asTarget.ErrStatus.Code)
-	})
-
-	t.Run("AsUnrelatedError", func(t *testing.T) {
-		// Non-matching target type should not be set by As.
-		var targetErr error
-		ok := underTest.As(&targetErr)
-		assert.False(t, ok)
-		//nolint:testifylint // In this context, it's an assigned value, not an error
-		assert.Zero(t, targetErr)
 	})
 }
 

@@ -4,9 +4,7 @@
 package helm
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,9 +15,7 @@ import (
 
 	"github.com/k0sproject/k0s/pkg/kubernetes"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	_ "k8s.io/cli-runtime/pkg/genericclioptions" // for godoc
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
@@ -227,7 +223,7 @@ func (c *transportControl) roundTripper(rt http.RoundTripper) http.RoundTripper 
 func (c *transportControl) roundTrip(rt http.RoundTripper, req *http.Request) (*http.Response, error) {
 	select {
 	case <-c.interrupted:
-		return interruptedResponse(req), nil
+		return nil, c.interruptedErr
 	default:
 	}
 
@@ -245,12 +241,10 @@ func (c *transportControl) roundTrip(rt http.RoundTripper, req *http.Request) (*
 		cancel(err)
 		select {
 		case <-c.interrupted:
-			// We've been interrupted. The only way to prevent Helm retries is
-			// to fake an HTTP error response, as it's the only way to get an
-			// unwrapped *apierrors.StatusErr returned by the Kubernetes client
-			// libraries. This might change as soon as the respective Helm code
-			// paths use errors.As to properly unwrap the errors.
-			return interruptedResponse(req), nil
+			if errors.Is(err, c.interruptedErr) {
+				return nil, err
+			}
+			return nil, fmt.Errorf("%w (%w)", c.interruptedErr, err)
 		default:
 		}
 
@@ -301,64 +295,6 @@ func (c *transportControl) wrapBody(body io.ReadCloser, cancel context.CancelCau
 
 func makeBodyWrapper[T io.Reader](c *transportControl, body T, close func() error) bodyWrapper[T] {
 	return bodyWrapper[T]{body, c.interrupted, c.interruptedErr, close}
-}
-
-var errHelmOperationInterrupted error = helmOperationInterruptedErr{}
-
-type helmOperationInterruptedErr struct{}
-
-// Ensures that [errors.As] will unwrap this.
-var _ apierrors.APIStatus = helmOperationInterruptedErr{}
-
-// Error implements [error].
-func (helmOperationInterruptedErr) Error() string {
-	return "helm operation interrupted"
-}
-
-// Status implements [apierrors.APIStatus].
-func (helmOperationInterruptedErr) Status() metav1.Status {
-	return interruptedStatus()
-}
-
-func (h helmOperationInterruptedErr) As(target any) bool {
-	switch e := target.(type) {
-	case **apierrors.StatusError:
-		*e = &apierrors.StatusError{ErrStatus: h.Status()}
-		return true
-	default:
-		return false
-	}
-}
-
-func interruptedStatus() metav1.Status {
-	return metav1.Status{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Status",
-			APIVersion: "v1",
-		},
-		Status:  metav1.StatusFailure,
-		Code:    http.StatusLocked,
-		Reason:  metav1.StatusReasonUnknown,
-		Message: errHelmOperationInterrupted.Error(),
-	}
-}
-
-func interruptedResponse(req *http.Request) *http.Response {
-	status := interruptedStatus()
-	body, _ := json.Marshal(&status)
-	return &http.Response{
-		Status:        http.StatusText(http.StatusLocked) + ": " + status.Message,
-		StatusCode:    http.StatusLocked,
-		Proto:         req.Proto,
-		ProtoMajor:    req.ProtoMajor,
-		ProtoMinor:    req.ProtoMinor,
-		Header:        http.Header{"Content-Type": []string{"application/json"}},
-		ContentLength: int64(len(body)),
-		Body:          io.NopCloser(bytes.NewReader(body)),
-		Close:         true,
-		Request:       req,
-		TLS:           req.TLS,
-	}
 }
 
 type roundTripperFunc func(req *http.Request) (*http.Response, error)

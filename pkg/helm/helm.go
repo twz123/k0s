@@ -310,6 +310,8 @@ func (hc *Commands) isInstallable(chart *chart.Chart) bool {
 	return true
 }
 
+var errHelmOperationInterrupted = errors.New("helm operation interrupted")
+
 // InstallChart installs a helm chart
 // InstallChart, UpgradeChart and UninstallRelease(releaseName are *NOT* thread-safe
 func (hc *Commands) InstallChart(ctx context.Context, chartName string, version string, releaseName string, namespace string, values map[string]any, timeout time.Duration) (*release.Release, error) {
