@@ -27,6 +27,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/transport"
+	"k8s.io/utils/ptr"
 
 	"helm.sh/helm/v3/pkg/kube"
 )
@@ -36,12 +37,10 @@ type controlledRESTClientGetter struct {
 	namespace  string
 	clients    kubernetes.ClientFactory
 	restMapper atomic.Pointer[restmapper.DeferredDiscoveryRESTMapper]
-	disable    func()
 }
 
-func newControlledRESTClientGetter(namespace string, loadRESTConfig func() (*rest.Config, error)) *controlledRESTClientGetter {
-	disabled := make(chan struct{})
-	transportControl := &transportControl{disabled}
+func newControlledRESTClientGetter(namespace string, stop <-chan struct{}, loadRESTConfig func() (*rest.Config, error)) *controlledRESTClientGetter {
+	transportControl := &transportControl{stop, errHelmOperationInterrupted}
 
 	return &controlledRESTClientGetter{
 		namespace: namespace,
@@ -52,7 +51,6 @@ func newControlledRESTClientGetter(namespace string, loadRESTConfig func() (*res
 			}
 			return transportControl.controlledConfig(config), nil
 		}},
-		disable: sync.OnceFunc(func() { close(disabled) }),
 	}
 }
 
@@ -117,7 +115,8 @@ func (g *controlledRESTClientGetter) RawConfig() (api.Config, error) {
 }
 
 type transportControl struct {
-	disabled <-chan struct{}
+	interrupted    <-chan struct{}
+	interruptedErr error
 }
 
 func (c *transportControl) controlledConfig(config *rest.Config) *rest.Config {
@@ -128,10 +127,10 @@ func (c *transportControl) controlledConfig(config *rest.Config) *rest.Config {
 	if wrapTransport := config.WrapTransport; wrapTransport != nil {
 		wrappers = append(wrappers, wrapTransport) // This is the original wrapper.
 	}
-	wrappers = append(wrappers, c.roundTripper) // Tinkers with request contexts.
 	wrappers = append(wrappers, func(rt http.RoundTripper) http.RoundTripper {
-		return &kube.RetryingRoundTripper{Wrapped: rt}
+		return &kube.RetryingRoundTripper{Wrapped: rt} // Retries etcd hick-ups.
 	})
+	wrappers = append(wrappers, c.roundTripper) // Injects externally cancellable request contexts.
 
 	config.WrapTransport = transport.Wrappers(wrappers...)
 
@@ -180,8 +179,8 @@ type dialFunc = func(ctx context.Context, net, addr string) (net.Conn, error)
 func (c *transportControl) wrapDial(dial dialFunc) dialFunc {
 	return func(ctx context.Context, net, addr string) (net.Conn, error) {
 		select {
-		case <-c.disabled:
-			return nil, errHelmOperationInterrupted
+		case <-c.interrupted:
+			return nil, c.interruptedErr
 		default:
 		}
 
@@ -190,8 +189,8 @@ func (c *transportControl) wrapDial(dial dialFunc) dialFunc {
 
 		go func() {
 			select {
-			case <-c.disabled:
-				cancel(errHelmOperationInterrupted)
+			case <-c.interrupted:
+				cancel(c.interruptedErr)
 			case <-ctx.Done():
 			}
 		}()
@@ -209,7 +208,7 @@ func (c *transportControl) wrapDial(dial dialFunc) dialFunc {
 
 		go func() {
 			select {
-			case <-c.disabled:
+			case <-c.interrupted:
 				_ = close()
 			case <-closing:
 			}
@@ -227,7 +226,7 @@ func (c *transportControl) roundTripper(rt http.RoundTripper) http.RoundTripper 
 
 func (c *transportControl) roundTrip(rt http.RoundTripper, req *http.Request) (*http.Response, error) {
 	select {
-	case <-c.disabled:
+	case <-c.interrupted:
 		return interruptedResponse(req), nil
 	default:
 	}
@@ -235,8 +234,8 @@ func (c *transportControl) roundTrip(rt http.RoundTripper, req *http.Request) (*
 	ctx, cancel := context.WithCancelCause(req.Context())
 	go func() {
 		select {
-		case <-c.disabled:
-			cancel(errHelmOperationInterrupted)
+		case <-c.interrupted:
+			cancel(c.interruptedErr)
 		case <-ctx.Done():
 		}
 	}()
@@ -245,7 +244,7 @@ func (c *transportControl) roundTrip(rt http.RoundTripper, req *http.Request) (*
 	if err != nil {
 		cancel(err)
 		select {
-		case <-c.disabled:
+		case <-c.interrupted:
 			// We've been interrupted. The only way to prevent Helm retries is
 			// to fake an HTTP error response, as it's the only way to get an
 			// unwrapped *apierrors.StatusErr returned by the Kubernetes client
@@ -265,51 +264,43 @@ func (c *transportControl) roundTrip(rt http.RoundTripper, req *http.Request) (*
 
 var errHTTPBodyClosed = errors.New("HTTP body closed")
 
-func (c *transportControl) wrapBody(body io.Reader, cancel context.CancelCauseFunc) io.ReadCloser {
-	var close func() error
-	if c, ok := body.(io.Closer); ok {
-		close = sync.OnceValue(func() error {
-			err := c.Close()
-			cancel(errHTTPBodyClosed)
-			return err
-		})
-	} else {
-		close = func() error {
-			cancel(errHTTPBodyClosed)
-			return nil
-		}
+func (c *transportControl) wrapBody(body io.ReadCloser, cancel context.CancelCauseFunc) io.ReadCloser {
+	if body == nil {
+		cancel(nil)
+		return nil
 	}
+
+	close := sync.OnceValue(func() error {
+		err := body.Close()
+		cancel(errHTTPBodyClosed)
+		return err
+	})
 
 	switch body := body.(type) {
 	case flushableWritableBody:
 		return &flushableWritableBodyWrapper{
 			writableBodyWrapper[flushableWritableBody]{
-				bodyWrapper[flushableWritableBody]{
-					body, c.disabled, close,
-				},
+				makeBodyWrapper(c, body, close),
 			},
 		}
 
 	case io.ReadWriter:
 		return &writableBodyWrapper[io.ReadWriter]{
-			bodyWrapper[io.ReadWriter]{
-				body, c.disabled, close,
-			},
+			makeBodyWrapper(c, body, close),
 		}
 
 	case flushableBody:
 		return &flushableBodyWrapper{
-			bodyWrapper[flushableBody]{
-				body, c.disabled, close,
-			},
+			makeBodyWrapper(c, body, close),
 		}
 
-	case nil:
-		return &bodyWrapper[io.Reader]{bytes.NewReader(nil), c.disabled, close}
-
 	default:
-		return &bodyWrapper[io.Reader]{body, c.disabled, close}
+		return ptr.To(makeBodyWrapper(c, body, close))
 	}
+}
+
+func makeBodyWrapper[T io.Reader](c *transportControl, body T, close func() error) bodyWrapper[T] {
+	return bodyWrapper[T]{body, c.interrupted, c.interruptedErr, close}
 }
 
 var errHelmOperationInterrupted error = helmOperationInterruptedErr{}
@@ -392,9 +383,10 @@ type flushableWritableBody interface {
 }
 
 type bodyWrapper[T io.Reader] struct {
-	inner    T
-	disabled <-chan struct{}
-	close    func() error
+	inner       T
+	disabled    <-chan struct{}
+	disabledErr error
+	close       func() error
 }
 
 // Read implements [io.ReadCloser].
@@ -412,8 +404,8 @@ func (w *bodyWrapper[T]) wrapErr(err error) error {
 	if err != nil {
 		select {
 		case <-w.disabled:
-			if !errors.Is(err, errHelmOperationInterrupted) {
-				return fmt.Errorf("%w (%w)", errHelmOperationInterrupted, err)
+			if !errors.Is(err, w.disabledErr) {
+				return fmt.Errorf("%w (%w)", w.disabledErr, err)
 			}
 		default:
 		}

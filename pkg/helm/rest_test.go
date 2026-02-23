@@ -31,7 +31,7 @@ import (
 )
 
 func TestControlledRESTClientGetter_ImplementsClientConfig(t *testing.T) {
-	underTest := newControlledRESTClientGetter("ns", func() (*rest.Config, error) {
+	underTest := newControlledRESTClientGetter("ns", t.Context().Done(), func() (*rest.Config, error) {
 		return &rest.Config{Host: "https://does-not-matter.example.com"}, nil
 	})
 
@@ -62,7 +62,7 @@ func TestControlledRESTClientGetter_ImplementsClientConfig(t *testing.T) {
 }
 
 func TestControlledRESTClientGetter_ToRESTMapperCachesMapper(t *testing.T) {
-	underTest := newControlledRESTClientGetter("ns", func() (*rest.Config, error) {
+	underTest := newControlledRESTClientGetter("ns", t.Context().Done(), func() (*rest.Config, error) {
 		return &rest.Config{Host: "https://does-not-matter.example.com"}, nil
 	})
 
@@ -73,8 +73,9 @@ func TestControlledRESTClientGetter_ToRESTMapperCachesMapper(t *testing.T) {
 	assert.Same(t, m1, m2)
 }
 
-func TestControlledRESTClientGetter_DisableReturnsStructuredLockedResponse(t *testing.T) {
-	underTest := newControlledRESTClientGetter("ns", func() (*rest.Config, error) {
+func TestControlledRESTClientGetter_InterruptedReturnsStructuredLockedResponse(t *testing.T) {
+	stop := make(chan struct{})
+	underTest := newControlledRESTClientGetter("ns", stop, func() (*rest.Config, error) {
 		return &rest.Config{Host: "https://does-not-matter.example.com"}, nil
 	})
 
@@ -84,7 +85,7 @@ func TestControlledRESTClientGetter_DisableReturnsStructuredLockedResponse(t *te
 	clients, err := kubernetes.NewForConfig(cfg)
 	require.NoError(t, err)
 
-	underTest.disable()
+	close(stop)
 
 	_, err = clients.CoreV1().Namespaces().List(t.Context(), metav1.ListOptions{})
 	var apiErr apierrors.APIStatus
@@ -96,8 +97,9 @@ func TestControlledRESTClientGetter_DisableReturnsStructuredLockedResponse(t *te
 	}
 }
 
-func TestControlledRESTClientGetter_DisableInterruptsInflightDials(t *testing.T) {
-	underTest := newControlledRESTClientGetter("ns", func() (*rest.Config, error) {
+func TestControlledRESTClientGetter_InterruptsInflightDials(t *testing.T) {
+	stop := make(chan struct{})
+	underTest := newControlledRESTClientGetter("ns", stop, func() (*rest.Config, error) {
 		return &rest.Config{Host: "http://does-not-matter.example.com"}, nil
 	})
 
@@ -127,7 +129,7 @@ func TestControlledRESTClientGetter_DisableInterruptsInflightDials(t *testing.T)
 
 	<-dialStarted
 
-	underTest.disable()
+	close(stop)
 	assert.Equal(t, <-dialCtxDoneCause, errHelmOperationInterrupted)
 
 	<-listDone
@@ -145,7 +147,7 @@ func TestControlledRESTClientGetter_DisableInterruptsInflightDials(t *testing.T)
 }
 
 func TestControlledRESTClientGetter_RejectsUnsupportedTransports(t *testing.T) {
-	underTest := newControlledRESTClientGetter("ns", func() (*rest.Config, error) {
+	underTest := newControlledRESTClientGetter("ns", t.Context().Done(), func() (*rest.Config, error) {
 		return &rest.Config{Host: "https://does-not-matter.example.com"}, nil
 	})
 
@@ -204,7 +206,7 @@ func TestControlledRESTClientGetter_RejectsUnsupportedTransports(t *testing.T) {
 }
 
 func TestControlledRESTClientGetter_ResponseBodyClosePropagates(t *testing.T) {
-	underTest := newControlledRESTClientGetter("ns", func() (*rest.Config, error) {
+	underTest := newControlledRESTClientGetter("ns", t.Context().Done(), func() (*rest.Config, error) {
 		return &rest.Config{Host: "http://does-not-matter.example.com"}, nil
 	})
 
@@ -249,8 +251,9 @@ func TestControlledRESTClientGetter_ResponseBodyClosePropagates(t *testing.T) {
 	assert.True(t, conn.isClosed())
 }
 
-func TestControlledRESTClientGetter_DisableInterruptsLogsStream(t *testing.T) {
-	underTest := newControlledRESTClientGetter("ns", func() (*rest.Config, error) {
+func TestControlledRESTClientGetter_InterruptsLogsStream(t *testing.T) {
+	stop := make(chan struct{})
+	underTest := newControlledRESTClientGetter("ns", stop, func() (*rest.Config, error) {
 		return &rest.Config{Host: "http://does-not-matter.example.com"}, nil
 	})
 
@@ -284,7 +287,7 @@ func TestControlledRESTClientGetter_DisableInterruptsLogsStream(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, [...]byte{'f', 'o', 'o'}, buf)
 
-	underTest.disable()
+	close(stop)
 	_, err = stream.Read(buf[:])
 	assert.Error(t, err)
 
@@ -293,8 +296,9 @@ func TestControlledRESTClientGetter_DisableInterruptsLogsStream(t *testing.T) {
 	assert.True(t, conn.isClosed())
 }
 
-func TestControlledRESTClientGetter_DisableInterruptsWatchStream(t *testing.T) {
-	underTest := newControlledRESTClientGetter("ns", func() (*rest.Config, error) {
+func TestControlledRESTClientGetter_InterruptsWatchStream(t *testing.T) {
+	stop := make(chan struct{})
+	underTest := newControlledRESTClientGetter("ns", stop, func() (*rest.Config, error) {
 		return &rest.Config{Host: "http://does-not-matter.example.com"}, nil
 	})
 
@@ -342,7 +346,7 @@ func TestControlledRESTClientGetter_DisableInterruptsWatchStream(t *testing.T) {
 	require.NotNil(t, conn)
 	assert.False(t, conn.isClosed())
 
-	underTest.disable()
+	close(stop)
 
 	if event, ok := <-watcher.ResultChan(); assert.True(t, ok, "Watch closed without error event") {
 		// The Kubernetes client converts all errors (i.e. errors that don't
@@ -381,19 +385,8 @@ var (
 	errWriteForwarded = errors.New("write forwarded")
 )
 
-func TestTransportControl_WrapBody_NilBody(t *testing.T) {
-	tc := &transportControl{disabled: make(chan struct{})}
-	body := tc.wrapBody(nil, func(error) {})
-	require.NotNil(t, body)
-	defer func() { assert.NoError(t, body.Close()) }()
-
-	b, err := io.ReadAll(body)
-	require.NoError(t, err)
-	assert.Empty(t, b)
-}
-
 func TestTransportControl_RoundTrip(t *testing.T) {
-	underTest := (&transportControl{make(<-chan struct{})})
+	underTest := (&transportControl{t.Context().Done(), assert.AnError})
 
 	t.Run("NilBody", func(t *testing.T) {
 		var requestContext context.Context
@@ -402,15 +395,8 @@ func TestTransportControl_RoundTrip(t *testing.T) {
 			return &http.Response{Body: nil}, nil
 		}), &http.Request{})
 		require.NoError(t, err)
-		require.NotNil(t, resp.Body)
-
-		b, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
-		assert.Empty(t, b)
-
-		assert.NoError(t, requestContext.Err())
-		assert.NoError(t, resp.Body.Close())
-		assert.Equal(t, errHTTPBodyClosed, context.Cause(requestContext))
+		assert.Nil(t, resp.Body)
+		assert.Equal(t, context.Canceled, context.Cause(requestContext))
 	})
 
 	for _, tt := range []struct {
@@ -472,10 +458,10 @@ func TestTransportControl_RoundTrip(t *testing.T) {
 	}
 
 	t.Run("DoesNotDoubleWrapInterruptedError", func(t *testing.T) {
-		expected := fmt.Errorf("injected: %w", errHelmOperationInterrupted)
+		expected := fmt.Errorf("injected: %w", assert.AnError)
 		body := io.NopCloser(iotest.ErrReader(expected))
-		disabled := make(chan struct{})
-		underTest := transportControl{disabled}
+		interrupted := make(chan struct{})
+		underTest := transportControl{interrupted, assert.AnError}
 
 		resp, err := underTest.roundTrip(roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{Body: body}, nil
@@ -483,7 +469,7 @@ func TestTransportControl_RoundTrip(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotEqual(t, body, resp.Body)
 
-		close(disabled)
+		close(interrupted)
 		var b [1]byte
 		_, err = resp.Body.Read(b[:])
 		assert.Equal(t, expected, err)

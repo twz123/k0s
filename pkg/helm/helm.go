@@ -7,10 +7,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/k0sproject/k0s/internal/pkg/dir"
+	internallog "github.com/k0sproject/k0s/internal/pkg/log"
+	"github.com/k0sproject/k0s/pkg/constant"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/sirupsen/logrus"
 	"helm.sh/helm/v3/pkg/action"
@@ -18,15 +26,13 @@ import (
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/downloader"
 	"helm.sh/helm/v3/pkg/getter"
+	"helm.sh/helm/v3/pkg/kube"
 	"helm.sh/helm/v3/pkg/registry"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/repo"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"helm.sh/helm/v3/pkg/storage"
+	"helm.sh/helm/v3/pkg/storage/driver"
 	"sigs.k8s.io/yaml"
-
-	"github.com/k0sproject/k0s/internal/pkg/dir"
-	"github.com/k0sproject/k0s/pkg/constant"
-	"github.com/k0sproject/k0s/pkg/kubernetes"
 )
 
 // Repository represents a Helm chart repository configuration.
@@ -60,11 +66,6 @@ type Commands struct {
 
 	repoFile     string
 	helmCacheDir string
-}
-
-func logFn(format string, args ...any) {
-	log := logrus.WithField("component", "helm")
-	log.Debugf(format, args...)
 }
 
 var getters = getter.Providers{
@@ -162,13 +163,35 @@ func (hc *Commands) prepareCertFiles(repo *Repository, tmpDir string) error {
 	return nil
 }
 
-func (hc *Commands) getActionCfg(namespace string) (*action.Configuration, func(), error) {
-	getter := newControlledRESTClientGetter(namespace, hc.clients.GetRESTConfig)
-	actionConfig := new(action.Configuration)
-	if err := actionConfig.Init(getter, namespace, "secret", logFn); err != nil {
-		return nil, nil, err
+func (hc *Commands) getActionCfg(ctx context.Context, namespace string) (*action.Configuration, error) {
+	log := logrus.WithField("component", "helm")
+
+	getter := newControlledRESTClientGetter(namespace, ctx.Done(), hc.clients.GetRESTConfig)
+
+	kubeClients, err := hc.clients.GetClient()
+	if err != nil {
+		return nil, err
 	}
-	return actionConfig, getter.disable, nil
+
+	driver := driver.NewSecrets(kubeClients.CoreV1().Secrets(namespace))
+	driver.Log = log.WithField("helm", "driver").Debugf
+
+	return &action.Configuration{
+		RESTClientGetter: getter,
+		Releases:         storage.Init(driver),
+		KubeClient:       &client{kube.New(getter), ctx, log.WithField("helm", "client")},
+		Log:              log.WithField("helm", "action").Debugf,
+		HookOutputFunc: func(namespace, pod, container string) io.Writer {
+			return internallog.NewWriter(
+				log.WithFields(logrus.Fields{
+					"helm":      "hook",
+					"namespace": namespace,
+					"pod":       pod,
+					"container": container,
+				}), 16*1024,
+			)
+		},
+	}, nil
 }
 
 // initRepository initializes a single repository in the ephemeral Helm environment
@@ -290,11 +313,12 @@ func (hc *Commands) isInstallable(chart *chart.Chart) bool {
 // InstallChart installs a helm chart
 // InstallChart, UpgradeChart and UninstallRelease(releaseName are *NOT* thread-safe
 func (hc *Commands) InstallChart(ctx context.Context, chartName string, version string, releaseName string, namespace string, values map[string]any, timeout time.Duration) (*release.Release, error) {
-	cfg, disable, err := hc.getActionCfg(namespace)
+	actionCtx, cancelAction := context.WithCancelCause(context.Background())
+	defer cancelAction(errHelmOperationInterrupted)
+	cfg, err := hc.getActionCfg(actionCtx, namespace)
 	if err != nil {
 		return nil, fmt.Errorf("can't create action configuration: %w", err)
 	}
-	defer disable()
 
 	cfg.RegistryClient, err = hc.registryManager.GetRegistryClient(chartName)
 	if err != nil {
@@ -342,11 +366,12 @@ func (hc *Commands) InstallChart(ctx context.Context, chartName string, version 
 // UpgradeChart upgrades a helm chart.
 // InstallChart, UpgradeChart and UninstallRelease(releaseName are *NOT* thread-safe
 func (hc *Commands) UpgradeChart(ctx context.Context, chartName string, version string, releaseName string, namespace string, values map[string]any, timeout time.Duration, force bool) (*release.Release, error) {
-	cfg, disable, err := hc.getActionCfg(namespace)
+	actionCtx, cancelAction := context.WithCancelCause(context.Background())
+	defer cancelAction(errHelmOperationInterrupted)
+	cfg, err := hc.getActionCfg(actionCtx, namespace)
 	if err != nil {
 		return nil, fmt.Errorf("can't create action configuration: %w", err)
 	}
-	defer disable()
 
 	cfg.RegistryClient, err = hc.registryManager.GetRegistryClient(chartName)
 	if err != nil {
@@ -393,11 +418,12 @@ func (hc *Commands) UpgradeChart(ctx context.Context, chartName string, version 
 // UninstallRelease uninstalls a release.
 // InstallChart, UpgradeChart and UninstallRelease(releaseName are *NOT* thread-safe
 func (hc *Commands) UninstallRelease(ctx context.Context, releaseName, namespace string) error {
-	cfg, disable, err := hc.getActionCfg(namespace)
+	actionCtx, cancelAction := context.WithCancelCause(context.Background())
+	defer cancelAction(errHelmOperationInterrupted)
+	cfg, err := hc.getActionCfg(actionCtx, namespace)
 	if err != nil {
 		return fmt.Errorf("can't create helmAction configuration: %w", err)
 	}
-	defer disable()
 
 	uninstall := action.NewUninstall(cfg)
 	uninstall.Wait = true
