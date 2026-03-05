@@ -118,15 +118,7 @@ func (t *TransformingObjectTracker) List(gvr schema.GroupVersionResource, gvk sc
 		return obj, fmt.Errorf("failed to externalize object: %w", err)
 	}
 
-	// Set a fake resource version, so that watches work.
-	if versioned, ok := external.(interface {
-		GetResourceVersion() string
-		SetResourceVersion(string)
-	}); ok {
-		if versioned.GetResourceVersion() == "" {
-			versioned.SetResourceVersion(strconv.FormatInt(time.Now().UnixMilli(), 10))
-		}
-	}
+	setFakeResourceVersion(external)
 
 	return external, nil
 }
@@ -171,6 +163,7 @@ func (t *TransformingObjectTracker) Watch(gvr schema.GroupVersionResource, ns st
 			if e.Object != nil {
 				gvk := e.Object.GetObjectKind().GroupVersionKind()
 				if external, err := t.Externalize(e.Object, gvk); err == nil {
+					setFakeResourceVersion(external)
 					e.Object = external
 				} else {
 					e = watch.Event{
@@ -189,6 +182,18 @@ func (t *TransformingObjectTracker) Watch(gvr schema.GroupVersionResource, ns st
 	}()
 
 	return &watcher{external, w.Stop}, nil
+}
+
+// Set a fake resource version, so that watches work.
+func setFakeResourceVersion(external runtime.Object) {
+	if versioned, ok := external.(interface {
+		GetResourceVersion() string
+		SetResourceVersion(string)
+	}); ok {
+		if versioned.GetResourceVersion() == "" {
+			versioned.SetResourceVersion(strconv.FormatInt(time.Now().UnixMicro(), 10))
+		}
+	}
 }
 
 func (t *TransformingObjectTracker) internalized(obj runtime.Object, f func(runtime.Object) error) error {
