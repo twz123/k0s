@@ -34,13 +34,14 @@ func (*NoopDirWatcher) Removed(string)                              {}
 //
 // On Linux, watcher initialization failures related to inotify/fd limits can
 // fall back to polling.
-func WatchDir(ctx context.Context, path string, watcher DirWatcher) error {
-	return watchDir(ctx, &dirWatch{path: path, watcher: watcher})
+func WatchDir(ctx context.Context, path string, initialList bool, watcher DirWatcher) error {
+	return watchDir(ctx, &dirWatch{path: path, initialList: initialList, watcher: watcher})
 }
 
 type dirWatch struct {
-	path    string
-	watcher DirWatcher
+	path        string
+	initialList bool
+	watcher     DirWatcher
 }
 
 func (w *dirWatch) runFSNotify(ctx context.Context) (error, bool) {
@@ -52,6 +53,21 @@ func (w *dirWatch) runFSNotify(ctx context.Context) (error, bool) {
 
 	if err, fallback := watcher.add(w.path); err != nil {
 		return fmt.Errorf("failed to watch: %w", err), fallback
+	}
+
+	// List all directory entries after the path has been added to the watcher.
+	// Doing it the other way round introduces a race condition when entries get
+	// created after the initial listing but before the watch starts.
+
+	if w.initialList {
+		entries, err := os.ReadDir(w.path)
+		if err != nil {
+			return fmt.Errorf("failed to list: %w", err), false
+		}
+
+		for _, entry := range entries {
+			w.watcher.Touched(entry.Name(), entry.Info)
+		}
 	}
 
 	for {

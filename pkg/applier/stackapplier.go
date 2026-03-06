@@ -61,7 +61,7 @@ func (s *StackApplier) Run(ctx context.Context) error {
 
 	go func() {
 		ctx := internallog.AttachToContext(ctx, s.log)
-		watchErr <- internalos.WatchDir(ctx, s.path, &debouncer)
+		watchErr <- internalos.WatchDir(ctx, s.path, false, &debouncer)
 	}()
 
 	const debounceDelay = 1 * time.Second

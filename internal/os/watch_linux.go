@@ -108,7 +108,12 @@ func (w *dirWatch) runPolling(ctx context.Context, log logrus.FieldLogger, pollI
 	timer := time.NewTimer(0)
 	defer timer.Stop()
 
-	polled, err := pollDirEntries(w.path, nil, noopDirWatcher)
+	initialWatcher := noopDirWatcher
+	if w.initialList {
+		initialWatcher = w.watcher
+	}
+
+	polled, err := pollDirEntries(w.path, nil, initialWatcher)
 	if err != nil {
 		return fmt.Errorf("initial poll failed: %w", err)
 	}
