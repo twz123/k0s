@@ -7,12 +7,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/avast/retry-go"
+	"github.com/k0sproject/k0s/pkg/k0scontext"
 	"github.com/k0sproject/k0s/pkg/kubernetes"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/sirupsen/logrus"
@@ -49,10 +52,36 @@ func NewStackApplier(path string, kubeClientFactory kubernetes.ClientFactoryInte
 	}
 }
 
+type stackApplierPollOptions struct {
+	force    bool
+	interval time.Duration
+}
+
 // Run watches the stack for updates and executes the initial apply.
 func (s *StackApplier) Run(ctx context.Context) error {
+	err, usePolling := s.runWithWatch(ctx)
+	if err != nil {
+		pollInterval := 30 * time.Second
+		if opts := k0scontext.Value[*stackApplierPollOptions](ctx); opts != nil {
+			if opts.force {
+				usePolling = true
+			}
+			pollInterval = opts.interval
+		}
+
+		if usePolling {
+			s.log.WithError(err).Warn("Falling back to polling")
+			return s.runWithPolling(ctx, pollInterval)
+		}
+	}
+
+	return err
+}
+
+// Run watches the stack for updates and executes the initial apply.
+func (s *StackApplier) runWithWatch(ctx context.Context) (error, bool) {
 	if ctx.Err() != nil {
-		return nil // The context is already done.
+		return nil, false // The context is already done.
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -60,7 +89,8 @@ func (s *StackApplier) Run(ctx context.Context) error {
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		return fmt.Errorf("failed to create watcher: %w", err)
+		err, usePolling := handleCreateWatchErr(err)
+		return fmt.Errorf("failed to create watcher: %w", err), usePolling
 	}
 
 	trigger := make(chan struct{}, 1)
@@ -68,7 +98,8 @@ func (s *StackApplier) Run(ctx context.Context) error {
 	go func() { watchErr <- s.runWatcher(watcher, trigger, ctx.Done()) }()
 
 	if err := watcher.Add(s.path); err != nil {
-		return fmt.Errorf("failed to watch %q: %w", s.path, err)
+		err, usePolling := handleAddWatchErr(err)
+		return fmt.Errorf("failed to watch %q: %w", s.path, err), usePolling
 	}
 
 	for {
@@ -76,7 +107,7 @@ func (s *StackApplier) Run(ctx context.Context) error {
 		case <-trigger:
 			s.apply(ctx)
 		case err := <-watchErr:
-			return err
+			return err, false
 		}
 	}
 }
@@ -110,6 +141,87 @@ func (s *StackApplier) runWatcher(watcher *fsnotify.Watcher, trigger chan<- stru
 			return nil
 		}
 	}
+}
+
+type scannedFile struct {
+	name    string
+	size    int64
+	modTime time.Time
+}
+
+func (s *StackApplier) runWithPolling(ctx context.Context, pollInterval time.Duration) error {
+	if ctx.Err() != nil {
+		return nil // The context is already done.
+	}
+
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+
+	var applied []scannedFile
+
+	for {
+		s.log.Debug("Scanning manifest files")
+		scanned, err := s.scanFiles(applied)
+		if err != nil {
+			s.log.WithError(err).Error("Failed to scan manifest files")
+		} else if scanned != nil {
+			s.apply(ctx)
+			applied = scanned
+		}
+
+		timer.Reset(wait.Jitter(pollInterval, 0.2))
+
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-timer.C:
+		}
+	}
+}
+
+func (s *StackApplier) scanFiles(prev []scannedFile) ([]scannedFile, error) {
+	files, err := FindManifestFilesInDir(s.path)
+	if err != nil {
+		return nil, err
+	}
+
+	var changed bool
+	current := make([]scannedFile, 0, len(files))
+	for _, file := range files {
+		stat, err := os.Stat(file)
+		if err != nil {
+			return nil, err
+		}
+
+		if !stat.Mode().IsRegular() {
+			continue
+		}
+
+		path, err := filepath.Rel(s.path, file)
+		if err != nil {
+			return nil, err
+		}
+
+		file := scannedFile{
+			name:    path,
+			size:    stat.Size(),
+			modTime: stat.ModTime(),
+		}
+
+		if !changed {
+			if idx := len(current); idx >= len(prev) || prev[idx] != file {
+				changed = true
+			}
+		}
+
+		current = append(current, file)
+	}
+
+	if !changed && len(current) == len(prev) {
+		return nil, nil
+	}
+
+	return current, nil
 }
 
 func (s *StackApplier) apply(ctx context.Context) {
