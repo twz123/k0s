@@ -51,19 +51,36 @@ func NewStackApplier(path string, kubeClientFactory kubernetes.ClientFactoryInte
 
 // Run watches the stack for updates and executes the initial apply.
 func (s *StackApplier) Run(ctx context.Context) error {
-	ctx = internallog.AttachToContext(ctx, s.log)
-	return internalos.WatchDir(ctx, s.path,
-		func(event internalos.PathWatchEvent) bool {
-			var visitor stackApplierWatchEventVisitor
-			event.Accept(&visitor)
-			return visitor.accepted
-		},
-		1*time.Second,
-		func(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return nil
+	}
+
+	trigger := make(chan struct{}, 1)
+	watchErr := make(chan error, 1)
+	debouncer := stackApplierDebouncer{trigger}
+
+	go func() {
+		ctx := internallog.AttachToContext(ctx, s.log)
+		watchErr <- internalos.WatchDir(ctx, s.path, &debouncer)
+	}()
+
+	const debounceDelay = 1 * time.Second
+
+	timer := time.NewTimer(debounceDelay)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-trigger:
+			timer.Reset(debounceDelay)
+		case <-timer.C:
 			s.apply(ctx)
+		case err := <-watchErr:
+			return err
+		case <-ctx.Done():
 			return nil
-		},
-	)
+		}
+	}
 }
 
 func (s *StackApplier) apply(ctx context.Context) {
@@ -88,16 +105,21 @@ func (s *StackApplier) DeleteStack(ctx context.Context) error {
 	return s.doDelete(ctx)
 }
 
-type stackApplierWatchEventVisitor struct {
-	accepted bool
+type stackApplierDebouncer struct {
+	trigger chan<- struct{}
 }
 
-// Changed implements [internalos.PathWatchEventVisitor].
-func (s *stackApplierWatchEventVisitor) Changed(name string, info func() (fs.FileInfo, error)) {
-	s.accepted, _ = filepath.Match(manifestFilePattern, name)
-}
+// Touched implements [internalos.DirWatcher].
+func (s *stackApplierDebouncer) Touched(name string, _ func() (fs.FileInfo, error)) { s.event(name) }
 
-// Removed implements [internalos.PathWatchEventVisitor].
-func (s *stackApplierWatchEventVisitor) Removed(name string) {
-	s.accepted, _ = filepath.Match(manifestFilePattern, name)
+// Removed implements [internalos.DirWatcher].
+func (s *stackApplierDebouncer) Removed(name string) { s.event(name) }
+
+func (s *stackApplierDebouncer) event(name string) {
+	if matches, _ := filepath.Match(manifestFilePattern, name); matches {
+		select {
+		case s.trigger <- struct{}{}:
+		default:
+		}
+	}
 }

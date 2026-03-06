@@ -12,21 +12,15 @@ import (
 )
 
 func watchDir(ctx context.Context, w *dirWatch) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	if trigger, errors, err := w.startWatch(ctx); err != nil {
-		return err
-	} else {
-		return w.runWatch(ctx, trigger, errors)
-	}
+	err, _ := w.runFSNotify(ctx)
+	return err
 }
 
-func newFSNotifyWatcher() (*fsnotifyWatcher, error) {
+func newFSNotifyWatcher() (*fsnotifyWatcher, error, bool) {
 	watcher, err := fsnotify.NewWatcher()
-	return (*fsnotifyWatcher)(watcher), err
+	return (*fsnotifyWatcher)(watcher), err, false
 }
 
-func (w *fsnotifyWatcher) add(path string) error {
-	return (*fsnotify.Watcher)(w).Add(path)
+func (w *fsnotifyWatcher) add(path string) (error, bool) {
+	return (*fsnotify.Watcher)(w).Add(path), false
 }

@@ -20,8 +20,8 @@ import (
 )
 
 func watchDir(ctx context.Context, w *dirWatch) error {
-	err, usePolling := w.runWithWatch(ctx)
-	if err == nil && !usePolling {
+	err, fallback := w.runFSNotify(ctx)
+	if err == nil || !fallback {
 		return err
 	}
 
@@ -34,147 +34,13 @@ func watchDir(ctx context.Context, w *dirWatch) error {
 
 	const pollInterval = 30 * time.Second
 	log.WithError(err).Warn("Falling back to polling every ", pollInterval)
-	return w.runWithPolling(ctx, log, pollInterval)
+	return w.runPolling(ctx, log, pollInterval)
 }
 
-func (w *dirWatch) runWithWatch(ctx context.Context) (error, bool) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	var err error
-	if trigger, errors, startErr := w.startWatch(ctx); startErr == nil {
-		return w.runWatch(ctx, trigger, errors), false
-	} else {
-		err = startErr
-	}
-
-	var fsnotifyErr *fsnotifyError
-	return err, errors.As(err, &fsnotifyErr) && fsnotifyErr.usePolling
-}
-
-type polledDirEntry struct {
-	name    string
-	size    int64
-	modTime time.Time
-}
-
-func (w *dirWatch) runWithPolling(ctx context.Context, log logrus.FieldLogger, pollInterval time.Duration) error {
-	if ctx.Err() != nil {
-		return nil // The context is already done.
-	}
-
-	timer := time.NewTimer(0)
-	defer timer.Stop()
-
-	var (
-		polled        []polledDirEntry
-		pendingChange bool
-	)
-
-	for {
-		log.Debug("Polling for changes")
-
-		var (
-			hasChangeNow bool
-			err          error
-		)
-
-		polled, hasChangeNow, err = w.pollDirEntries(polled)
-		if err != nil {
-			return fmt.Errorf("failed to poll: %w", err)
-		} else if hasChangeNow {
-			pendingChange = true
-		} else if pendingChange && !hasChangeNow {
-			pendingChange = false
-			if err := w.onChange(ctx); err != nil {
-				return err
-			}
-		}
-
-		if pendingChange {
-			timer.Reset(w.delay)
-		} else {
-			timer.Reset(wait.Jitter(pollInterval, 0.2))
-		}
-
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-timer.C:
-		}
-	}
-}
-
-func (w *dirWatch) pollDirEntries(prev []polledDirEntry) ([]polledDirEntry, bool, error) {
-	files, err := os.ReadDir(w.path)
-	if err != nil {
-		return nil, false, err
-	}
-
-	var hasAcceptedChange bool
-	current := make([]polledDirEntry, 0, len(files))
-	for _, file := range files {
-		info, err := file.Info()
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
-			return nil, false, err
-		}
-
-		current = append(current, polledDirEntry{
-			name:    file.Name(),
-			size:    info.Size(),
-			modTime: info.ModTime(),
-		})
-
-		if !hasAcceptedChange {
-			var unchanged bool
-			for i := range prev {
-				p := &prev[i]
-				if cmp := strings.Compare(p.name, file.Name()); cmp < 0 {
-					if !w.accept(PathWatchEventFunc(func(v PathWatchEventVisitor) {
-						v.Removed(p.name)
-					})) {
-						continue
-					}
-
-					hasAcceptedChange = true
-				} else if cmp == 0 {
-					unchanged = p.size == info.Size() && p.modTime.Equal(info.ModTime())
-					prev = prev[i+1:]
-				} else {
-					prev = prev[i:]
-				}
-				break
-			}
-
-			if !hasAcceptedChange && !unchanged {
-				hasAcceptedChange = w.accept(PathWatchEventFunc(func(v PathWatchEventVisitor) {
-					v.Changed(file.Name(), func() (fs.FileInfo, error) { return info, nil })
-				}))
-			}
-		}
-	}
-
-	if !hasAcceptedChange {
-		for i := range prev {
-			name := prev[i].name
-			if w.accept(PathWatchEventFunc(func(v PathWatchEventVisitor) {
-				v.Removed(name)
-			})) {
-				return current, true, nil
-			}
-		}
-	}
-
-	return current, hasAcceptedChange, nil
-}
-
-func newFSNotifyWatcher() (*fsnotifyWatcher, error) {
+func newFSNotifyWatcher() (*fsnotifyWatcher, error, bool) {
 	watcher, err := fsnotify.NewWatcher()
 	if err == nil {
-		return (*fsnotifyWatcher)(watcher), nil
+		return (*fsnotifyWatcher)(watcher), nil, false
 	}
 
 	// See man 2 inotify_init1
@@ -193,36 +59,124 @@ func newFSNotifyWatcher() (*fsnotifyWatcher, error) {
 
 		if f, ferr := os.Open("/dev/null"); ferr == nil {
 			_ = f.Close()
-			return nil, &fsnotifyError{maxInotifyInstances + reached, true, err}
+			return nil, &fsnotifyError{maxInotifyInstances + reached, err}, true
 		} else if errors.Is(ferr, syscall.EMFILE) {
-			return nil, &fsnotifyError{maxFileDescriptors + reached, false, err}
+			return nil, &fsnotifyError{maxFileDescriptors + reached, err}, false
 		}
 
-		return nil, &fsnotifyError{maxInotifyInstances + " or " + maxFileDescriptors + reached, true, err}
+		return nil, &fsnotifyError{maxInotifyInstances + " or " + maxFileDescriptors + reached, err}, true
 	}
 
-	return nil, err
+	return nil, err, false
 }
 
-func (w *fsnotifyWatcher) add(path string) error {
-	err := (*fsnotify.Watcher)(w).Add(path)
+func (w *fsnotifyWatcher) add(path string) (error, bool) {
+	err := (*fsnotify.Watcher)(w).AddWith(path)
 	if err == nil {
-		return nil
+		return nil, false
 	}
 
 	// See man 2 inotify_add_watch
 	if errors.Is(err, syscall.ENOSPC) {
-		return &fsnotifyError{"user limit on the total number of inotify watches was reached or the kernel failed to allocate a needed resource", true, err}
+		return &fsnotifyError{"user limit on the total number of inotify watches was reached or the kernel failed to allocate a needed resource", err}, true
 	}
 
-	return err
+	return err, false
 }
 
 type fsnotifyError struct {
-	msg        string
-	usePolling bool
-	wrapped    error
+	msg     string
+	wrapped error
 }
 
 func (w *fsnotifyError) Error() string { return w.msg }
 func (w *fsnotifyError) Unwrap() error { return w.wrapped }
+
+type polledDirEntry struct {
+	name    string
+	size    int64
+	modTime time.Time
+}
+
+var noopDirWatcher DirWatcher = &NoopDirWatcher{}
+
+func (w *dirWatch) runPolling(ctx context.Context, log logrus.FieldLogger, pollInterval time.Duration) error {
+	if ctx.Err() != nil {
+		return nil // The context is already done.
+	}
+
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+
+	polled, err := pollDirEntries(w.path, nil, noopDirWatcher)
+	if err != nil {
+		return fmt.Errorf("initial poll failed: %w", err)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-timer.C:
+			log.Debug("Polling for changes")
+			var err error
+			polled, err = pollDirEntries(w.path, polled, w.watcher)
+			if err != nil {
+				return fmt.Errorf("failed to poll: %w", err)
+			}
+			timer.Reset(wait.Jitter(pollInterval, 0.2))
+		}
+	}
+}
+
+func pollDirEntries(path string, prev []polledDirEntry, watcher DirWatcher) ([]polledDirEntry, error) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, err
+	}
+
+	current := make([]polledDirEntry, 0, len(entries))
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return nil, err
+		}
+
+		current = append(current, polledDirEntry{
+			name:    entry.Name(),
+			size:    info.Size(),
+			modTime: info.ModTime(),
+		})
+
+		var (
+			unchanged bool
+			i         uint
+		)
+		for prevLen := uint(len(prev)); i < prevLen; i++ {
+			name := prev[i].name
+			if cmp := strings.Compare(name, entry.Name()); cmp < 0 {
+				watcher.Removed(name)
+			} else if cmp == 0 {
+				unchanged = prev[i].size == info.Size() && prev[i].modTime.Equal(info.ModTime())
+				i++
+				break
+			} else {
+				break
+			}
+		}
+		prev = prev[i:]
+
+		if !unchanged {
+			watcher.Touched(entry.Name(), func() (fs.FileInfo, error) { return info, nil })
+		}
+	}
+
+	for i := range prev {
+		watcher.Removed(prev[i].name)
+	}
+
+	return current, nil
+}
