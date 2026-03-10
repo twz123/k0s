@@ -6,12 +6,14 @@ package containerd
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -19,17 +21,17 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/fsnotify/fsnotify"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 
+	internalos "github.com/k0sproject/k0s/internal/os"
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
+	internallog "github.com/k0sproject/k0s/internal/pkg/log"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	workerconfig "github.com/k0sproject/k0s/pkg/component/worker/config"
 	"github.com/k0sproject/k0s/pkg/config"
 	containerruntime "github.com/k0sproject/k0s/pkg/container/runtime"
-	"github.com/k0sproject/k0s/pkg/debounce"
 	"github.com/k0sproject/k0s/pkg/supervisor"
 
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -119,23 +121,24 @@ func (c *Component) Start(ctx context.Context) (err error) {
 
 	cctx, cancel := context.WithCancelCause(context.Background())
 	var wg sync.WaitGroup
-	stop := func() error {
-		cancel(errors.New("containerd component is stopping"))
-		err := c.supervisor.Stop()
-		wg.Wait()
-		return err
-	}
 
 	defer func() {
 		if err == nil {
-			c.stop = stop
+			c.stop = func() error {
+				cancel(errors.New("containerd component is stopping"))
+				err := c.supervisor.Stop()
+				wg.Wait()
+				return err
+			}
 		} else {
-			err = errors.Join(err, stop())
+			cancel(err)
+			err = errors.Join(err, c.supervisor.Stop())
+			wg.Wait()
 		}
 	}()
 
 	wg.Go(func() {
-		wait.UntilWithContext(cctx, c.watchDropinConfigs, 30*time.Second)
+		c.watchDropinConfigs(cctx)
 		log.Info("Stopped to watch for drop-ins")
 	})
 
@@ -226,49 +229,68 @@ func (c *Component) setupConfig() error {
 
 func (c *Component) watchDropinConfigs(ctx context.Context) {
 	log := logrus.WithField("component", "containerd")
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		log.WithError(err).Error("failed to create watcher for drop-ins")
-		return
-	}
-	defer watcher.Close()
 
-	err = watcher.Add(c.importsPath)
-	if err != nil {
-		log.WithError(err).Error("failed to watch for drop-ins")
-		return
-	}
+	timer := time.NewTimer(0)
+	defer timer.Stop()
 
-	debouncer := debounce.Debouncer[fsnotify.Event]{
-		Input:   watcher.Events,
-		Timeout: 3 * time.Second,
-		Filter: func(item fsnotify.Event) bool {
-			switch item.Op {
-			case fsnotify.Create, fsnotify.Remove, fsnotify.Write, fsnotify.Rename:
-				return true
-			default:
-				return false
-			}
-		},
-		Callback: func(fsnotify.Event) { c.restart(ctx) },
-	}
+	for {
+		var (
+			restarted bool
+			watchErr  error
+		)
 
-	// Consume and log any errors from watcher
-	go func() {
+		log.Info("Starting to watch for drop-ins")
+
+		trigger := make(chan struct{}, 1)
+		go func() {
+			defer close(trigger)
+			ctx := internallog.AttachToContext(ctx, log)
+			watchErr = internalos.WatchDir(ctx, c.importsPath, true, &dropinConfigsDebouncer{trigger})
+		}()
+
+		var timeout <-chan time.Time
+
 		for {
-			err, ok := <-watcher.Errors
-			if !ok {
+			select {
+			case _, ok := <-trigger:
+				if ok {
+					timeout = timer.C
+					if restarted {
+						timer.Reset(3 * time.Second)
+					} else {
+						timer.Reset(1 * time.Second)
+					}
+					continue
+				}
+
+			case <-timeout:
+				timeout = nil
+				c.restart(ctx)
+				restarted = true
+				continue
+
+			case <-ctx.Done():
 				return
 			}
-			log.WithError(err).Error("error while watching drop-ins")
+
+			break
 		}
-	}()
 
-	log.Infof("started to watch events on %s", c.importsPath)
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
 
-	err = debouncer.Run(ctx)
-	if err != nil {
-		log.WithError(err).Warn("dropin watch bouncer exited with error")
+		log.WithError(cmp.Or(watchErr, errors.New("watch terminated unexpectedly"))).
+			Error("Failed to watch for drop-ins")
+
+		timer.Reset(wait.Jitter(1*time.Minute, 0.3))
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
@@ -371,4 +393,24 @@ func isPre1_27ManagedConfig(path string) (bool, error) {
 	}
 
 	return false, nil
+}
+
+type dropinConfigsDebouncer struct {
+	trigger chan<- struct{}
+}
+
+// Touched implements [internalos.DirWatcher].
+func (d *dropinConfigsDebouncer) Touched(name string, _ func() (fs.FileInfo, error)) {
+	select {
+	case d.trigger <- struct{}{}:
+	default:
+	}
+}
+
+// Removed implements [internalos.DirWatcher].
+func (d *dropinConfigsDebouncer) Removed(name string) {
+	select {
+	case d.trigger <- struct{}{}:
+	default:
+	}
 }
