@@ -213,40 +213,71 @@ func (a *OCIBundleReconciler) unpinOne(ctx context.Context, image images.Image, 
 // Watches the OCI bundle directory. This function calls loadAll every time a
 // new file is created or updated in the OCI directory. Events are debounced
 // with a timeout of 10 seconds.
-func (a *OCIBundleReconciler) runWatcher(ctx context.Context, started *value.Once[error]) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	var watchErr error
-	trigger := make(chan struct{}, 1)
-	go func() {
-		defer close(trigger)
-		ctx := internallog.AttachToContext(ctx, a.log)
-		watchErr = internalos.WatchDir(ctx, a.ociBundleDir, true, &ociBundleDirEventDebouncer{trigger})
-	}()
-
-	timer := time.NewTimer(1 * time.Second)
+func (a *OCIBundleReconciler) runWatcher(ctx context.Context, started *value.Once[error]) {
+	timer := time.NewTimer(0)
 	defer timer.Stop()
 
 	for {
+		var (
+			loaded   bool
+			watchErr error
+		)
+
+		a.log.Info("Starting to watch OCI bundle directory")
+
+		trigger := make(chan struct{}, 1)
+		go func() {
+			defer close(trigger)
+			ctx := internallog.AttachToContext(ctx, a.log)
+			watchErr = internalos.WatchDir(ctx, a.ociBundleDir, true, &ociBundleDirEventDebouncer{trigger})
+		}()
+
+		if loaded {
+			timer.Reset(10 * time.Second)
+		} else {
+			timer.Reset(1 * time.Second)
+		}
+
+		for {
+			select {
+			case _, ok := <-trigger:
+				if ok {
+					if loaded {
+						timer.Reset(10 * time.Second)
+					} else {
+						timer.Reset(1 * time.Second)
+					}
+					continue
+				}
+
+			case <-timer.C:
+				a.loadAll(ctx)
+				loaded = true
+				started.Set(nil)
+				continue
+
+			case <-ctx.Done():
+				return
+			}
+
+			break
+		}
+
 		select {
-		case _, ok := <-trigger:
-			if !ok {
-				return cmp.Or(watchErr, errors.New("watch terminated unexpectedly"))
-			}
-
-			if started.IsSet() {
-				timer.Reset(10 * time.Second)
-			} else {
-				timer.Reset(1 * time.Second)
-			}
-
-		case <-timer.C:
-			a.loadAll(ctx)
-			started.Set(nil)
-
 		case <-ctx.Done():
-			return nil
+			return
+		default:
+		}
+
+		if err := cmp.Or(watchErr, errors.New("watch terminated unexpectedly")); !started.Set(err) {
+			a.log.WithError(err).Error("Failed to watch OCI bundle directory")
+		}
+
+		timer.Reset(wait.Jitter(1*time.Minute, 0.3))
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return
 		}
 	}
 }
@@ -261,13 +292,7 @@ func (a *OCIBundleReconciler) Start(startCtx context.Context) (err error) {
 
 	go func() {
 		defer close(done)
-		wait.JitterUntilWithContext(ctx, func(ctx context.Context) {
-			a.log.Info("Starting to watch OCI bundle directory")
-			err := a.runWatcher(ctx, &started)
-			if !started.Set(err) && ctx.Err() == nil {
-				a.log.WithError(err).Error("Failed to watch OCI bundle directory")
-			}
-		}, 1*time.Minute, 1.2, true)
+		a.runWatcher(ctx, &started)
 	}()
 
 	defer func() {
