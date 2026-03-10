@@ -4,7 +4,9 @@
 package applier
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"io/fs"
 	"path/filepath"
 	"sync"
@@ -12,6 +14,7 @@ import (
 
 	internalos "github.com/k0sproject/k0s/internal/os"
 	internallog "github.com/k0sproject/k0s/internal/pkg/log"
+	"github.com/k0sproject/k0s/internal/sync/value"
 	"github.com/k0sproject/k0s/pkg/kubernetes"
 
 	"github.com/avast/retry-go"
@@ -51,36 +54,59 @@ func NewStackApplier(path string, kubeClientFactory kubernetes.ClientFactoryInte
 
 // Run watches the stack for updates and executes the initial apply.
 func (s *StackApplier) Run(ctx context.Context) error {
-	if ctx.Err() != nil {
-		return nil
-	}
+	var (
+		watcher  stackDirWatcher
+		watchErr error
+	)
 
-	trigger := make(chan struct{}, 1)
-	watchErr := make(chan error, 1)
-	watcher := stackDirWatcher{trigger}
-
+	_, changed := watcher.lastActivity.Peek()
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		ctx := internallog.AttachToContext(ctx, s.log)
-		watchErr <- internalos.WatchDir(ctx, s.path, &watcher)
+		watchErr = internalos.WatchDir(ctx, s.path, &watcher)
 	}()
 
 	timer := time.NewTimer(0)
 	defer timer.Stop()
-	var timeout <-chan time.Time
 
+watch:
 	for {
 		select {
-		case <-trigger:
-			timeout = timer.C
-			timer.Reset(1 * time.Second)
-		case <-timeout:
-			s.apply(ctx)
-			timeout = nil
-		case err := <-watchErr:
-			return err
+		case <-changed:
+			var lastActivity time.Time
+			lastActivity, changed = watcher.lastActivity.Peek()
+			timer.Reset(1*time.Second - time.Since(lastActivity))
+
+			select {
+			case <-timer.C:
+				select {
+				case <-changed:
+					continue
+				default:
+					s.apply(ctx)
+				}
+
+			case <-done:
+				break watch
+
+			case <-ctx.Done():
+				return nil
+			}
+
+		case <-done:
+			break watch
+
 		case <-ctx.Done():
 			return nil
 		}
+	}
+
+	select {
+	case <-ctx.Done():
+		return nil
+	default:
+		return cmp.Or(watchErr, errors.New("watch terminated unexpectedly"))
 	}
 }
 
@@ -107,28 +133,22 @@ func (s *StackApplier) DeleteStack(ctx context.Context) error {
 }
 
 type stackDirWatcher struct {
-	trigger chan<- struct{}
+	lastActivity value.WriteOptimizedLatest[time.Time]
 }
 
 // Activated implements [internalos.DirWatcher].
-func (s *stackDirWatcher) Activated(string) {
-	select {
-	case s.trigger <- struct{}{}:
-	default:
-	}
+func (w *stackDirWatcher) Activated(string) {
+	w.lastActivity.Set(time.Now())
 }
 
 // Touched implements [internalos.DirWatcher].
-func (s *stackDirWatcher) Touched(name string, _ func() (fs.FileInfo, error)) { s.event(name) }
+func (w *stackDirWatcher) Touched(name string, _ func() (fs.FileInfo, error)) { w.event(name) }
 
 // Removed implements [internalos.DirWatcher].
-func (s *stackDirWatcher) Removed(name string) { s.event(name) }
+func (w *stackDirWatcher) Removed(name string) { w.event(name) }
 
-func (s *stackDirWatcher) event(name string) {
+func (w *stackDirWatcher) event(name string) {
 	if matches, _ := filepath.Match(manifestFilePattern, name); matches {
-		select {
-		case s.trigger <- struct{}{}:
-		default:
-		}
+		w.lastActivity.Set(time.Now())
 	}
 }

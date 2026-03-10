@@ -181,12 +181,12 @@ func (m *Manager) createStack(ctx context.Context, stacks map[string]stack, name
 	go func() {
 		defer close(stopped)
 
-		wait.UntilWithContext(ctx, func(ctx context.Context) {
+		wait.JitterUntilWithContext(ctx, func(ctx context.Context) {
 			log.Info("Running stack")
 			if err := stack.Run(ctx); err != nil {
 				log.WithError(err).Error("Failed to run stack")
 			}
-		}, 1*time.Minute)
+		}, 1*time.Minute, 1.3, true)
 
 		log.Infof("Stack done (%v)", context.Cause(ctx))
 	}()
