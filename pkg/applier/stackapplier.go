@@ -57,24 +57,25 @@ func (s *StackApplier) Run(ctx context.Context) error {
 
 	trigger := make(chan struct{}, 1)
 	watchErr := make(chan error, 1)
-	debouncer := stackApplierDebouncer{trigger}
+	watcher := stackDirWatcher{trigger}
 
 	go func() {
 		ctx := internallog.AttachToContext(ctx, s.log)
-		watchErr <- internalos.WatchDir(ctx, s.path, false, &debouncer)
+		watchErr <- internalos.WatchDir(ctx, s.path, &watcher)
 	}()
 
-	const debounceDelay = 1 * time.Second
-
-	timer := time.NewTimer(debounceDelay)
+	timer := time.NewTimer(0)
 	defer timer.Stop()
+	var timeout <-chan time.Time
 
 	for {
 		select {
 		case <-trigger:
-			timer.Reset(debounceDelay)
-		case <-timer.C:
+			timeout = timer.C
+			timer.Reset(1 * time.Second)
+		case <-timeout:
 			s.apply(ctx)
+			timeout = nil
 		case err := <-watchErr:
 			return err
 		case <-ctx.Done():
@@ -105,17 +106,25 @@ func (s *StackApplier) DeleteStack(ctx context.Context) error {
 	return s.doDelete(ctx)
 }
 
-type stackApplierDebouncer struct {
+type stackDirWatcher struct {
 	trigger chan<- struct{}
 }
 
+// Activated implements [internalos.DirWatcher].
+func (s *stackDirWatcher) Activated(string) {
+	select {
+	case s.trigger <- struct{}{}:
+	default:
+	}
+}
+
 // Touched implements [internalos.DirWatcher].
-func (s *stackApplierDebouncer) Touched(name string, _ func() (fs.FileInfo, error)) { s.event(name) }
+func (s *stackDirWatcher) Touched(name string, _ func() (fs.FileInfo, error)) { s.event(name) }
 
 // Removed implements [internalos.DirWatcher].
-func (s *stackApplierDebouncer) Removed(name string) { s.event(name) }
+func (s *stackDirWatcher) Removed(name string) { s.event(name) }
 
-func (s *stackApplierDebouncer) event(name string) {
+func (s *stackDirWatcher) event(name string) {
 	if matches, _ := filepath.Match(manifestFilePattern, name); matches {
 		select {
 		case s.trigger <- struct{}{}:

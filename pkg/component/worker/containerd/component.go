@@ -28,6 +28,7 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	internallog "github.com/k0sproject/k0s/internal/pkg/log"
+	"github.com/k0sproject/k0s/internal/sync/value"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	workerconfig "github.com/k0sproject/k0s/pkg/component/worker/config"
 	"github.com/k0sproject/k0s/pkg/config"
@@ -241,39 +242,52 @@ func (c *Component) watchDropinConfigs(ctx context.Context) {
 
 		log.Info("Starting to watch for drop-ins")
 
-		trigger := make(chan struct{}, 1)
+		var watcher dropInsWatcher
+		_, changed := watcher.lastActivity.Peek()
+
+		done := make(chan struct{})
 		go func() {
-			defer close(trigger)
+			defer close(done)
 			ctx := internallog.AttachToContext(ctx, log)
-			watchErr = internalos.WatchDir(ctx, c.importsPath, true, &dropinConfigsDebouncer{trigger})
+			watchErr = internalos.WatchDir(ctx, c.importsPath, &watcher)
 		}()
 
-		var timeout <-chan time.Time
-
+	watch:
 		for {
 			select {
-			case _, ok := <-trigger:
-				if ok {
-					timeout = timer.C
-					if restarted {
-						timer.Reset(3 * time.Second)
-					} else {
-						timer.Reset(1 * time.Second)
+			case <-changed:
+				var lastActivity time.Time
+				lastActivity, changed = watcher.lastActivity.Peek()
+				delay := 1 * time.Second
+				if restarted {
+					delay = 3 * time.Second
+				}
+				timer.Reset(delay - time.Since(lastActivity))
+
+				select {
+				case <-timer.C:
+					select {
+					case <-changed:
+						continue
+					default:
 					}
-					continue
+
+					c.restart(ctx)
+					restarted = true
+
+				case <-done:
+					break watch
+
+				case <-ctx.Done():
+					return
 				}
 
-			case <-timeout:
-				timeout = nil
-				c.restart(ctx)
-				restarted = true
-				continue
+			case <-done:
+				break watch
 
 			case <-ctx.Done():
 				return
 			}
-
-			break
 		}
 
 		select {
@@ -395,22 +409,21 @@ func isPre1_27ManagedConfig(path string) (bool, error) {
 	return false, nil
 }
 
-type dropinConfigsDebouncer struct {
-	trigger chan<- struct{}
+type dropInsWatcher struct {
+	lastActivity value.Latest[time.Time]
+}
+
+// Activated implements [internalos.DirWatcher].
+func (w *dropInsWatcher) Activated(string) {
+	// w.lastActivity.Set(time.Now())
 }
 
 // Touched implements [internalos.DirWatcher].
-func (d *dropinConfigsDebouncer) Touched(name string, _ func() (fs.FileInfo, error)) {
-	select {
-	case d.trigger <- struct{}{}:
-	default:
-	}
+func (w *dropInsWatcher) Touched(string, func() (fs.FileInfo, error)) {
+	w.lastActivity.Set(time.Now())
 }
 
 // Removed implements [internalos.DirWatcher].
-func (d *dropinConfigsDebouncer) Removed(name string) {
-	select {
-	case d.trigger <- struct{}{}:
-	default:
-	}
+func (w *dropInsWatcher) Removed(string) {
+	w.lastActivity.Set(time.Now())
 }

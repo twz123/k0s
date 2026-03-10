@@ -20,12 +20,14 @@ type fsnotifyWatcher fsnotify.Watcher
 func (w *fsnotifyWatcher) Close() error { return (*fsnotify.Watcher)(w).Close() }
 
 type DirWatcher interface {
+	Activated(path string)
 	Touched(name string, info func() (fs.FileInfo, error)) // FIXME: do we need the info func?
 	Removed(name string)
 }
 
 type NoopDirWatcher struct{}
 
+func (*NoopDirWatcher) Activated(string)                            {}
 func (*NoopDirWatcher) Touched(string, func() (fs.FileInfo, error)) {}
 func (*NoopDirWatcher) Removed(string)                              {}
 
@@ -34,14 +36,13 @@ func (*NoopDirWatcher) Removed(string)                              {}
 //
 // On Linux, watcher initialization failures related to inotify/fd limits can
 // fall back to polling.
-func WatchDir(ctx context.Context, path string, initialList bool, watcher DirWatcher) error {
-	return watchDir(ctx, &dirWatch{path: path, initialList: initialList, watcher: watcher})
+func WatchDir(ctx context.Context, path string, watcher DirWatcher) error {
+	return watchDir(ctx, &dirWatch{path: path, watcher: watcher})
 }
 
 type dirWatch struct {
-	path        string
-	initialList bool
-	watcher     DirWatcher
+	path    string
+	watcher DirWatcher
 }
 
 func (w *dirWatch) runFSNotify(ctx context.Context) (error, bool) {
@@ -55,20 +56,7 @@ func (w *dirWatch) runFSNotify(ctx context.Context) (error, bool) {
 		return fmt.Errorf("failed to watch: %w", err), fallback
 	}
 
-	// List all directory entries after the path has been added to the watcher.
-	// Doing it the other way round introduces a race condition when entries get
-	// created after the initial listing but before the watch starts.
-
-	if w.initialList {
-		entries, err := os.ReadDir(w.path)
-		if err != nil {
-			return fmt.Errorf("failed to list: %w", err), false
-		}
-
-		for _, entry := range entries {
-			w.watcher.Touched(entry.Name(), entry.Info)
-		}
-	}
+	w.watcher.Activated(w.path)
 
 	for {
 		select {

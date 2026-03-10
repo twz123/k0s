@@ -225,42 +225,53 @@ func (a *OCIBundleReconciler) runWatcher(ctx context.Context, started *value.Onc
 
 		a.log.Info("Starting to watch OCI bundle directory")
 
-		trigger := make(chan struct{}, 1)
+		var watcher ociBundleDirWatcher
+		_, changed := watcher.lastActivity.Peek()
+
+		done := make(chan struct{})
 		go func() {
-			defer close(trigger)
+			defer close(done)
 			ctx := internallog.AttachToContext(ctx, a.log)
-			watchErr = internalos.WatchDir(ctx, a.ociBundleDir, true, &ociBundleDirEventDebouncer{trigger})
+			watchErr = internalos.WatchDir(ctx, a.ociBundleDir, &watcher)
 		}()
 
-		if loaded {
-			timer.Reset(10 * time.Second)
-		} else {
-			timer.Reset(1 * time.Second)
-		}
-
+	watch:
 		for {
 			select {
-			case _, ok := <-trigger:
-				if ok {
-					if loaded {
-						timer.Reset(10 * time.Second)
-					} else {
-						timer.Reset(1 * time.Second)
+			case <-changed:
+				var lastActivity time.Time
+				lastActivity, changed = watcher.lastActivity.Peek()
+				delay := 1 * time.Second
+				if loaded {
+					delay = 10 * time.Second
+				}
+				timer.Reset(delay - time.Since(lastActivity))
+
+				select {
+				case <-timer.C:
+					select {
+					case <-changed:
+						continue
+					default:
 					}
-					continue
+
+					a.loadAll(ctx)
+					loaded = true
+					started.Set(nil)
+
+				case <-done:
+					break watch
+
+				case <-ctx.Done():
+					return
 				}
 
-			case <-timer.C:
-				a.loadAll(ctx)
-				loaded = true
-				started.Set(nil)
-				continue
+			case <-done:
+				break watch
 
 			case <-ctx.Done():
 				return
 			}
-
-			break
 		}
 
 		select {
@@ -453,22 +464,21 @@ func AddToImageSources(image *images.Image, path string, modtime time.Time) erro
 	return SetImageSources(image, paths)
 }
 
-type ociBundleDirEventDebouncer struct {
-	trigger chan<- struct{}
+type ociBundleDirWatcher struct {
+	lastActivity value.Latest[time.Time]
+}
+
+// Activated implements [internalos.DirWatcher].
+func (w *ociBundleDirWatcher) Activated(string) {
+	w.lastActivity.Set(time.Now())
 }
 
 // Touched implements [internalos.DirWatcher].
-func (s *ociBundleDirEventDebouncer) Touched(name string, _ func() (fs.FileInfo, error)) {
-	select {
-	case s.trigger <- struct{}{}:
-	default:
-	}
+func (w *ociBundleDirWatcher) Touched(string, func() (fs.FileInfo, error)) {
+	w.lastActivity.Set(time.Now())
 }
 
 // Removed implements [internalos.DirWatcher].
-func (s *ociBundleDirEventDebouncer) Removed(name string) {
-	select {
-	case s.trigger <- struct{}{}:
-	default:
-	}
+func (w *ociBundleDirWatcher) Removed(string) {
+	w.lastActivity.Set(time.Now())
 }
