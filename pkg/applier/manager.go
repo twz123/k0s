@@ -101,7 +101,7 @@ func (m *Manager) runWatchers(ctx context.Context) {
 		}
 	}()
 
-	dirWatcher := oswatch.DirWatcherFuncs{
+	dirWatcher := oswatch.WatcherFuncs{
 		OnActivated: func(path string) {
 			entries, err := os.ReadDir(path)
 			if err != nil {
@@ -132,7 +132,7 @@ func (m *Manager) runWatchers(ctx context.Context) {
 	}
 
 	watchCtx := log.AttachToContext(stackCtx, m.log)
-	err := oswatch.WatchDir(watchCtx, m.bundleDir, &dirWatcher)
+	err := oswatch.Dir(watchCtx, m.bundleDir, &dirWatcher)
 
 	if err != nil {
 		cancel(err)

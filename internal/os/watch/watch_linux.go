@@ -98,7 +98,7 @@ type polledDirEntry struct {
 	modTime time.Time
 }
 
-func (w *dirWatch) runPolling(ctx context.Context, log logrus.FieldLogger, pollInterval time.Duration) error {
+func (d *dirWatch) runPolling(ctx context.Context, log logrus.FieldLogger, pollInterval time.Duration) error {
 	if ctx.Err() != nil {
 		return nil // The context is already done.
 	}
@@ -106,13 +106,13 @@ func (w *dirWatch) runPolling(ctx context.Context, log logrus.FieldLogger, pollI
 	timer := time.NewTimer(0)
 	defer timer.Stop()
 
-	polled, err := pollDirEntries(w.path, nil, nil)
+	polled, err := pollDirEntries(d.path, nil, nil)
 	if err != nil {
 		return fmt.Errorf("initial poll failed: %w", err)
 	}
 
-	w.fire(func(watcher DirWatcher) {
-		watcher.Activated(w.path)
+	d.fire(func(watcher Watcher) {
+		watcher.Activated(d.path)
 	})
 
 	for {
@@ -122,7 +122,7 @@ func (w *dirWatch) runPolling(ctx context.Context, log logrus.FieldLogger, pollI
 		case <-timer.C:
 			log.Debug("Polling for changes")
 			var err error
-			polled, err = pollDirEntries(w.path, polled, w.fire)
+			polled, err = pollDirEntries(d.path, polled, d.fire)
 			if err != nil {
 				return fmt.Errorf("failed to poll: %w", err)
 			}
@@ -131,7 +131,7 @@ func (w *dirWatch) runPolling(ctx context.Context, log logrus.FieldLogger, pollI
 	}
 }
 
-func pollDirEntries(path string, prev []polledDirEntry, fire func(func(DirWatcher))) ([]polledDirEntry, error) {
+func pollDirEntries(path string, prev []polledDirEntry, fire func(func(Watcher))) ([]polledDirEntry, error) {
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		return nil, err
@@ -161,7 +161,7 @@ func pollDirEntries(path string, prev []polledDirEntry, fire func(func(DirWatche
 			name := prev[i].name
 			if cmp := strings.Compare(name, entry.Name()); cmp < 0 {
 				if fire != nil {
-					fire(func(w DirWatcher) {
+					fire(func(w Watcher) {
 						w.Removed(name)
 					})
 				}
@@ -177,7 +177,7 @@ func pollDirEntries(path string, prev []polledDirEntry, fire func(func(DirWatche
 
 		if !unchanged && fire != nil {
 			name := entry.Name()
-			fire(func(w DirWatcher) {
+			fire(func(w Watcher) {
 				w.Touched(name, func() (fs.FileInfo, error) { return info, nil })
 			})
 		}
@@ -186,7 +186,7 @@ func pollDirEntries(path string, prev []polledDirEntry, fire func(func(DirWatche
 	if fire != nil {
 		for i := range prev {
 			name := prev[i].name
-			fire(func(w DirWatcher) {
+			fire(func(w Watcher) {
 				w.Removed(name)
 			})
 		}
