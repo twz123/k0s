@@ -22,7 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 
-	internalos "github.com/k0sproject/k0s/internal/os"
+	oswatch "github.com/k0sproject/k0s/internal/os/watch"
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	internallog "github.com/k0sproject/k0s/internal/pkg/log"
@@ -229,10 +229,10 @@ func (c *Component) watchDropinConfigs(ctx context.Context) {
 	log := logrus.WithField("component", "containerd")
 	ctx = internallog.AttachToContext(ctx, log)
 
-	if err := (internalos.OnDirChange{
+	if err := (oswatch.OnDirChange{
 		InitialDelay: 1 * time.Second,
 		Delay:        3 * time.Second,
-		Accepts:      internalos.DenyActivations(),
+		Accepts:      oswatch.DenyActivations(),
 	}.Run(ctx, c.importsPath, func(ctx context.Context) error {
 		c.restart(ctx)
 		return nil

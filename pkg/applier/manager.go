@@ -13,7 +13,7 @@ import (
 	"slices"
 	"time"
 
-	internalos "github.com/k0sproject/k0s/internal/os"
+	oswatch "github.com/k0sproject/k0s/internal/os/watch"
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/log"
@@ -101,7 +101,7 @@ func (m *Manager) runWatchers(ctx context.Context) {
 		}
 	}()
 
-	dirWatcher := internalos.DirWatcherFuncs{
+	dirWatcher := oswatch.DirWatcherFuncs{
 		OnActivated: func(path string) {
 			entries, err := os.ReadDir(path)
 			if err != nil {
@@ -132,7 +132,7 @@ func (m *Manager) runWatchers(ctx context.Context) {
 	}
 
 	watchCtx := log.AttachToContext(stackCtx, m.log)
-	err := internalos.WatchDir(watchCtx, m.bundleDir, &dirWatcher)
+	err := oswatch.WatchDir(watchCtx, m.bundleDir, &dirWatcher)
 
 	if err != nil {
 		cancel(err)

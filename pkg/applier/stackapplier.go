@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	internalos "github.com/k0sproject/k0s/internal/os"
+	oswatch "github.com/k0sproject/k0s/internal/os/watch"
 	internallog "github.com/k0sproject/k0s/internal/pkg/log"
 	"github.com/k0sproject/k0s/pkg/kubernetes"
 
@@ -51,10 +51,10 @@ func NewStackApplier(path string, kubeClientFactory kubernetes.ClientFactoryInte
 // Run watches the stack for updates and executes the initial apply.
 func (s *StackApplier) Run(ctx context.Context) error {
 	ctx = internallog.AttachToContext(ctx, s.log)
-	return internalos.OnDirChange{
+	return oswatch.OnDirChange{
 		InitialDelay: 1 * time.Second,
 		Delay:        1 * time.Second,
-		Accepts: internalos.DenyNames(func(name string) bool {
+		Accepts: oswatch.DenyNames(func(name string) bool {
 			matched, _ := filepath.Match(manifestFilePattern, name)
 			return !matched
 		}),

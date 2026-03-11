@@ -20,7 +20,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/util/wait"
 
-	internalos "github.com/k0sproject/k0s/internal/os"
+	oswatch "github.com/k0sproject/k0s/internal/os/watch"
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/sync/value"
 	"github.com/k0sproject/k0s/pkg/component/manager"
@@ -212,7 +212,7 @@ func (a *OCIBundleReconciler) unpinOne(ctx context.Context, image images.Image, 
 // new file is created or updated in the OCI directory. Events are debounced
 // with a timeout of 10 seconds.
 func (a *OCIBundleReconciler) runWatcher(ctx context.Context, started *value.Once[error]) {
-	err := internalos.OnDirChange{
+	err := oswatch.OnDirChange{
 		InitialDelay: 1 * time.Second,
 		Delay:        10 * time.Second,
 	}.Run(ctx, a.ociBundleDir, func(ctx context.Context) error {
