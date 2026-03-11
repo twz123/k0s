@@ -54,7 +54,7 @@ func (s *StackApplier) Run(ctx context.Context) error {
 	return oswatch.OnDirChange{
 		InitialDelay: 1 * time.Second,
 		Delay:        1 * time.Second,
-		Accepts: oswatch.DenyNames(func(name string) bool {
+		Accepts: oswatch.RejectNames(func(name string) bool {
 			matched, _ := filepath.Match(manifestFilePattern, name)
 			return !matched
 		}),

@@ -126,7 +126,7 @@ func (m *Manager) runWatchers(ctx context.Context) {
 			}
 		},
 
-		OnRemoved: func(name string) {
+		OnGone: func(name string) {
 			m.removeStack(stackCtx, stacks, name)
 		},
 	}

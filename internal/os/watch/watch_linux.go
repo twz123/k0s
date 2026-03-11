@@ -162,7 +162,7 @@ func pollDirEntries(path string, prev []polledDirEntry, fire func(func(Watcher))
 			if cmp := strings.Compare(name, entry.Name()); cmp < 0 {
 				if fire != nil {
 					fire(func(w Watcher) {
-						w.Removed(name)
+						w.Gone(name)
 					})
 				}
 			} else if cmp == 0 {
@@ -187,7 +187,7 @@ func pollDirEntries(path string, prev []polledDirEntry, fire func(func(Watcher))
 		for i := range prev {
 			name := prev[i].name
 			fire(func(w Watcher) {
-				w.Removed(name)
+				w.Gone(name)
 			})
 		}
 	}

@@ -232,7 +232,7 @@ func (c *Component) watchDropinConfigs(ctx context.Context) {
 	if err := (oswatch.OnDirChange{
 		InitialDelay: 1 * time.Second,
 		Delay:        3 * time.Second,
-		Accepts:      oswatch.DenyActivations(),
+		Accepts:      oswatch.RejectActivations(),
 	}.Run(ctx, c.importsPath, func(ctx context.Context) error {
 		c.restart(ctx)
 		return nil
