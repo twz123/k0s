@@ -4,17 +4,13 @@
 package applier
 
 import (
-	"cmp"
 	"context"
-	"errors"
-	"io/fs"
 	"path/filepath"
 	"sync"
 	"time"
 
 	internalos "github.com/k0sproject/k0s/internal/os"
 	internallog "github.com/k0sproject/k0s/internal/pkg/log"
-	"github.com/k0sproject/k0s/internal/sync/value"
 	"github.com/k0sproject/k0s/pkg/kubernetes"
 
 	"github.com/avast/retry-go"
@@ -54,60 +50,18 @@ func NewStackApplier(path string, kubeClientFactory kubernetes.ClientFactoryInte
 
 // Run watches the stack for updates and executes the initial apply.
 func (s *StackApplier) Run(ctx context.Context) error {
-	var (
-		watcher  stackDirWatcher
-		watchErr error
-	)
-
-	_, changed := watcher.lastActivity.Peek()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		ctx := internallog.AttachToContext(ctx, s.log)
-		watchErr = internalos.WatchDir2(ctx, s.path, &watcher)
-	}()
-
-	timer := time.NewTimer(0)
-	defer timer.Stop()
-
-watch:
-	for {
-		select {
-		case <-changed:
-			var lastActivity time.Time
-			lastActivity, changed = watcher.lastActivity.Peek()
-			timer.Reset(1*time.Second - time.Since(lastActivity))
-
-			select {
-			case <-timer.C:
-				select {
-				case <-changed:
-					continue
-				default:
-					s.apply(ctx)
-				}
-
-			case <-done:
-				break watch
-
-			case <-ctx.Done():
-				return nil
-			}
-
-		case <-done:
-			break watch
-
-		case <-ctx.Done():
-			return nil
-		}
-	}
-
-	select {
-	case <-ctx.Done():
+	ctx = internallog.AttachToContext(ctx, s.log)
+	return internalos.OnDirChange{
+		InitialDelay: 1 * time.Second,
+		Delay:        1 * time.Second,
+		Accepts: internalos.DenyNames(func(name string) bool {
+			matched, _ := filepath.Match(manifestFilePattern, name)
+			return !matched
+		}),
+	}.Run(ctx, s.path, func(ctx context.Context) error {
+		s.apply(ctx)
 		return nil
-	default:
-		return cmp.Or(watchErr, errors.New("watch terminated unexpectedly"))
-	}
+	})
 }
 
 func (s *StackApplier) apply(ctx context.Context) {
@@ -130,25 +84,4 @@ func (s *StackApplier) apply(ctx context.Context) {
 // DeleteStack deletes the associated stack
 func (s *StackApplier) DeleteStack(ctx context.Context) error {
 	return s.doDelete(ctx)
-}
-
-type stackDirWatcher struct {
-	lastActivity value.WriteOptimizedLatest[time.Time]
-}
-
-// Activated implements [internalos.DirWatcher].
-func (w *stackDirWatcher) Activated(string) {
-	w.lastActivity.Set(time.Now())
-}
-
-// Touched implements [internalos.DirWatcher].
-func (w *stackDirWatcher) Touched(name string, _ func() (fs.FileInfo, error)) { w.event(name) }
-
-// Removed implements [internalos.DirWatcher].
-func (w *stackDirWatcher) Removed(name string) { w.event(name) }
-
-func (w *stackDirWatcher) event(name string) {
-	if matches, _ := filepath.Match(manifestFilePattern, name); matches {
-		w.lastActivity.Set(time.Now())
-	}
 }
