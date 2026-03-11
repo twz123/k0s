@@ -101,57 +101,52 @@ func (m *Manager) runWatchers(ctx context.Context) {
 		}
 	}()
 
-	dirWatcher := stacksDirWatcher{
-		log:         m.log,
-		cancel:      cancel,
-		createStack: func(name string) { m.createStack(stackCtx, stacks, name) },
-		removeStack: func(name string) { m.removeStack(stackCtx, stacks, name) },
+	dirWatcher := internalos.DirWatcherFuncs{
+		OnActivated: func(path string) {
+			entries, err := os.ReadDir(path)
+			if err != nil {
+				cancel(err)
+				return
+			}
+
+			for _, entry := range entries {
+				if entry.IsDir() {
+					m.createStack(stackCtx, stacks, entry.Name())
+				}
+			}
+		},
+
+		OnTouched: func(name string, info func() (fs.FileInfo, error)) {
+			if info, err := info(); err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					m.log.WithError(err).Warn("Ignoring ", name)
+				}
+			} else if info.IsDir() {
+				m.createStack(stackCtx, stacks, name)
+			}
+		},
+
+		OnRemoved: func(name string) {
+			m.removeStack(stackCtx, stacks, name)
+		},
 	}
 
-	if err := internalos.WatchDir2(log.AttachToContext(stackCtx, m.log), m.bundleDir, &dirWatcher); err != nil {
+	watchCtx := log.AttachToContext(stackCtx, m.log)
+	err := internalos.WatchDir(watchCtx, m.bundleDir, func(e internalos.DirWatchEvent) {
+		e.Accept(&dirWatcher)
+	})
+
+	if err != nil {
 		cancel(err)
+	} else if ctx.Err() == nil {
+		err = context.Cause(stackCtx)
+	}
+
+	if err != nil {
 		m.log.WithError(err).Error("Failed to watch manifests directory")
 	} else {
 		m.log.Infof("Watch loop done (%v)", context.Cause(ctx))
 	}
-}
-
-type stacksDirWatcher struct {
-	log         logrus.FieldLogger
-	cancel      context.CancelCauseFunc
-	createStack func(name string)
-	removeStack func(name string)
-}
-
-// Activated implements [internalos.DirWatcher].
-func (w *stacksDirWatcher) Activated(path string) {
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		w.cancel(err)
-		return
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			w.createStack(entry.Name())
-		}
-	}
-}
-
-// Touched implements [internalos.DirWatcher].
-func (w *stacksDirWatcher) Touched(name string, info func() (fs.FileInfo, error)) {
-	if info, err := info(); err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			w.log.WithError(err).Warn("Ignoring ", name)
-		}
-	} else if info.IsDir() {
-		w.createStack(name)
-	}
-}
-
-// Removed implements [internalos.DirWatcher].
-func (w *stacksDirWatcher) Removed(name string) {
-	w.removeStack(name)
 }
 
 func (m *Manager) createStack(ctx context.Context, stacks map[string]stack, name string) {
