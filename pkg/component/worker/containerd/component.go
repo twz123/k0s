@@ -249,7 +249,7 @@ func (c *Component) watchDropinConfigs(ctx context.Context) {
 		go func() {
 			defer close(done)
 			ctx := internallog.AttachToContext(ctx, log)
-			watchErr = internalos.WatchDir2(ctx, c.importsPath, &watcher)
+			watchErr = internalos.WatchDir(ctx, c.importsPath, &watcher)
 		}()
 
 	watch:
@@ -411,6 +411,11 @@ func isPre1_27ManagedConfig(path string) (bool, error) {
 
 type dropInsWatcher struct {
 	lastActivity value.Latest[time.Time]
+}
+
+// Visit implements [internalos.DirWatchEventVisitor].
+func (w *dropInsWatcher) Visit(e internalos.DirWatchEvent) {
+	e.Accept(w)
 }
 
 // Activated implements [internalos.DirWatcher].

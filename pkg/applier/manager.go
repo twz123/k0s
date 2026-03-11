@@ -132,9 +132,7 @@ func (m *Manager) runWatchers(ctx context.Context) {
 	}
 
 	watchCtx := log.AttachToContext(stackCtx, m.log)
-	err := internalos.WatchDir(watchCtx, m.bundleDir, func(e internalos.DirWatchEvent) {
-		e.Accept(&dirWatcher)
-	})
+	err := internalos.WatchDir(watchCtx, m.bundleDir, &dirWatcher)
 
 	if err != nil {
 		cancel(err)

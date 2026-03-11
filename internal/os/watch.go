@@ -28,33 +28,6 @@ type DirWatcher interface {
 	Removed(name string)
 }
 
-type DirWatcherFuncs struct {
-	OnActivated func(path string)
-	OnRemoved   func(name string)
-	OnTouched   func(name string, info func() (fs.FileInfo, error))
-}
-
-// Activated implements [DirWatcher].
-func (f *DirWatcherFuncs) Activated(path string) {
-	if f.OnActivated != nil {
-		f.OnActivated(path)
-	}
-}
-
-// Touched implements [DirWatcher].
-func (f *DirWatcherFuncs) Touched(name string, info func() (fs.FileInfo, error)) {
-	if f.OnTouched != nil {
-		f.OnTouched(name, info)
-	}
-}
-
-// Removed implements [DirWatcher].
-func (f *DirWatcherFuncs) Removed(name string) {
-	if f.OnRemoved != nil {
-		f.OnRemoved(name)
-	}
-}
-
 type DirWatchEvent interface {
 	Accept(DirWatcher)
 }
@@ -84,16 +57,52 @@ func DenyNames(deny func(string) bool) DirWatchEventPredicate {
 	}
 }
 
+type DirWatchEventVisitor interface {
+	Visit(e DirWatchEvent)
+}
+
+type DirWatchEventVisitorFunc func(e DirWatchEvent)
+
+func (f DirWatchEventVisitorFunc) Visit(e DirWatchEvent) { f(e) }
+
+type DirWatcherFuncs struct {
+	OnActivated func(path string)
+	OnRemoved   func(name string)
+	OnTouched   func(name string, info func() (fs.FileInfo, error))
+}
+
+// Visit implements [DirWatchEventVisitor].
+func (f *DirWatcherFuncs) Visit(e DirWatchEvent) {
+	e.Accept(f)
+}
+
+// Activated implements [DirWatcher].
+func (f *DirWatcherFuncs) Activated(path string) {
+	if f.OnActivated != nil {
+		f.OnActivated(path)
+	}
+}
+
+// Touched implements [DirWatcher].
+func (f *DirWatcherFuncs) Touched(name string, info func() (fs.FileInfo, error)) {
+	if f.OnTouched != nil {
+		f.OnTouched(name, info)
+	}
+}
+
+// Removed implements [DirWatcher].
+func (f *DirWatcherFuncs) Removed(name string) {
+	if f.OnRemoved != nil {
+		f.OnRemoved(name)
+	}
+}
+
 // WatchDir watches a directory and invokes onEvent for each observed event.
 //
 // On Linux, watcher initialization failures related to inotify/fd limits can
 // fall back to polling.
-func WatchDir(ctx context.Context, path string, onEvent func(DirWatchEvent)) error {
-	return watchDir(ctx, &dirWatch{path: path, onEvent: onEvent})
-}
-
-func WatchDir2(ctx context.Context, path string, watcher DirWatcher) error {
-	return WatchDir(ctx, path, func(e DirWatchEvent) { e.Accept(watcher) })
+func WatchDir(ctx context.Context, path string, visitor DirWatchEventVisitor) error {
+	return watchDir(ctx, &dirWatch{path: path, visitor: visitor})
 }
 
 type OnDirChange struct {
@@ -117,7 +126,7 @@ func (opts OnDirChange) Run(ctx context.Context, path string, onChange func(cont
 	changed := make(chan struct{}, 1)
 	go func() {
 		defer close(changed)
-		watchErr = WatchDir(ctx, path, func(e DirWatchEvent) {
+		watchErr = WatchDir(ctx, path, DirWatchEventVisitorFunc(func(e DirWatchEvent) {
 			if opts.Accepts == nil || opts.Accepts(e) {
 				now := time.Now()
 				lastActivity.Store(&now)
@@ -126,7 +135,7 @@ func (opts OnDirChange) Run(ctx context.Context, path string, onChange func(cont
 				default:
 				}
 			}
-		})
+		}))
 	}()
 
 waitForChange:
@@ -179,7 +188,7 @@ waitForChange:
 
 type dirWatch struct {
 	path    string
-	onEvent func(DirWatchEvent)
+	visitor DirWatchEventVisitor
 }
 
 type dirWatchEventFunc func(DirWatcher)
@@ -187,7 +196,7 @@ type dirWatchEventFunc func(DirWatcher)
 func (f dirWatchEventFunc) Accept(w DirWatcher) { f(w) }
 
 func (w *dirWatch) fire(f func(DirWatcher)) {
-	w.onEvent(dirWatchEventFunc(f))
+	w.visitor.Visit(dirWatchEventFunc(f))
 }
 
 func (w *dirWatch) runFSNotify(ctx context.Context) (error, bool) {
