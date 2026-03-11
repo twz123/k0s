@@ -6,14 +6,12 @@ package containerd
 import (
 	"bufio"
 	"bytes"
-	"cmp"
 	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -28,7 +26,6 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	internallog "github.com/k0sproject/k0s/internal/pkg/log"
-	"github.com/k0sproject/k0s/internal/sync/value"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	workerconfig "github.com/k0sproject/k0s/pkg/component/worker/config"
 	"github.com/k0sproject/k0s/pkg/config"
@@ -139,7 +136,7 @@ func (c *Component) Start(ctx context.Context) (err error) {
 	}()
 
 	wg.Go(func() {
-		c.watchDropinConfigs(cctx)
+		wait.JitterUntilWithContext(cctx, c.watchDropinConfigs, 1*time.Minute, 0.3, true)
 		log.Info("Stopped to watch for drop-ins")
 	})
 
@@ -230,81 +227,17 @@ func (c *Component) setupConfig() error {
 
 func (c *Component) watchDropinConfigs(ctx context.Context) {
 	log := logrus.WithField("component", "containerd")
+	ctx = internallog.AttachToContext(ctx, log)
 
-	timer := time.NewTimer(0)
-	defer timer.Stop()
-
-	for {
-		var (
-			restarted bool
-			watchErr  error
-		)
-
-		log.Info("Starting to watch for drop-ins")
-
-		var watcher dropInsWatcher
-		_, changed := watcher.lastActivity.Peek()
-
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			ctx := internallog.AttachToContext(ctx, log)
-			watchErr = internalos.WatchDir(ctx, c.importsPath, &watcher)
-		}()
-
-	watch:
-		for {
-			select {
-			case <-changed:
-				var lastActivity time.Time
-				lastActivity, changed = watcher.lastActivity.Peek()
-				delay := 1 * time.Second
-				if restarted {
-					delay = 3 * time.Second
-				}
-				timer.Reset(delay - time.Since(lastActivity))
-
-				select {
-				case <-timer.C:
-					select {
-					case <-changed:
-						continue
-					default:
-					}
-
-					c.restart(ctx)
-					restarted = true
-
-				case <-done:
-					break watch
-
-				case <-ctx.Done():
-					return
-				}
-
-			case <-done:
-				break watch
-
-			case <-ctx.Done():
-				return
-			}
-		}
-
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		log.WithError(cmp.Or(watchErr, errors.New("watch terminated unexpectedly"))).
-			Error("Failed to watch for drop-ins")
-
-		timer.Reset(wait.Jitter(1*time.Minute, 0.3))
-		select {
-		case <-timer.C:
-		case <-ctx.Done():
-			return
-		}
+	if err := (internalos.OnDirChange{
+		InitialDelay: 1 * time.Second,
+		Delay:        3 * time.Second,
+		Accepts:      internalos.DenyActivations(),
+	}.Run(ctx, c.importsPath, func(ctx context.Context) error {
+		c.restart(ctx)
+		return nil
+	})); err != nil {
+		log.WithError(err).Error("Failed to watch for drop-ins")
 	}
 }
 
@@ -407,28 +340,4 @@ func isPre1_27ManagedConfig(path string) (bool, error) {
 	}
 
 	return false, nil
-}
-
-type dropInsWatcher struct {
-	lastActivity value.Latest[time.Time]
-}
-
-// Visit implements [internalos.DirWatchEventVisitor].
-func (w *dropInsWatcher) Visit(e internalos.DirWatchEvent) {
-	e.Accept(w)
-}
-
-// Activated implements [internalos.DirWatcher].
-func (w *dropInsWatcher) Activated(string) {
-	// w.lastActivity.Set(time.Now())
-}
-
-// Touched implements [internalos.DirWatcher].
-func (w *dropInsWatcher) Touched(string, func() (fs.FileInfo, error)) {
-	w.lastActivity.Set(time.Now())
-}
-
-// Removed implements [internalos.DirWatcher].
-func (w *dropInsWatcher) Removed(string) {
-	w.lastActivity.Set(time.Now())
 }
