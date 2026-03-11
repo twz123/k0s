@@ -108,7 +108,7 @@ func (m *Manager) runWatchers(ctx context.Context) {
 		removeStack: func(name string) { m.removeStack(stackCtx, stacks, name) },
 	}
 
-	if err := internalos.WatchDir(log.AttachToContext(stackCtx, m.log), m.bundleDir, &dirWatcher); err != nil {
+	if err := internalos.WatchDir2(log.AttachToContext(stackCtx, m.log), m.bundleDir, &dirWatcher); err != nil {
 		cancel(err)
 		m.log.WithError(err).Error("Failed to watch manifests directory")
 	} else {

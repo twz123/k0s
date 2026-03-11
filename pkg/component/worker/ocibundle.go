@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -23,7 +22,6 @@ import (
 
 	internalos "github.com/k0sproject/k0s/internal/os"
 	"github.com/k0sproject/k0s/internal/pkg/dir"
-	internallog "github.com/k0sproject/k0s/internal/pkg/log"
 	"github.com/k0sproject/k0s/internal/sync/value"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/component/prober"
@@ -214,81 +212,20 @@ func (a *OCIBundleReconciler) unpinOne(ctx context.Context, image images.Image, 
 // new file is created or updated in the OCI directory. Events are debounced
 // with a timeout of 10 seconds.
 func (a *OCIBundleReconciler) runWatcher(ctx context.Context, started *value.Once[error]) {
-	timer := time.NewTimer(0)
-	defer timer.Stop()
+	err := internalos.OnDirChange{
+		InitialDelay: 1 * time.Second,
+		Delay:        10 * time.Second,
+	}.Run(ctx, a.ociBundleDir, func(ctx context.Context) error {
+		a.loadAll(ctx)
+		started.Set(nil)
+		return nil
+	})
 
-	for {
-		var (
-			loaded   bool
-			watchErr error
-		)
-
-		a.log.Info("Starting to watch OCI bundle directory")
-
-		var watcher ociBundleDirWatcher
-		_, changed := watcher.lastActivity.Peek()
-
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			ctx := internallog.AttachToContext(ctx, a.log)
-			watchErr = internalos.WatchDir(ctx, a.ociBundleDir, &watcher)
-		}()
-
-	watch:
-		for {
-			select {
-			case <-changed:
-				var lastActivity time.Time
-				lastActivity, changed = watcher.lastActivity.Peek()
-				delay := 1 * time.Second
-				if loaded {
-					delay = 10 * time.Second
-				}
-				timer.Reset(delay - time.Since(lastActivity))
-
-				select {
-				case <-timer.C:
-					select {
-					case <-changed:
-						continue
-					default:
-					}
-
-					a.loadAll(ctx)
-					loaded = true
-					started.Set(nil)
-
-				case <-done:
-					break watch
-
-				case <-ctx.Done():
-					return
-				}
-
-			case <-done:
-				break watch
-
-			case <-ctx.Done():
-				return
-			}
-		}
-
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		if err := cmp.Or(watchErr, errors.New("watch terminated unexpectedly")); !started.Set(err) {
+	select {
+	case <-ctx.Done():
+	default:
+		if err := cmp.Or(err, errors.New("watch terminated unexpectedly")); !started.Set(err) {
 			a.log.WithError(err).Error("Failed to watch OCI bundle directory")
-		}
-
-		timer.Reset(wait.Jitter(1*time.Minute, 0.3))
-		select {
-		case <-timer.C:
-		case <-ctx.Done():
-			return
 		}
 	}
 }
@@ -303,7 +240,9 @@ func (a *OCIBundleReconciler) Start(startCtx context.Context) (err error) {
 
 	go func() {
 		defer close(done)
-		a.runWatcher(ctx, &started)
+		wait.JitterUntilWithContext(ctx, func(ctx context.Context) {
+			a.runWatcher(ctx, &started)
+		}, 1*time.Minute, 1.3, true)
 	}()
 
 	defer func() {
@@ -462,23 +401,4 @@ func AddToImageSources(image *images.Image, path string, modtime time.Time) erro
 	}
 	paths[path] = modtime
 	return SetImageSources(image, paths)
-}
-
-type ociBundleDirWatcher struct {
-	lastActivity value.Latest[time.Time]
-}
-
-// Activated implements [internalos.DirWatcher].
-func (w *ociBundleDirWatcher) Activated(string) {
-	w.lastActivity.Set(time.Now())
-}
-
-// Touched implements [internalos.DirWatcher].
-func (w *ociBundleDirWatcher) Touched(string, func() (fs.FileInfo, error)) {
-	w.lastActivity.Set(time.Now())
-}
-
-// Removed implements [internalos.DirWatcher].
-func (w *ociBundleDirWatcher) Removed(string) {
-	w.lastActivity.Set(time.Now())
 }

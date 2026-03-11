@@ -64,7 +64,7 @@ func (s *StackApplier) Run(ctx context.Context) error {
 	go func() {
 		defer close(done)
 		ctx := internallog.AttachToContext(ctx, s.log)
-		watchErr = internalos.WatchDir(ctx, s.path, &watcher)
+		watchErr = internalos.WatchDir2(ctx, s.path, &watcher)
 	}()
 
 	timer := time.NewTimer(0)

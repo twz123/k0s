@@ -249,7 +249,7 @@ func (c *Component) watchDropinConfigs(ctx context.Context) {
 		go func() {
 			defer close(done)
 			ctx := internallog.AttachToContext(ctx, log)
-			watchErr = internalos.WatchDir(ctx, c.importsPath, &watcher)
+			watchErr = internalos.WatchDir2(ctx, c.importsPath, &watcher)
 		}()
 
 	watch:
