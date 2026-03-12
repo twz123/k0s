@@ -35,10 +35,34 @@ type Event interface {
 	Accept(Watcher)
 }
 
+// Decides whether an [Event] is relevant to a consumer or not.
+type Predicate func(Event) bool
+
+// Returns a predicate that rejects [Watcher.Touched] and [Watcher.Gone] events
+// for names for which deny returns true.
+//
+// All other events are always accepted.
+func RejectNames(deny func(string) bool) Predicate {
+	return func(e Event) bool {
+		var denied bool
+		funcs := WatcherFuncs{
+			OnTouched: func(name string, _ func() (fs.FileInfo, error)) { denied = deny(name) },
+			OnGone:    func(name string) { denied = deny(name) },
+		}
+		e.Accept(&funcs)
+		return !denied
+	}
+}
+
 // Consumes [Event] values.
 type Visitor interface {
 	Visit(e Event)
 }
+
+// Adapts a function to the [Visitor] interface.
+type VisitorFunc func(e Event)
+
+func (f VisitorFunc) Visit(e Event) { f(e) }
 
 // Adapts individual callbacks to the [Watcher] interface.
 //
