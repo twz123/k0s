@@ -16,7 +16,7 @@ import (
 	oswatch "github.com/k0sproject/k0s/internal/os/watch"
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
-	"github.com/k0sproject/k0s/internal/pkg/log"
+	internallog "github.com/k0sproject/k0s/internal/pkg/log"
 	"github.com/k0sproject/k0s/pkg/component/controller/leaderelector"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/config"
@@ -75,7 +75,7 @@ func (m *Manager) Start(context.Context) error {
 	go func() {
 		defer close(stopped)
 		leaderelection.RunLeaderTasks(ctx, m.LeaderElector.CurrentStatus, func(ctx context.Context) {
-			wait.JitterUntilWithContext(ctx, m.runWatchers, 1*time.Minute, 1.3, true)
+			wait.JitterUntilWithContext(ctx, m.runWatchers, 1*time.Minute, 0.3, true)
 		})
 	}()
 
@@ -103,6 +103,10 @@ func (m *Manager) runWatchers(ctx context.Context) {
 
 	dirWatcher := oswatch.WatcherFuncs{
 		OnActivated: func(path string) {
+			// Add all directories after activating the watch. Doing so before
+			// starting the watch introduces a race condition if directories are
+			// created after the initial listing but before the watch starts.
+
 			entries, err := os.ReadDir(path)
 			if err != nil {
 				cancel(err)
@@ -131,7 +135,7 @@ func (m *Manager) runWatchers(ctx context.Context) {
 		},
 	}
 
-	watchCtx := log.AttachToContext(stackCtx, m.log)
+	watchCtx := internallog.AttachToContext(stackCtx, m.log)
 	err := oswatch.Dir(watchCtx, m.bundleDir, &dirWatcher)
 
 	if err != nil {
@@ -148,7 +152,7 @@ func (m *Manager) runWatchers(ctx context.Context) {
 }
 
 func (m *Manager) createStack(ctx context.Context, stacks map[string]stack, name string) {
-	// No-op if the stack has already been created.
+	// safeguard in case the fswatcher would trigger an event for an already existing stack
 	if _, ok := stacks[name]; ok {
 		return
 	}
@@ -174,12 +178,12 @@ func (m *Manager) createStack(ctx context.Context, stacks map[string]stack, name
 	go func() {
 		defer close(stopped)
 
-		wait.JitterUntilWithContext(ctx, func(ctx context.Context) {
+		wait.UntilWithContext(ctx, func(ctx context.Context) {
 			log.Info("Running stack")
 			if err := stack.Run(ctx); err != nil {
 				log.WithError(err).Error("Failed to run stack")
 			}
-		}, 1*time.Minute, 1.3, true)
+		}, 1*time.Minute)
 
 		log.Infof("Stack done (%v)", context.Cause(ctx))
 	}()
@@ -188,7 +192,9 @@ func (m *Manager) createStack(ctx context.Context, stacks map[string]stack, name
 func (m *Manager) removeStack(ctx context.Context, stacks map[string]stack, name string) {
 	stack, ok := stacks[name]
 	if !ok {
-		m.log.Debug("Attempted to remove non-existent stack, probably not a directory: ", name)
+		m.log.
+			WithField("path", name).
+			Debug("attempted to remove non-existent stack, probably not a directory")
 		return
 	}
 

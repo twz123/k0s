@@ -37,7 +37,10 @@ func (d *dirWatch) runFSNotify(ctx context.Context) (error, bool) {
 	for {
 		select {
 		case event := <-watcher.Events:
-			name := filepath.Base(event.Name)
+			name, err := filepath.Rel(d.path, event.Name)
+			if err != nil {
+				return fmt.Errorf("while normalizing event name: %w", err), false
+			}
 			switch {
 			case event.Has(fsnotify.Remove):
 				if event.Name == d.path {
