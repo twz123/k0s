@@ -38,6 +38,22 @@ type Event interface {
 // Decides whether an [Event] is relevant to a consumer or not.
 type Predicate func(Event) bool
 
+// Returns a predicate that rejects [Watcher.Activated] events and accepts all
+// other events.
+//
+// This is useful when a caller wants to react only to subsequent events and is
+// not interested in the initial watcher activation.
+func RejectActivations() Predicate {
+	return func(e Event) bool {
+		var denied bool
+		funcs := WatcherFuncs{
+			OnActivated: func(string) { denied = true },
+		}
+		e.Accept(&funcs)
+		return !denied
+	}
+}
+
 // Returns a predicate that rejects [Watcher.Touched] and [Watcher.Gone] events
 // for names for which deny returns true.
 //
