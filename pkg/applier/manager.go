@@ -16,6 +16,7 @@ import (
 	oswatch "github.com/k0sproject/k0s/internal/os/watch"
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
+	internallog "github.com/k0sproject/k0s/internal/pkg/log"
 	"github.com/k0sproject/k0s/pkg/component/controller/leaderelector"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/config"
@@ -136,7 +137,8 @@ func (m *Manager) runWatchers(ctx context.Context) {
 		},
 	}
 
-	err := oswatch.Dir(stackCtx, m.bundleDir, &dirWatcher)
+	watchCtx := internallog.AttachToContext(stackCtx, m.log)
+	err := oswatch.Dir(watchCtx, m.bundleDir, &dirWatcher)
 
 	if err != nil {
 		cancel(err)

@@ -19,8 +19,11 @@ import (
 //   - [Watcher.Gone] is emitted for entries that disappear.
 //
 // The function runs until ctx is done or watching fails.
+//
+// On Linux, watcher initialization or watch registration failures caused by
+// inotify may fall back to directory polling.
 func Dir(ctx context.Context, path string, visitor Visitor) error {
-	return (&dirWatch{path: path, visitor: visitor}).runFSNotify(ctx)
+	return watchDir(ctx, &dirWatch{path: path, visitor: visitor})
 }
 
 // Debounces accepted watch events into "changes". A change is reported by

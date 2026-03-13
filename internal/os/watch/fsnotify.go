@@ -15,15 +15,19 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-func (d *dirWatch) runFSNotify(ctx context.Context) error {
-	watcher, err := fsnotify.NewWatcher()
+type fsnotifyWatcher fsnotify.Watcher
+
+func (w *fsnotifyWatcher) Close() error { return (*fsnotify.Watcher)(w).Close() }
+
+func (d *dirWatch) runFSNotify(ctx context.Context) (error, bool) {
+	watcher, err, fallback := newFSNotifyWatcher()
 	if err != nil {
-		return fmt.Errorf("failed to create watcher: %w", err)
+		return fmt.Errorf("failed to create watcher: %w", err), fallback
 	}
 	defer func() { err = errors.Join(err, watcher.Close()) }()
 
-	if err := watcher.Add(d.path); err != nil {
-		return fmt.Errorf("failed to watch: %w", err)
+	if err, fallback := watcher.add(d.path); err != nil {
+		return fmt.Errorf("failed to watch: %w", err), fallback
 	}
 
 	d.fire(func(w Watcher) {
@@ -35,12 +39,12 @@ func (d *dirWatch) runFSNotify(ctx context.Context) error {
 		case event := <-watcher.Events:
 			name, err := filepath.Rel(d.path, event.Name)
 			if err != nil {
-				return fmt.Errorf("while normalizing event name: %w", err)
+				return fmt.Errorf("while normalizing event name: %w", err), false
 			}
 			switch {
 			case event.Has(fsnotify.Remove):
 				if event.Name == d.path {
-					return errors.New("watched directory has been removed")
+					return errors.New("watched directory has been removed"), false
 				}
 				d.fire(func(w Watcher) {
 					w.Gone(name)
@@ -48,7 +52,7 @@ func (d *dirWatch) runFSNotify(ctx context.Context) error {
 
 			case event.Has(fsnotify.Rename):
 				if event.Name == d.path {
-					return errors.New("watched directory has been renamed")
+					return errors.New("watched directory has been renamed"), false
 				}
 				d.fire(func(w Watcher) {
 					w.Gone(name)
@@ -62,13 +66,13 @@ func (d *dirWatch) runFSNotify(ctx context.Context) error {
 				})
 
 			default:
-				return fmt.Errorf("unknown event: %v", event)
+				return fmt.Errorf("unknown event: %v", event), false
 			}
 
 		case err := <-watcher.Errors:
-			return fmt.Errorf("while watching: %w", err)
+			return fmt.Errorf("while watching: %w", err), false
 		case <-ctx.Done():
-			return nil
+			return nil, false
 		}
 	}
 }
