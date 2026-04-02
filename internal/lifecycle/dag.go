@@ -93,11 +93,3 @@ func (e selfRefErr) Is(target error) bool {
 	}
 	return target == ErrSelfReferential
 }
-
-func mapSet[K comparable, V any](m *map[K]V, k K, v V) {
-	if *m == nil {
-		*m = map[K]V{k: v}
-	} else {
-		(*m)[k] = v
-	}
-}
