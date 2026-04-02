@@ -30,7 +30,7 @@ type node struct {
 }
 
 func (n *node) addDependency(other *node) (err error) {
-	if exists, depth := other.hasDependency(n, nil); exists {
+	if exists, depth := other.hasDependency(n); exists {
 		return selfRefErr{depth}
 	}
 
@@ -55,7 +55,7 @@ func (n *node) disposeLeaf(consumeNewLeaf func(*node)) {
 	n.dependencies = nil
 }
 
-func (n *node) hasDependency(other *node, visited map[*node]struct{}) (exists bool, depth uint) {
+func (n *node) hasDependency(other *node) (exists bool, depth uint) {
 	if n == other {
 		return true, 0
 	}
@@ -64,7 +64,7 @@ func (n *node) hasDependency(other *node, visited map[*node]struct{}) (exists bo
 		if dependency == other {
 			return true, 1
 		}
-		if exists, depth := dependency.hasDependency(other, visited); exists {
+		if exists, depth := dependency.hasDependency(other); exists {
 			return true, depth + 1
 		}
 	}
