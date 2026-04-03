@@ -84,9 +84,6 @@ func (e selfRefErr) Error() string {
 	}
 }
 
-func (e selfRefErr) Is(target error) bool {
-	if target, ok := target.(selfRefErr); ok {
-		return e == target
-	}
-	return target == ErrSelfReferential
+func (selfRefErr) Unwrap() error {
+	return ErrSelfReferential
 }
