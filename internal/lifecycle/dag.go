@@ -61,9 +61,6 @@ func (n *node) hasDependency(other *node) (exists bool, depth uint) {
 	}
 
 	for _, dependency := range n.dependencies {
-		if dependency == other {
-			return true, 1
-		}
 		if exists, depth := dependency.hasDependency(other); exists {
 			return true, depth + 1
 		}
