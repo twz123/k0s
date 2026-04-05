@@ -30,6 +30,11 @@ import (
 
 // TODO: Think about the ordering of the symbols in this file.
 
+// Manages the startup and shutdown of a set of interdependent components.
+//
+// Components added to a Group may require each other's startup outcomes during
+// startup. These requirements form the group's dependency graph and determine
+// shutdown order.
 type Group struct {
 	mu               sync.Mutex
 	nodes            []*lifecycleNode
@@ -39,6 +44,7 @@ type Group struct {
 	inShutdown       bool
 }
 
+// Indicates that a lifecycle group has entered shutdown.
 var ErrShutdown = errors.New("lifecycle shutdown")
 
 // A Component can be started. It produces a [Unit].
@@ -82,6 +88,13 @@ func (f ComponentFunc[I]) Start(ctx context.Context) (*Unit[I], error) {
 	return f(ctx)
 }
 
+// A reference to a component's startup outcome within a lifecycle group.
+//
+// A Ref can be "required" from another component's startup context, or from the
+// completion context passed to [Group.Complete]. Requiring a ref waits for the
+// referenced component to finish starting. When required during another
+// component's startup, the requirement also records a dependency edge in the
+// group's dependency graph.
 type Ref[T any] struct {
 	g       *Group
 	node    *node
@@ -101,6 +114,12 @@ type lifecycleNode struct {
 	done <-chan struct{}
 }
 
+// Starts a component in g and returns a reference to its startup outcome.
+//
+// The component's Start method runs asynchronously. The returned [Ref] can be
+// required by other components in the same group while they are starting.
+//
+// Go panics if called after the group has started to shut down.
 func Go[T any](g *Group, c Component[T]) *Ref[T] {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	started := make(chan struct{})
@@ -160,6 +179,7 @@ func Go[T any](g *Group, c Component[T]) *Ref[T] {
 	return &ref
 }
 
+// GoFunc is like [Go] but accepts a function instead of a [Component].
 func GoFunc[T any](g *Group, start ComponentFunc[T]) *Ref[T] {
 	return Go(g, start)
 }
@@ -171,6 +191,14 @@ func (g *Group) withNodeContext(ctx context.Context, n *node, f func(context.Con
 	f(context.WithValue(ctx, &g.mu, &p))
 }
 
+// Waits for the referenced component to finish starting and returns its startup
+// outcome.
+//
+// Require must be called with a context provided b the same group's startup or
+// completion flow. During another component's startup (via [Go] or [GoFunc]),
+// calling Require also records a dependency on the referenced component. When
+// called from the context passed to [Group.Complete], no dependency is
+// recorded.
 func (r *Ref[T]) Require(ctx context.Context) (t T, _ error) {
 	if r.g == nil {
 		return t, fmt.Errorf("zero ref")
@@ -233,6 +261,21 @@ func (r *Ref[T]) Require(ctx context.Context) (t T, _ error) {
 	}
 }
 
+// Runs f in the group's completion context and then waits for the group to shut
+// down.
+//
+// The context passed to f may be used to require references from the same group
+// while shutdown is not in progress. Unlike requirements performed during
+// component startup, requirements from the completion context do not create new
+// dependency relations. Complete does not itself represent a component.
+//
+// Complete initiates shutdown after f returns. If a component fails to start
+// before or during f, the completion context is cancelled with the startup
+// error.
+//
+// Complete is meant for top-level orchestration code that needs to wait for
+// startup outcomes, perform one-off coordination work, or block the caller
+// until shutdown.
 func (g *Group) Complete(ctx context.Context, f func(ctx context.Context) error) error {
 	g.mu.Lock()
 	if g.done != nil {
@@ -275,6 +318,9 @@ func (g *Group) Complete(ctx context.Context, f func(ctx context.Context) error)
 	return err
 }
 
+// Initiates shutdown, and returns a channel that is closed when all components
+// in the group have stopped. Subsequent calls to Shutdown will return the same
+// channel.
 func (g *Group) Shutdown() <-chan struct{} {
 	g.mu.Lock()
 	defer g.mu.Unlock()
