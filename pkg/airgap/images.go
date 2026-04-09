@@ -4,9 +4,8 @@
 package airgap
 
 import (
-	"runtime"
-
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
+	"github.com/k0sproject/k0s/pkg/component/worker/nllb"
 )
 
 // GetImageURIs returns all image tags
@@ -34,12 +33,12 @@ func GetImageURIs(spec *v1beta1.ClusterSpec, all bool) []string {
 	}
 
 	if spec.Network != nil {
-		nllb := spec.Network.NodeLocalLoadBalancing
-		if nllb != nil && (all || nllb.IsEnabled()) {
-			switch nllb.Type {
+		lb := spec.Network.NodeLocalLoadBalancing
+		if lb != nil && (all || lb.IsEnabled()) {
+			switch lb.Type {
 			case v1beta1.NllbTypeEnvoyProxy:
-				if runtime.GOARCH != "arm" && nllb.EnvoyProxy != nil && nllb.EnvoyProxy.Image != nil {
-					imageURIs = append(imageURIs, nllb.EnvoyProxy.Image.URI())
+				if nllb.EnvoySupported && lb.EnvoyProxy != nil && lb.EnvoyProxy.Image != nil {
+					imageURIs = append(imageURIs, lb.EnvoyProxy.Image.URI())
 				}
 			}
 		}

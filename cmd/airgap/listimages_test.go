@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"testing/iotest"
@@ -16,6 +15,7 @@ import (
 	"github.com/k0sproject/k0s/cmd"
 	internalio "github.com/k0sproject/k0s/internal/io"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
+	"github.com/k0sproject/k0s/pkg/component/worker/nllb"
 
 	"github.com/spf13/cobra"
 
@@ -51,10 +51,10 @@ func TestAirgapListImages(t *testing.T) {
 
 		require.NoError(t, underTest.Execute())
 		lines := strings.Split(out.String(), "\n")
-		if runtime.GOARCH == "arm" {
-			assert.NotContains(t, lines, defaultImage)
-		} else {
+		if nllb.EnvoySupported {
 			assert.Contains(t, lines, defaultImage)
+		} else {
+			assert.NotContains(t, lines, defaultImage)
 		}
 
 		assert.Empty(t, err.String())
@@ -92,10 +92,10 @@ spec:
 
 				lines := strings.Split(out.String(), "\n")
 				for _, contained := range test.contained {
-					if runtime.GOARCH == "arm" {
-						assert.NotContains(t, lines, contained)
-					} else {
+					if nllb.EnvoySupported {
 						assert.Contains(t, lines, contained)
+					} else {
+						assert.NotContains(t, lines, contained)
 					}
 				}
 				for _, notContained := range test.notContained {

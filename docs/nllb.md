@@ -28,8 +28,9 @@ into the cluster. This improves the reliability and fault tolerance of the
 cluster in case a controller node becomes unhealthy.
 
 [Envoy](https://www.envoyproxy.io/) is the only load balancer that is supported
-so far. Please note that Envoy is not available on ARMv7, so node-local load
-balancing is currently unavailable on that platform.
+so far. Please note that Envoy is currently unavailable for ARMv7, RISC-V, and
+Windows, so node-local load balancing is currently unavailable on those
+platforms.
 
 ## Enabling in a cluster
 
