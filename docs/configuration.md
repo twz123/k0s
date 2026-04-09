@@ -101,6 +101,9 @@ spec:
       envoyProxy:
         apiServerBindPort: 7443
         konnectivityServerBindPort: 7132
+      traefikProxy:
+        apiServerBindPort: 7443
+        konnectivityServerBindPort: 7132
       type: EnvoyProxy
     podCIDR: 10.244.0.0/16
     provider: kuberouter
@@ -302,11 +305,12 @@ nftables:
 
 Configuration options related to k0s's [node-local load balancing] feature.
 
-| Element          | Description                                                                                                                   |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `enabled`        | Indicates if node-local load balancing should be used to access Kubernetes API servers from worker nodes. Default: `false`.   |
-| `type`           | The type of the node-local load balancer to deploy on worker nodes. Default: `EnvoyProxy`. (This is the only option for now.) |
-| `envoyProxy`     | Configuration options related to the "EnvoyProxy" type of load balancing.                                                     |
+| Element          | Description                                                                                                                                |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `enabled`        | Indicates if node-local load balancing should be used to access Kubernetes API servers from worker nodes. Default: `false`.                |
+| `type`           | The type of the node-local load balancer to deploy on worker nodes. Default: `EnvoyProxy`. Supported values: `EnvoyProxy`, `TraefikProxy`. |
+| `envoyProxy`     | Configuration options related to the "EnvoyProxy" type of load balancing.                                                                  |
+| `traefikProxy`   | Configuration options related to the "TraefikProxy" type of load balancing.                                                                |
 
 [node-local load balancing]: nllb.md
 
@@ -323,6 +327,18 @@ node-local load balancing.
 | `imagePullPolicy`            | The pull policy being used used for the Envoy Pod. Defaults to `spec.images.default_pull_policy` if omitted.                              |
 | `apiServerBindPort`          | Port number on which to bind the Envoy load balancer for the Kubernetes API server to on a worker's loopback interface. Default: `7443`.  |
 | `konnectivityServerBindPort` | Port number on which to bind the Envoy load balancer for the konnectivity server to on a worker's loopback interface. Default: `7132`.    |
+
+##### `spec.network.nodeLocalLoadBalancing.traefikProxy`
+
+Configuration options required for using Traefik as the backing implementation
+for node-local load balancing.
+
+| Element                      | Description                                                                                                                                |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `image`                      | The OCI image that's being used for the Traefik Pod.                                                                                       |
+| `imagePullPolicy`            | The pull policy being used used for the Traefik Pod. Defaults to `spec.images.default_pull_policy` if omitted.                             |
+| `apiServerBindPort`          | Port number on which to bind the Traefik load balancer for the Kubernetes API server to on a worker's loopback interface. Default: `7443`. |
+| `konnectivityServerBindPort` | Port number on which to bind the Traefik load balancer for the konnectivity server to on a worker's loopback interface. Default: `7132`.   |
 
 ##### `spec.network.controlPlaneLoadBalancing`
 

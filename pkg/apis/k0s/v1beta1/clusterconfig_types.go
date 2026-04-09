@@ -83,11 +83,23 @@ func (c *ClusterConfig) StripDefaults() *ClusterConfig {
 	}
 	if reflect.DeepEqual(c.Spec.Network, DefaultNetwork()) {
 		c.Spec.Network = nil
-	} else if c.Spec.Network != nil &&
-		c.Spec.Network.NodeLocalLoadBalancing != nil &&
-		c.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy != nil &&
-		reflect.DeepEqual(c.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy.Image, DefaultEnvoyProxyImage()) {
-		c.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy.Image = nil
+	} else if c.Spec.Network != nil && c.Spec.Network.NodeLocalLoadBalancing != nil {
+		nllb := c.Spec.Network.NodeLocalLoadBalancing
+		orig := nllb.DeepCopy()
+		nllb.EnvoyProxy = nil
+		nllb.TraefikProxy = nil
+		switch nllb.Type {
+		case NllbTypeEnvoyProxy:
+			if orig.EnvoyProxy != nil {
+				nllb.EnvoyProxy = orig.EnvoyProxy
+				stripDefs(&nllb.EnvoyProxy.Image, DefaultEnvoyProxyImage)
+			}
+		case NllbTypeTraefikProxy:
+			if orig.TraefikProxy != nil {
+				nllb.TraefikProxy = orig.TraefikProxy
+				stripDefs(&nllb.TraefikProxy.Image, DefaultTraefikProxyImage)
+			}
+		}
 	}
 	if reflect.DeepEqual(c.Spec.Telemetry, DefaultClusterTelemetry()) {
 		c.Spec.Telemetry = nil
@@ -95,7 +107,7 @@ func (c *ClusterConfig) StripDefaults() *ClusterConfig {
 	if reflect.DeepEqual(c.Spec.Images, DefaultClusterImages()) {
 		c.Spec.Images = nil
 	} else {
-		stripDefaultImages(c.Spec.Images, DefaultClusterImages())
+		stripDefs(&c.Spec.Images, DefaultClusterImages)
 	}
 	if reflect.DeepEqual(c.Spec.Konnectivity, DefaultKonnectivitySpec()) {
 		c.Spec.Konnectivity = nil
@@ -103,11 +115,14 @@ func (c *ClusterConfig) StripDefaults() *ClusterConfig {
 	return c
 }
 
-func stripDefaultImages(cfgImages, defaultImages *ClusterImages) {
-	if cfgImages != nil && defaultImages != nil {
-		cfgVal := reflect.ValueOf(cfgImages).Elem()
-		defaultVal := reflect.ValueOf(defaultImages).Elem()
-		stripDefaults(cfgVal, defaultVal)
+func stripDefs[T any](actual **T, makeDefaults func() *T) {
+	if *actual != nil {
+		actualVal := reflect.ValueOf(*actual).Elem()
+		defaultVal := reflect.ValueOf(makeDefaults()).Elem()
+		stripDefaults(actualVal, defaultVal)
+		if actualVal.IsZero() || reflect.DeepEqual(*actual, defaultVal.Addr().Interface().(*T)) {
+			*actual = nil
+		}
 	}
 }
 
@@ -450,11 +465,15 @@ func (s *ClusterSpec) overrideImageRepositories() {
 		s.Images != nil &&
 		s.Images.Repository != "" &&
 		s.Network != nil &&
-		s.Network.NodeLocalLoadBalancing != nil &&
-		s.Network.NodeLocalLoadBalancing.EnvoyProxy != nil &&
-		s.Network.NodeLocalLoadBalancing.EnvoyProxy.Image != nil {
-		i := s.Network.NodeLocalLoadBalancing.EnvoyProxy.Image
-		i.Image = overrideRepository(s.Images.Repository, i.Image)
+		s.Network.NodeLocalLoadBalancing != nil {
+		if s.Network.NodeLocalLoadBalancing.EnvoyProxy != nil && s.Network.NodeLocalLoadBalancing.EnvoyProxy.Image != nil {
+			i := s.Network.NodeLocalLoadBalancing.EnvoyProxy.Image
+			i.Image = overrideRepository(s.Images.Repository, i.Image)
+		}
+		if s.Network.NodeLocalLoadBalancing.TraefikProxy != nil && s.Network.NodeLocalLoadBalancing.TraefikProxy.Image != nil {
+			i := s.Network.NodeLocalLoadBalancing.TraefikProxy.Image
+			i.Image = overrideRepository(s.Images.Repository, i.Image)
+		}
 	}
 }
 

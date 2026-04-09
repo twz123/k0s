@@ -366,26 +366,39 @@ spec:
        image: registry.acme.corp/k0sproject/pushgateway
    network:
      nodeLocalLoadBalancing:
+       # FIXME: Do we need to test the Traefik image here, as well?
        envoyProxy:
          image:
-           image: registry.acme.corp/k0sproject/image
+           image: registry.acme.corp/k0sproject/envoy
 `
 
 	input, err := ConfigFromBytes([]byte(yaml))
 	require.NoError(t, err)
 
 	stripped := input.StripDefaults()
+	assert.Equal(t, "registry.acme.corp/k0sproject/envoy", stripped.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy.Image.Image)
 	assert.NotEmpty(t, stripped.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy.Image.Version)
+	assert.Equal(t, "registry.acme.corp/k0sproject/konnectivity", stripped.Spec.Images.Konnectivity.Image)
 	assert.NotEmpty(t, stripped.Spec.Images.Konnectivity.Version)
+	assert.Equal(t, "registry.acme.corp/k0sproject/pushgateway", stripped.Spec.Images.PushGateway.Image)
 	assert.NotEmpty(t, stripped.Spec.Images.PushGateway.Version)
+	assert.Equal(t, "registry.acme.corp/k0sproject/metricsserver", stripped.Spec.Images.MetricsServer.Image)
 	assert.NotEmpty(t, stripped.Spec.Images.MetricsServer.Version)
+	assert.Equal(t, "registry.acme.corp/k0sproject/kubeproxy", stripped.Spec.Images.KubeProxy.Image)
 	assert.NotEmpty(t, stripped.Spec.Images.KubeProxy.Version)
+	assert.Equal(t, "registry.acme.corp/k0sproject/coredns", stripped.Spec.Images.CoreDNS.Image)
 	assert.NotEmpty(t, stripped.Spec.Images.CoreDNS.Version)
+	assert.Equal(t, "registry.acme.corp/k0sproject/pause", stripped.Spec.Images.Pause.Image)
 	assert.NotEmpty(t, stripped.Spec.Images.Pause.Version)
+	assert.Equal(t, "registry.acme.corp/k0sproject/cni", stripped.Spec.Images.Calico.CNI.Image)
 	assert.NotEmpty(t, stripped.Spec.Images.Calico.CNI.Version)
+	assert.Equal(t, "registry.acme.corp/k0sproject/node", stripped.Spec.Images.Calico.Node.Image)
 	assert.NotEmpty(t, stripped.Spec.Images.Calico.Node.Version)
+	assert.Equal(t, "registry.acme.corp/k0sproject/kubecontrollers", stripped.Spec.Images.Calico.KubeControllers.Image)
 	assert.NotEmpty(t, stripped.Spec.Images.Calico.KubeControllers.Version)
+	assert.Equal(t, "registry.acme.corp/k0sproject/cni", stripped.Spec.Images.KubeRouter.CNI.Image)
 	assert.NotEmpty(t, stripped.Spec.Images.KubeRouter.CNI.Version)
+	assert.Equal(t, "registry.acme.corp/k0sproject/cniinstaller", stripped.Spec.Images.KubeRouter.CNIInstaller.Image)
 	assert.NotEmpty(t, stripped.Spec.Images.KubeRouter.CNIInstaller.Version)
 }
 

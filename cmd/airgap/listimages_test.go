@@ -14,7 +14,7 @@ import (
 
 	"github.com/k0sproject/k0s/cmd"
 	internalio "github.com/k0sproject/k0s/internal/io"
-	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
+	k0sv1beta1 "github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/component/worker/nllb"
 
 	"github.com/spf13/cobra"
@@ -29,8 +29,6 @@ func TestAirgapListImages(t *testing.T) {
 	// XDG_RUNTIME_DIR, XDG_STATE_HOME, XDG_DATA_HOME?). If the file is present
 	// on a host executing this test, it will interfere with it.
 	require.NoFileExists(t, "/run/k0s/k0s.yaml", "Runtime config exists and will interfere with this test.")
-
-	defaultImage := v1beta1.DefaultEnvoyProxyImage().URI()
 
 	t.Run("HonorsIOErrors", func(t *testing.T) {
 		var writes uint
@@ -47,15 +45,18 @@ func TestAirgapListImages(t *testing.T) {
 	})
 
 	t.Run("All", func(t *testing.T) {
+		defaultEnvoyImage := k0sv1beta1.DefaultEnvoyProxyImage().URI()
+
 		underTest, out, err := newAirgapListImagesCmdWithConfig(t, "{}", "--all")
 
 		require.NoError(t, underTest.Execute())
 		lines := strings.Split(out.String(), "\n")
 		if nllb.EnvoySupported {
-			assert.Contains(t, lines, defaultImage)
+			assert.Contains(t, lines, defaultEnvoyImage)
 		} else {
-			assert.NotContains(t, lines, defaultImage)
+			assert.NotContains(t, lines, defaultEnvoyImage)
 		}
+		assert.Contains(t, lines, k0sv1beta1.DefaultTraefikProxyImage().URI())
 
 		assert.Empty(t, err.String())
 	})
@@ -63,9 +64,8 @@ func TestAirgapListImages(t *testing.T) {
 	t.Run("NodeLocalLoadBalancing", func(t *testing.T) {
 		const (
 			customImage = "example.com/envoy:v1337"
-			//nolint:dupword
-			yamlData = `
-apiVersion: k0s.k0sproject.io/v1beta1
+			//nolint:dupword // This is YAML data!
+			yamlData = `apiVersion: k0s.k0sproject.io/v1beta1
 kind: ClusterConfig
 spec:
   network:
@@ -76,14 +76,15 @@ spec:
           image: example.com/envoy
           version: v1337`
 		)
+		defaultEnvoyImage := k0sv1beta1.DefaultEnvoyProxyImage().URI()
 
 		for _, test := range []struct {
 			name                    string
 			enabled                 bool
 			contained, notContained []string
 		}{
-			{"enabled", true, []string{customImage}, []string{defaultImage}},
-			{"disabled", false, nil, []string{customImage, defaultImage}},
+			{"enabled", true, []string{customImage}, []string{defaultEnvoyImage}},
+			{"disabled", false, nil, []string{customImage, defaultEnvoyImage}},
 		} {
 			t.Run(test.name, func(t *testing.T) {
 				underTest, out, err := newAirgapListImagesCmdWithConfig(t, fmt.Sprintf(yamlData, test.enabled))
@@ -97,6 +98,49 @@ spec:
 					} else {
 						assert.NotContains(t, lines, contained)
 					}
+				}
+				for _, notContained := range test.notContained {
+					assert.NotContains(t, lines, notContained)
+				}
+				assert.Empty(t, err.String())
+			})
+		}
+	})
+
+	t.Run("NodeLocalLoadBalancingTraefik", func(t *testing.T) {
+		const (
+			customImage = "example.com/traefik:v1337"
+			//nolint:dupword // This is YAML data!
+			yamlData = `apiVersion: k0s.k0sproject.io/v1beta1
+kind: ClusterConfig
+spec:
+  network:
+    nodeLocalLoadBalancing:
+      enabled: %t
+      type: TraefikProxy
+      traefikProxy:
+        image:
+          image: example.com/traefik
+          version: v1337`
+		)
+		defaultTraefikImage := k0sv1beta1.DefaultTraefikProxyImage().URI()
+
+		for _, test := range []struct {
+			name                    string
+			enabled                 bool
+			contained, notContained []string
+		}{
+			{"enabled", true, []string{customImage}, []string{defaultTraefikImage}},
+			{"disabled", false, nil, []string{customImage, defaultTraefikImage}},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				underTest, out, err := newAirgapListImagesCmdWithConfig(t, fmt.Sprintf(yamlData, test.enabled))
+
+				require.NoError(t, underTest.Execute())
+
+				lines := strings.Split(out.String(), "\n")
+				for _, contained := range test.contained {
+					assert.Contains(t, lines, contained)
 				}
 				for _, notContained := range test.notContained {
 					assert.NotContains(t, lines, notContained)

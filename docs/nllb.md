@@ -27,10 +27,11 @@ directed to the controller node that has been used to join a particular worker
 into the cluster. This improves the reliability and fault tolerance of the
 cluster in case a controller node becomes unhealthy.
 
-[Envoy](https://www.envoyproxy.io/) is the only load balancer that is supported
-so far. Please note that Envoy is currently unavailable for ARMv7, RISC-V, and
-Windows, so node-local load balancing is currently unavailable on those
-platforms.
+[Envoy](https://www.envoyproxy.io/) and [Traefik](https://traefik.io/) are
+supported as backing load balancers. Both Envoy and Traefik are supported as
+backing load balancers. Please note that Envoy is currently unavailable for
+ARMv7, RISC-V and Windows. If you plan to run k0s on these platforms, please use
+Traefik.
 
 ## Enabling in a cluster
 

@@ -34,12 +34,15 @@ func GetImageURIs(spec *v1beta1.ClusterSpec, all bool) []string {
 
 	if spec.Network != nil {
 		lb := spec.Network.NodeLocalLoadBalancing
-		if lb != nil && (all || lb.IsEnabled()) {
-			switch lb.Type {
-			case v1beta1.NllbTypeEnvoyProxy:
-				if nllb.EnvoySupported && lb.EnvoyProxy != nil && lb.EnvoyProxy.Image != nil {
-					imageURIs = append(imageURIs, lb.EnvoyProxy.Image.URI())
-				}
+		if all || lb.IsEnabled() {
+			if lb == nil {
+				lb = v1beta1.DefaultNodeLocalLoadBalancing()
+			}
+			if nllb.EnvoySupported && (all || lb.Type == v1beta1.NllbTypeEnvoyProxy) {
+				imageURIs = append(imageURIs, lb.EnvoyProxy.OrDefault().Image.URI())
+			}
+			if all || lb.Type == v1beta1.NllbTypeTraefikProxy {
+				imageURIs = append(imageURIs, lb.TraefikProxy.OrDefault().Image.URI())
 			}
 		}
 	}
