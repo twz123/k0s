@@ -5,8 +5,11 @@ package v1beta1
 
 import (
 	"fmt"
+	"strconv"
 
+	"github.com/k0sproject/k0s/internal/pkg/net"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/kubernetes/pkg/cluster/ports"
 )
 
 var _ Validateable = (*KubeProxy)(nil)
@@ -25,6 +28,7 @@ type KubeProxy struct {
 	// Defaults to "iptables"
 	Mode               string `json:"mode,omitempty"`
 	MetricsBindAddress string `json:"metricsBindAddress,omitempty"`
+	HealthzBindAddress string `json:"healthzBindAddress,omitempty"`
 	// +optional
 	IPTables KubeProxyIPTablesConfiguration `json:"iptables"`
 	// +optional
@@ -88,7 +92,8 @@ type KubeProxyNFTablesConfiguration struct {
 func DefaultKubeProxy() *KubeProxy {
 	return &KubeProxy{
 		Mode:               ModeIptables,
-		MetricsBindAddress: "0.0.0.0:10249",
+		MetricsBindAddress: "0.0.0.0:" + strconv.Itoa(ports.ProxyStatusPort),
+		HealthzBindAddress: "0.0.0.0:" + strconv.Itoa(ports.ProxyHealthzPort),
 	}
 }
 
@@ -100,6 +105,12 @@ func (k *KubeProxy) Validate() []error {
 	var errors []error
 	if k.Mode != ModeIptables && k.Mode != ModeIPVS && k.Mode != ModeUSerspace && k.Mode != ModeNFT {
 		errors = append(errors, fmt.Errorf("unsupported mode %s for kubeProxy config", k.Mode))
+	}
+	if _, err := net.ParseHostPort(k.HealthzBindAddress); err != nil {
+		errors = append(errors, fmt.Errorf("healthzBindAddress: %w", err))
+	}
+	if _, err := net.ParseHostPort(k.MetricsBindAddress); err != nil {
+		errors = append(errors, fmt.Errorf("metricsBindAddress: %w", err))
 	}
 	return errors
 }

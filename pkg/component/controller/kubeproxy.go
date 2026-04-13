@@ -234,6 +234,7 @@ func (k *KubeProxy) getConfig(clusterConfig *v1beta1.ClusterConfig) (*proxyConfi
 		DualStack:            clusterConfig.Spec.Network.DualStack.Enabled,
 		Mode:                 clusterConfig.Spec.Network.KubeProxy.Mode,
 		MetricsBindAddress:   clusterConfig.Spec.Network.KubeProxy.MetricsBindAddress,
+		HealthzBindAddress:   clusterConfig.Spec.Network.KubeProxy.HealthzBindAddress,
 		FeatureGates:         clusterConfig.Spec.FeatureGates.AsMap("kube-proxy"),
 		Args:                 append(args.ToDashedArgs(), clusterConfig.Spec.Network.KubeProxy.RawArgs...),
 	}
@@ -275,6 +276,7 @@ type proxyConfig struct {
 	PullPolicy           string
 	Mode                 string
 	MetricsBindAddress   string
+	HealthzBindAddress   string
 	IPTables             string
 	IPVS                 string
 	NFTables             string
@@ -387,7 +389,7 @@ data:
       tcpEstablishedTimeout: null
     detectLocalMode: ""
     enableProfiling: false
-    healthzBindAddress: ""
+    healthzBindAddress: {{ .HealthzBindAddress }}
     hostnameOverride: ""
     iptables: {{ .IPTables }}
     ipvs: {{ .IPVS }}
