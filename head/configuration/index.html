@@ -25,7 +25,7 @@
       
       
       <link rel="icon" href="../img/k0s-favicon-192.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.4">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
@@ -3353,6 +3353,7 @@ k0sctl</a> and the <a href="https://github.com/k0sproject/k0sctl/blob/main/READM
 <span class="w">    </span><span class="nt">dualStack</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 <span class="w">    </span><span class="nt">kubeProxy</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">healthzBindAddress</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0.0.0:10256</span>
 <span class="w">      </span><span class="nt">iptables</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">minSyncPeriod</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0s</span>
 <span class="w">        </span><span class="nt">syncPeriod</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0s</span>
@@ -3699,7 +3700,7 @@ CALICO_IPV6POOL_CIDR:<span class="w"> </span><span class="s2">&quot;{{ spec.netw
 </tr>
 <tr>
 <td><code>mode</code></td>
-<td>Kube proxy operating mode, supported modes <code>iptables</code>, <code>ipvs</code>, <code>nftables</code>, <code>userspace</code> (default: <code>iptables</code>)</td>
+<td>Kube proxy operating mode, supported modes <code>iptables</code>, <code>ipvs</code>, <code>nftables</code>¹, <code>userspace</code> (default: <code>iptables</code>)</td>
 </tr>
 <tr>
 <td><code>iptables</code></td>
@@ -3718,6 +3719,14 @@ CALICO_IPV6POOL_CIDR:<span class="w"> </span><span class="s2">&quot;{{ spec.netw
 <td>Kube proxy <a href="https://kubernetes.io/docs/reference/command-line-tools-reference/kube-proxy/">nodePortAddresses</a></td>
 </tr>
 <tr>
+<td><code>healthzBindAddress</code></td>
+<td>Kube proxy <a href="https://kubernetes.io/docs/reference/command-line-tools-reference/kube-proxy/">healthzBindAddress</a> (default: 0.0.0.0:10256)</td>
+</tr>
+<tr>
+<td><code>metricsBindAddress</code></td>
+<td>Kube proxy <a href="https://kubernetes.io/docs/reference/command-line-tools-reference/kube-proxy/">metricsBindAddress</a> (default: 0.0.0.0:10249)</td>
+</tr>
+<tr>
 <td><code>extraArgs</code></td>
 <td>Map of key-values (strings) for any extra arguments to pass down to kube-proxy process. <code>extraArgs</code> are recommended over <code>rawArgs</code> if the use case allows it. Any behavior triggered by these parameters is outside k0s support. (default: empty)</td>
 </tr>
@@ -3727,6 +3736,8 @@ CALICO_IPV6POOL_CIDR:<span class="w"> </span><span class="s2">&quot;{{ spec.netw
 </tr>
 </tbody>
 </table>
+<p>¹ For nftables, the kubeproxy container's nftables version needs to be less than or equal to the host OS's in order to avoid segmentation faults.
+For example, a host OS with nftables v1.1.1 requires quay.io/k0sproject/kube-proxy:v1.33.2 or lower.</p>
 <p>Default kube-proxy iptables settings:</p>
 <div class="highlight"><pre><span></span><code><span class="nt">iptables</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">masqueradeAll</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
@@ -4088,7 +4099,7 @@ by k0s.</p>
 <span class="w">  </span><span class="nt">images</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">coredns</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">quay.io/k0sproject/coredns</span>
-<span class="w">      </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.14.1</span>
+<span class="w">      </span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.14.2-0</span>
 </code></pre></div>
 <p>If you want the list of default images and their versions to be included, use <code>k0s config create --include-images</code>.</p>
 <h4 id="available-keys">Available keys<a class="headerlink" href="#available-keys" title="Permanent link">#</a></h4>
