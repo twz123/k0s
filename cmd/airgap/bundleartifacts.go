@@ -54,7 +54,7 @@ instead of in an arbitrary order based on when they finish downloading.
 				return errors.New(`invalid argument "0" for "--concurrency": must be positive`)
 			}
 
-			bundler.PlatformMatcher = platforms.Only(platform)
+			bundler.PlatformMatcher = toPlatformMatcher(platform)
 
 			var out io.Writer
 			if outPath == "" {
@@ -105,6 +105,40 @@ instead of in an arbitrary order based on when they finish downloading.
 	flags.StringArrayVar(&bundler.RegistriesConfigPaths, "registries-config", nil, "paths to the authentication files for OCI registries (uses the standard Docker config if omitted)")
 
 	return cmd
+}
+
+func toPlatformMatcher(platform imagespecv1.Platform) platforms.MatchComparer {
+	matcher := platforms.Only(platform)
+
+	if platform.OS != "windows" {
+		return matcher
+	}
+
+	// Not sure if this is intentional or not, but the OS version ordering for
+	// Windows is only available on Windows ... 🤔
+	//
+	// See: https://github.com/containerd/platforms/pull/22/changes#diff-d36ff773ccc2bad87aae4982cb9a888e46ac12f0cd7d18de55425ff39db2e7deR163-R165
+	// See: https://github.com/containerd/platforms/pull/25
+
+	if comparer, ok := platforms.NewMatcher(platform).(interface {
+		Less(l, r imagespecv1.Platform) bool
+	}); ok {
+		return &platformMatchComparer{matcher, comparer.Less}
+	}
+
+	return &platformMatchComparer{matcher, func(l, r imagespecv1.Platform) bool {
+		return matcher.Match(l) && (l.OSVersion > r.OSVersion || !matcher.Match(r))
+	}}
+}
+
+type platformMatchComparer struct {
+	platforms.MatchComparer
+	less func(l, r imagespecv1.Platform) bool
+}
+
+// Less implements [platforms.MatchComparer].
+func (w *platformMatchComparer) Less(l, r imagespecv1.Platform) bool {
+	return w.MatchComparer.Less(l, r) || w.less(l, r)
 }
 
 func parseArtifactRefsFromReader(in io.Reader) ([]reference.Named, error) {

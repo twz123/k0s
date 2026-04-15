@@ -15,10 +15,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"testing/iotest"
 
+	"github.com/containerd/platforms"
 	internalio "github.com/k0sproject/k0s/internal/io"
 
 	"github.com/distribution/reference"
@@ -102,6 +104,47 @@ func TestBundleArtifactsCmd_WithPlatforms(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestToPlatformMatcher(t *testing.T) {
+	win2022 := platforms.Platform{Architecture: "arm64", OS: "windows", OSVersion: "10.0.20348"}
+	win2025 := platforms.Platform{Architecture: "arm64", OS: "windows", OSVersion: "10.0.26100"}
+
+	t.Run("matchComparerProvided", func(t *testing.T) {
+		underTest := platforms.NewMatcher(win2025)
+		_, ok := underTest.(platforms.MatchComparer)
+		// If this ever changes, k0s's special handling for Windows
+		// OS version comparisons can likely be removed.
+		assert.Equal(t, runtime.GOOS == "windows", ok,
+			"MatchComparer is only expected to be available on Windows",
+		)
+	})
+
+	t.Run("stockWindowsOrdering", func(t *testing.T) {
+		underTest := platforms.Only(win2025)
+		assert.False(t,
+			underTest.Less(win2022, win2025) || underTest.Less(win2025, win2022),
+			"Stock PlatformMatcher provides some ordering for Windows: "+
+				"Consider removing k0s's special handling",
+		)
+	})
+
+	t.Run("k0sWindowsOrdering", func(t *testing.T) {
+		t.Run("Windows2022", func(t *testing.T) {
+			underTest := toPlatformMatcher(win2022)
+			assert.True(t, underTest.Match(win2022), "Windows 2022 should match itself")
+			assert.False(t, underTest.Match(win2025), "Windows 2025 images can't be run on Windows 2022")
+			assert.True(t, underTest.Less(win2022, win2025), "Windows 2025 images can't be run on Windows 2022")
+			assert.False(t, underTest.Less(win2025, win2022), "Windows 2025 images can't be run on Windows 2022")
+		})
+		t.Run("Windows2025", func(t *testing.T) {
+			underTest := toPlatformMatcher(win2025)
+			assert.True(t, underTest.Match(win2022), "Windows 2022 wasn't detected as backwards compatible")
+			assert.True(t, underTest.Match(win2025), "Windows 2025 should match itself")
+			assert.False(t, underTest.Less(win2022, win2025), "Windows 2022 is a worse match than Windows 2025")
+			assert.True(t, underTest.Less(win2025, win2022), "Windows 2025 is a better match than Windows 2022")
+		})
+	})
 }
 
 func startFakeRegistry(t *testing.T, plainHTTP bool) string {
