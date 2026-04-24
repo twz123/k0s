@@ -43,8 +43,26 @@ spec:
 }
 
 func TestStripDefaultsForDefaultImageList(t *testing.T) {
-	yamlData := []byte(`
-apiVersion: k0s.k0sproject.io/v1beta1s
+	for _, tt := range []struct {
+		nllbType NllbType
+		verify   func(t *testing.T, nllb *NodeLocalLoadBalancing)
+	}{
+		{NllbTypeEnvoyProxy, func(t *testing.T, nllb *NodeLocalLoadBalancing) {
+			if assert.NotNil(t, nllb.EnvoyProxy) {
+				assert.Nil(t, nllb.EnvoyProxy.Image)
+			}
+			assert.Nil(t, nllb.Traefik)
+		}},
+		{NllbTypeTraefik, func(t *testing.T, nllb *NodeLocalLoadBalancing) {
+			if assert.NotNil(t, nllb.Traefik) {
+				assert.Nil(t, nllb.Traefik.Image)
+			}
+			assert.Nil(t, nllb.EnvoyProxy)
+		}},
+	} {
+
+		t.Run(string(tt.nllbType), func(t *testing.T) {
+			yamlData := []byte(`apiVersion: k0s.k0sproject.io/v1beta1
 kind: ClusterConfig
 spec:
   images:
@@ -52,18 +70,20 @@ spec:
   network:
     nodeLocalLoadBalancing:
       enabled: true
-      type: EnvoyProxy
+      type: ` + tt.nllbType + `
 `)
 
-	cfg, err := ConfigFromBytes(yamlData)
-	require.NoError(t, err)
+			cfg, err := ConfigFromBytes(yamlData)
+			require.NoError(t, err)
 
-	strippedCfg := cfg.StripDefaults()
+			strippedCfg := cfg.StripDefaults()
 
-	require.Equal(t, "Never", strippedCfg.Spec.Images.DefaultPullPolicy)
-	require.Nil(t, strippedCfg.Spec.Images.Konnectivity)
-	require.True(t, strippedCfg.Spec.Network.NodeLocalLoadBalancing.Enabled)
-	require.Nil(t, strippedCfg.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy.Image)
+			require.Equal(t, "Never", strippedCfg.Spec.Images.DefaultPullPolicy)
+			require.Nil(t, strippedCfg.Spec.Images.Konnectivity)
+			require.True(t, strippedCfg.Spec.Network.NodeLocalLoadBalancing.Enabled)
+			tt.verify(t, strippedCfg.Spec.Network.NodeLocalLoadBalancing)
+		})
+	}
 }
 
 func TestImagesRepoOverrideInConfiguration(t *testing.T) {

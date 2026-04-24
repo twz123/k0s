@@ -16,7 +16,7 @@ import (
 
 	"github.com/k0sproject/k0s/cmd"
 	internalio "github.com/k0sproject/k0s/internal/io"
-	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
+	k0sv1beta1 "github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 
 	"github.com/spf13/cobra"
 
@@ -31,8 +31,8 @@ func TestAirgapListImages(t *testing.T) {
 	// on a host executing this test, it will interfere with it.
 	require.NoFileExists(t, "/run/k0s/k0s.yaml", "Runtime config exists and will interfere with this test.")
 
-	defaults := v1beta1.DefaultClusterImages()
-	defaultEnvoyImage := v1beta1.DefaultEnvoyProxyImage().URI()
+	defaults := k0sv1beta1.DefaultClusterImages()
+	defaultEnvoyImage := k0sv1beta1.DefaultEnvoyProxyImage().URI()
 
 	t.Run("HonorsIOErrors", func(t *testing.T) {
 		var args []string
@@ -177,8 +177,10 @@ func TestAirgapListImages(t *testing.T) {
 	})
 
 	t.Run("NodeLocalLoadBalancing", func(t *testing.T) {
+		defaultTraefikImage := k0sv1beta1.DefaultTraefikImage().URI()
+
 		const (
-			customImage = "example.com/envoy:v1337"
+			customImage = "registry.example.com/custom:v1337"
 			//nolint:dupword
 			yamlData = `
 apiVersion: k0s.k0sproject.io/v1beta1
@@ -187,27 +189,33 @@ spec:
   network:
     nodeLocalLoadBalancing:
       enabled: %t
-      envoyProxy:
+      type: %s
+      %s:
         image:
-          image: example.com/envoy
+          image: registry.example.com/custom
           version: v1337`
 		)
 
 		for _, test := range []struct {
+			backend                 string
 			name                    string
 			enabled                 bool
 			args                    []string
 			contained, notContained []string
 		}{
-			{"enabled-linux-amd64", true, []string{"--platform=linux/amd64"}, []string{customImage}, []string{defaultEnvoyImage}},
-			{"enabled-linux-arm-v7", true, []string{"--platform=linux/arm/v7"}, nil, []string{customImage, defaultEnvoyImage}},
-			{"enabled-windows-amd64", true, []string{"--platform=windows/amd64"}, nil, []string{customImage, defaultEnvoyImage}},
-			{"disabled-linux-amd64", false, []string{"--platform=linux/amd64"}, nil, []string{customImage, defaultEnvoyImage}},
+			{"envoyProxy", "enabled-linux-amd64", true, []string{"--platform=linux/amd64"}, []string{customImage}, []string{defaultEnvoyImage}},
+			{"envoyProxy", "enabled-linux-arm-v7", true, []string{"--platform=linux/arm/v7"}, nil, []string{customImage, defaultEnvoyImage}},
+			{"envoyProxy", "enabled-windows-amd64", true, []string{"--platform=windows/amd64"}, nil, []string{customImage, defaultEnvoyImage}},
+			{"envoyProxy", "disabled-linux-amd64", false, []string{"--platform=linux/amd64"}, nil, []string{customImage, defaultEnvoyImage}},
+			{"traefik", "enabled", true, nil, []string{customImage}, []string{defaultTraefikImage}},
+			{"traefik", "disabled", false, nil, nil, []string{customImage, defaultTraefikImage}},
 		} {
-			t.Run(test.name, func(t *testing.T) {
-				underTest, out, err := newAirgapListImagesCmdWithConfig(t, fmt.Sprintf(yamlData, test.enabled), test.args...)
+			t.Run(test.backend+"-"+test.name, func(t *testing.T) {
+				nllbType := strings.ToUpper(test.backend[:1]) + test.backend[1:]
+				config := fmt.Sprintf(yamlData, test.enabled, nllbType, test.backend)
+				underTest, out, err := newAirgapListImagesCmdWithConfig(t, config, test.args...)
 
-				require.NoError(t, underTest.Execute())
+				require.NoError(t, underTest.Execute(), config)
 
 				lines := strings.Split(out.String(), "\n")
 				for _, contained := range test.contained {

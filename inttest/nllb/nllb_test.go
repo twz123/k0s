@@ -34,6 +34,7 @@ import (
 
 type suite struct {
 	common.BootlooseSuite
+	nllbType   v1beta1.NllbType
 	isIPv6Only bool
 }
 
@@ -48,6 +49,9 @@ func (s *suite) TestNodeLocalLoadBalancing() {
 				Network: func() *v1beta1.Network {
 					network := v1beta1.DefaultNetwork()
 					network.NodeLocalLoadBalancing.Enabled = true
+					if s.nllbType != "" {
+						network.NodeLocalLoadBalancing.Type = s.nllbType
+					}
 					return network
 				}(),
 
@@ -330,11 +334,19 @@ func TestNodeLocalLoadBalancingSuite(t *testing.T) {
 		},
 	}
 
+	if strings.Contains(os.Getenv("K0S_INTTEST_TARGET"), "traefik") {
+		t.Log("Using Traefik")
+		s.nllbType = v1beta1.NllbTypeTraefik
+	} else {
+		t.Log("Using the default NLLB backend")
+	}
+
 	if strings.Contains(os.Getenv("K0S_INTTEST_TARGET"), "ipv6") {
 		t.Log("Configuring IPv6 only networking")
 		s.isIPv6Only = true
 		s.Networks = []string{"bridge-ipv6"}
 		s.AirgapImageBundleMountPoints = []string{"/var/lib/k0s/images/bundle-ipv6.tar"}
 	}
+
 	testifysuite.Run(t, &s)
 }

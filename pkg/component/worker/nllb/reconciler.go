@@ -117,6 +117,12 @@ func NewReconciler(
 			dir:        filepath.Join(runtimeDir, "envoy"),
 			staticPods: staticPods,
 		}
+	case v1beta1.NllbTypeTraefik:
+		loadBalancer = &traefik{
+			log:        logrus.WithFields(logrus.Fields{"component": "nllb.traefik"}),
+			dir:        filepath.Join(runtimeDir, "traefik"),
+			staticPods: staticPods,
+		}
 	default:
 		return nil, fmt.Errorf("unsupported node-local load balancing type: %q", workerProfile.NodeLocalLoadBalancing.Type)
 	}

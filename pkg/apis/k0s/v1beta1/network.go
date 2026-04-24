@@ -29,7 +29,6 @@ type Network struct {
 
 	// NodeLocalLoadBalancing defines the configuration options related to k0s's
 	// node-local load balancing feature.
-	// NOTE: This feature is currently unsupported on ARMv7!
 	NodeLocalLoadBalancing *NodeLocalLoadBalancing `json:"nodeLocalLoadBalancing,omitempty"`
 
 	// ControlPlaneLoadBalancing defines the configuration options related to k0s's

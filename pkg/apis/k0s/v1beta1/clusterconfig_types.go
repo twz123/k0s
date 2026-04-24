@@ -83,11 +83,23 @@ func (c *ClusterConfig) StripDefaults() *ClusterConfig {
 	}
 	if reflect.DeepEqual(c.Spec.Network, DefaultNetwork()) {
 		c.Spec.Network = nil
-	} else if c.Spec.Network != nil &&
-		c.Spec.Network.NodeLocalLoadBalancing != nil &&
-		c.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy != nil &&
-		reflect.DeepEqual(c.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy.Image, DefaultEnvoyProxyImage()) {
-		c.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy.Image = nil
+	} else if c.Spec.Network != nil && c.Spec.Network.NodeLocalLoadBalancing != nil {
+		nllb := c.Spec.Network.NodeLocalLoadBalancing
+		orig := nllb.DeepCopy()
+		nllb.EnvoyProxy = nil
+		nllb.Traefik = nil
+		switch nllb.Type {
+		case NllbTypeEnvoyProxy:
+			if orig.EnvoyProxy != nil {
+				nllb.EnvoyProxy = orig.EnvoyProxy
+				stripDefaults(&nllb.EnvoyProxy.Image, DefaultEnvoyProxyImage)
+			}
+		case NllbTypeTraefik:
+			if orig.Traefik != nil {
+				nllb.Traefik = orig.Traefik
+				stripDefaults(&nllb.Traefik.Image, DefaultTraefikImage)
+			}
+		}
 	}
 	if reflect.DeepEqual(c.Spec.Telemetry, DefaultClusterTelemetry()) {
 		c.Spec.Telemetry = nil
@@ -95,7 +107,7 @@ func (c *ClusterConfig) StripDefaults() *ClusterConfig {
 	if reflect.DeepEqual(c.Spec.Images, DefaultClusterImages()) {
 		c.Spec.Images = nil
 	} else {
-		stripDefaultImages(c.Spec.Images, DefaultClusterImages())
+		stripDefaults(&c.Spec.Images, DefaultClusterImages)
 	}
 	if reflect.DeepEqual(c.Spec.Konnectivity, DefaultKonnectivitySpec()) {
 		c.Spec.Konnectivity = nil
@@ -103,11 +115,14 @@ func (c *ClusterConfig) StripDefaults() *ClusterConfig {
 	return c
 }
 
-func stripDefaultImages(cfgImages, defaultImages *ClusterImages) {
-	if cfgImages != nil && defaultImages != nil {
-		cfgVal := reflect.ValueOf(cfgImages).Elem()
-		defaultVal := reflect.ValueOf(defaultImages).Elem()
-		stripDefaults(cfgVal, defaultVal)
+func stripDefaults[T any](actual **T, makeDefaults func() *T) {
+	if *actual != nil {
+		actualVal := reflect.ValueOf(*actual).Elem()
+		defaultVal := reflect.ValueOf(makeDefaults()).Elem()
+		stripDefaultValues(actualVal, defaultVal)
+		if actualVal.IsZero() || reflect.DeepEqual(*actual, defaultVal.Addr().Interface().(*T)) {
+			*actual = nil
+		}
 	}
 }
 
@@ -118,10 +133,10 @@ func stripDefaultImages(cfgImages, defaultImages *ClusterImages) {
 // defaultValue is never modified. Unexported fields and fields without
 // "omitempty" (including json:\"-\") are left untouched.
 //
-// This logic will be applied recursively, i.e. stripDefaults will be called on
-// nested structs (or pointers to them). All other types will be handled at the
-// top level only.
-func stripDefaults(actualValue, defaultValue reflect.Value) {
+// This logic will be applied recursively, i.e. stripDefaultValues will be
+// called on nested structs (or pointers to them). All other types will be
+// handled at the top level only.
+func stripDefaultValues(actualValue, defaultValue reflect.Value) {
 	typ := actualValue.Type()
 	for i := range typ.NumField() {
 		field := typ.Field(i)
@@ -148,7 +163,7 @@ func stripDefaults(actualValue, defaultValue reflect.Value) {
 				actualValue.SetZero()
 			} else if actualElem.Kind() == reflect.Struct {
 				// Underlying values are different, recurse into the pointed struct.
-				stripDefaults(actualElem, defaultElem)
+				stripDefaultValues(actualElem, defaultElem)
 				// Nil out pointer if only the zero value remains.
 				if actualElem.IsZero() {
 					actualValue.SetZero()
@@ -158,7 +173,7 @@ func stripDefaults(actualValue, defaultValue reflect.Value) {
 		case reflect.Struct:
 			// Recurse into structs. The omitempty tag is meaningless for them.
 			if field.IsExported() {
-				stripDefaults(actualValue.Field(i), defaultValue.Field(i))
+				stripDefaultValues(actualValue.Field(i), defaultValue.Field(i))
 			}
 
 		default:
@@ -450,11 +465,15 @@ func (s *ClusterSpec) overrideImageRepositories() {
 		s.Images != nil &&
 		s.Images.Repository != "" &&
 		s.Network != nil &&
-		s.Network.NodeLocalLoadBalancing != nil &&
-		s.Network.NodeLocalLoadBalancing.EnvoyProxy != nil &&
-		s.Network.NodeLocalLoadBalancing.EnvoyProxy.Image != nil {
-		i := s.Network.NodeLocalLoadBalancing.EnvoyProxy.Image
-		i.Image = overrideRepository(s.Images.Repository, i.Image)
+		s.Network.NodeLocalLoadBalancing != nil {
+		if s.Network.NodeLocalLoadBalancing.EnvoyProxy != nil && s.Network.NodeLocalLoadBalancing.EnvoyProxy.Image != nil {
+			i := s.Network.NodeLocalLoadBalancing.EnvoyProxy.Image
+			i.Image = overrideRepository(s.Images.Repository, i.Image)
+		}
+		if s.Network.NodeLocalLoadBalancing.Traefik != nil && s.Network.NodeLocalLoadBalancing.Traefik.Image != nil {
+			i := s.Network.NodeLocalLoadBalancing.Traefik.Image
+			i.Image = overrideRepository(s.Images.Repository, i.Image)
+		}
 	}
 }
 

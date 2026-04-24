@@ -159,6 +159,9 @@ jobs:
               type: kine
             network:
               provider: calico
+              nodeLocalLoadBalancing:
+                enabled: true
+                type: Traefik
           EOF
 
           install -m755 -D -- '$dir/k0s' /usr/local/bin/k0s

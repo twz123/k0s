@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"testing"
 
+	"k8s.io/utils/ptr"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,25 +31,55 @@ func TestNodeLocalLoadBalancing_IsEnabled(t *testing.T) {
 }
 
 func TestNodeLocalLoadBalancing_Unmarshal_ImageOverride(t *testing.T) {
-	yamlData := []byte(`
-apiVersion: k0s.k0sproject.io/v1beta1
+	for _, tt := range []struct {
+		nllbType *NllbType
+		verify   func(t *testing.T, nllb *NodeLocalLoadBalancing)
+	}{
+		{nil, func(t *testing.T, nllb *NodeLocalLoadBalancing) {
+			require.NotNil(t, nllb.EnvoyProxy)
+			require.NotNil(t, nllb.EnvoyProxy.Image)
+			require.Contains(t, nllb.EnvoyProxy.Image.Image, "example.com/")
+		}},
+		{ptr.To(NllbTypeEnvoyProxy), func(t *testing.T, nllb *NodeLocalLoadBalancing) {
+			require.NotNil(t, nllb.EnvoyProxy)
+			require.NotNil(t, nllb.EnvoyProxy.Image)
+			require.Contains(t, nllb.EnvoyProxy.Image.Image, "example.com/")
+
+		}},
+		{ptr.To(NllbTypeTraefik), func(t *testing.T, nllb *NodeLocalLoadBalancing) {
+			require.NotNil(t, nllb.Traefik)
+			require.NotNil(t, nllb.Traefik.Image)
+			require.Contains(t, nllb.Traefik.Image.Image, "example.com/")
+
+		}},
+	} {
+		name, snippet := "None", ""
+		if tt.nllbType != nil {
+			name = string(*tt.nllbType)
+			snippet = "network: {nodeLocalLoadBalancing: {type: " + string(*tt.nllbType) + "}}"
+		}
+		t.Run(name, func(t *testing.T) {
+			yamlData := []byte(`apiVersion: k0s.k0sproject.io/v1beta1
 kind: ClusterConfig
 metadata:
   name: foobar
 spec:
   images:
     repository: example.com
+  ` + snippet + `
 `)
 
-	c, err := ConfigFromBytes(yamlData)
-	require.NoError(t, err)
-	errors := c.Validate()
-	require.Nil(t, errors)
+			c, err := ConfigFromBytes(yamlData)
+			require.NoError(t, err)
+			errors := c.Validate()
+			require.Nil(t, errors)
 
-	nllb := c.Spec.Network.NodeLocalLoadBalancing
-	require.NotNil(t, nllb.EnvoyProxy)
-	require.NotNil(t, nllb.EnvoyProxy.Image)
-	require.Contains(t, nllb.EnvoyProxy.Image.Image, "example.com/")
+			require.NotNil(t, c.Spec)
+			require.NotNil(t, c.Spec.Network)
+			require.NotNil(t, c.Spec.Network.NodeLocalLoadBalancing)
+			tt.verify(t, c.Spec.Network.NodeLocalLoadBalancing)
+		})
+	}
 }
 
 func TestEnvoyProxyImage_Unmarshal(t *testing.T) {
@@ -88,6 +120,58 @@ spec:
 		{
 			"version", `"*"`,
 			`network: nodeLocalLoadBalancing.envoyProxy.image.version: Invalid value: "*": must match regular expression: ^[\w][\w.-]{0,127}(?:@[A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,})?$`,
+		},
+	} {
+		t.Run(test.field+"_invalid", func(t *testing.T) {
+			c, err := ConfigFromBytes(fmt.Appendf(nil, yamlData, test.field, test.value))
+			require.NoError(t, err)
+			require.NotNil(t, c)
+			errs := c.Validate()
+			require.Len(t, errs, 1)
+			assert.ErrorContains(t, errs[0], test.err)
+		})
+	}
+}
+
+func TestTraefikImage_Unmarshal(t *testing.T) {
+	yamlData := `
+apiVersion: k0s.k0sproject.io/v1beta1
+kind: ClusterConfig
+metadata:
+  name: TestTraefikImage_Unmarshal
+spec:
+  network:
+    nodeLocalLoadBalancing:
+      type: Traefik
+      traefik:
+        image:
+          %s: %s
+`
+
+	for _, field := range []string{"image", "version"} {
+		t.Run(field+"_empty", func(t *testing.T) {
+			c, err := ConfigFromBytes(fmt.Appendf(nil, yamlData, field, `""`))
+			require.NoError(t, err)
+			require.NotNil(t, c)
+			require.Empty(t, c.Validate())
+			require.NotNil(t, c.Spec)
+			require.NotNil(t, c.Spec.Network)
+			require.NotNil(t, c.Spec.Network.NodeLocalLoadBalancing)
+			require.NotNil(t, c.Spec.Network.NodeLocalLoadBalancing.Traefik)
+			assert.Equal(t, DefaultTraefikImage(), c.Spec.Network.NodeLocalLoadBalancing.Traefik.Image)
+		})
+	}
+
+	for _, test := range []struct {
+		field, value, err string
+	}{
+		{
+			"image", `" "`,
+			`network: nodeLocalLoadBalancing.traefik.image.image: Invalid value: " ": must not have leading or trailing whitespace`,
+		},
+		{
+			"version", `"*"`,
+			`network: nodeLocalLoadBalancing.traefik.image.version: Invalid value: "*": must match regular expression: ^[\w][\w.-]{0,127}(?:@[A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,})?$`,
 		},
 	} {
 		t.Run(test.field+"_invalid", func(t *testing.T) {

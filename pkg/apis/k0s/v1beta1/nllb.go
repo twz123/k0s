@@ -16,7 +16,6 @@ import (
 
 // NodeLocalLoadBalancing defines the configuration options related to k0s's
 // node-local load balancing feature.
-// NOTE: This feature is currently unsupported on ARMv7!
 type NodeLocalLoadBalancing struct {
 	// enabled indicates if node-local load balancing should be used to access
 	// Kubernetes API servers from worker nodes.
@@ -26,23 +25,33 @@ type NodeLocalLoadBalancing struct {
 	Enabled bool `json:"enabled"`
 
 	// type indicates the type of the node-local load balancer to deploy on
-	// worker nodes. Currently, the only supported type is "EnvoyProxy".
+	// worker nodes. Can be one of:
+	//   - EnvoyProxy (default)
+	//   - Traefik
 	// +kubebuilder:default=EnvoyProxy
 	Type NllbType `json:"type,omitempty"`
 
-	// envoyProxy contains configuration options related to the "EnvoyProxy" type
-	// of load balancing.
+	// envoyProxy contains configuration options related to the "EnvoyProxy"
+	// type of load balancing.
+	//
+	// NOTE: This feature is currently unsupported on ARMv7, RISC-V and Windows!
 	EnvoyProxy *EnvoyProxy `json:"envoyProxy,omitempty"`
+
+	// traefik contains configuration options related to the "Traefik"
+	// type of load balancing.
+	Traefik *Traefik `json:"traefik,omitempty"`
 }
 
 // NllbType describes which type of load balancer should be deployed for the
 // node-local load balancing. The default is [NllbTypeEnvoyProxy].
-// +kubebuilder:validation:Enum=EnvoyProxy
+// +kubebuilder:validation:Enum=EnvoyProxy;Traefik
 type NllbType string
 
 const (
 	// NllbTypeEnvoyProxy selects Envoy as the backing load balancer.
 	NllbTypeEnvoyProxy NllbType = "EnvoyProxy"
+	// NllbTypeTraefik selects Traefik as the backing load balancer.
+	NllbTypeTraefik NllbType = "Traefik"
 )
 
 // DefaultNodeLocalLoadBalancing returns the default node-local load balancing configuration.
@@ -69,8 +78,15 @@ func (n *NodeLocalLoadBalancing) setDefaults() {
 	if n.Type == "" {
 		n.Type = NllbTypeEnvoyProxy
 	}
-	if n.EnvoyProxy == nil {
-		n.EnvoyProxy = DefaultEnvoyProxy()
+	switch n.Type {
+	case NllbTypeEnvoyProxy:
+		if n.EnvoyProxy == nil {
+			n.EnvoyProxy = DefaultEnvoyProxy()
+		}
+	case NllbTypeTraefik:
+		if n.Traefik == nil {
+			n.Traefik = DefaultTraefik()
+		}
 	}
 }
 
@@ -81,15 +97,17 @@ func (n *NodeLocalLoadBalancing) Validate(path *field.Path) (errs field.ErrorLis
 
 	switch n.Type {
 	case NllbTypeEnvoyProxy:
+	case NllbTypeTraefik:
 	case "":
 		if n.IsEnabled() {
 			errs = append(errs, field.Forbidden(path.Child("type"), "need to specify type if enabled"))
 		}
 	default:
-		errs = append(errs, field.NotSupported(path.Child("type"), n.Type, []string{string(NllbTypeEnvoyProxy)}))
+		errs = append(errs, field.NotSupported(path.Child("type"), n.Type, []string{string(NllbTypeEnvoyProxy), string(NllbTypeTraefik)}))
 	}
 
 	errs = append(errs, n.EnvoyProxy.Validate(path.Child("envoyProxy"))...)
+	errs = append(errs, n.Traefik.Validate(path.Child("traefik"))...)
 
 	return
 }
@@ -128,10 +146,47 @@ type EnvoyProxy struct {
 	KonnectivityServerBindPort *int32 `json:"konnectivityServerBindPort,omitempty"`
 }
 
+// Describes configuration options required for using Traefik as the backing
+// implementation for node-local load balancing.
+type Traefik struct {
+	// image specifies the OCI image that's being used for the Traefik Pod.
+	Image *ImageSpec `json:"image,omitempty"`
+
+	// imagePullPolicy specifies the pull policy being used for the Traefik Pod.
+	// Defaults to the default image pull policy.
+	// +kubebuilder:validation:Enum=Always;Never;IfNotPresent
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
+
+	// apiServerBindPort is the port number on which to bind the Traefik load
+	// balancer for the Kubernetes API server to on a worker's loopback
+	// interface. This must be a valid port number, 0 < x < 65536.
+	// Default: 7443
+	// +kubebuilder:default=7443
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	APIServerBindPort int32 `json:"apiServerBindPort,omitempty"`
+
+	// konnectivityServerBindPort is the port number on which to bind the
+	// Traefik load balancer for the konnectivity server to on a worker's
+	// loopback interface. This must be a valid port number, 0 < x < 65536.
+	// Default: 7132
+	// +kubebuilder:default=7132
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	KonnectivityServerBindPort *int32 `json:"konnectivityServerBindPort,omitempty"`
+}
+
 // DefaultEnvoyProxy returns the default envoy proxy configuration.
 func DefaultEnvoyProxy() *EnvoyProxy {
 	p := new(EnvoyProxy)
 	p.setDefaults()
+	return p
+}
+
+func (p *EnvoyProxy) OrDefault() *EnvoyProxy {
+	if p == nil {
+		return DefaultEnvoyProxy()
+	}
 	return p
 }
 
@@ -171,20 +226,76 @@ func (p *EnvoyProxy) Validate(path *field.Path) (errs field.ErrorList) {
 	if p == nil {
 		return
 	}
+	return validateProxyConfig(path, p.Image, p.ImagePullPolicy, p.APIServerBindPort, p.KonnectivityServerBindPort)
+}
 
-	image := path.Child("image")
-	if p.Image == nil {
-		errs = append(errs, field.Required(image, "image must be set"))
-	} else {
-		errs = append(errs, p.Image.Validate(image)...)
+// Returns the default Traefik configuration.
+func DefaultTraefik() *Traefik {
+	p := new(Traefik)
+	p.setDefaults()
+	return p
+}
+
+func (p *Traefik) OrDefault() *Traefik {
+	if p == nil {
+		return DefaultTraefik()
+	}
+	return p
+}
+
+var _ json.Unmarshaler = (*Traefik)(nil)
+
+func (p *Traefik) UnmarshalJSON(data []byte) error {
+	type traefik Traefik
+	if err := json.Unmarshal(data, (*traefik)(p)); err != nil {
+		return err
 	}
 
-	switch p.ImagePullPolicy {
+	p.setDefaults()
+
+	return nil
+}
+
+func (p *Traefik) setDefaults() {
+	if p.Image == nil {
+		p.Image = DefaultTraefikImage()
+	} else {
+		if p.Image.Image == "" {
+			p.Image.Image = constant.TraefikImage
+		}
+		if p.Image.Version == "" {
+			p.Image.Version = constant.TraefikImageVersion
+		}
+	}
+	if p.APIServerBindPort == 0 {
+		p.APIServerBindPort = 7443
+	}
+	if p.KonnectivityServerBindPort == nil {
+		p.KonnectivityServerBindPort = ptr.To(int32(7132))
+	}
+}
+
+func (p *Traefik) Validate(path *field.Path) (errs field.ErrorList) {
+	if p == nil {
+		return
+	}
+	return validateProxyConfig(path, p.Image, p.ImagePullPolicy, p.APIServerBindPort, p.KonnectivityServerBindPort)
+}
+
+func validateProxyConfig(path *field.Path, imageSpec *ImageSpec, pullPolicy corev1.PullPolicy, apiServerBindPort int32, konnectivityServerBindPort *int32) (errs field.ErrorList) {
+	image := path.Child("image")
+	if imageSpec == nil {
+		errs = append(errs, field.Required(image, "image must be set"))
+	} else {
+		errs = append(errs, imageSpec.Validate(image)...)
+	}
+
+	switch pullPolicy {
 	case corev1.PullAlways, corev1.PullNever, corev1.PullIfNotPresent, "":
 		break
 	default:
 		errs = append(errs, field.NotSupported(
-			path.Child("imagePullPolicy"), p.ImagePullPolicy, []string{
+			path.Child("imagePullPolicy"), pullPolicy, []string{
 				string(corev1.PullAlways),
 				string(corev1.PullNever),
 				string(corev1.PullIfNotPresent),
@@ -192,18 +303,18 @@ func (p *EnvoyProxy) Validate(path *field.Path) (errs field.ErrorList) {
 		))
 	}
 
-	if details := validation.IsValidPortNum(int(p.APIServerBindPort)); len(details) > 0 {
+	if details := validation.IsValidPortNum(int(apiServerBindPort)); len(details) > 0 {
 		path := path.Child("apiServerBindPort")
 		for _, detail := range details {
-			errs = append(errs, field.Invalid(path, p.APIServerBindPort, detail))
+			errs = append(errs, field.Invalid(path, apiServerBindPort, detail))
 		}
 	}
 
-	if p.KonnectivityServerBindPort != nil {
-		if details := validation.IsValidPortNum(int(*p.KonnectivityServerBindPort)); len(details) > 0 {
+	if konnectivityServerBindPort != nil {
+		if details := validation.IsValidPortNum(int(*konnectivityServerBindPort)); len(details) > 0 {
 			path := path.Child("konnectivityServerBindPort")
 			for _, detail := range details {
-				errs = append(errs, field.Invalid(path, p.KonnectivityServerBindPort, detail))
+				errs = append(errs, field.Invalid(path, konnectivityServerBindPort, detail))
 			}
 		}
 	}
@@ -216,5 +327,13 @@ func DefaultEnvoyProxyImage() *ImageSpec {
 	return &ImageSpec{
 		Image:   constant.EnvoyProxyImage,
 		Version: constant.EnvoyProxyImageVersion,
+	}
+}
+
+// Returns the default image spec to use for Traefik.
+func DefaultTraefikImage() *ImageSpec {
+	return &ImageSpec{
+		Image:   constant.TraefikImage,
+		Version: constant.TraefikImageVersion,
 	}
 }

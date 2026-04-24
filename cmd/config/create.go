@@ -31,7 +31,16 @@ func NewCreateCmd() *cobra.Command {
 			config := v1beta1.DefaultClusterConfig()
 			if !includeImages {
 				config.Spec.Images = nil
-				config.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy.Image = nil
+				if net := config.Spec.Network; net != nil {
+					if nllb := net.NodeLocalLoadBalancing; nllb != nil {
+						if envoy := nllb.EnvoyProxy; envoy != nil {
+							envoy.Image = nil
+						}
+						if traefik := nllb.Traefik; traefik != nil {
+							traefik.Image = nil
+						}
+					}
+				}
 			}
 
 			var u unstructured.Unstructured

@@ -608,10 +608,15 @@ func (r *Reconciler) buildProfile(snapshot *snapshot) *workerconfig.Profile {
 		AutopilotDisabled: r.autopilotDisabled,
 	}
 
-	if workerProfile.NodeLocalLoadBalancing != nil &&
-		workerProfile.NodeLocalLoadBalancing.EnvoyProxy != nil &&
-		workerProfile.NodeLocalLoadBalancing.EnvoyProxy.ImagePullPolicy == "" {
-		workerProfile.NodeLocalLoadBalancing.EnvoyProxy.ImagePullPolicy = snapshot.defaultImagePullPolicy
+	if workerProfile.NodeLocalLoadBalancing != nil {
+		if workerProfile.NodeLocalLoadBalancing.EnvoyProxy != nil &&
+			workerProfile.NodeLocalLoadBalancing.EnvoyProxy.ImagePullPolicy == "" {
+			workerProfile.NodeLocalLoadBalancing.EnvoyProxy.ImagePullPolicy = snapshot.defaultImagePullPolicy
+		}
+		if workerProfile.NodeLocalLoadBalancing.Traefik != nil &&
+			workerProfile.NodeLocalLoadBalancing.Traefik.ImagePullPolicy == "" {
+			workerProfile.NodeLocalLoadBalancing.Traefik.ImagePullPolicy = snapshot.defaultImagePullPolicy
+		}
 	}
 
 	return workerProfile

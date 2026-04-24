@@ -84,10 +84,16 @@ func GetImageURIs(env TargetEnv, all bool) (uris []string) {
 			case "arm", "riscv64":
 			default:
 				uris = append(uris,
-					env.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy.Image.URI(),
+					env.Spec.Network.NodeLocalLoadBalancing.EnvoyProxy.OrDefault().Image.URI(),
 				)
 			}
 		}
+	}
+
+	if all || env.wantsNLLBBackend(v1beta1.NllbTypeTraefik) {
+		uris = append(uris,
+			env.Spec.Network.NodeLocalLoadBalancing.Traefik.OrDefault().Image.URI(),
+		)
 	}
 
 	return

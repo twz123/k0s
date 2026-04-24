@@ -944,7 +944,6 @@ spec:
                     description: |-
                       NodeLocalLoadBalancing defines the configuration options related to k0s's
                       node-local load balancing feature.
-                      NOTE: This feature is currently unsupported on ARMv7!
                     properties:
                       enabled:
                         default: false
@@ -955,8 +954,10 @@ spec:
                         type: boolean
                       envoyProxy:
                         description: |-
-                          envoyProxy contains configuration options related to the "EnvoyProxy" type
-                          of load balancing.
+                          envoyProxy contains configuration options related to the "EnvoyProxy"
+                          type of load balancing.
+
+                          NOTE: This feature is currently unsupported on ARMv7, RISC-V and Windows!
                         properties:
                           apiServerBindPort:
                             default: 7443
@@ -1004,13 +1005,67 @@ spec:
                             minimum: 1
                             type: integer
                         type: object
+                      traefik:
+                        description: |-
+                          traefik contains configuration options related to the "Traefik"
+                          type of load balancing.
+                        properties:
+                          apiServerBindPort:
+                            default: 7443
+                            description: |-
+                              apiServerBindPort is the port number on which to bind the Traefik load
+                              balancer for the Kubernetes API server to on a worker's loopback
+                              interface. This must be a valid port number, 0 < x < 65536.
+                              Default: 7443
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
+                            type: integer
+                          image:
+                            description: image specifies the OCI image that's being
+                              used for the Traefik Pod.
+                            properties:
+                              image:
+                                minLength: 1
+                                type: string
+                              version:
+                                pattern: ^[\w][\w.-]{0,127}(?:@[A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,})?$
+                                type: string
+                            required:
+                            - image
+                            - version
+                            type: object
+                          imagePullPolicy:
+                            description: |-
+                              imagePullPolicy specifies the pull policy being used for the Traefik Pod.
+                              Defaults to the default image pull policy.
+                            enum:
+                            - Always
+                            - Never
+                            - IfNotPresent
+                            type: string
+                          konnectivityServerBindPort:
+                            default: 7132
+                            description: |-
+                              konnectivityServerBindPort is the port number on which to bind the
+                              Traefik load balancer for the konnectivity server to on a worker's
+                              loopback interface. This must be a valid port number, 0 < x < 65536.
+                              Default: 7132
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
+                            type: integer
+                        type: object
                       type:
                         default: EnvoyProxy
                         description: |-
                           type indicates the type of the node-local load balancer to deploy on
-                          worker nodes. Currently, the only supported type is "EnvoyProxy".
+                          worker nodes. Can be one of:
+                            - EnvoyProxy (default)
+                            - Traefik
                         enum:
                         - EnvoyProxy
+                        - Traefik
                         type: string
                     type: object
                   podCIDR:

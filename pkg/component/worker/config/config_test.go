@@ -136,7 +136,7 @@ var roundtripTests = []roundtripTest{
 		},
 	},
 	{
-		"nllb",
+		"nllb-envoy",
 		&Profile{
 			NodeLocalLoadBalancing: &v1beta1.NodeLocalLoadBalancing{
 				Enabled: true,
@@ -155,6 +155,29 @@ var roundtripTests = []roundtripTest{
 		},
 		map[string]string{
 			"nodeLocalLoadBalancing": `{"enabled":true,"type":"EnvoyProxy","envoyProxy":{"image":{"image":"example.com/image","version":"latest"},"imagePullPolicy":"Always","apiServerBindPort":4711,"konnectivityServerBindPort":1337}}`,
+			"konnectivity":           `{"agentPort":1337}`,
+		},
+	},
+	{
+		"nllb-traefik",
+		&Profile{
+			NodeLocalLoadBalancing: &v1beta1.NodeLocalLoadBalancing{
+				Enabled: true,
+				Type:    v1beta1.NllbTypeTraefik,
+				Traefik: &v1beta1.Traefik{
+					Image: &v1beta1.ImageSpec{
+						Image:   "example.com/traefik",
+						Version: "latest",
+					},
+					ImagePullPolicy:            corev1.PullAlways,
+					APIServerBindPort:          4711,
+					KonnectivityServerBindPort: ptr.To(int32(1337)),
+				},
+			},
+			Konnectivity: Konnectivity{AgentPort: 1337},
+		},
+		map[string]string{
+			"nodeLocalLoadBalancing": `{"enabled":true,"type":"Traefik","traefik":{"image":{"image":"example.com/traefik","version":"latest"},"imagePullPolicy":"Always","apiServerBindPort":4711,"konnectivityServerBindPort":1337}}`,
 			"konnectivity":           `{"agentPort":1337}`,
 		},
 	},
