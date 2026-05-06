@@ -28,7 +28,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
 	"github.com/sirupsen/logrus"
@@ -179,7 +178,7 @@ func (r *Reconciler) Start(ctx context.Context) error {
 		return fmt.Errorf("cannot start, not initialized: %s", r.state)
 	}
 
-	kubeconfig, err := readKubeconfig(r.regularKubeconfigPath)
+	kubeconfig, err := kubeutil.ReadKubeconfig(r.regularKubeconfigPath)
 	if err != nil {
 		return err
 	}
@@ -345,25 +344,6 @@ func (r *Reconciler) runReconcileLoop(ctx context.Context) {
 			r.log.Info("Updated API server addresses")
 		}
 	}
-}
-
-func readKubeconfig(path string) (*clientcmdapi.Config, error) {
-	kubeconfig, err := clientcmd.LoadFromFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	// Resolve non-absolute paths in case the kubeconfig gets written to another folder.
-	err = clientcmd.ResolveLocalPaths(kubeconfig)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := clientcmdapi.MinifyConfig(kubeconfig); err != nil {
-		return nil, err
-	}
-
-	return kubeconfig, err
 }
 
 func getAPIServerAddress(kubeconfig *clientcmdapi.Config) (*k0snet.HostPort, error) {

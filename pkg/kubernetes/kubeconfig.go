@@ -15,6 +15,26 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
+// Reads a minified kubeconfig from path, using absolute paths.
+func ReadKubeconfig(path string) (*clientcmdapi.Config, error) {
+	kubeconfig, err := clientcmd.LoadFromFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	// Resolve non-absolute paths in case the kubeconfig gets written to another folder.
+	err = clientcmd.ResolveLocalPaths(kubeconfig)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := clientcmdapi.MinifyConfig(kubeconfig); err != nil {
+		return nil, err
+	}
+
+	return kubeconfig, err
+}
+
 // Writes kubeconfig atomically to path with appropriate permissions.
 func WriteKubeconfig(kubeconfig *clientcmdapi.Config, path string) error {
 	bytes, err := clientcmd.Write(*kubeconfig)
