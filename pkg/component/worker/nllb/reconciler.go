@@ -18,14 +18,12 @@ import (
 	"time"
 
 	"github.com/k0sproject/k0s/internal/pkg/dir"
-	"github.com/k0sproject/k0s/internal/pkg/file"
 	k0snet "github.com/k0sproject/k0s/internal/pkg/net"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/component/worker"
 	workerconfig "github.com/k0sproject/k0s/pkg/component/worker/config"
 	"github.com/k0sproject/k0s/pkg/config"
-	"github.com/k0sproject/k0s/pkg/constant"
 	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
 
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -205,7 +203,9 @@ func (r *Reconciler) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to obtain local address for node-local load balancing: %w", err)
 	}
 
-	if err := writePatchedKubeconfig(r.loadBalancedKubeconfigPath, kubeconfig, *lbAddr); err != nil {
+	if patchedKubeconfig, err := kubeutil.PatchKubeconfigServerAddress(kubeconfig, *lbAddr); err != nil {
+		return fmt.Errorf("failed to patch kubeconfig: %w", err)
+	} else if err := kubeutil.WriteKubeconfig(patchedKubeconfig, r.loadBalancedKubeconfigPath); err != nil {
 		return fmt.Errorf("failed to write load-balanced kubeconfig file: %w", err)
 	}
 
@@ -399,28 +399,6 @@ func getAPIServerAddress(kubeconfig *clientcmdapi.Config) (*k0snet.HostPort, err
 	}
 
 	return address, nil
-}
-
-func writePatchedKubeconfig(path string, kubeconfig *clientcmdapi.Config, server k0snet.HostPort) error {
-	kubeconfig = kubeconfig.DeepCopy()
-	if err := clientcmdapi.MinifyConfig(kubeconfig); err != nil {
-		return err
-	}
-
-	cluster := kubeconfig.Clusters[kubeconfig.Contexts[kubeconfig.CurrentContext].Cluster]
-	clusterServer, err := url.Parse(cluster.Server)
-	if err != nil {
-		return fmt.Errorf("invalid server: %w", err)
-	}
-	clusterServer.Host = server.String()
-	cluster.Server = clusterServer.String()
-
-	bytes, err := clientcmd.Write(*kubeconfig)
-	if err != nil {
-		return err
-	}
-
-	return file.WriteContentAtomically(path, bytes, constant.CertSecureMode)
 }
 
 func getLoopbackIP(ctx context.Context) (net.IP, error) {
