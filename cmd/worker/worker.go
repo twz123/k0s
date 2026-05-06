@@ -15,6 +15,7 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/flags"
+	k0snet "github.com/k0sproject/k0s/internal/pkg/net"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
 	"github.com/k0sproject/k0s/internal/pkg/sysinfo"
 	"github.com/k0sproject/k0s/internal/supervised"
@@ -47,6 +48,7 @@ type Command config.CLIOptions
 type EmbeddingController interface {
 	IsSingleNode() bool
 	UsesIPTables() bool
+	GetLocalAPIServerEndpoint() (*k0snet.HostPort, error)
 }
 
 func NewWorkerCmd() *cobra.Command {
@@ -216,6 +218,28 @@ func (c *Command) Start(ctx context.Context, nodeName apitypes.NodeName, kubelet
 	}
 
 	kubeletKubeconfigPath := c.K0sVars.KubeletAuthConfigPath
+
+	// If running alongside a controller, rewrite the kubelet kubeconfig to
+	// point directly to the local API server. This is required to adhere to the
+	// Kubernetes version skew policy, which mandates that _all_ API servers
+	// must be updated before updating any other components. K0s mandates that
+	// all controllers be upgraded before upgrading workers. However, during the
+	// update of the controllers with workloads enabled, embedded workers may
+	// connect to older controllers via the configured load balancers. k0s has
+	// no influence on that. Therefore, embedded workers are always pinned to
+	// their embedding controllers.
+	if controller != nil {
+		if apiServer, err := controller.GetLocalAPIServerEndpoint(); err != nil {
+			return fmt.Errorf("failed to get embedding controller's API server endpoint: %w", err)
+		} else if kubeconfig, err := kubernetes.ReadKubeconfig(kubeletKubeconfigPath); err != nil {
+			return fmt.Errorf("failed to read kubelet kubeconfig file: %w", err)
+		} else if kubeconfig, err := kubernetes.PatchKubeconfigServerAddress(kubeconfig, *apiServer); err != nil {
+			return fmt.Errorf("failed to patch kubelet kubeconfig: %w", err)
+		} else if err := kubernetes.WriteKubeconfig(kubeconfig, kubeletKubeconfigPath); err != nil {
+			return fmt.Errorf("failed to write kubelet kubeconfig file: %w", err)
+		}
+	}
+
 	workerConfig, err := workerconfig.LoadProfile(
 		ctx,
 		kubernetes.KubeconfigFromFile(kubeletKubeconfigPath),

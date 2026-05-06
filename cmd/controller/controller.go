@@ -23,6 +23,7 @@ import (
 	workercmd "github.com/k0sproject/k0s/cmd/worker"
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/internal/pkg/file"
+	k0snet "github.com/k0sproject/k0s/internal/pkg/net"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
 	"github.com/k0sproject/k0s/internal/pkg/sysinfo"
 	"github.com/k0sproject/k0s/internal/supervised"
@@ -285,7 +286,10 @@ func (c *command) start(ctx context.Context, rtc *config.RuntimeConfig, nodeConf
 	// Assume a single active controller during startup
 	numActiveControllers := value.NewLatest[uint](1)
 
-	workerInterface := embeddingController{opts: flags}
+	workerInterface := embeddingController{
+		opts: flags,
+		api:  nodeConfig.Spec.API,
+	}
 
 	enableK0sEndpointReconciler := nodeConfig.Spec.API.ExternalAddress != "" &&
 		!slices.Contains(flags.DisableComponents, constant.APIEndpointReconcilerComponentName)
@@ -731,6 +735,7 @@ func (c *command) startWorker(ctx context.Context, nodeName apitypes.NodeName, k
 
 type embeddingController struct {
 	opts         *config.ControllerOptions
+	api          *v1beta1.APISpec
 	usesIPTables bool
 }
 
@@ -742,6 +747,14 @@ func (c *embeddingController) IsSingleNode() bool {
 // UsesIPTables implements [worker.EmbeddingController].
 func (c *embeddingController) UsesIPTables() bool {
 	return c.usesIPTables
+}
+
+// GetLocalAPIServerEndpoint implements [worker.EmbeddingController].
+func (c *embeddingController) GetLocalAPIServerEndpoint() (*k0snet.HostPort, error) {
+	if c.api.OnlyBindToAddress {
+		return k0snet.NewHostPort(c.api.Address, uint16(c.api.Port))
+	}
+	return k0snet.NewHostPort("localhost", uint16(c.api.Port))
 }
 
 // If we've got an etcd data directory in place for embedded etcd, or a ca for
