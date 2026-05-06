@@ -264,8 +264,7 @@ func (c *Command) Start(ctx context.Context, nodeName apitypes.NodeName, kubelet
 		if err != nil {
 			return fmt.Errorf("failed to create node-local load balancer reconciler: %w", err)
 		}
-		// If this is a worker only node, the kubelet should use the NLLB kubelet kubeconfig path
-		// rather than the direct kubelet kubeconfig path in the controller+worker mode.
+		// If this is a worker only node, the kubelet should use the NLLB kubelet kubeconfig path.
 		if controller == nil {
 			kubeletKubeconfigPath = reconciler.GetKubeletKubeconfigPath()
 		}

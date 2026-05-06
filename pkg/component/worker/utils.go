@@ -8,16 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"time"
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
-	k0snet "github.com/k0sproject/k0s/internal/pkg/net"
 	"github.com/k0sproject/k0s/pkg/config"
-	kubeutil "github.com/k0sproject/k0s/pkg/kubernetes"
 
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
@@ -141,74 +138,4 @@ func writeKubeletBootstrapKubeconfig(kubeconfig clientcmdapi.Config) (string, er
 	}
 
 	return bootstrapFile.Name(), nil
-}
-
-// CreateDirectKubeletKubeconfig creates a kubelet kubeconfig that points directly to the local API
-// server instead of using NLLB. This is used on controller+worker nodes where we want kubelet to
-// connect directly to the local API server.
-func CreateDirectKubeletKubeconfig(ctx context.Context, k0sVars *config.CfgVars, nodeName apitypes.NodeName) (string, error) {
-	log := logrus.WithFields(logrus.Fields{"component": "bootstrap-kubelet", "node_name": nodeName})
-
-	nodeConfig, err := k0sVars.NodeConfig()
-	if err != nil {
-		return "", fmt.Errorf("failed to load node config: %w", err)
-	}
-
-	apiSpec := nodeConfig.Spec.API
-
-	// Determine the local API server address
-	localAPIServerAddress := "127.0.0.1"
-	if apiSpec.OnlyBindToAddress {
-		// API server binds only to specific address, use that address with proper IPv6 bracketing
-		localAPIServerAddress = apiSpec.Address
-	} else {
-		// API server binds to all interfaces, use localhost
-		// Try to resolve localhost to get the appropriate loopback address (IPv4/IPv6)
-		if loopbackIP, err := getLoopbackIP(ctx); err != nil {
-			log.WithError(err).Warn("Failed to resolve localhost, falling back to ", localAPIServerAddress)
-		} else {
-			localAPIServerAddress = loopbackIP.String()
-		}
-	}
-
-	localAPIServer, err := k0snet.NewHostPort(localAPIServerAddress, uint16(apiSpec.Port))
-	if err != nil {
-		return "", err
-	}
-
-	log.Debugf("Using direct local API server URL for kubelet: %s", localAPIServer)
-
-	directKubeconfig, err := kubeutil.ReadKubeconfig(k0sVars.KubeletAuthConfigPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read kubeconfig: %w", err)
-	}
-
-	directKubeconfig, err = kubeutil.PatchKubeconfigServerAddress(directKubeconfig, *localAPIServer)
-	if err != nil {
-		return "", fmt.Errorf("failed to patch kubeconfig: %w", err)
-	}
-
-	directKubeconfigPath := filepath.Join(k0sVars.RunDir, "kubelet-direct.conf")
-	if err := kubeutil.WriteKubeconfig(directKubeconfig, directKubeconfigPath); err != nil {
-		return "", fmt.Errorf("failed to write kubeconfig file: %w", err)
-	}
-
-	log.Debugf("Wrote direct kubeconfig file: %s", directKubeconfigPath)
-	return directKubeconfigPath, nil
-}
-
-// getLoopbackIP resolves localhost to get the appropriate loopback IP address (IPv4 or IPv6)
-func getLoopbackIP(ctx context.Context) (net.IP, error) {
-	localIPs, err := net.DefaultResolver.LookupIPAddr(ctx, "localhost")
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve localhost: %w", err)
-	}
-
-	for _, addr := range localIPs {
-		if addr.IP.IsLoopback() {
-			return addr.IP, nil
-		}
-	}
-
-	return nil, fmt.Errorf("no loopback IPs found for localhost: %v", localIPs)
 }
