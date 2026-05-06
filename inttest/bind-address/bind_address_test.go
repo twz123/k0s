@@ -7,12 +7,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
 	"testing"
 	"time"
 
 	"github.com/k0sproject/k0s/inttest/common"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	kubeletv1beta1 "k8s.io/kubelet/config/v1beta1"
@@ -33,29 +37,7 @@ func (s *suite) TestCustomizedBindAddress() {
 
 	{
 		for i := range s.ControllerCount {
-			config, err := yaml.Marshal(&v1beta1.ClusterConfig{
-				Spec: &v1beta1.ClusterSpec{
-					API: func() *v1beta1.APISpec {
-						apiSpec := v1beta1.DefaultAPISpec()
-						apiSpec.Address = s.GetIPAddress(s.ControllerNode(i))
-						apiSpec.OnlyBindToAddress = true
-						return apiSpec
-					}(),
-					WorkerProfiles: v1beta1.WorkerProfiles{
-						v1beta1.WorkerProfile{
-							Name: "default",
-							Config: func() *runtime.RawExtension {
-								kubeletConfig := kubeletv1beta1.KubeletConfiguration{
-									NodeStatusUpdateFrequency: metav1.Duration{Duration: 3 * time.Second},
-								}
-								bytes, err := json.Marshal(kubeletConfig)
-								s.Require().NoError(err)
-								return &runtime.RawExtension{Raw: bytes}
-							}(),
-						},
-					},
-				},
-			})
+			config, err := bindAddressConfig(s.GetIPAddress(s.ControllerNode(i)))
 			s.Require().NoError(err)
 			s.WriteFileContent(s.ControllerNode(i), "/tmp/k0s.yaml", config)
 		}
@@ -103,6 +85,109 @@ func (s *suite) TestCustomizedBindAddress() {
 
 		s.T().Logf("Checking if HA cluster is ready")
 		s.Require().NoError(s.checkClusterReadiness(ctx, clients))
+	})
+}
+
+type staleLocalhostSuite struct {
+	common.BootlooseSuite
+}
+
+func (s *staleLocalhostSuite) TestControllerWorkerKubeletConfigIsRewritten() {
+	node := s.ControllerNode(0)
+	config, err := bindAddressConfig(s.GetIPAddress(node))
+	s.Require().NoError(err)
+	s.WriteFileContent(node, "/tmp/k0s.yaml", config)
+
+	s.Require().NoError(s.InitController(0, "--config=/tmp/k0s.yaml", "--enable-worker"))
+
+	clients, err := s.KubeClient(node)
+	s.Require().NoError(err)
+	s.Require().NoError(s.WaitForNodeReady(node, clients))
+
+	s.Require().NoError(s.StopController(node))
+	s.patchKubeletConfigServer(node, "https://localhost:6443")
+	s.Require().NoError(s.StartController(node))
+
+	expectedServer := (&url.URL{Scheme: "https", Host: net.JoinHostPort(s.GetIPAddress(node), "6443")}).String()
+	s.Require().Eventually(func() bool {
+		server, err := s.kubeletConfigServer(node)
+		return err == nil && server == expectedServer
+	}, time.Minute, time.Second)
+
+	s.Require().Eventually(func() bool {
+		return s.checkStatusKubeAPIProbe(node) == nil
+	}, 2*time.Minute, 5*time.Second)
+}
+
+func (s *staleLocalhostSuite) patchKubeletConfigServer(node, server string) {
+	ssh, err := s.SSH(s.Context(), node)
+	s.Require().NoError(err)
+	defer ssh.Disconnect()
+
+	s.Require().NoError(ssh.Exec(s.Context(), fmt.Sprintf("sed -i 's#server: .*#server: %s#' /var/lib/k0s/kubelet.conf", server), common.SSHStreams{}))
+}
+
+func (s *staleLocalhostSuite) kubeletConfigServer(node string) (string, error) {
+	ssh, err := s.SSH(s.Context(), node)
+	if err != nil {
+		return "", err
+	}
+	defer ssh.Disconnect()
+
+	return ssh.ExecWithOutput(s.Context(), "awk '$1 == \"server:\" { print $2 }' /var/lib/k0s/kubelet.conf")
+}
+
+func (s *staleLocalhostSuite) checkStatusKubeAPIProbe(node string) error {
+	ssh, err := s.SSH(s.Context(), node)
+	if err != nil {
+		return err
+	}
+	defer ssh.Disconnect()
+
+	output, err := ssh.ExecWithOutput(s.Context(), "k0s status -ojson")
+	if err != nil {
+		return err
+	}
+
+	var status map[string]any
+	if err := json.Unmarshal([]byte(output), &status); err != nil {
+		return err
+	}
+
+	success, found, err := unstructured.NestedBool(status, "WorkerToAPIConnectionStatus", "Success")
+	if err != nil {
+		return err
+	}
+	if !found || !success {
+		return fmt.Errorf("kube-api status probe did not succeed: %s", output)
+	}
+	return nil
+}
+
+func bindAddressConfig(address string) ([]byte, error) {
+	kubeletConfig := kubeletv1beta1.KubeletConfiguration{
+		NodeStatusUpdateFrequency: metav1.Duration{Duration: 3 * time.Second},
+	}
+	kubeletConfigBytes, err := json.Marshal(kubeletConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return yaml.Marshal(&v1beta1.ClusterConfig{
+		Spec: &v1beta1.ClusterSpec{
+			API: func() *v1beta1.APISpec {
+				apiSpec := v1beta1.DefaultAPISpec()
+				apiSpec.Address = address
+				apiSpec.OnlyBindToAddress = true
+				return apiSpec
+			}(),
+			WorkerProfiles: v1beta1.WorkerProfiles{
+				v1beta1.WorkerProfile{
+					Name:   "default",
+					Config: &runtime.RawExtension{Raw: kubeletConfigBytes},
+				},
+			},
+		},
 	})
 }
 
@@ -156,6 +241,15 @@ func TestCustomizedBindAddressSuite(t *testing.T) {
 		common.BootlooseSuite{
 			ControllerCount: 3,
 			WorkerCount:     1,
+		},
+	}
+	testifysuite.Run(t, &s)
+}
+
+func TestStaleLocalhostSuite(t *testing.T) {
+	s := staleLocalhostSuite{
+		common.BootlooseSuite{
+			ControllerCount: 1,
 		},
 	}
 	testifysuite.Run(t, &s)
