@@ -178,7 +178,7 @@ func CreateDirectKubeletKubeconfig(ctx context.Context, k0sVars *config.CfgVars,
 
 	log.Debugf("Using direct local API server URL for kubelet: %s", localAPIServer)
 
-	directKubeconfig, err := readKubeconfig(k0sVars.KubeletAuthConfigPath)
+	directKubeconfig, err := kubeutil.ReadKubeconfig(k0sVars.KubeletAuthConfigPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read kubeconfig: %w", err)
 	}
@@ -195,26 +195,6 @@ func CreateDirectKubeletKubeconfig(ctx context.Context, k0sVars *config.CfgVars,
 
 	log.Debugf("Wrote direct kubeconfig file: %s", directKubeconfigPath)
 	return directKubeconfigPath, nil
-}
-
-// readKubeconfig reads a kubeconfig file and returns a clientcmdapi.Config
-func readKubeconfig(path string) (*clientcmdapi.Config, error) {
-	kubeconfig, err := clientcmd.LoadFromFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	// Resolve non-absolute paths in case the kubeconfig gets written to another folder.
-	err = clientcmd.ResolveLocalPaths(kubeconfig)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := clientcmdapi.MinifyConfig(kubeconfig); err != nil {
-		return nil, err
-	}
-
-	return kubeconfig, err
 }
 
 // getLoopbackIP resolves localhost to get the appropriate loopback IP address (IPv4 or IPv6)
