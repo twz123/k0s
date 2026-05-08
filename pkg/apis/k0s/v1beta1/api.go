@@ -67,7 +67,7 @@ func DefaultAPISpec() *APISpec {
 	return a
 }
 
-func (a *APISpec) LocalURL() *url.URL {
+func (a *APISpec) XLocalURL() *url.URL {
 	var host string
 	if a.OnlyBindToAddress {
 		host = net.JoinHostPort(a.Address, strconv.Itoa(a.Port))

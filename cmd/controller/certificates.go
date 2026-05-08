@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/stringslice"
@@ -54,7 +55,15 @@ func (c *Certificates) Init(ctx context.Context) error {
 		return fmt.Errorf("failed to read ca cert: %w", err)
 	}
 	c.CACert = string(cert)
-	kubeConfigAPIUrl := c.ClusterSpec.API.LocalURL()
+	var kubeConfigAPIUrl *url.URL
+	if apiServerIP, err := c.ClusterSpec.LocalAPIServerAddress(ctx); err != nil {
+		return err
+	} else {
+		kubeConfigAPIUrl = &url.URL{
+			Scheme: "https",
+			Host:   net.JoinHostPort(apiServerIP.String(), strconv.Itoa(c.ClusterSpec.API.Port)),
+		}
+	}
 
 	apiServerUID, err := users.LookupUID(constant.ApiserverUser)
 	if err != nil {

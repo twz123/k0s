@@ -4,9 +4,12 @@
 package v1beta1
 
 import (
+	"cmp"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/netip"
 	"slices"
 
 	"github.com/k0sproject/k0s/pkg/featuregate"
@@ -64,6 +67,54 @@ const (
 	PrimaryFamilyIPv4    PrimaryAddressFamilyType = "IPv4"
 	PrimaryFamilyIPv6    PrimaryAddressFamilyType = "IPv6"
 )
+
+func (t PrimaryAddressFamilyType) Localhost() netip.Addr {
+	if t == PrimaryFamilyIPv6 {
+		return netip.IPv6Loopback()
+	}
+	return netip.AddrFrom4([4]byte{127, 0, 0, 1})
+}
+
+// Resolves localhost to get the appropriate loopback IP address
+func (t PrimaryAddressFamilyType) GetLoopbackIP(ctx context.Context) (netip.Addr, error) {
+	localIPs, err := net.DefaultResolver.LookupIPAddr(ctx, "localhost")
+	if err != nil {
+		return t.Localhost(), fmt.Errorf("failed to resolve localhost: %w", err)
+	}
+
+	var fallback netip.Addr
+	accepts := t.accepts()
+	for _, addr := range localIPs {
+		if addr.IP.IsLoopback() {
+			if ip, ok := netip.AddrFromSlice(addr.IP); ok && ip.IsLoopback() {
+				ip = ip.WithZone(addr.Zone)
+				if accepts(ip) {
+					return ip, nil
+				}
+				if !fallback.IsValid() {
+					fallback = ip
+				}
+			}
+		}
+	}
+
+	if !fallback.IsValid() {
+		fallback = t.Localhost()
+	}
+
+	return fallback, fmt.Errorf("no loopback %ss found for localhost: %v", cmp.Or(t, "IP"), localIPs)
+}
+
+func (t PrimaryAddressFamilyType) accepts() func(netip.Addr) bool {
+	switch t {
+	case PrimaryFamilyIPv4:
+		return netip.Addr.Is4
+	case PrimaryFamilyIPv6:
+		return netip.Addr.Is6
+	default:
+		return func(netip.Addr) bool { return true }
+	}
+}
 
 // DefaultNetwork creates the Network config struct with sane default values
 func DefaultNetwork() *Network {

@@ -6,6 +6,7 @@ package v1beta1
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/netip"
@@ -546,4 +547,12 @@ func (s *ClusterSpec) PrimaryAddressFamily() PrimaryAddressFamilyType {
 	}
 
 	return PrimaryFamilyIPv4
+}
+
+func (s *ClusterSpec) LocalAPIServerAddress(ctx context.Context) (netip.Addr, error) {
+	if s.API != nil && s.API.OnlyBindToAddress {
+		return netip.ParseAddr(s.API.Address)
+	}
+
+	return s.PrimaryAddressFamily().GetLoopbackIP(ctx)
 }
