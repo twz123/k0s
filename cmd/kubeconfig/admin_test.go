@@ -4,8 +4,10 @@
 package kubeconfig_test
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,8 +15,9 @@ import (
 	"github.com/k0sproject/k0s/cmd"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/config"
+	"github.com/k0sproject/k0s/pkg/constant"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/yaml"
 
 	"github.com/stretchr/testify/assert"
@@ -22,62 +25,92 @@ import (
 )
 
 func TestAdmin(t *testing.T) {
-	dataDir := t.TempDir()
+	testDir := t.TempDir()
+	dataDir := filepath.Join(testDir, "data")
+	configPath := filepath.Join(testDir, "config.yaml")
 
-	configPath := filepath.Join(dataDir, "k0s.yaml")
-	writeYAML(t, configPath, &v1beta1.ClusterConfig{
-		TypeMeta: metav1.TypeMeta{APIVersion: v1beta1.SchemeGroupVersion.String(), Kind: v1beta1.ClusterConfigKind},
-		Spec: &v1beta1.ClusterSpec{API: &v1beta1.APISpec{
-			Port: 65432, ExternalAddress: "not-here.example.com",
-		}},
-	})
+	if !t.Run("init_controller", func(t *testing.T) {
+		binDir := t.TempDir()
+		for _, exe := range []string{"kube-apiserver", "xtables-legacy-multi", "xtables-nft-multi"} {
+			require.NoError(t, os.WriteFile(filepath.Join(binDir, exe), nil, 0700))
+		}
+		t.Setenv("PATH", binDir)
 
-	certRootDir := filepath.Join(dataDir, "pki")
-	require.NoError(t, os.Mkdir(certRootDir, 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(certRootDir, "ca.crt"), []byte("contents of ca.crt"), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(certRootDir, "admin.crt"), []byte("contents of admin.crt"), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(certRootDir, "admin.key"), []byte("contents of admin.key"), 0600))
+		me, err := user.Current()
+		require.NoError(t, err)
 
-	k0sVars := &config.CfgVars{
-		StartupConfigPath: configPath,
-		RuntimeConfigPath: filepath.Join(dataDir, "run", "k0s.yaml"),
-		DataDir:           dataDir,
-		CertRootDir:       certRootDir,
+		writeYAML(t, configPath, &v1beta1.ClusterConfig{
+			Spec: &v1beta1.ClusterSpec{
+				Install: &v1beta1.InstallSpec{
+					SystemUsers: &v1beta1.SystemUser{
+						KubeAPIServer: me.Username,
+						KubeScheduler: me.Username,
+					},
+				},
+				Storage: &v1beta1.StorageSpec{
+					Etcd: &v1beta1.EtcdConfig{
+						ExternalCluster: &v1beta1.ExternalCluster{
+							Endpoints:  []string{"127.0.0.1"},
+							EtcdPrefix: t.Name(),
+						},
+					},
+				},
+				API: &v1beta1.APISpec{
+					Port: 65432, ExternalAddress: "not-here.example.com",
+				},
+			},
+		})
+
+		var stdout bytes.Buffer
+		var stderr strings.Builder
+		underTest := cmd.NewRootCmd()
+		underTest.SetArgs([]string{"controller",
+			"--config", configPath,
+			"--data-dir", dataDir,
+			"--disable-components", strings.Join([]string{
+				constant.KubeSchedulerComponentName,
+				constant.KonnectivityServerComponentName,
+			}, ","),
+			"--init-only",
+		})
+		underTest.SetOut(&stdout)
+		underTest.SetErr(&stderr)
+		assert.NoError(t, underTest.Execute())
+		assert.Empty(t, stderr.String())
+		t.Logf("Stdout: %s", &stdout)
+	}) {
+		return
 	}
-	require.NoError(t, os.Mkdir(filepath.Dir(k0sVars.RuntimeConfigPath), 0700))
-	cfg, err := config.NewRuntimeConfig(k0sVars, nil)
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, cfg.Spec.Cleanup()) })
 
-	var stdout, stderr strings.Builder
-	underTest := cmd.NewRootCmd()
-	underTest.SetArgs([]string{"kubeconfig", "--data-dir", dataDir, "admin"})
-	underTest.SetOut(&stdout)
-	underTest.SetErr(&stderr)
+	t.Run("kubeconfig_admin", func(t *testing.T) {
+		k0sVars := &config.CfgVars{
+			StartupConfigPath: configPath,
+			RuntimeConfigPath: filepath.Join(dataDir, "run", "k0s.yaml"),
+			DataDir:           dataDir,
+			CertRootDir:       filepath.Join(dataDir, "pki"),
+		}
+		cfg, err := config.NewRuntimeConfig(k0sVars, nil)
+		require.NoError(t, err)
+		t.Cleanup(func() { assert.NoError(t, cfg.Spec.Cleanup()) })
 
-	assert.NoError(t, underTest.Execute())
-	assert.Empty(t, stderr.String())
-	assert.Equal(t, `apiVersion: v1
-clusters:
-- cluster:
-    certificate-authority-data: Y29udGVudHMgb2YgY2EuY3J0` /* contents of ca.crt */ +`
-    server: https://not-here.example.com:65432
-  name: k0s
-contexts:
-- context:
-    cluster: k0s
-    user: admin
-  name: k0s-admin
-current-context: k0s-admin
-kind: Config
-users:
-- name: admin
-  user:
-    client-certificate-data: Y29udGVudHMgb2YgYWRtaW4uY3J0` /* contents of admin.crt */ +`
-    client-key-data: Y29udGVudHMgb2YgYWRtaW4ua2V5` /* contents of admin.key */ +`
-`,
-		stdout.String(),
-	)
+		var stdout bytes.Buffer
+		var stderr strings.Builder
+		underTest := cmd.NewRootCmd()
+		underTest.SetArgs([]string{"kubeconfig", "--data-dir", dataDir, "admin"})
+		underTest.SetOut(&stdout)
+		underTest.SetErr(&stderr)
+
+		assert.NoError(t, underTest.Execute())
+
+		assert.Empty(t, stderr.String())
+
+		adminConf, err := clientcmd.Load(stdout.Bytes())
+		require.NoError(t, err)
+
+		if theCluster, ok := adminConf.Clusters["k0s"]; assert.True(t, ok, "%#v", adminConf.Clusters) {
+			assert.Equal(t, "https://not-here.example.com:65432", theCluster.Server)
+		}
+	})
 }
 
 func TestAdmin_NoAdminConfig(t *testing.T) {
