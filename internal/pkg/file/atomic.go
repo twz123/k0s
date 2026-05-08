@@ -9,7 +9,9 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -267,8 +269,30 @@ func (f *Atomic) finish(target string) (err error) {
 	// chmod to succeed (CAP_FOWNER).
 	if wantsChown := (f.uid >= 0 || f.gid >= 0); wantsChown {
 		err = os.Chown(f.fd.Name(), f.uid, f.gid)
-		// Ignore errors indicating that os.Chown() is unsupported.
-		if err != nil && !errors.Is(err, errors.ErrUnsupported) {
+		switch {
+		case err == nil:
+		case errors.Is(err, errors.ErrUnsupported):
+			// Ignore errors indicating that os.Chown() is unsupported.
+		case errors.Is(err, os.ErrPermission):
+			// If the user/group are equal to the current user
+			u, userErr := user.Current()
+			if userErr != nil {
+				return errors.Join(err, userErr)
+			}
+			if (f.uid >= 0 && u.Uid != strconv.Itoa(f.uid)) || (f.gid >= 0 && u.Gid != strconv.Itoa(f.gid)) {
+				return err
+			}
+
+			// // Try to figure out if the permissions are already right
+			// if stat, statErr := f.fd.Stat(); statErr != nil {
+			// 	return errors.Join(err, statErr)
+			// } else {
+			// 	stat, ok := stat.Sys().(*syscall.Stat_t)
+			// 	if !ok || (f.uid >= 0 && f.uid != int(stat.Uid)) || (f.gid >= 0 && f.gid != int(stat.Gid)) {
+			// 		return err
+			// 	}
+			// }
+		default:
 			return err
 		}
 	}

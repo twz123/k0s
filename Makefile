@@ -54,6 +54,7 @@ else
     -e CGO_CFLAGS \
     -e GOARCH \
     -e XDG_CACHE_HOME=/run/k0s-build \
+    -e USER='$(BUILD_USER)' \
     --user $(BUILD_UID):$(BUILD_GID) \
     $(DOCKER_RUN_OPTS) -- '$(shell cat .k0sbuild.docker-image.k0s)'
   GO ?= $(GO_ENV) go
@@ -68,6 +69,7 @@ EMBEDDED_BINS_BUILDMODE ?= docker
 TARGET_OS ?= linux
 BUILD_UID ?= $(shell id -u)
 BUILD_GID ?= $(shell id -g)
+BUILD_USER ?= $(shell id -n -u $(BUILD_UID))
 BUILD_GO_CGO_ENABLED = 0
 BUILD_GO_TAGS ?= osusergo
 BUILD_GO_FLAGS = -tags=$(subst $(space),$(comma),$(BUILD_GO_TAGS)) -buildvcs=false

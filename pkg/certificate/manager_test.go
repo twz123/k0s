@@ -51,7 +51,7 @@ func TestEnsureCertificate(t *testing.T) {
 		CACert: k0sVars.CertRootDir + "/ca.crt",
 		CAKey:  k0sVars.CertRootDir + "/ca.key",
 	}
-	certData, err := certManager.EnsureCertificate(req, 1, 10000*time.Hour)
+	certData, err := certManager.EnsureCertificate(req, -1, 10000*time.Hour)
 	require.NoError(t, err)
 	cert, err := parseCert([]byte(certData.Cert))
 	require.NoError(t, err)

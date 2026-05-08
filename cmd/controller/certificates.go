@@ -99,12 +99,12 @@ func (c *Certificates) Init(ctx context.Context) error {
 			CACert: caCertPath,
 			CAKey:  caCertKey,
 		}
-		adminCert, err := c.CertManager.EnsureCertificate(adminReq, users.RootUID, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
+		adminCert, err := c.CertManager.EnsureCertificate(adminReq, -1, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
 		if err != nil {
 			return err
 		}
 
-		if err := kubeConfig(c.K0sVars.AdminKubeConfigPath, kubeConfigAPIUrl, c.CACert, adminCert.Cert, adminCert.Key, users.RootUID, constant.OwnerOnlyMode); err != nil {
+		if err := kubeConfig(c.K0sVars.AdminKubeConfigPath, kubeConfigAPIUrl, c.CACert, adminCert.Cert, adminCert.Key, -1, constant.OwnerOnlyMode); err != nil {
 			return err
 		}
 

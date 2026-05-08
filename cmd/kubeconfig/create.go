@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/k0sproject/k0s/internal/pkg/users"
 	"github.com/k0sproject/k0s/pkg/certificate"
 	"github.com/k0sproject/k0s/pkg/config"
 
@@ -94,9 +93,9 @@ func createUserKubeconfig(k0sVars *config.CfgVars, clusterAPIURL, username, grou
 	certManager := certificate.Manager{
 		K0sVars: k0sVars,
 	}
-	userCert, err := certManager.EnsureCertificate(userReq, users.RootUID, certificateExpiresAfter)
+	userCert, err := certManager.EnsureCertificate(userReq, -1, certificateExpiresAfter)
 	if err != nil {
-		return nil, fmt.Errorf("failed generate user certificate: %w, check if the control plane is initialized on this node", err)
+		return nil, fmt.Errorf("failed to generate user certificate: %w, check if the control plane is initialized on this node", err)
 	}
 
 	kubeconfig := clientcmdapi.Config{

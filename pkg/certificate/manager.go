@@ -151,21 +151,18 @@ func (m *Manager) EnsureCertificate(certReq Request, ownerID int, expiry time.Du
 			Key:  string(key),
 			Cert: string(cert),
 		}
-		err = file.WriteContentAtomically(keyFile, key, constant.CertSecureMode)
+		err = file.AtomicWithTarget(keyFile).
+			WithPermissions(constant.CertSecureMode).
+			WithOwner(ownerID).
+			Write(key)
 		if err != nil {
 			return Certificate{}, err
 		}
-		err = file.WriteContentAtomically(certFile, cert, constant.CertMode)
+		err = file.AtomicWithTarget(certFile).
+			WithPermissions(constant.CertMode).
+			WithOwner(ownerID).
+			Write(cert)
 		if err != nil {
-			return Certificate{}, err
-		}
-
-		err = os.Chown(keyFile, ownerID, -1)
-		if err != nil && os.Geteuid() == 0 {
-			return Certificate{}, err
-		}
-		err = os.Chown(certFile, ownerID, -1)
-		if err != nil && os.Geteuid() == 0 {
 			return Certificate{}, err
 		}
 
