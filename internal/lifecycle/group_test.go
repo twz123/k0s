@@ -562,64 +562,59 @@ func TestRef_Require_AcyclicDependencies(t *testing.T) {
 }
 
 func TestRef_Require_CyclicDependencies(t *testing.T) {
-	var g lifecycle.Group
+	synctest.Test(t, func(t *testing.T) {
+		var g lifecycle.Group
 
-	var a, b, c *lifecycle.Ref[struct{}]
-	start := make(chan struct{})
-	var started sync.WaitGroup
+		var a, b, c *lifecycle.Ref[struct{}]
+		start := make(chan struct{})
 
-	// Create the unit A, which requires C
-	started.Add(1)
-	a = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
-		<-start
-		time.AfterFunc(10*time.Millisecond, started.Done)
-		_, err := c.Require(ctx)
-		assert.NoError(t, err, "While A is requiring C")
-		return nil, nil
+		// Create the unit A, which requires C
+		a = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
+			<-start
+			_, err := c.Require(ctx)
+			assert.NoError(t, err, "While A is requiring C")
+			return nil, nil
+		})
+
+		// Create the unit B, which requires A
+		b = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
+			<-start
+			_, err := a.Require(ctx)
+			assert.NoError(t, err, "While B is requiring A")
+			return nil, nil
+		})
+
+		// Create the unit C, which requires the others, but can't
+		c = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
+			<-start
+
+			// Wait until A and B have reached their blocking Require calls.
+			synctest.Wait()
+
+			_, err := a.Require(ctx)
+			assert.ErrorContains(t, err, "self-referential direct dependency", "While C is requiring A")
+			assert.ErrorIs(t, err, lifecycle.ErrSelfReferential, "While C is requiring A")
+			_, err = b.Require(ctx)
+			assert.ErrorContains(t, err, "self-referential circular dependency at depth 2", "While C is requiring B")
+			assert.ErrorIs(t, err, lifecycle.ErrSelfReferential, "While C is requiring B")
+			_, err = c.Require(ctx)
+			assert.ErrorContains(t, err, "self-referential self-dependency", "While C is requiring itself")
+			assert.ErrorIs(t, err, lifecycle.ErrSelfReferential, "While C is requiring itself")
+			return nil, nil
+		})
+
+		close(start)
+
+		g.Complete(context.TODO(), func(ctx context.Context) (err error) {
+			_, err = a.Require(ctx)
+			assert.NoError(t, err, "While completing A")
+			_, err = b.Require(ctx)
+			assert.NoError(t, err, "While completing B")
+			_, err = c.Require(ctx)
+			assert.NoError(t, err, "While completing C")
+			return nil
+		})
+
+		<-g.Shutdown()
 	})
-
-	// Create the unit B, which requires A
-	started.Add(1)
-	b = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
-		<-start
-		time.AfterFunc(10*time.Millisecond, started.Done)
-		_, err := a.Require(ctx)
-		assert.NoError(t, err, "While B is requiring A")
-		return nil, nil
-	})
-
-	// Create the unit C, which requires the others, but can't
-	c = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Task, error) {
-		<-start
-
-		// Waiting on this WaitGroup to ensure that both A and B are blocked
-		// while waiting for C. This is a bit brittle as it's relying on timing.
-		// The ten millisecond timeouts in A and B are long, but still.
-		started.Wait()
-
-		_, err := a.Require(ctx)
-		assert.ErrorContains(t, err, "self-referential direct dependency", "While C is requiring A")
-		assert.ErrorIs(t, err, lifecycle.ErrSelfReferential, "While C is requiring A")
-		_, err = b.Require(ctx)
-		assert.ErrorContains(t, err, "self-referential circular dependency at depth 2", "While C is requiring B")
-		assert.ErrorIs(t, err, lifecycle.ErrSelfReferential, "While C is requiring B")
-		_, err = c.Require(ctx)
-		assert.ErrorContains(t, err, "self-referential self-dependency", "While C is requiring itself")
-		assert.ErrorIs(t, err, lifecycle.ErrSelfReferential, "While C is requiring itself")
-		return nil, nil
-	})
-
-	close(start)
-
-	g.Complete(context.TODO(), func(ctx context.Context) (err error) {
-		_, err = a.Require(ctx)
-		assert.NoError(t, err, "While completing A")
-		_, err = b.Require(ctx)
-		assert.NoError(t, err, "While completing B")
-		_, err = c.Require(ctx)
-		assert.NoError(t, err, "While completing C")
-		return nil
-	})
-
-	<-g.Shutdown()
 }
