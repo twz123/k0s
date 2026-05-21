@@ -194,7 +194,7 @@ func (g *Group) withNodeContext(ctx context.Context, n *node, f func(context.Con
 // Waits for the referenced component to finish starting and returns its startup
 // outcome.
 //
-// Require must be called with a context provided b the same group's startup or
+// Require must be called with a context provided by the same group's startup or
 // completion flow. During another component's startup (via [Go] or [GoFunc]),
 // calling Require also records a dependency on the referenced component. When
 // called from the context passed to [Group.Complete], no dependency is
@@ -269,9 +269,13 @@ func (r *Ref[T]) Require(ctx context.Context) (t T, _ error) {
 // component startup, requirements from the completion context do not create new
 // dependency relations. Complete does not itself represent a component.
 //
-// Complete initiates shutdown after f returns. If a component fails to start
-// before or during f, the completion context is cancelled with the startup
-// error.
+// Complete and [Group.Shutdown] enter the same shutdown sequence. Complete is
+// the structured form: it runs f in the completion context and initiates
+// shutdown after f returns. Shutdown is the simpler form: it initiates shutdown
+// without waiting for any callback. Calling Shutdown while Complete is running
+// does not itself cancel the context passed to the function passed to Complete.
+// Instead, it returns a channel that is closed after the callback returns and
+// all components have stopped.
 //
 // Complete is meant for top-level orchestration code that needs to wait for
 // startup outcomes, perform one-off coordination work, or block the caller
@@ -318,9 +322,13 @@ func (g *Group) Complete(ctx context.Context, f func(ctx context.Context) error)
 	return err
 }
 
-// Initiates shutdown, and returns a channel that is closed when all components
-// in the group have stopped. Subsequent calls to Shutdown will return the same
-// channel.
+// Initiates the Group's shutdown, and returns a channel that is closed when all
+// components in the group have stopped. Calling Shutdown while [Group.Complete]
+// is running does not itself cancel the context passed to the function passed
+// to Complete. Instead, it returns a channel that is closed after the callback
+// returns and all components have stopped.
+//
+// Subsequent calls to Shutdown will return the same channel.
 func (g *Group) Shutdown() <-chan struct{} {
 	g.mu.Lock()
 	defer g.mu.Unlock()

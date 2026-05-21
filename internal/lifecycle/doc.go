@@ -34,21 +34,19 @@ limitations under the License.
 // startup of many components while ensuring that the required dependencies are
 // operational before moving on to the dependents.
 //
-// Once all components have been registered, the caller may enter the Group's
-// completion phase via [Group.Complete]. The function passed to Complete
-// receives the completion context. It is part of the same lifecycle as the
-// component startup contexts, so it may be used to require refs from the same
-// Group and observe startup failures through context cancellation. Unlike a
-// component's startup context, the completion context does not represent a
-// component itself, so requiring references from it does not create new
-// dependency relations. Complete is meant for top-level orchestration logic
-// that needs to wait for startup outcomes, perform one-off coordination work,
-// and then keep the process alive until the Group shuts down.
-//
-// Shutting down a Group can be initiated via [Group.Shutdown]. During shutdown,
-// components are stopped in reverse dependency order, that is, dependents are
-// stopped before the components they rely on.
+// Once all components have been registered, the caller may "complete" the Group
+// via [Group.Complete]. The callback function passed to Complete receives a
+// context that is part of the Group's lifecycle, i.e. it may be used to require
+// Refs from the same Group and observe startup failures through context
+// cancellation. Unlike during component startup, requiring references during
+// group completion does not establish new dependency relationships. Complete is
+// meant for top-level orchestration logic which uses the components, and keeps
+// the Group alive as long as it's executed. The Group is stopped as soon as the
+// completion callback function returns. Complete itself returns as soon as the
+// Group has stopped.
 //
 // If any component fails to start, the Group enters shutdown and completion is
-// cancelled with the startup error.
+// cancelled with the startup error. During shutdown, components are stopped in
+// reverse dependency order, that is, dependents are stopped before the
+// components they rely on.
 package lifecycle

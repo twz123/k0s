@@ -22,6 +22,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/k0sproject/k0s/internal/lifecycle"
@@ -148,6 +149,52 @@ func TestGroup_Shutdown(t *testing.T) {
 			require.Fail(t, "u no call me once")
 			return nil, nil
 		})
+	})
+}
+
+func TestGroup_Shutdown_DuringComplete(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var g lifecycle.Group
+
+		var completionCtx context.Context
+		complete := make(chan struct{})
+		completed := make(chan error, 1)
+
+		go func() {
+			completed <- g.Complete(t.Context(), func(ctx context.Context) error {
+				completionCtx = ctx
+				<-complete
+				return nil
+			})
+		}()
+
+		synctest.Wait()
+		shutdown := g.Shutdown()
+		synctest.Wait()
+
+		select {
+		case <-completionCtx.Done():
+			require.Failf(t, "Shutdown cancelled the completion context", "Cause: %v", context.Cause(completionCtx))
+		case <-shutdown:
+			require.Fail(t, "Shutdown completed before the completion callback returned")
+		default:
+		}
+
+		close(complete)
+		synctest.Wait()
+
+		select {
+		case err := <-completed:
+			require.NoError(t, err)
+		default:
+			require.Fail(t, "Complete did not return after the completion callback returned")
+		}
+
+		select {
+		case <-shutdown:
+		default:
+			require.Fail(t, "Shutdown did not complete after the completion callback returned")
+		}
 	})
 }
 
