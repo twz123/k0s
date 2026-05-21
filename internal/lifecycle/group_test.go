@@ -394,58 +394,101 @@ func TestRef_Require_Twice(t *testing.T) {
 	}))
 }
 
+// Verifies that the lifecycle group rejects the exact edge that would close a
+// dependency cycle.
+//
+// The test creates a group with five components arranged in a ring. Component 0
+// requires component 1, component 1 requires component 2, and so on until
+// component 4 requires component 0. The group can accept the first four
+// dependency edges as an acyclic chain, but whichever edge completes the ring
+// must be rejected as self-referential.
+//
+// Dependency edges are added when a component calls Ref.Require during startup.
+// Since startup happens concurrently, the edge that closes the ring depends on
+// scheduling. The test therefore permutes six actors: the five component
+// startup Require calls plus the Group.Complete callback. For each permutation,
+// the actor's value in the order array determines after how many gates it may
+// proceed. This exercises all relative orderings in which the components and
+// completion callback can reach their Require calls, and asserts that exactly
+// one component captured [lifecycle.ErrSelfReferential] as its startup outcome.
 func TestRef_Require_LoopDetection(t *testing.T) {
 	order := [...]int{0, 1, 2, 3, 4, 5}
+
+	// Permute the scheduling positions assigned to the six actors. Components
+	// use the first five values; the final value is reserved for the completion
+	// callback.
 	testutil.Permute(order[:], func() bool {
-		provide := make(chan struct{})
-		seq := make([]chan struct{}, len(order))
-		for i := range seq {
-			seq[i] = make(chan struct{})
-		}
-
-		var g lifecycle.Group
-
-		circle := make([]*lifecycle.Ref[error], len(order)-1)
-		for i := range circle {
-			order, i, j := order[i], i, (i+1)%len(circle)
-			circle[i] = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit[error], error) {
-				<-provide
-				for i := 0; i < order; i++ {
-					<-seq[i]
-				}
-
-				time.AfterFunc(10*time.Microsecond, func() { close(seq[order]) })
-				_, err := circle[j].Require(ctx)
-				if err != nil {
-					err = fmt.Errorf("(order %d) %d awaits %d: %w", order, i, j, err)
-				}
-				return lifecycle.ServiceStarted(nil, nil, err)
-			})
-		}
-
-		close(provide)
-
-		assert.NoError(t, g.Complete(context.TODO(), func(ctx context.Context) error {
-			for i := 0; i < order[len(order)-1]; i++ {
-				<-seq[i]
-			}
-			close(seq[order[len(order)-1]])
-
-			var foundErrs int
-			for i := range circle {
-				order, i, j := order[i], i, (i+1)%len(circle)
-				deref, err := circle[i].Require(ctx)
-				assert.NoError(t, err)
-				if deref != nil {
-					foundErrs++
-					assert.ErrorContains(t, deref, fmt.Sprintf("(order %d) %d awaits %d: ", order, i, j))
-					assert.ErrorIs(t, deref, lifecycle.ErrSelfReferential)
-				}
+		synctest.Test(t, func(t *testing.T) {
+			// Gates for the six actors in this test. Values 0 through 4 map to
+			// component startup Require calls. Value 5 maps to the completion
+			// callback.
+			gates := make([]chan struct{}, len(order))
+			for i := range gates {
+				gates[i] = make(chan struct{})
 			}
 
-			assert.Equal(t, 1, foundErrs)
-			return nil
-		}))
+			var g lifecycle.Group
+
+			componentsPopulated := make(chan struct{})
+			components := make([]*lifecycle.Ref[error], len(order)-1)
+			for i := range components {
+				order, j := order[i], (i+1)%len(components)
+				components[i] = lifecycle.GoFunc(&g, func(ctx context.Context) (*lifecycle.Unit[error], error) {
+					// Wait until the component slice is fully populated so that
+					// it is safe to access and depend on any of them later on.
+					<-componentsPopulated
+
+					// Wait until every actor scheduled before this component
+					// has reached its own critical point.
+					for i := range order {
+						<-gates[i]
+					}
+
+					// Schedule this actor's gate to open, then immediately
+					// enter Require. Under synctest, the timer fires only once
+					// the bubble is blocked, which lets the next actor proceed
+					// after this actor has reached the blocking dependency
+					// operation.
+					time.AfterFunc(time.Nanosecond, func() { close(gates[order]) })
+					_, err := components[j].Require(ctx)
+					if err != nil {
+						err = fmt.Errorf("(order %d) %d awaits %d: %w", order, i, j, err)
+					}
+
+					// Report the potential error as the outcome of this
+					// component.
+					return lifecycle.ServiceStarted(nil, nil, err)
+				})
+			}
+			close(componentsPopulated)
+
+			assert.NoError(t, g.Complete(t.Context(), func(ctx context.Context) error {
+				// The completion callback is the sixth actor. It waits until
+				// every actor scheduled before it has reached its critical
+				// point, then opens its own gate.
+				for i := 0; i < order[len(order)-1]; i++ {
+					<-gates[i]
+				}
+				close(gates[order[len(order)-1]])
+
+				// Collect the outcomes of all the components and check that we
+				// have exactly one cyclic dependency error.
+				var foundErrs int
+				for i := range components {
+					order, j := order[i], (i+1)%len(components)
+					deref, err := components[i].Require(ctx)
+					assert.NoError(t, err)
+					if deref != nil {
+						foundErrs++
+						assert.ErrorContains(t, deref, fmt.Sprintf("(order %d) %d awaits %d: ", order, i, j))
+						assert.ErrorIs(t, deref, lifecycle.ErrSelfReferential)
+					}
+				}
+
+				assert.Equal(t, 1, foundErrs)
+				return nil
+			}))
+		})
 
 		return !t.Failed()
 	})
