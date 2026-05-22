@@ -249,11 +249,12 @@ func (e *Etcd) Stop() error {
 }
 
 func (e *Etcd) setupCerts(ctx context.Context) error {
-	etcdCaCert := filepath.Join(e.K0sVars.EtcdCertDir, "ca.crt")
-	etcdCaCertKey := filepath.Join(e.K0sVars.EtcdCertDir, "ca.key")
+	k0sCerts := certificate.NewManager(e.K0sVars.CertRootDir)
+	etcdCerts := certificate.NewManager(e.K0sVars.EtcdCertDir)
 
-	certManager := certificate.NewManager(e.K0sVars.CertRootDir)
-	if err := certManager.EnsureCA("etcd/ca", "etcd-ca", e.Config.CA.ExpiresAfter.Duration); err != nil {
+	etcdCA, err := etcdCerts.EnsureCA("ca", "etcd-ca", e.Config.CA.ExpiresAfter.Duration)
+
+	if err != nil {
 		return fmt.Errorf("failed to create etcd ca: %w", err)
 	}
 
@@ -262,11 +263,10 @@ func (e *Etcd) setupCerts(ctx context.Context) error {
 	eg.Go(func() error {
 		// etcd client cert
 		etcdCertReq := certificate.Request{
-			Name:   "apiserver-etcd-client",
-			CN:     "apiserver-etcd-client",
-			O:      "apiserver-etcd-client",
-			CACert: etcdCaCert,
-			CAKey:  etcdCaCertKey,
+			Name: "apiserver-etcd-client",
+			CN:   "apiserver-etcd-client",
+			O:    "apiserver-etcd-client",
+			CA:   etcdCA,
 			Hostnames: []string{
 				"127.0.0.1",
 				"localhost",
@@ -280,45 +280,43 @@ func (e *Etcd) setupCerts(ctx context.Context) error {
 			logrus.WithError(err).Warn("Files with key material for kube-apiserver user will be owned by root")
 		}
 
-		_, err = certManager.EnsureCertificate(etcdCertReq, uid, e.Config.CA.CertificatesExpireAfter.Duration)
+		_, err = k0sCerts.EnsureCertificate(etcdCertReq, uid, e.Config.CA.CertificatesExpireAfter.Duration)
 		return err
 	})
 
 	eg.Go(func() error {
 		// etcd server cert
 		etcdCertReq := certificate.Request{
-			Name:   filepath.Join("etcd", "server"),
-			CN:     "etcd-server",
-			O:      "etcd-server",
-			CACert: etcdCaCert,
-			CAKey:  etcdCaCertKey,
+			Name: "server",
+			CN:   "etcd-server",
+			O:    "etcd-server",
+			CA:   etcdCA,
 			Hostnames: []string{
 				"127.0.0.1",
 				"localhost",
 			},
 		}
 
-		_, err := certManager.EnsureCertificate(etcdCertReq, e.uid, e.Config.CA.CertificatesExpireAfter.Duration)
+		_, err := etcdCerts.EnsureCertificate(etcdCertReq, e.uid, e.Config.CA.CertificatesExpireAfter.Duration)
 		return err
 	})
 
 	eg.Go(func() error {
 		etcdPeerCertReq := certificate.Request{
-			Name:   filepath.Join("etcd", "peer"),
-			CN:     e.Config.PeerAddress,
-			O:      "etcd-peer",
-			CACert: etcdCaCert,
-			CAKey:  etcdCaCertKey,
+			Name: "peer",
+			CN:   e.Config.PeerAddress,
+			O:    "etcd-peer",
+			CA:   etcdCA,
 			Hostnames: []string{
 				e.Config.PeerAddress,
 			},
 		}
-		_, err := certManager.EnsureCertificate(etcdPeerCertReq, e.uid, e.Config.CA.CertificatesExpireAfter.Duration)
+		_, err := etcdCerts.EnsureCertificate(etcdPeerCertReq, e.uid, e.Config.CA.CertificatesExpireAfter.Duration)
 		return err
 	})
 
 	eg.Go(func() error {
-		return certManager.CreateKeyPair("etcd/jwt", e.uid)
+		return etcdCerts.CreateKeyPair("jwt", e.uid)
 	})
 
 	return eg.Wait()

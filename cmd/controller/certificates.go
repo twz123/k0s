@@ -36,18 +36,16 @@ type Certificates struct {
 // Init initializes the certificate component
 func (c *Certificates) Init(ctx context.Context) error {
 	eg, _ := errgroup.WithContext(ctx)
-	// Common CA
-	caCertPath := filepath.Join(c.K0sVars.CertRootDir, "ca.crt")
-	caCertKey := filepath.Join(c.K0sVars.CertRootDir, "ca.key")
 
 	certManager := certificate.NewManager(c.K0sVars.CertRootDir)
-	if err := certManager.EnsureCA("ca", "kubernetes-ca", c.ClusterSpec.API.CA.ExpiresAfter.Duration); err != nil {
+	ca, err := certManager.EnsureCA("ca", "kubernetes-ca", c.ClusterSpec.API.CA.ExpiresAfter.Duration)
+	if err != nil {
 		return err
 	}
 
 	// We need CA cert loaded to generate client configs
 	logrus.Debugf("CA key and cert exists, loading")
-	caCertData, err := os.ReadFile(caCertPath)
+	caCertData, err := os.ReadFile(filepath.Join(c.K0sVars.CertRootDir, "ca.crt"))
 	if err != nil {
 		return fmt.Errorf("failed to read ca cert: %w", err)
 	}
@@ -61,20 +59,18 @@ func (c *Certificates) Init(ctx context.Context) error {
 	}
 	eg.Go(func() error {
 		// Front proxy CA
-		if err := certManager.EnsureCA("front-proxy-ca", "kubernetes-front-proxy-ca", c.ClusterSpec.API.CA.ExpiresAfter.Duration); err != nil {
+		ca, err := certManager.EnsureCA("front-proxy-ca", "kubernetes-front-proxy-ca", c.ClusterSpec.API.CA.ExpiresAfter.Duration)
+		if err != nil {
 			return err
 		}
 
-		proxyCertPath, proxyCertKey := filepath.Join(c.K0sVars.CertRootDir, "front-proxy-ca.crt"), filepath.Join(c.K0sVars.CertRootDir, "front-proxy-ca.key")
-
 		proxyClientReq := certificate.Request{
-			Name:   "front-proxy-client",
-			CN:     "front-proxy-client",
-			O:      "front-proxy-client",
-			CACert: proxyCertPath,
-			CAKey:  proxyCertKey,
+			Name: "front-proxy-client",
+			CN:   "front-proxy-client",
+			O:    "front-proxy-client",
+			CA:   ca,
 		}
-		_, err := certManager.EnsureCertificate(proxyClientReq, apiServerUID, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
+		_, err = certManager.EnsureCertificate(proxyClientReq, apiServerUID, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
 
 		return err
 	})
@@ -82,11 +78,10 @@ func (c *Certificates) Init(ctx context.Context) error {
 	eg.Go(func() error {
 		// admin cert & kubeconfig
 		adminReq := certificate.Request{
-			Name:   "admin",
-			CN:     "kubernetes-admin",
-			O:      "system:masters",
-			CACert: caCertPath,
-			CAKey:  caCertKey,
+			Name: "admin",
+			CN:   "kubernetes-admin",
+			O:    "system:masters",
+			CA:   ca,
 		}
 		adminCert, err := certManager.EnsureCertificate(adminReq, users.RootUID, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
 		if err != nil {
@@ -103,11 +98,10 @@ func (c *Certificates) Init(ctx context.Context) error {
 	eg.Go(func() error {
 		// konnectivity kubeconfig
 		konnectivityReq := certificate.Request{
-			Name:   "konnectivity",
-			CN:     "kubernetes-konnectivity",
-			O:      "system:masters", // TODO: We need to figure out if konnectivity really needs superpowers
-			CACert: caCertPath,
-			CAKey:  caCertKey,
+			Name: "konnectivity",
+			CN:   "kubernetes-konnectivity",
+			O:    "system:masters", // TODO: We need to figure out if konnectivity really needs superpowers
+			CA:   ca,
 		}
 
 		uid, err := users.LookupUID(constant.KonnectivityServerUser)
@@ -127,11 +121,10 @@ func (c *Certificates) Init(ctx context.Context) error {
 
 	eg.Go(func() error {
 		ccmReq := certificate.Request{
-			Name:   "ccm",
-			CN:     "system:kube-controller-manager",
-			O:      "system:kube-controller-manager",
-			CACert: caCertPath,
-			CAKey:  caCertKey,
+			Name: "ccm",
+			CN:   "system:kube-controller-manager",
+			O:    "system:kube-controller-manager",
+			CA:   ca,
 		}
 		ccmCert, err := certManager.EnsureCertificate(ccmReq, apiServerUID, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
 		if err != nil {
@@ -143,11 +136,10 @@ func (c *Certificates) Init(ctx context.Context) error {
 
 	eg.Go(func() error {
 		schedulerReq := certificate.Request{
-			Name:   "scheduler",
-			CN:     "system:kube-scheduler",
-			O:      "system:kube-scheduler",
-			CACert: caCertPath,
-			CAKey:  caCertKey,
+			Name: "scheduler",
+			CN:   "system:kube-scheduler",
+			O:    "system:kube-scheduler",
+			CA:   ca,
 		}
 
 		uid, err := users.LookupUID(constant.SchedulerUser)
@@ -167,11 +159,10 @@ func (c *Certificates) Init(ctx context.Context) error {
 
 	eg.Go(func() error {
 		kubeletClientReq := certificate.Request{
-			Name:   "apiserver-kubelet-client",
-			CN:     "apiserver-kubelet-client",
-			O:      "system:masters",
-			CACert: caCertPath,
-			CAKey:  caCertKey,
+			Name: "apiserver-kubelet-client",
+			CN:   "apiserver-kubelet-client",
+			O:    "system:masters",
+			CA:   ca,
 		}
 		_, err := certManager.EnsureCertificate(kubeletClientReq, apiServerUID, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
 		return err
@@ -187,8 +178,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			Name:      "server",
 			CN:        "kubernetes",
 			O:         "kubernetes",
-			CACert:    caCertPath,
-			CAKey:     caCertKey,
+			CA:        ca,
 			Hostnames: hostnames,
 		}
 		_, err = certManager.EnsureCertificate(serverReq, apiServerUID, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
@@ -200,8 +190,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			Name:      "k0s-api",
 			CN:        "k0s-api",
 			O:         "kubernetes",
-			CACert:    caCertPath,
-			CAKey:     caCertKey,
+			CA:        ca,
 			Hostnames: hostnames,
 		}
 		// TODO Not sure about the user...

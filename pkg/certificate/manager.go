@@ -9,6 +9,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -35,15 +36,38 @@ type Request struct {
 	Name      string
 	CN        string
 	O         string
-	CAKey     string
-	CACert    string
+	CA        CertificateRef
 	Hostnames []string
+}
+
+type CertificateRef interface {
+	resolve() (*Certificate, error)
 }
 
 // Certificate is a helper struct to be able to return the created key and cert data
 type Certificate struct {
 	Key  []byte
 	Cert []byte
+}
+
+func (c *Certificate) resolve() (*Certificate, error) {
+	return new(*c), nil
+}
+
+type certificateFiles struct {
+	cert, key string
+}
+
+func (f *certificateFiles) resolve() (*Certificate, error) {
+	cert, err := os.ReadFile(f.cert)
+	if err != nil {
+		return nil, err
+	}
+	key, err := os.ReadFile(f.key)
+	if err != nil {
+		return nil, err
+	}
+	return &Certificate{Key: key, Cert: cert}, nil
 }
 
 // Manager is the certificate manager
@@ -55,13 +79,20 @@ func NewManager(rootDir string) *Manager {
 	return &Manager{rootDir}
 }
 
+func (m *Manager) Named(name string) CertificateRef {
+	return &certificateFiles{
+		cert: filepath.Join(m.rootDir, name+".crt"),
+		key:  filepath.Join(m.rootDir, name+".key"),
+	}
+}
+
 // EnsureCA makes sure the given CA certs and key is created.
-func (m *Manager) EnsureCA(name, cn string, expiry time.Duration) error {
+func (m *Manager) EnsureCA(name, cn string, expiry time.Duration) (CertificateRef, error) {
 	keyFile := filepath.Join(m.rootDir, name+".key")
 	certFile := filepath.Join(m.rootDir, name+".crt")
 
-	if file.Exists(keyFile) && file.Exists(certFile) {
-		return nil
+	if cert, err := m.Named(name).resolve(); err == nil {
+		return cert, nil
 	}
 
 	req := new(csr.CertificateRequest)
@@ -74,20 +105,20 @@ func (m *Manager) EnsureCA(name, cn string, expiry time.Duration) error {
 	}
 	cert, _, key, err := initca.New(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	err = file.WriteContentAtomically(keyFile, key, constant.CertSecureMode)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	err = file.WriteContentAtomically(certFile, cert, constant.CertMode)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	return &Certificate{Key: key, Cert: cert}, nil
 }
 
 // EnsureCertificate creates the specified certificate if it does not already exist
@@ -121,15 +152,15 @@ func (m *Manager) EnsureCertificate(certReq Request, ownerID int, expiry time.Du
 			return Certificate{}, err
 		}
 
-		caCertData, err := os.ReadFile(certReq.CACert)
-		if err != nil {
-			return Certificate{}, err
+		if certReq.CA == nil {
+			return Certificate{}, errors.New("no CA reference provided")
 		}
-		caKeyData, err := os.ReadFile(certReq.CAKey)
+		caCert, err := certReq.CA.resolve()
 		if err != nil {
-			return Certificate{}, err
+			return Certificate{}, fmt.Errorf("failed to resolve CA certificate: %w", err)
 		}
-		caCert, err := helpers.ParseCertificatePEM(caCertData)
+
+		cert, err := helpers.ParseCertificatePEM(caCert.Cert)
 		if err != nil {
 			return Certificate{}, err
 		}
@@ -138,12 +169,12 @@ func (m *Manager) EnsureCertificate(certReq Request, ownerID int, expiry time.Du
 		if pw := os.Getenv("CFSSL_CA_PK_PASSWORD"); pw != "" {
 			password = []byte(pw)
 		}
-		caKey, err := helpers.ParsePrivateKeyPEMWithPassword(caKeyData, password)
+		caKey, err := helpers.ParsePrivateKeyPEMWithPassword(caCert.Key, password)
 		if err != nil {
 			return Certificate{}, fmt.Errorf("malformed private key %w", err)
 		}
 
-		s, err := local.NewSigner(caKey, caCert, signer.DefaultSigAlgo(caKey), &config.Signing{
+		s, err := local.NewSigner(caKey, cert, signer.DefaultSigAlgo(caKey), &config.Signing{
 			Profiles: map[string]*config.SigningProfile{},
 			Default: &config.SigningProfile{
 				Usage:        []string{"signing", "key encipherment", "server auth", "client auth"},
@@ -155,19 +186,18 @@ func (m *Manager) EnsureCertificate(certReq Request, ownerID int, expiry time.Du
 			return Certificate{}, err
 		}
 
-		var cert []byte
 		signReq := signer.SignRequest{
 			Request: string(csrBytes),
 			Profile: "kubernetes",
 		}
 
-		cert, err = s.Sign(signReq)
+		signedCertData, err := s.Sign(signReq)
 		if err != nil {
 			return Certificate{}, err
 		}
 		c := Certificate{
 			Key:  key,
-			Cert: cert,
+			Cert: signedCertData,
 		}
 		if err := file.AtomicWithTarget(keyFile).
 			TryWithOwnerAndGroup(ownerID, -1).
@@ -178,7 +208,7 @@ func (m *Manager) EnsureCertificate(certReq Request, ownerID int, expiry time.Du
 		if err := file.AtomicWithTarget(certFile).
 			TryWithOwnerAndGroup(ownerID, -1).
 			WithPermissions(constant.CertMode).
-			Write(cert); err != nil {
+			Write(signedCertData); err != nil {
 			return Certificate{}, err
 		}
 
