@@ -252,7 +252,7 @@ func (e *Etcd) setupCerts(ctx context.Context) error {
 	etcdCaCert := filepath.Join(e.K0sVars.EtcdCertDir, "ca.crt")
 	etcdCaCertKey := filepath.Join(e.K0sVars.EtcdCertDir, "ca.key")
 
-	certManager := &certificate.Manager{K0sVars: e.K0sVars}
+	certManager := certificate.NewManager(e.K0sVars.CertRootDir)
 	if err := certManager.EnsureCA("etcd/ca", "etcd-ca", e.Config.CA.ExpiresAfter.Duration); err != nil {
 		return fmt.Errorf("failed to create etcd ca: %w", err)
 	}

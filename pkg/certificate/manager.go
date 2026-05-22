@@ -27,7 +27,6 @@ import (
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/stringslice"
-	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 )
 
@@ -49,13 +48,17 @@ type Certificate struct {
 
 // Manager is the certificate manager
 type Manager struct {
-	K0sVars *config.CfgVars
+	rootDir string
+}
+
+func NewManager(rootDir string) *Manager {
+	return &Manager{rootDir}
 }
 
 // EnsureCA makes sure the given CA certs and key is created.
 func (m *Manager) EnsureCA(name, cn string, expiry time.Duration) error {
-	keyFile := filepath.Join(m.K0sVars.CertRootDir, name+".key")
-	certFile := filepath.Join(m.K0sVars.CertRootDir, name+".crt")
+	keyFile := filepath.Join(m.rootDir, name+".key")
+	certFile := filepath.Join(m.rootDir, name+".crt")
 
 	if file.Exists(keyFile) && file.Exists(certFile) {
 		return nil
@@ -90,8 +93,8 @@ func (m *Manager) EnsureCA(name, cn string, expiry time.Duration) error {
 // EnsureCertificate creates the specified certificate if it does not already exist
 func (m *Manager) EnsureCertificate(certReq Request, ownerID int, expiry time.Duration) (Certificate, error) {
 
-	keyFile := filepath.Join(m.K0sVars.CertRootDir, certReq.Name+".key")
-	certFile := filepath.Join(m.K0sVars.CertRootDir, certReq.Name+".crt")
+	keyFile := filepath.Join(m.rootDir, certReq.Name+".key")
+	certFile := filepath.Join(m.rootDir, certReq.Name+".crt")
 
 	// if regenerateCert returns true, it means we need to create the certs
 	regenerateCert, err := m.regenerateCert(keyFile, certFile)
@@ -213,7 +216,7 @@ func (m *Manager) regenerateCert(keyFile string, certFile string) (bool, error) 
 
 // checks if the cert issuer (CA) is a k0s setup one
 func (m *Manager) isManagedByK0s(cert *certinfo.Certificate) (bool, error) {
-	ca, err := certinfo.ParseCertificateFile(filepath.Join(m.K0sVars.CertRootDir, "ca.crt"))
+	ca, err := certinfo.ParseCertificateFile(filepath.Join(m.rootDir, "ca.crt"))
 	if err != nil {
 		return false, fmt.Errorf("unable to parse ca certificate: %w", err)
 	}
@@ -226,7 +229,7 @@ func (m *Manager) isManagedByK0s(cert *certinfo.Certificate) (bool, error) {
 	case "etcd-ca":
 		return true, nil
 	case ca.Subject.CommonName:
-		if file.Exists(filepath.Join(m.K0sVars.CertRootDir, "ca.key")) {
+		if file.Exists(filepath.Join(m.rootDir, "ca.key")) {
 			return true, nil
 		}
 		logrus.Warnf("certificate issued by %q, but no ca.key found, not renewing the certificate %q", ca.Subject.CommonName, cert.Subject.CommonName)
@@ -237,8 +240,8 @@ func (m *Manager) isManagedByK0s(cert *certinfo.Certificate) (bool, error) {
 }
 
 func (m *Manager) CreateKeyPair(name string, ownerID int) error {
-	keyFile := filepath.Join(m.K0sVars.CertRootDir, name+".key")
-	pubFile := filepath.Join(m.K0sVars.CertRootDir, name+".pub")
+	keyFile := filepath.Join(m.rootDir, name+".key")
+	pubFile := filepath.Join(m.rootDir, name+".pub")
 
 	if file.Exists(keyFile) && file.Exists(pubFile) {
 		return file.Chown(keyFile, ownerID, constant.CertSecureMode)

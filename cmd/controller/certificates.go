@@ -40,7 +40,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 	caCertPath := filepath.Join(c.K0sVars.CertRootDir, "ca.crt")
 	caCertKey := filepath.Join(c.K0sVars.CertRootDir, "ca.key")
 
-	certManager := &certificate.Manager{K0sVars: c.K0sVars}
+	certManager := certificate.NewManager(c.K0sVars.CertRootDir)
 	if err := certManager.EnsureCA("ca", "kubernetes-ca", c.ClusterSpec.API.CA.ExpiresAfter.Duration); err != nil {
 		return err
 	}
