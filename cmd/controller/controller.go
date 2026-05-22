@@ -30,7 +30,6 @@ import (
 	"github.com/k0sproject/k0s/pkg/applier"
 	"github.com/k0sproject/k0s/pkg/autopilot/controller/updates"
 	"github.com/k0sproject/k0s/pkg/build"
-	"github.com/k0sproject/k0s/pkg/certificate"
 	"github.com/k0sproject/k0s/pkg/component/controller"
 	"github.com/k0sproject/k0s/pkg/component/controller/clusterconfig"
 	"github.com/k0sproject/k0s/pkg/component/controller/cplb"
@@ -205,10 +204,8 @@ func (c *command) start(ctx context.Context, rtc *config.RuntimeConfig, nodeConf
 	nodeComponents := manager.New(prober.DefaultProber)
 	clusterComponents := manager.New(prober.DefaultProber)
 
-	certificateManager := certificate.Manager{K0sVars: c.K0sVars}
 	certs := &Certificates{
 		ClusterSpec: nodeConfig.Spec,
-		CertManager: certificateManager,
 		K0sVars:     c.K0sVars,
 	}
 	if err := certs.Init(ctx); err != nil {
@@ -269,11 +266,10 @@ func (c *command) start(ctx context.Context, rtc *config.RuntimeConfig, nodeConf
 		config := nodeConfig.Spec.Storage.Etcd
 		if !config.IsExternalClusterUsed() {
 			storageBackend = &controller.Etcd{
-				CertManager: certificateManager,
-				Config:      config,
-				JoinClient:  joinClient,
-				K0sVars:     c.K0sVars,
-				LogLevel:    c.LogLevels.Etcd,
+				Config:     config,
+				JoinClient: joinClient,
+				K0sVars:    c.K0sVars,
+				LogLevel:   c.LogLevels.Etcd,
 			}
 		}
 	default:

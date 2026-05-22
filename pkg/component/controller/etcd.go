@@ -36,11 +36,10 @@ const etcdGID = 0
 
 // Etcd implement the component interface to run etcd
 type Etcd struct {
-	CertManager certificate.Manager
-	Config      *v1beta1.EtcdConfig
-	JoinClient  *token.JoinClient
-	K0sVars     *config.CfgVars
-	LogLevel    string
+	Config     *v1beta1.EtcdConfig
+	JoinClient *token.JoinClient
+	K0sVars    *config.CfgVars
+	LogLevel   string
 
 	supervisor     *supervisor.Supervisor
 	executablePath string
@@ -81,6 +80,7 @@ func (e *Etcd) Init(_ context.Context) error {
 			return err
 		}
 	}
+
 	e.executablePath, err = assets.StageExecutable(e.K0sVars.BinDir, "etcd")
 	return err
 }
@@ -252,7 +252,8 @@ func (e *Etcd) setupCerts(ctx context.Context) error {
 	etcdCaCert := filepath.Join(e.K0sVars.EtcdCertDir, "ca.crt")
 	etcdCaCertKey := filepath.Join(e.K0sVars.EtcdCertDir, "ca.key")
 
-	if err := e.CertManager.EnsureCA("etcd/ca", "etcd-ca", e.Config.CA.ExpiresAfter.Duration); err != nil {
+	certManager := &certificate.Manager{K0sVars: e.K0sVars}
+	if err := certManager.EnsureCA("etcd/ca", "etcd-ca", e.Config.CA.ExpiresAfter.Duration); err != nil {
 		return fmt.Errorf("failed to create etcd ca: %w", err)
 	}
 
@@ -279,7 +280,7 @@ func (e *Etcd) setupCerts(ctx context.Context) error {
 			logrus.WithError(err).Warn("Files with key material for kube-apiserver user will be owned by root")
 		}
 
-		_, err = e.CertManager.EnsureCertificate(etcdCertReq, uid, e.Config.CA.CertificatesExpireAfter.Duration)
+		_, err = certManager.EnsureCertificate(etcdCertReq, uid, e.Config.CA.CertificatesExpireAfter.Duration)
 		return err
 	})
 
@@ -297,7 +298,7 @@ func (e *Etcd) setupCerts(ctx context.Context) error {
 			},
 		}
 
-		_, err := e.CertManager.EnsureCertificate(etcdCertReq, e.uid, e.Config.CA.CertificatesExpireAfter.Duration)
+		_, err := certManager.EnsureCertificate(etcdCertReq, e.uid, e.Config.CA.CertificatesExpireAfter.Duration)
 		return err
 	})
 
@@ -312,12 +313,12 @@ func (e *Etcd) setupCerts(ctx context.Context) error {
 				e.Config.PeerAddress,
 			},
 		}
-		_, err := e.CertManager.EnsureCertificate(etcdPeerCertReq, e.uid, e.Config.CA.CertificatesExpireAfter.Duration)
+		_, err := certManager.EnsureCertificate(etcdPeerCertReq, e.uid, e.Config.CA.CertificatesExpireAfter.Duration)
 		return err
 	})
 
 	eg.Go(func() error {
-		return e.CertManager.CreateKeyPair("etcd/jwt", e.uid)
+		return certManager.CreateKeyPair("etcd/jwt", e.uid)
 	})
 
 	return eg.Wait()
