@@ -15,19 +15,19 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/cloudflare/cfssl/certinfo"
-	"github.com/cloudflare/cfssl/cli"
-	"github.com/cloudflare/cfssl/cli/genkey"
-	"github.com/cloudflare/cfssl/cli/sign"
-	cfsslconfig "github.com/cloudflare/cfssl/config"
-	"github.com/cloudflare/cfssl/csr"
-	"github.com/cloudflare/cfssl/initca"
-	"github.com/cloudflare/cfssl/signer"
-	"github.com/sirupsen/logrus"
-
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/stringslice"
 	"github.com/k0sproject/k0s/pkg/constant"
+
+	"github.com/cloudflare/cfssl/certinfo"
+	"github.com/cloudflare/cfssl/cli/genkey"
+	"github.com/cloudflare/cfssl/config"
+	"github.com/cloudflare/cfssl/csr"
+	"github.com/cloudflare/cfssl/helpers"
+	"github.com/cloudflare/cfssl/initca"
+	"github.com/cloudflare/cfssl/signer"
+	"github.com/cloudflare/cfssl/signer/local"
+	"github.com/sirupsen/logrus"
 )
 
 // Request defines the certificate request fields
@@ -115,27 +115,42 @@ func (m *Manager) EnsureCertificate(certReq Request, ownerID int, expiry time.Du
 		req.KeyRequest.S = 2048
 		req.Hosts = stringslice.Unique(certReq.Hostnames)
 
-		var key, csrBytes []byte
 		g := &csr.Generator{Validator: genkey.Validator}
 		csrBytes, key, err := g.ProcessRequest(&req)
 		if err != nil {
 			return Certificate{}, err
 		}
-		config := cli.Config{
-			CAFile:    "file:" + certReq.CACert,
-			CAKeyFile: "file:" + certReq.CAKey,
-			CFG: &cfsslconfig.Config{
-				Signing: &cfsslconfig.Signing{
-					Profiles: map[string]*cfsslconfig.SigningProfile{},
-					Default: &cfsslconfig.SigningProfile{
-						Usage:        []string{"signing", "key encipherment", "server auth", "client auth"},
-						Expiry:       expiry,
-						ExpiryString: expiry.String(),
-					},
-				},
-			},
+
+		caCertData, err := os.ReadFile(certReq.CACert)
+		if err != nil {
+			return Certificate{}, err
 		}
-		s, err := sign.SignerFromConfig(config)
+		caKeyData, err := os.ReadFile(certReq.CAKey)
+		if err != nil {
+			return Certificate{}, err
+		}
+		caCert, err := helpers.ParseCertificatePEM(caCertData)
+		if err != nil {
+			return Certificate{}, err
+		}
+
+		var password []byte
+		if pw := os.Getenv("CFSSL_CA_PK_PASSWORD"); pw != "" {
+			password = []byte(pw)
+		}
+		caKey, err := helpers.ParsePrivateKeyPEMWithPassword(caKeyData, password)
+		if err != nil {
+			return Certificate{}, fmt.Errorf("malformed private key %w", err)
+		}
+
+		s, err := local.NewSigner(caKey, caCert, signer.DefaultSigAlgo(caKey), &config.Signing{
+			Profiles: map[string]*config.SigningProfile{},
+			Default: &config.SigningProfile{
+				Usage:        []string{"signing", "key encipherment", "server auth", "client auth"},
+				Expiry:       expiry,
+				ExpiryString: expiry.String(),
+			},
+		})
 		if err != nil {
 			return Certificate{}, err
 		}
