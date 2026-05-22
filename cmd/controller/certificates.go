@@ -29,8 +29,6 @@ import (
 
 // Certificates is the Component implementation to manage all k0s certs
 type Certificates struct {
-	CACert              string
-	CertManager         certificate.Manager
 	ClusterSpec         *v1beta1.ClusterSpec
 	K0sVars             *config.CfgVars
 	KonnectivityEnabled bool
@@ -43,17 +41,17 @@ func (c *Certificates) Init(ctx context.Context) error {
 	caCertPath := filepath.Join(c.K0sVars.CertRootDir, "ca.crt")
 	caCertKey := filepath.Join(c.K0sVars.CertRootDir, "ca.key")
 
-	if err := c.CertManager.EnsureCA("ca", "kubernetes-ca", c.ClusterSpec.API.CA.ExpiresAfter.Duration); err != nil {
+	certManager := &certificate.Manager{K0sVars: c.K0sVars}
+	if err := certManager.EnsureCA("ca", "kubernetes-ca", c.ClusterSpec.API.CA.ExpiresAfter.Duration); err != nil {
 		return err
 	}
 
 	// We need CA cert loaded to generate client configs
 	logrus.Debugf("CA key and cert exists, loading")
-	cert, err := os.ReadFile(caCertPath)
+	caCertData, err := os.ReadFile(caCertPath)
 	if err != nil {
 		return fmt.Errorf("failed to read ca cert: %w", err)
 	}
-	c.CACert = string(cert)
 	kubeConfigAPIUrl := c.ClusterSpec.API.LocalURL()
 
 	apiServerUID, err := users.LookupUID(constant.ApiserverUser)
@@ -64,7 +62,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 	}
 	eg.Go(func() error {
 		// Front proxy CA
-		if err := c.CertManager.EnsureCA("front-proxy-ca", "kubernetes-front-proxy-ca", c.ClusterSpec.API.CA.ExpiresAfter.Duration); err != nil {
+		if err := certManager.EnsureCA("front-proxy-ca", "kubernetes-front-proxy-ca", c.ClusterSpec.API.CA.ExpiresAfter.Duration); err != nil {
 			return err
 		}
 
@@ -77,7 +75,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			CACert: proxyCertPath,
 			CAKey:  proxyCertKey,
 		}
-		_, err := c.CertManager.EnsureCertificate(proxyClientReq, apiServerUID, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
+		_, err := certManager.EnsureCertificate(proxyClientReq, apiServerUID, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
 
 		return err
 	})
@@ -91,16 +89,16 @@ func (c *Certificates) Init(ctx context.Context) error {
 			CACert: caCertPath,
 			CAKey:  caCertKey,
 		}
-		adminCert, err := c.CertManager.EnsureCertificate(adminReq, users.RootUID, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
+		adminCert, err := certManager.EnsureCertificate(adminReq, users.RootUID, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
 		if err != nil {
 			return err
 		}
 
-		if err := kubeConfig(c.K0sVars.AdminKubeConfigPath, kubeConfigAPIUrl, c.CACert, &adminCert, users.RootUID, constant.OwnerOnlyMode); err != nil {
+		if err := kubeConfig(c.K0sVars.AdminKubeConfigPath, kubeConfigAPIUrl, caCertData, &adminCert, users.RootUID, constant.OwnerOnlyMode); err != nil {
 			return err
 		}
 
-		return c.CertManager.CreateKeyPair("sa", apiServerUID)
+		return certManager.CreateKeyPair("sa", apiServerUID)
 	})
 
 	if c.KonnectivityEnabled {
@@ -121,12 +119,12 @@ func (c *Certificates) Init(ctx context.Context) error {
 				logrus.WithError(err).Warn("Files with key material for konnectivity-server user will be owned by root")
 			}
 
-			konnectivityCert, err := c.CertManager.EnsureCertificate(konnectivityReq, uid, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
+			konnectivityCert, err := certManager.EnsureCertificate(konnectivityReq, uid, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
 			if err != nil {
 				return err
 			}
 
-			return kubeConfig(c.K0sVars.KonnectivityKubeConfigPath, kubeConfigAPIUrl, c.CACert, &konnectivityCert, uid, constant.CertSecureMode)
+			return kubeConfig(c.K0sVars.KonnectivityKubeConfigPath, kubeConfigAPIUrl, caCertData, &konnectivityCert, uid, constant.CertSecureMode)
 		})
 	} else {
 		eg.Go(func() error {
@@ -142,18 +140,16 @@ func (c *Certificates) Init(ctx context.Context) error {
 
 	eg.Go(func() error {
 		ccmReq := certificate.Request{
-			Name:   "ccm",
-			CN:     "system:kube-controller-manager",
-			O:      "system:kube-controller-manager",
-			CACert: caCertPath,
-			CAKey:  caCertKey,
+			Name: "ccm",
+			CN:   "system:kube-controller-manager",
 		}
-		ccmCert, err := c.CertManager.EnsureCertificate(ccmReq, apiServerUID, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
+
+		ccmCert, err := certManager.EnsureCertificate(ccmReq, apiServerUID, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
 		if err != nil {
 			return err
 		}
 
-		return kubeConfig(filepath.Join(c.K0sVars.CertRootDir, "ccm.conf"), kubeConfigAPIUrl, c.CACert, &ccmCert, apiServerUID, constant.OwnerOnlyMode)
+		return kubeConfig(filepath.Join(c.K0sVars.CertRootDir, "ccm.conf"), kubeConfigAPIUrl, caCertData, &ccmCert, apiServerUID, constant.OwnerOnlyMode)
 	})
 
 	eg.Go(func() error {
@@ -172,12 +168,12 @@ func (c *Certificates) Init(ctx context.Context) error {
 			logrus.WithError(err).Warn("Files with key material for kube-scheduler user will be owned by root")
 		}
 
-		schedulerCert, err := c.CertManager.EnsureCertificate(schedulerReq, uid, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
+		schedulerCert, err := certManager.EnsureCertificate(schedulerReq, uid, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
 		if err != nil {
 			return err
 		}
 
-		return kubeConfig(filepath.Join(c.K0sVars.CertRootDir, "scheduler.conf"), kubeConfigAPIUrl, c.CACert, &schedulerCert, uid, constant.OwnerOnlyMode)
+		return kubeConfig(filepath.Join(c.K0sVars.CertRootDir, "scheduler.conf"), kubeConfigAPIUrl, caCertData, &schedulerCert, uid, constant.OwnerOnlyMode)
 	})
 
 	eg.Go(func() error {
@@ -188,7 +184,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			CACert: caCertPath,
 			CAKey:  caCertKey,
 		}
-		_, err := c.CertManager.EnsureCertificate(kubeletClientReq, apiServerUID, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
+		_, err := certManager.EnsureCertificate(kubeletClientReq, apiServerUID, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
 		return err
 	})
 
@@ -206,7 +202,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			CAKey:     caCertKey,
 			Hostnames: hostnames,
 		}
-		_, err = c.CertManager.EnsureCertificate(serverReq, apiServerUID, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
+		_, err = certManager.EnsureCertificate(serverReq, apiServerUID, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
 		return err
 	})
 
@@ -220,7 +216,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			Hostnames: hostnames,
 		}
 		// TODO Not sure about the user...
-		_, err := c.CertManager.EnsureCertificate(apiReq, apiServerUID, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
+		_, err := certManager.EnsureCertificate(apiReq, apiServerUID, c.ClusterSpec.API.CA.CertificatesExpireAfter.Duration)
 		return err
 	})
 
@@ -314,7 +310,7 @@ func detectLocalIPs(ctx context.Context) ([]string, error) {
 	return localIPs, nil
 }
 
-func kubeConfig(dest string, url *url.URL, caCert string, clientCert *certificate.Certificate, ownerID int, fileMode os.FileMode) error {
+func kubeConfig(dest string, url *url.URL, caCertData []byte, clientCert *certificate.Certificate, ownerID int, fileMode os.FileMode) error {
 	// We always overwrite the kubeconfigs as the certs might be regenerated at startup
 	const (
 		clusterName = "local"
@@ -325,7 +321,7 @@ func kubeConfig(dest string, url *url.URL, caCert string, clientCert *certificat
 	kubeconfig, err := clientcmd.Write(clientcmdapi.Config{
 		Clusters: map[string]*clientcmdapi.Cluster{clusterName: {
 			Server:                   url.String(),
-			CertificateAuthorityData: []byte(caCert),
+			CertificateAuthorityData: caCertData,
 		}},
 		Contexts: map[string]*clientcmdapi.Context{contextName: {
 			Cluster:  clusterName,

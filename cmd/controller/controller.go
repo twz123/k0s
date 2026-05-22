@@ -31,7 +31,6 @@ import (
 	"github.com/k0sproject/k0s/pkg/applier"
 	"github.com/k0sproject/k0s/pkg/autopilot/controller/updates"
 	"github.com/k0sproject/k0s/pkg/build"
-	"github.com/k0sproject/k0s/pkg/certificate"
 	"github.com/k0sproject/k0s/pkg/component/controller"
 	"github.com/k0sproject/k0s/pkg/component/controller/clusterconfig"
 	"github.com/k0sproject/k0s/pkg/component/controller/cplb"
@@ -206,10 +205,8 @@ func (c *command) start(ctx context.Context, rtc *config.RuntimeConfig, nodeConf
 
 	controllerMode := flags.Mode()
 	enableKonnectivity := controllerMode != config.SingleNodeMode && !slices.Contains(flags.DisableComponents, constant.KonnectivityServerComponentName)
-	certificateManager := certificate.Manager{K0sVars: c.K0sVars}
 	certs := &Certificates{
 		ClusterSpec:         nodeConfig.Spec,
-		CertManager:         certificateManager,
 		K0sVars:             c.K0sVars,
 		KonnectivityEnabled: enableKonnectivity,
 	}
@@ -273,7 +270,6 @@ func (c *command) start(ctx context.Context, rtc *config.RuntimeConfig, nodeConf
 		if !config.IsExternalClusterUsed() {
 			leaveEtcdClusterOnStop = new(atomic.Bool)
 			storageBackend = &controller.Etcd{
-				CertManager: certificateManager,
 				Config:      config,
 				JoinClient:  joinClient,
 				K0sVars:     c.K0sVars,
