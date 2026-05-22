@@ -317,7 +317,7 @@ func (e *Etcd) setupCerts(ctx context.Context) error {
 	})
 
 	eg.Go(func() error {
-		return e.CertManager.CreateKeyPair("etcd/jwt", e.K0sVars, e.uid)
+		return e.CertManager.CreateKeyPair("etcd/jwt", e.uid)
 	})
 
 	return eg.Wait()

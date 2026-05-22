@@ -236,9 +236,9 @@ func (m *Manager) isManagedByK0s(cert *certinfo.Certificate) (bool, error) {
 	return false, nil
 }
 
-func (m *Manager) CreateKeyPair(name string, k0sVars *config.CfgVars, ownerID int) error {
-	keyFile := filepath.Join(k0sVars.CertRootDir, name+".key")
-	pubFile := filepath.Join(k0sVars.CertRootDir, name+".pub")
+func (m *Manager) CreateKeyPair(name string, ownerID int) error {
+	keyFile := filepath.Join(m.K0sVars.CertRootDir, name+".key")
+	pubFile := filepath.Join(m.K0sVars.CertRootDir, name+".pub")
 
 	if file.Exists(keyFile) && file.Exists(pubFile) {
 		return file.Chown(keyFile, ownerID, constant.CertSecureMode)
