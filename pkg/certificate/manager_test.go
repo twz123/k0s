@@ -7,27 +7,23 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	cfsslconfig "github.com/cloudflare/cfssl/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/k0sproject/k0s/pkg/config"
 )
 
 func TestEnsureCA(t *testing.T) {
-	// Create some k0sVars
-	k0sVars, err := config.NewCfgVars(nil, t.TempDir())
-	require.NoError(t, err)
+	rootDir := t.TempDir()
 
 	// Create the CA
-	require.NoError(t, os.MkdirAll(k0sVars.CertRootDir, 0755))
-	certManager := Manager{K0sVars: k0sVars}
+	certManager := NewManager(rootDir)
 	require.NoError(t, certManager.EnsureCA("ca", t.Name(), 100000*time.Hour))
 
-	pemBytes, _ := os.ReadFile(k0sVars.CertRootDir + "/ca.crt")
+	pemBytes, _ := os.ReadFile(filepath.Join(rootDir, "ca.crt"))
 	cert, err := parseCert(pemBytes)
 	require.NoError(t, err)
 	// check the expiration date of the cert
@@ -35,21 +31,18 @@ func TestEnsureCA(t *testing.T) {
 }
 
 func TestEnsureCertificate(t *testing.T) {
-	// Create some k0sVars
-	k0sVars, err := config.NewCfgVars(nil, t.TempDir())
-	require.NoError(t, err)
+	rootDir := t.TempDir()
 
 	// Create the CA
-	require.NoError(t, os.MkdirAll(k0sVars.CertRootDir, 0755))
-	certManager := Manager{K0sVars: k0sVars}
+	certManager := NewManager(rootDir)
 	require.NoError(t, certManager.EnsureCA("ca", t.Name(), 100000*time.Hour))
 
 	req := Request{
 		Name:   "test",
 		CN:     "kubernetes-test",
 		O:      "system:masters",
-		CACert: k0sVars.CertRootDir + "/ca.crt",
-		CAKey:  k0sVars.CertRootDir + "/ca.key",
+		CACert: filepath.Join(rootDir, "ca.crt"),
+		CAKey:  filepath.Join(rootDir, "ca.key"),
 	}
 	certData, err := certManager.EnsureCertificate(req, 1, 10000*time.Hour)
 	require.NoError(t, err)
