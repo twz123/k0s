@@ -43,8 +43,8 @@ type Request struct {
 
 // Certificate is a helper struct to be able to return the created key and cert data
 type Certificate struct {
-	Key  string
-	Cert string
+	Key  []byte
+	Cert []byte
 }
 
 // Manager is the certificate manager
@@ -148,8 +148,8 @@ func (m *Manager) EnsureCertificate(certReq Request, ownerID int, expiry time.Du
 			return Certificate{}, err
 		}
 		c := Certificate{
-			Key:  string(key),
-			Cert: string(cert),
+			Key:  key,
+			Cert: cert,
 		}
 		if err := file.AtomicWithTarget(keyFile).
 			TryWithOwnerAndGroup(ownerID, -1).
@@ -181,8 +181,8 @@ func (m *Manager) EnsureCertificate(certReq Request, ownerID int, expiry time.Du
 	}
 
 	return Certificate{
-		Key:  string(key),
-		Cert: string(cert),
+		Key:  key,
+		Cert: cert,
 	}, nil
 
 }

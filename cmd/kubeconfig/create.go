@@ -110,8 +110,8 @@ func createUserKubeconfig(k0sVars *config.CfgVars, clusterAPIURL, username, grou
 		}},
 		CurrentContext: contextName,
 		AuthInfos: map[string]*clientcmdapi.AuthInfo{username: {
-			ClientCertificateData: []byte(userCert.Cert),
-			ClientKeyData:         []byte(userCert.Key),
+			ClientCertificateData: userCert.Cert,
+			ClientKeyData:         userCert.Key,
 		}},
 	}
 	if err := clientcmdapi.FlattenConfig(&kubeconfig); err != nil {
