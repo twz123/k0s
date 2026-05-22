@@ -205,6 +205,16 @@ func (c *command) start(ctx context.Context, rtc *config.RuntimeConfig, nodeConf
 	nodeComponents := manager.New(prober.DefaultProber)
 	clusterComponents := manager.New(prober.DefaultProber)
 
+	certificateManager := certificate.Manager{K0sVars: c.K0sVars}
+	certs := &Certificates{
+		ClusterSpec: nodeConfig.Spec,
+		CertManager: certificateManager,
+		K0sVars:     c.K0sVars,
+	}
+	if err := certs.Init(ctx); err != nil {
+		return err
+	}
+
 	// common factory to get the admin kube client that's needed in many components
 	adminClientFactory := &kubernetes.ClientFactory{LoadRESTConfig: func() (*rest.Config, error) {
 		config, err := kubernetes.ClientConfig(kubernetes.KubeconfigFromFile(c.K0sVars.AdminKubeConfigPath))
@@ -220,8 +230,6 @@ func (c *command) start(ctx context.Context, rtc *config.RuntimeConfig, nodeConf
 
 		return config, nil
 	}}
-
-	certificateManager := certificate.Manager{K0sVars: c.K0sVars}
 
 	var joinClient *token.JoinClient
 
@@ -418,16 +426,6 @@ func (c *command) start(ctx context.Context, rtc *config.RuntimeConfig, nodeConf
 		Socket:      c.K0sVars.StatusSocketPath,
 		CertManager: worker.NewCertificateManager(c.K0sVars.KubeletAuthConfigPath),
 	})
-
-	perfTimer.Checkpoint("starting-certificates-init")
-	certs := &Certificates{
-		ClusterSpec: nodeConfig.Spec,
-		CertManager: certificateManager,
-		K0sVars:     c.K0sVars,
-	}
-	if err := certs.Init(ctx); err != nil {
-		return err
-	}
 
 	perfTimer.Checkpoint("starting-node-component-init")
 	// init Node components
