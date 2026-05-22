@@ -20,11 +20,12 @@ import (
 
 // The internal options for atomic file writes.
 type atomicOpts struct {
-	target       string
-	permissions  fs.FileMode
-	uid, gid     int
-	mtime        time.Time
-	seLinuxLabel string
+	target              string
+	permissions         fs.FileMode
+	uid, gid            int
+	ignoreChownPermErrs bool
+	mtime               time.Time
+	seLinuxLabel        string
 }
 
 func (o *atomicOpts) wantsChmod() bool {
@@ -61,6 +62,7 @@ func (o *AtomicOpener) WithModificationTime(mtime time.Time) *AtomicOpener {
 // Will have no effect on Windows.
 func (o *AtomicOpener) WithOwner(uid int) *AtomicOpener {
 	o.uid = max(-1, uid)
+	o.ignoreChownPermErrs = false
 	return o
 }
 
@@ -69,6 +71,18 @@ func (o *AtomicOpener) WithOwner(uid int) *AtomicOpener {
 // Will have no effect on Windows.
 func (o *AtomicOpener) WithGroup(gid int) *AtomicOpener {
 	o.gid = max(-1, gid)
+	o.ignoreChownPermErrs = false
+	return o
+}
+
+// The desired UID and GID for the target file.
+// Will be owned by the current user if not called.
+// Will have no effect on Windows.
+// Permission errors will be ignored if not running as root.
+func (o *AtomicOpener) TryWithOwnerAndGroup(uid, gid int) *AtomicOpener {
+	o.uid = max(-1, uid)
+	o.gid = max(-1, gid)
+	o.ignoreChownPermErrs = true
 	return o
 }
 
@@ -267,8 +281,13 @@ func (f *Atomic) finish(target string) (err error) {
 	// chmod to succeed (CAP_FOWNER).
 	if wantsChown := (f.uid >= 0 || f.gid >= 0); wantsChown {
 		err = os.Chown(f.fd.Name(), f.uid, f.gid)
+		switch {
+		case err == nil:
 		// Ignore errors indicating that os.Chown() is unsupported.
-		if err != nil && !errors.Is(err, errors.ErrUnsupported) {
+		case errors.Is(err, errors.ErrUnsupported):
+		// Maybe ignore permission errors when not running as root.
+		case f.ignoreChownPermErrs && errors.Is(err, os.ErrPermission) && os.Geteuid() != 0:
+		default:
 			return err
 		}
 	}
