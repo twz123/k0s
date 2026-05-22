@@ -34,7 +34,8 @@ func TestKubeconfigCreate(t *testing.T) {
 	// Create the CA
 	require.NoError(t, os.MkdirAll(k0sVars.CertRootDir, 0755))
 	certManager := certificate.NewManager(k0sVars.CertRootDir)
-	require.NoError(t, certManager.EnsureCA("ca", t.Name(), 87600*time.Hour))
+	_, err = certManager.EnsureCA("ca", t.Name(), 87600*time.Hour)
+	require.NoError(t, err)
 
 	// Setup the kubeconfig command
 	configData, err := yaml.Marshal(cfg)

@@ -6,6 +6,7 @@ package certificate
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -21,7 +22,8 @@ func TestEnsureCA(t *testing.T) {
 
 	// Create the CA
 	certManager := NewManager(rootDir)
-	require.NoError(t, certManager.EnsureCA("ca", t.Name(), 100000*time.Hour))
+	_, err := certManager.EnsureCA("ca", t.Name(), 100000*time.Hour)
+	require.NoError(t, err)
 
 	pemBytes, _ := os.ReadFile(filepath.Join(rootDir, "ca.crt"))
 	cert, err := parseCert(pemBytes)
@@ -35,14 +37,14 @@ func TestEnsureCertificate(t *testing.T) {
 
 	// Create the CA
 	certManager := NewManager(rootDir)
-	require.NoError(t, certManager.EnsureCA("ca", t.Name(), 100000*time.Hour))
+	ca, err := certManager.EnsureCA("ca", t.Name(), 100000*time.Hour)
+	require.NoError(t, err)
 
 	req := Request{
-		Name:   "test",
-		CN:     "kubernetes-test",
-		O:      "system:masters",
-		CACert: filepath.Join(rootDir, "ca.crt"),
-		CAKey:  filepath.Join(rootDir, "ca.key"),
+		Name: "test",
+		CN:   "kubernetes-test",
+		O:    "system:masters",
+		CA:   ca,
 	}
 	certData, err := certManager.EnsureCertificate(req, 1, 10000*time.Hour)
 	require.NoError(t, err)
@@ -63,6 +65,9 @@ func TestEnsureCertificate(t *testing.T) {
 
 func parseCert(pemBytes []byte) (*x509.Certificate, error) {
 	block, _ := pem.Decode(pemBytes)
+	if block == nil {
+		return nil, errors.New("no PEM data found")
+	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		return nil, err

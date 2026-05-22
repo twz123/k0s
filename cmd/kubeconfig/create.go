@@ -84,14 +84,13 @@ Note: A certificate once signed cannot be revoked for a particular user`,
 }
 
 func createUserKubeconfig(k0sVars *config.CfgVars, clusterAPIURL, username, groups string, certificateExpiresAfter time.Duration, contextName string) ([]byte, error) {
-	userReq := certificate.Request{
-		Name:   username,
-		CN:     username,
-		O:      groups,
-		CACert: filepath.Join(k0sVars.CertRootDir, "ca.crt"),
-		CAKey:  filepath.Join(k0sVars.CertRootDir, "ca.key"),
-	}
 	certManager := certificate.NewManager(k0sVars.CertRootDir)
+	userReq := certificate.Request{
+		Name: username,
+		CN:   username,
+		O:    groups,
+		CA:   certManager.Named("ca"),
+	}
 	userCert, err := certManager.EnsureCertificate(userReq, users.RootUID, certificateExpiresAfter)
 	if err != nil {
 		return nil, fmt.Errorf("failed generate user certificate: %w, check if the control plane is initialized on this node", err)
@@ -100,7 +99,7 @@ func createUserKubeconfig(k0sVars *config.CfgVars, clusterAPIURL, username, grou
 	kubeconfig := clientcmdapi.Config{
 		Clusters: map[string]*clientcmdapi.Cluster{contextName: {
 			Server:               clusterAPIURL,
-			CertificateAuthority: userReq.CACert,
+			CertificateAuthority: filepath.Join(k0sVars.CertRootDir, "ca.crt"),
 		}},
 		Contexts: map[string]*clientcmdapi.Context{contextName: {
 			Cluster:  contextName,
