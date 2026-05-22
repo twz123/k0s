@@ -53,7 +53,7 @@ func TestEnsureCertificate(t *testing.T) {
 	}
 	certData, err := certManager.EnsureCertificate(req, 1, 10000*time.Hour)
 	require.NoError(t, err)
-	cert, err := parseCert([]byte(certData.Cert))
+	cert, err := parseCert(certData.Cert)
 	require.NoError(t, err)
 
 	// check the expiration date of the cert
