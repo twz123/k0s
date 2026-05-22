@@ -204,6 +204,19 @@ func (c *command) start(ctx context.Context, rtc *config.RuntimeConfig, nodeConf
 	nodeComponents := manager.New(prober.DefaultProber)
 	clusterComponents := manager.New(prober.DefaultProber)
 
+	controllerMode := flags.Mode()
+	enableKonnectivity := controllerMode != config.SingleNodeMode && !slices.Contains(flags.DisableComponents, constant.KonnectivityServerComponentName)
+	certificateManager := certificate.Manager{K0sVars: c.K0sVars}
+	certs := &Certificates{
+		ClusterSpec:         nodeConfig.Spec,
+		CertManager:         certificateManager,
+		K0sVars:             c.K0sVars,
+		KonnectivityEnabled: enableKonnectivity,
+	}
+	if err := certs.Init(ctx); err != nil {
+		return err
+	}
+
 	// common factory to get the admin kube client that's needed in many components
 	adminClientFactory := &kubernetes.ClientFactory{LoadRESTConfig: func() (*rest.Config, error) {
 		config, err := kubernetes.ClientConfig(kubernetes.KubeconfigFromFile(c.K0sVars.AdminKubeConfigPath))
@@ -219,8 +232,6 @@ func (c *command) start(ctx context.Context, rtc *config.RuntimeConfig, nodeConf
 
 		return config, nil
 	}}
-
-	certificateManager := certificate.Manager{K0sVars: c.K0sVars}
 
 	var joinClient *token.JoinClient
 
@@ -278,7 +289,6 @@ func (c *command) start(ctx context.Context, rtc *config.RuntimeConfig, nodeConf
 		nodeComponents.Add(ctx, storageBackend)
 	}
 
-	controllerMode := flags.Mode()
 	// Will the cluster support multiple controllers, or just a single one?
 	singleController := controllerMode == config.SingleNodeMode || !nodeConfig.Spec.Storage.IsJoinable()
 
@@ -315,8 +325,6 @@ func (c *command) start(ctx context.Context, rtc *config.RuntimeConfig, nodeConf
 			APIPort:         nodeConfig.Spec.API.Port,
 		})
 	}
-
-	enableKonnectivity := controllerMode != config.SingleNodeMode && !slices.Contains(flags.DisableComponents, constant.KonnectivityServerComponentName)
 
 	if enableKonnectivity {
 		nodeComponents.Add(ctx, &controller.Konnectivity{
@@ -420,17 +428,6 @@ func (c *command) start(ctx context.Context, rtc *config.RuntimeConfig, nodeConf
 		Socket:      c.K0sVars.StatusSocketPath,
 		CertManager: worker.NewCertificateManager(c.K0sVars.KubeletAuthConfigPath),
 	})
-
-	perfTimer.Checkpoint("starting-certificates-init")
-	certs := &Certificates{
-		ClusterSpec:         nodeConfig.Spec,
-		CertManager:         certificateManager,
-		K0sVars:             c.K0sVars,
-		KonnectivityEnabled: enableKonnectivity,
-	}
-	if err := certs.Init(ctx); err != nil {
-		return err
-	}
 
 	perfTimer.Checkpoint("starting-node-component-init")
 	// init Node components
