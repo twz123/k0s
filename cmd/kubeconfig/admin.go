@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/k0sproject/k0s/pkg/config"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
 
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -37,27 +38,16 @@ func kubeConfigAdminCmd() *cobra.Command {
 				return err
 			}
 
-			const (
-				clusterName = "k0s"
-				contextName = "k0s-admin"
-				userName    = "admin"
-			)
-
-			adminConfig := clientcmdapi.Config{
-				Clusters: map[string]*clientcmdapi.Cluster{clusterName: {
+			adminConfig := kubernetes.KubeConfig(
+				"k0s", &clientcmdapi.Cluster{
 					Server:               nodeConfig.Spec.API.APIAddressURL(),
 					CertificateAuthority: filepath.Join(opts.K0sVars.CertRootDir, "ca.crt"),
-				}},
-				Contexts: map[string]*clientcmdapi.Context{contextName: {
-					Cluster:  clusterName,
-					AuthInfo: userName,
-				}},
-				CurrentContext: contextName,
-				AuthInfos: map[string]*clientcmdapi.AuthInfo{userName: {
+				},
+				"admin", &clientcmdapi.AuthInfo{
 					ClientCertificate: filepath.Join(opts.K0sVars.CertRootDir, "admin.crt"),
 					ClientKey:         filepath.Join(opts.K0sVars.CertRootDir, "admin.key"),
-				}},
-			}
+				},
+			)
 
 			if err := clientcmdapi.FlattenConfig(&adminConfig); err != nil {
 				if pathErr := (*fs.PathError)(nil); errors.As(err, &pathErr) &&

@@ -21,6 +21,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/component/worker"
 	workerconfig "github.com/k0sproject/k0s/pkg/component/worker/config"
 	"github.com/k0sproject/k0s/pkg/config"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
 
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -462,15 +463,13 @@ func TestReconciler_APIServerAddressFromKubeconfig(t *testing.T) {
 func writeKubeconfig(t *testing.T) string {
 	t.Helper()
 
-	const fake = "fake"
-	kubeconfig := clientcmdapi.Config{
-		Clusters:       map[string]*clientcmdapi.Cluster{fake: {Server: "https://127.99.99.99/fake"}},
-		Contexts:       map[string]*clientcmdapi.Context{fake: {Cluster: fake}},
-		CurrentContext: fake,
-	}
-
 	path := filepath.Join(t.TempDir(), "kubeconfig")
-	require.NoError(t, clientcmd.WriteToFile(kubeconfig, path))
+	require.NoError(t, clientcmd.WriteToFile(kubernetes.KubeConfig(
+		"fake", &clientcmdapi.Cluster{
+			Server: "https://127.99.99.99/fake",
+		},
+		"none", &clientcmdapi.AuthInfo{},
+	), path))
 	return path
 }
 

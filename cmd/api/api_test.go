@@ -23,6 +23,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/k0scontext"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -85,12 +86,10 @@ func TestAPI(t *testing.T) {
 		}
 	})
 
-	kubeconfig := clientcmdapi.Config{
-		Clusters:       map[string]*clientcmdapi.Cluster{t.Name(): {Server: "blackhole.example.com"}},
-		Contexts:       map[string]*clientcmdapi.Context{t.Name(): {Cluster: t.Name()}},
-		CurrentContext: t.Name(),
-	}
-	require.NoError(t, clientcmd.WriteToFile(kubeconfig, rtc.Spec.K0sVars.AdminKubeConfigPath))
+	require.NoError(t, clientcmd.WriteToFile(kubernetes.KubeConfig(
+		t.Name(), &clientcmdapi.Cluster{Server: "blackhole.example.com"},
+		t.Name(), &clientcmdapi.AuthInfo{},
+	), rtc.Spec.K0sVars.AdminKubeConfigPath))
 
 	t.Run("MissingCertificate", func(t *testing.T) {
 		underTest := cmd.NewRootCmd()

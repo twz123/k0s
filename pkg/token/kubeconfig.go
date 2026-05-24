@@ -13,6 +13,7 @@ import (
 
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/config"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
 
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -55,21 +56,16 @@ func CreateKubeletBootstrapToken(ctx context.Context, api *v1beta1.APISpec, k0sV
 }
 
 func GenerateKubeconfig(joinURL string, caCert []byte, userName string, token *bootstraptokenv1.BootstrapTokenString) ([]byte, error) {
-	const k0sContextName = "k0s"
-	kubeconfig, err := clientcmd.Write(clientcmdapi.Config{
-		Clusters: map[string]*clientcmdapi.Cluster{k0sContextName: {
+	kubeconfig, err := clientcmd.Write(kubernetes.KubeConfigContext(
+		"k0s", &clientcmdapi.Cluster{
 			Server:                   joinURL,
 			CertificateAuthorityData: caCert,
-		}},
-		Contexts: map[string]*clientcmdapi.Context{k0sContextName: {
-			Cluster:  k0sContextName,
-			AuthInfo: userName,
-		}},
-		CurrentContext: k0sContextName,
-		AuthInfos: map[string]*clientcmdapi.AuthInfo{userName: {
+		},
+		userName, &clientcmdapi.AuthInfo{
 			Token: token.String(),
-		}},
-	})
+		},
+		"k0s",
+	))
 	return kubeconfig, err
 }
 

@@ -26,6 +26,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/k0sproject/k0s/static"
 
 	corev1 "k8s.io/api/core/v1"
@@ -339,26 +340,15 @@ type kubeProxyConfigData struct {
 func (d *kubeProxyConfigData) toConfigMap() (*corev1.ConfigMap, error) {
 	codec := applier.CodecFor(applier.BuildScheme(kubeproxyv1alpha1.AddToScheme))
 
-	const (
-		clusterName = "local"
-		contextName = "default"
-		userName    = "user"
-	)
-
-	kubeconfig, err := clientcmd.Write(clientcmdapi.Config{
-		Clusters: map[string]*clientcmdapi.Cluster{clusterName: {
+	kubeconfig, err := clientcmd.Write(kubernetes.KubeConfig(
+		"local", &clientcmdapi.Cluster{
 			Server:               d.apiServerEndpoint,
 			CertificateAuthority: "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
-		}},
-		Contexts: map[string]*clientcmdapi.Context{contextName: {
-			Cluster:  clusterName,
-			AuthInfo: userName,
-		}},
-		CurrentContext: contextName,
-		AuthInfos: map[string]*clientcmdapi.AuthInfo{userName: {
+		},
+		"kube-proxy", &clientcmdapi.AuthInfo{
 			TokenFile: "/var/run/secrets/kubernetes.io/serviceaccount/token",
-		}},
-	})
+		},
+	))
 	if err != nil {
 		return nil, err
 	}

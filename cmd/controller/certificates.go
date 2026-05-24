@@ -19,6 +19,7 @@ import (
 	"github.com/k0sproject/k0s/pkg/certificate"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
 
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -88,7 +89,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			return err
 		}
 
-		if err := kubeConfig(c.K0sVars.AdminKubeConfigPath, kubeConfigAPIUrl, caCertData, &adminCert, users.RootUID, constant.OwnerOnlyMode); err != nil {
+		if err := kubeConfig(c.K0sVars.AdminKubeConfigPath, kubeConfigAPIUrl, caCertData, "admin", &adminCert, users.RootUID, constant.OwnerOnlyMode); err != nil {
 			return err
 		}
 
@@ -116,7 +117,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			return err
 		}
 
-		return kubeConfig(c.K0sVars.KonnectivityKubeConfigPath, kubeConfigAPIUrl, caCertData, &konnectivityCert, uid, constant.CertSecureMode)
+		return kubeConfig(c.K0sVars.KonnectivityKubeConfigPath, kubeConfigAPIUrl, caCertData, "konnectivity", &konnectivityCert, uid, constant.CertSecureMode)
 	})
 
 	eg.Go(func() error {
@@ -131,7 +132,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			return err
 		}
 
-		return kubeConfig(filepath.Join(c.K0sVars.CertRootDir, "ccm.conf"), kubeConfigAPIUrl, caCertData, &ccmCert, apiServerUID, constant.OwnerOnlyMode)
+		return kubeConfig(filepath.Join(c.K0sVars.CertRootDir, "ccm.conf"), kubeConfigAPIUrl, caCertData, "kube-controller-manager", &ccmCert, apiServerUID, constant.OwnerOnlyMode)
 	})
 
 	eg.Go(func() error {
@@ -154,7 +155,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			return err
 		}
 
-		return kubeConfig(filepath.Join(c.K0sVars.CertRootDir, "scheduler.conf"), kubeConfigAPIUrl, caCertData, &schedulerCert, uid, constant.OwnerOnlyMode)
+		return kubeConfig(filepath.Join(c.K0sVars.CertRootDir, "scheduler.conf"), kubeConfigAPIUrl, caCertData, "kube-scheduler", &schedulerCert, uid, constant.OwnerOnlyMode)
 	})
 
 	eg.Go(func() error {
@@ -288,29 +289,18 @@ func detectLocalIPs(ctx context.Context) ([]string, error) {
 	return localIPs, nil
 }
 
-func kubeConfig(dest string, url *url.URL, caCertData []byte, clientCert *certificate.Certificate, ownerID int, fileMode os.FileMode) error {
+func kubeConfig(dest string, url *url.URL, caCertData []byte, userName string, clientCert *certificate.Certificate, ownerID int, fileMode os.FileMode) error {
 	// We always overwrite the kubeconfigs as the certs might be regenerated at startup
-	const (
-		clusterName = "local"
-		contextName = "Default"
-		userName    = "user"
-	)
-
-	kubeconfig, err := clientcmd.Write(clientcmdapi.Config{
-		Clusters: map[string]*clientcmdapi.Cluster{clusterName: {
+	kubeconfig, err := clientcmd.Write(kubernetes.KubeConfig(
+		"local", &clientcmdapi.Cluster{
 			Server:                   url.String(),
 			CertificateAuthorityData: caCertData,
-		}},
-		Contexts: map[string]*clientcmdapi.Context{contextName: {
-			Cluster:  clusterName,
-			AuthInfo: userName,
-		}},
-		CurrentContext: contextName,
-		AuthInfos: map[string]*clientcmdapi.AuthInfo{userName: {
+		},
+		userName, &clientcmdapi.AuthInfo{
 			ClientCertificateData: clientCert.Cert,
 			ClientKeyData:         clientCert.Key,
-		}},
-	})
+		},
+	))
 	if err != nil {
 		return err
 	}

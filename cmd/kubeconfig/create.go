@@ -12,6 +12,7 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/users"
 	"github.com/k0sproject/k0s/pkg/certificate"
 	"github.com/k0sproject/k0s/pkg/config"
+	"github.com/k0sproject/k0s/pkg/kubernetes"
 
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -96,21 +97,18 @@ func createUserKubeconfig(k0sVars *config.CfgVars, clusterAPIURL, username, grou
 		return nil, fmt.Errorf("failed generate user certificate: %w, check if the control plane is initialized on this node", err)
 	}
 
-	kubeconfig := clientcmdapi.Config{
-		Clusters: map[string]*clientcmdapi.Cluster{contextName: {
+	kubeconfig := kubernetes.KubeConfigContext(
+		contextName, &clientcmdapi.Cluster{
 			Server:               clusterAPIURL,
 			CertificateAuthority: filepath.Join(k0sVars.CertRootDir, "ca.crt"),
-		}},
-		Contexts: map[string]*clientcmdapi.Context{contextName: {
-			Cluster:  contextName,
-			AuthInfo: username,
-		}},
-		CurrentContext: contextName,
-		AuthInfos: map[string]*clientcmdapi.AuthInfo{username: {
+		},
+		username, &clientcmdapi.AuthInfo{
 			ClientCertificateData: userCert.Cert,
 			ClientKeyData:         userCert.Key,
-		}},
-	}
+		},
+		contextName,
+	)
+
 	if err := clientcmdapi.FlattenConfig(&kubeconfig); err != nil {
 		return nil, err
 	}
