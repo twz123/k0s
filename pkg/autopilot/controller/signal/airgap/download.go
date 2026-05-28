@@ -4,7 +4,6 @@
 package airgap
 
 import (
-	"crypto/sha256"
 	"path/filepath"
 	"strings"
 
@@ -52,7 +51,6 @@ func (b downloadManfiestBuilderAirgap) Build(signalNode crcli.Object, signalData
 		Config: apdl.Config{
 			URL:          signalData.Command.AirgapUpdate.URL,
 			ExpectedHash: signalData.Command.AirgapUpdate.Sha256,
-			Hasher:       sha256.New(),
 			DownloadDir:  filepath.Join(b.k0sDataDir, "images"),
 		},
 		SuccessState: apsigcomm.Completed,

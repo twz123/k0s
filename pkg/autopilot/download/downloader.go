@@ -4,8 +4,9 @@
 package download
 
 import (
-	"bytes"
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -25,7 +26,6 @@ type Downloader interface {
 type Config struct {
 	URL          string
 	ExpectedHash string
-	Hasher       hash.Hash
 	DownloadDir  string
 	Filename     string
 }
@@ -47,13 +47,17 @@ func (d *downloader) Download(ctx context.Context) (err error) {
 	var targets []io.Writer
 
 	// If we've been provided a hash and actual value to compare with, use it.
-	var expectedHash []byte
-	if d.config.Hasher != nil && d.config.ExpectedHash != "" {
+	var (
+		expectedHash []byte
+		hasher       hash.Hash
+	)
+	if d.config.ExpectedHash != "" {
 		expectedHash, err = hex.DecodeString(d.config.ExpectedHash)
 		if err != nil {
 			return fmt.Errorf("invalid update hash: %w", err)
 		}
-		targets = append(targets, d.config.Hasher)
+		hasher = sha256.New()
+		targets = append(targets, hasher)
 	}
 
 	fileName := "download"
@@ -89,7 +93,7 @@ func (d *downloader) Download(ctx context.Context) (err error) {
 
 	// Check the hash of the downloaded data and fail if it doesn't match.
 	if expectedHash != nil {
-		if downloadedHash := d.config.Hasher.Sum(nil); !bytes.Equal(expectedHash, downloadedHash) {
+		if downloadedHash := hasher.Sum(nil); subtle.ConstantTimeCompare(expectedHash, downloadedHash) != 1 {
 			return fmt.Errorf("hash mismatch: expected %x, got %x", expectedHash, downloadedHash)
 		}
 	}
