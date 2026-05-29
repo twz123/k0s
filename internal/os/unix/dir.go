@@ -23,6 +23,8 @@ type Path interface {
 	syscall.Conn
 	Name() string               // Delegates to [os.File.Name].
 	Stat() (os.FileInfo, error) // Delegates to [os.File.Stat].
+	Sync() error                // Delegates to [os.File.Sync].
+	Fd() uintptr                // Delegates to [os.File.Fd].
 
 	// Converts this pointer to an [*os.File] without any additional checks.
 	//
@@ -114,6 +116,12 @@ func (d *Dir) Name() string { return (*os.File)(d).Name() }
 // Delegates to [io.File.Stat].
 func (d *Dir) StatSelf() (os.FileInfo, error) { return (*os.File)(d).Stat() }
 
+// Delegates to [io.File.Sync].
+func (d *Dir) Sync() error { return (*os.File)(d).Sync() }
+
+// Delegates to [io.File.Fd].
+func (d *Dir) Fd() uintptr { return (*os.File)(d).Fd() }
+
 // Opens the path with the given name.
 // The path is opened relative to the receiver, using the openat syscall.
 //
@@ -168,6 +176,8 @@ func (f *pathFD) Name() string                          { return (*os.File)(f).N
 func (f *pathFD) SyscallConn() (syscall.RawConn, error) { return (*os.File)(f).SyscallConn() }
 func (f *pathFD) Read(b []byte) (int, error)            { return (*os.File)(f).Read(b) }
 func (f *pathFD) Stat() (fs.FileInfo, error)            { return (*os.File)(f).Stat() }
+func (f *pathFD) Sync() error                           { return (*os.File)(f).Sync() }
+func (f *pathFD) Fd() uintptr                           { return (*os.File)(f).Fd() }
 func (f *pathFD) UnwrapFile() *os.File                  { return (*os.File)(f) }
 func (f *pathFD) UnwrapDir() *Dir                       { return (*Dir)(f) }
 
