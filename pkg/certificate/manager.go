@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"time"
 
+	internalos "github.com/k0sproject/k0s/internal/os"
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/stringslice"
 	"github.com/k0sproject/k0s/pkg/constant"
@@ -36,38 +37,128 @@ type Request struct {
 	Name      string
 	CN        string
 	O         string
-	CA        CertificateRef
+	CA        Ref
 	Hostnames []string
 }
 
-type CertificateRef interface {
-	resolve() (*Certificate, error)
+type Ref interface {
+	resolve() (*Data, error)
 }
 
-// Certificate is a helper struct to be able to return the created key and cert data
-type Certificate struct {
+// Data is a helper struct to be able to return the created key and cert data
+type Data struct {
 	Key  []byte
 	Cert []byte
 }
 
-func (c *Certificate) resolve() (*Certificate, error) {
+func (c *Data) resolve() (*Data, error) {
 	return new(*c), nil
 }
 
-type certificateFiles struct {
-	cert, key string
+type Files struct {
+	CertPath, KeyPath string
 }
 
-func (f *certificateFiles) resolve() (*Certificate, error) {
-	cert, err := os.ReadFile(f.cert)
+func (f *Files) Load() (*Data, error) {
+	cert, err := os.ReadFile(f.CertPath)
 	if err != nil {
 		return nil, err
 	}
-	key, err := os.ReadFile(f.key)
+	key, err := os.ReadFile(f.KeyPath)
 	if err != nil {
 		return nil, err
 	}
-	return &Certificate{Key: key, Cert: cert}, nil
+	return &Data{Key: key, Cert: cert}, nil
+}
+
+func (f *Files) Save(data *Data, ownerID int) (err error) {
+	// FIXME needs docs and comments
+
+	keyFile, err := file.AtomicWithTarget(f.KeyPath).
+		TryWithOwnerAndGroup(ownerID, -1).
+		WithPermissions(constant.CertSecureMode).
+		Open()
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, keyFile.Close()) }()
+
+	certFile, err := file.AtomicWithTarget(f.CertPath).
+		TryWithOwnerAndGroup(ownerID, -1).
+		WithPermissions(constant.CertMode).
+		Open()
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, certFile.Close()) }()
+
+	if _, err := keyFile.Write(data.Key); err != nil {
+		return err
+	}
+	if _, err := certFile.Write(data.Cert); err != nil {
+		return err
+	}
+
+	var restoreBackup func() error
+	for certDir, attempt := filepath.Dir(f.CertPath), 1; ; attempt++ {
+		backupPath := filepath.Join(certDir, "."+rand.Text()+".tmp")
+		if err := internalos.RenameNoReplace(f.CertPath, backupPath); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				restoreBackup = func() error { return nil }
+				break
+			}
+
+			if errors.Is(err, errors.ErrUnsupported) {
+				if _, err := os.Stat(f.CertPath); err != nil {
+					if errors.Is(err, os.ErrNotExist) {
+						restoreBackup = func() error { return nil }
+						break
+					}
+					return err
+				}
+				restoreBackup = func() error {
+					return fmt.Errorf("can't restore old certificate (%w)", err)
+				}
+				break
+			}
+
+			if attempt <= 100 && errors.Is(err, os.ErrExist) {
+				continue
+			}
+
+			return err
+		}
+		defer func() {
+			if rmErr := os.Remove(backupPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+				err = errors.Join(err, rmErr)
+			}
+		}()
+		restoreBackup = func() error {
+			if err := os.Rename(backupPath, f.CertPath); err != nil {
+				return fmt.Errorf("failed to restore certificate from backup: %w", err)
+			}
+			return nil
+		}
+		break
+	}
+
+	if err := certFile.Finish(); err != nil {
+		return err
+	}
+	if err := keyFile.Finish(); err != nil {
+		return errors.Join(err, restoreBackup())
+	}
+
+	return nil
+}
+
+func (f *Files) resolve() (*Data, error) {
+	return f.Load()
+}
+
+type StoredCertificate struct {
+	Data
+	Files
 }
 
 // Manager is the certificate manager
@@ -79,15 +170,15 @@ func NewManager(rootDir string) *Manager {
 	return &Manager{rootDir}
 }
 
-func (m *Manager) Named(name string) CertificateRef {
-	return &certificateFiles{
-		cert: filepath.Join(m.rootDir, name+".crt"),
-		key:  filepath.Join(m.rootDir, name+".key"),
+func (m *Manager) Named(name string) *Files {
+	return &Files{
+		CertPath: filepath.Join(m.rootDir, name+".crt"),
+		KeyPath:  filepath.Join(m.rootDir, name+".key"),
 	}
 }
 
 // EnsureCA makes sure the given CA certs and key is created.
-func (m *Manager) EnsureCA(name, cn string, expiry time.Duration) (CertificateRef, error) {
+func (m *Manager) EnsureCA(name, cn string, expiry time.Duration) (Ref, error) {
 	keyFile := filepath.Join(m.rootDir, name+".key")
 	certFile := filepath.Join(m.rootDir, name+".crt")
 
@@ -118,22 +209,21 @@ func (m *Manager) EnsureCA(name, cn string, expiry time.Duration) (CertificateRe
 		return nil, err
 	}
 
-	return &Certificate{Key: key, Cert: cert}, nil
+	return &Data{Key: key, Cert: cert}, nil
 }
 
 // EnsureCertificate creates the specified certificate if it does not already exist
-func (m *Manager) EnsureCertificate(certReq Request, ownerID int, expiry time.Duration) (Certificate, error) {
+func (m *Manager) EnsureCertificate(certReq Request, ownerID int, expiry time.Duration) (Data, error) {
 
-	keyFile := filepath.Join(m.rootDir, certReq.Name+".key")
-	certFile := filepath.Join(m.rootDir, certReq.Name+".crt")
+	certFiles := m.Named(certReq.Name)
 
 	// if regenerateCert returns true, it means we need to create the certs
-	regenerateCert, err := m.regenerateCert(keyFile, certFile)
+	regenerateCert, err := m.regenerateCert(certFiles)
 	if err != nil {
-		return Certificate{}, err
+		return Data{}, err
 	}
 	if regenerateCert {
-		logrus.Debugf("creating certificate %s", certFile)
+		logrus.Debugf("creating certificate %s", certFiles.CertPath)
 		req := csr.CertificateRequest{
 			KeyRequest: csr.NewKeyRequest(),
 			CN:         certReq.CN,
@@ -149,20 +239,20 @@ func (m *Manager) EnsureCertificate(certReq Request, ownerID int, expiry time.Du
 		g := &csr.Generator{Validator: genkey.Validator}
 		csrBytes, key, err := g.ProcessRequest(&req)
 		if err != nil {
-			return Certificate{}, err
+			return Data{}, err
 		}
 
 		if certReq.CA == nil {
-			return Certificate{}, errors.New("no CA reference provided")
+			return Data{}, errors.New("no CA reference provided")
 		}
 		caCert, err := certReq.CA.resolve()
 		if err != nil {
-			return Certificate{}, fmt.Errorf("failed to resolve CA certificate: %w", err)
+			return Data{}, fmt.Errorf("failed to resolve CA certificate: %w", err)
 		}
 
 		cert, err := helpers.ParseCertificatePEM(caCert.Cert)
 		if err != nil {
-			return Certificate{}, err
+			return Data{}, err
 		}
 
 		var password []byte
@@ -171,7 +261,7 @@ func (m *Manager) EnsureCertificate(certReq Request, ownerID int, expiry time.Du
 		}
 		caKey, err := helpers.ParsePrivateKeyPEMWithPassword(caCert.Key, password)
 		if err != nil {
-			return Certificate{}, fmt.Errorf("malformed private key %w", err)
+			return Data{}, fmt.Errorf("malformed private key %w", err)
 		}
 
 		s, err := local.NewSigner(caKey, cert, signer.DefaultSigAlgo(caKey), &config.Signing{
@@ -183,7 +273,7 @@ func (m *Manager) EnsureCertificate(certReq Request, ownerID int, expiry time.Du
 			},
 		})
 		if err != nil {
-			return Certificate{}, err
+			return Data{}, err
 		}
 
 		signReq := signer.SignRequest{
@@ -193,61 +283,44 @@ func (m *Manager) EnsureCertificate(certReq Request, ownerID int, expiry time.Du
 
 		signedCertData, err := s.Sign(signReq)
 		if err != nil {
-			return Certificate{}, err
+			return Data{}, err
 		}
-		c := Certificate{
+		c := Data{
 			Key:  key,
 			Cert: signedCertData,
 		}
-		if err := file.AtomicWithTarget(keyFile).
-			TryWithOwnerAndGroup(ownerID, -1).
-			WithPermissions(constant.CertSecureMode).
-			Write(key); err != nil {
-			return Certificate{}, err
-		}
-		if err := file.AtomicWithTarget(certFile).
-			TryWithOwnerAndGroup(ownerID, -1).
-			WithPermissions(constant.CertMode).
-			Write(signedCertData); err != nil {
-			return Certificate{}, err
+
+		if err := certFiles.Save(&c, ownerID); err != nil {
+			return Data{}, err
 		}
 
 		return c, nil
 	}
 
 	// certs exist, let's just verify their permissions
-	_ = os.Chown(keyFile, ownerID, -1)
-	_ = os.Chown(certFile, ownerID, -1)
+	_ = os.Chown(certFiles.KeyPath, ownerID, -1)
+	_ = os.Chown(certFiles.CertPath, ownerID, -1)
 
-	cert, err := os.ReadFile(certFile)
-	if err != nil {
-		return Certificate{}, fmt.Errorf("failed to read ca cert %s for %s: %w", certFile, certReq.Name, err)
+	if resolved, err := certFiles.resolve(); err != nil {
+		return Data{}, err
+	} else {
+		return *resolved, nil
 	}
-	key, err := os.ReadFile(keyFile)
-	if err != nil {
-		return Certificate{}, fmt.Errorf("failed to read ca key %s for %s: %w", keyFile, certReq.Name, err)
-	}
-
-	return Certificate{
-		Key:  key,
-		Cert: cert,
-	}, nil
-
 }
 
 // if regenerateCert does not need to do any changes, it will return false
 // if a change in SAN hosts is detected, if will return true, to re-generate certs
-func (m *Manager) regenerateCert(keyFile string, certFile string) (bool, error) {
+func (m *Manager) regenerateCert(certFiles *Files) (bool, error) {
 	var cert *certinfo.Certificate
 	var err error
 
 	// if certificate & key don't exist, return true, in order to generate certificates
-	if !file.Exists(keyFile) && !file.Exists(certFile) {
+	if !file.Exists(certFiles.KeyPath) && !file.Exists(certFiles.CertPath) {
 		return true, nil
 	}
 
-	if cert, err = certinfo.ParseCertificateFile(certFile); err != nil {
-		logrus.Warnf("unable to parse certificate file at %s: %v", certFile, err)
+	if cert, err = certinfo.ParseCertificateFile(certFiles.CertPath); err != nil {
+		logrus.Warnf("unable to parse certificate file at %s: %v", certFiles.CertPath, err)
 		return true, nil
 	}
 
@@ -255,7 +328,7 @@ func (m *Manager) regenerateCert(keyFile string, certFile string) (bool, error) 
 		return managed, err
 	}
 
-	logrus.Debugf("cert regeneration not needed for %s, not managed by k0s: %s", certFile, cert.Issuer.CommonName)
+	logrus.Debugf("cert regeneration not needed for %s, not managed by k0s: %s", certFiles.CertPath, cert.Issuer.CommonName)
 	return false, nil
 }
 

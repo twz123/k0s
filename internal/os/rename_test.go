@@ -4,7 +4,6 @@
 package os
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -256,22 +255,26 @@ func TestRenameNoReplace_SourceDirectory(t *testing.T) {
 	}
 }
 
-func TestRenameNoReplace_RejectsEmptyBasename(t *testing.T) {
+func TestRenameNoReplace_EmptyPaths(t *testing.T) {
 	dir := t.TempDir()
 
-	oldPath := filepath.Join(dir, "old.txt")
-	newPath := dir + string(os.PathSeparator)
-	require.NoError(t, os.WriteFile(oldPath, []byte("hello"), 0644))
-
-	err := RenameNoReplace(oldPath, dir+string(os.PathSeparator))
-	if linkErr := (*os.LinkError)(nil); assert.ErrorAs(t, err, &linkErr) {
-		assert.Equal(t, &os.LinkError{
-			Op: "renameNoReplace", Old: oldPath, New: newPath,
-			Err: errors.New("new path has no basename"),
-		}, linkErr)
-	}
-
-	if got, readErr := os.ReadFile(oldPath); assert.NoError(t, readErr) {
-		assert.Equal(t, []byte("hello"), got)
+	for _, tt := range []struct {
+		name, oldPath, newPath string
+	}{
+		{"allPathsEmpty", "", ""},
+		{"emptyOldPath", "", dir},
+		{"emptyNewPath", dir, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := RenameNoReplace(tt.oldPath, tt.newPath)
+			if linkErr := (*os.LinkError)(nil); assert.ErrorAs(t, err, &linkErr) {
+				assert.Equal(t, "renameNoReplace", linkErr.Op)
+				assert.Equal(t, tt.oldPath, linkErr.Old)
+				assert.Equal(t, tt.newPath, linkErr.New)
+				if syscallErr := (*os.SyscallError)(nil); assert.ErrorAs(t, linkErr.Err, &syscallErr) {
+					assert.ErrorIs(t, syscallErr, os.ErrNotExist)
+				}
+			}
+		})
 	}
 }

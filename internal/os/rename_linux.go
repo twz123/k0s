@@ -16,15 +16,11 @@ import (
 
 func renameNoReplace(oldPath, newPath string) (err error) {
 	newDirPath, newName := filepath.Split(newPath)
-	if newName == "" {
-		return errors.New("new path has no basename")
-	}
 	if newDirPath == "" {
 		newDirPath = "."
 	}
 
 	oldDirPath, oldName := filepath.Split(oldPath)
-
 	if oldDirPath == "" {
 		oldDirPath = "."
 	}
