@@ -289,7 +289,7 @@ func detectLocalIPs(ctx context.Context) ([]string, error) {
 	return localIPs, nil
 }
 
-func kubeConfig(dest string, url *url.URL, caCertData []byte, userName string, clientCert *certificate.Certificate, ownerID int, fileMode os.FileMode) error {
+func kubeConfig(dest string, url *url.URL, caCertData []byte, userName string, clientCert *certificate.Data, ownerID int, fileMode os.FileMode) error {
 	// We always overwrite the kubeconfigs as the certs might be regenerated at startup
 	kubeconfig, err := clientcmd.Write(kubernetes.KubeConfig(
 		"local", &clientcmdapi.Cluster{
