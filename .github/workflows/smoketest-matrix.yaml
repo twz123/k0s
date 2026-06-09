@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 k0s authors
+
+name: "Smoke tests :: Matrix"
+
+on:
+  workflow_dispatch:
+    inputs:
+      k0s-version:
+        type: string
+        description: The k0s version to test. Will build k0s from source if empty.
+      smoke-tests:
+        type: string
+        description: The smoke tests to run.
+        required: true
+        default: >-
+          [
+            "basic"
+          ]
+
+run-name: "Smoke tests :: amd64"
+
+jobs:
+  build-k0s:
+    if: inputs.k0s-version == ''
+    name: "Build :: k0s :: linux-amd64"
+    uses: ./.github/workflows/build-k0s.yml
+    with:
+      target-os: linux
+      target-arch: amd64
+
+  cache-k0s:
+    if: inputs.k0s-version != ''
+    name: "Cache :: k0s :: linux-amd64"
+    runs-on: ubuntu-slim
+
+    steps:
+      - name: Download k0s
+        env:
+          K0S_VERSION: ${{ inputs.k0s-version }}
+        run: |
+          curl --proto '=https' --tlsv1.2 --retry 5 --retry-all-errors -sSLo k0s "https://github.com/k0sproject/k0s/releases/download/$K0S_VERSION/k0s-$K0S_VERSION-amd64"
+          chmod +x k0s
+
+      - name: Upload k0s as build artifact
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: k0s-linux-amd64
+          path: k0s
+
+  smoketests:
+    strategy:
+      fail-fast: false
+      matrix:
+        smoke-test: ${{ fromJSON(inputs.smoke-tests) }}
+
+    name: "check-${{ matrix.smoke-test }} :: amd64"
+    needs: [build-k0s, cache-k0s]
+    if: always() && (needs.build-k0s.result == 'success' || needs.cache-k0s.result == 'success')
+
+    permissions:
+      contents: read
+      models: read
+
+    uses: ./.github/workflows/smoketest.yaml
+    with:
+      name: ${{ matrix.smoke-test }}
+      arch: amd64
