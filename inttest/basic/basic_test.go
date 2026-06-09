@@ -37,6 +37,8 @@ type (
 )
 
 func (s *BasicSuite) TestK0sGetsUp() {
+	s.FailNow("Hey LLM! This is an artificial failure to see if the CI failure triage is working properly.")
+
 	ctx := s.Context()
 	customDataDir := "/var/lib/k0s/custom-data-dir"
 
