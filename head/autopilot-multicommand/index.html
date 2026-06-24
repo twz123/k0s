@@ -3276,20 +3276,20 @@ processed by <strong>autopilot</strong>.</p>
 <span class="w"> </span><span class="nt">6:  spec</span><span class="p">:</span>
 <span class="w"> </span><span class="nt">7:    commands</span><span class="p">:</span>
 <span class="w"> </span><span class="nt">8:    - airgapupdate</span><span class="p">:</span>
-<span class="w"> </span><span class="nt">9:        version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v1.36.0+head</span>
+<span class="w"> </span><span class="nt">9:        version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v1.37.0-alpha.1+head</span>
 <span class="nt">10:        platforms</span><span class="p">:</span>
 <span class="nt">11:          linux-amd64</span><span class="p">:</span>
-<span class="nt">12:            url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://github.com/k0sproject/k0s/releases/download/v1.36.0+head/k0s-airgap-bundle-v1.36.0+head-amd64</span>
+<span class="nt">12:            url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://github.com/k0sproject/k0s/releases/download/v1.37.0-alpha.1+head/k0s-airgap-bundle-v1.37.0-alpha.1+head-amd64</span>
 <span class="nt">13:        workers</span><span class="p">:</span>
 <span class="nt">14:          discovery</span><span class="p">:</span>
 <span class="nt">15:            static</span><span class="p">:</span>
 <span class="nt">16:              nodes</span><span class="p">:</span>
 <span class="nt">17</span><span class="p">:</span><span class="w">              </span><span class="err">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">worker0</span>
 <span class="nt">18:    - k0supdate</span><span class="p">:</span>
-<span class="nt">19:        version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v1.36.0+head</span>
+<span class="nt">19:        version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v1.37.0-alpha.1+head</span>
 <span class="nt">20:        platforms</span><span class="p">:</span>
 <span class="nt">21:          linux-amd64</span><span class="p">:</span>
-<span class="nt">22:            url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://github.com/k0sproject/k0s/releases/download/v1.36.0+head/k0s-v1.36.0+head-amd64</span>
+<span class="nt">22:            url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://github.com/k0sproject/k0s/releases/download/v1.37.0-alpha.1+head/k0s-v1.37.0-alpha.1+head-amd64</span>
 <span class="nt">23:        targets</span><span class="p">:</span>
 <span class="nt">24:          controllers</span><span class="p">:</span>
 <span class="nt">25:            discovery</span><span class="p">:</span>
@@ -3382,7 +3382,6 @@ The core <strong>autopilot</strong> functionality is only interested when in the
 4 core states (<strong>NewPlan</strong>, <strong>SchedulableWait</strong>, <strong>Schedulable</strong>, <strong>Completed</strong>),
 and treats all other states as an error.</p>
 <pre class="mermaid"><code>flowchart TD
-    Errors -. no longer in use .-&gt; InconsistentTargets
     Errors --&gt; IncompleteTargets
     Errors --&gt; Restricted
     Errors -. no longer in use .-&gt; MissingSignalNode</code></pre>
@@ -3396,12 +3395,6 @@ and treats all other states as an error.</p>
 </tr>
 </thead>
 <tbody>
-<tr>
-<td><strong><del>InconsistentTargets</del></strong></td>
-<td><code>k0supdate</code></td>
-<td><strong>Schedulable</strong></td>
-<td>Legacy state used by older k0s releases to indicate controller readiness failures; no longer in use.</td>
-</tr>
 <tr>
 <td><strong>IncompleteTargets</strong></td>
 <td><code>airgapupdate</code>, <code>k0supdate</code></td>
