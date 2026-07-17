@@ -105,7 +105,7 @@ build_docker_image = \
 	  --build-arg BUILD_CONFIGURE_FLAGS='$($(patsubst %/Dockerfile,%,$<)_build_configure_flags)' \
 	  -- $(dir $<)
 
-.docker-image.%.stamp: %/Dockerfile Makefile.variables
+.docker-image.%.stamp: %/Dockerfile %/patches/* Makefile.variables
 	$(build_docker_image)
 
 .docker-image.%.windows.stamp: %/Dockerfile Makefile.variables
