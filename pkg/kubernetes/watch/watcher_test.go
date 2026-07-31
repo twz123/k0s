@@ -16,7 +16,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	apiwatch "k8s.io/apimachinery/pkg/watch"
 )
 
@@ -350,7 +349,7 @@ func TestWatcher(t *testing.T) {
 
 		assertErr := func(err error) {
 			t.Helper()
-			assert.ErrorContains(t, err, `got an event of type "ADDED", expecting an object of type *v1.ConfigMap: `)
+			assert.ErrorContains(t, err, `got an event of type "ADDED", expecting *v1.ConfigMap: `)
 			var wrappedErr *apierrors.UnexpectedObjectError
 			if assert.ErrorAs(t, err, &wrappedErr) {
 				assert.Equal(t, &bogusSecret, wrappedErr.Object)
@@ -466,11 +465,9 @@ func TestWatcher(t *testing.T) {
 		provider.nextList.ResourceVersion = t.Name()
 		var second, third func(opts metav1.ListOptions) error
 		provider.watch = func(opts metav1.ListOptions) error {
-			bookmark := unstructured.Unstructured{
-				Object: map[string]any{
-					"metadata": map[string]any{
-						"resourceVersion": "the bookmark",
-					},
+			bookmark := corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					ResourceVersion: "the bookmark",
 				},
 			}
 
@@ -656,7 +653,7 @@ func closedEventChanWith(events ...apiwatch.Event) chan apiwatch.Event {
 	return ch
 }
 
-func newTestWatcher() (*mockProvider, *watch.Watcher[corev1.ConfigMap]) {
+func newTestWatcher() (*mockProvider, *watch.Watcher[corev1.ConfigMap, *corev1.ConfigMap]) {
 	provider := new(mockProvider)
 	return provider, watch.FromClient[*corev1.ConfigMapList, corev1.ConfigMap](provider)
 }

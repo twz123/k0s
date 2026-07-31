@@ -7,6 +7,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-func Unstructured(client Provider[*unstructured.UnstructuredList]) *Watcher[unstructured.Unstructured] {
+func Unstructured(client Provider[*unstructured.UnstructuredList]) *Watcher[unstructured.Unstructured, *unstructured.Unstructured] {
 	return FromClient[*unstructured.UnstructuredList, unstructured.Unstructured](client)
 }
