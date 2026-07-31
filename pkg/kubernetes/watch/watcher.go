@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
+	"maps"
 	"reflect"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/utils/ptr"
 )
@@ -22,6 +25,8 @@ import (
 type Object interface {
 	runtime.Object
 	GetResourceVersion() string
+	GetNamespace() string
+	GetName() string
 }
 
 // A pointer to T that implements [Object].
@@ -48,10 +53,17 @@ type Watcher[T any, PT ObjectPtr[T]] struct {
 	errorCallback    ErrorCallback
 }
 
-// Condition is a func that gets called by [Watcher] for each updated item. The
-// watch will terminate successfully if it returns true, continue if it returns
-// false or terminate with the returned error.
+// Condition is a func that gets called by [Watcher.Until] for each updated
+// item. The watch will terminate successfully if it returns true, continue if
+// it returns false or terminate with the returned error.
 type Condition[T any] func(item *T) (done bool, err error)
+
+// AllCondition is a func that gets called by [Watcher.UntilAll] with the
+// complete sequence of currently matching items, in no particular order. The
+// items are only valid for the duration of the call and must not be modified.
+// The watch will terminate successfully if it returns true, continue if it
+// returns false or terminate with the returned error.
+type AllCondition[T any] func(items iter.Seq[*T]) (done bool, err error)
 
 // ErrorCallback is a func that, if specified, will be called by the [Watcher]
 // whenever it encounters some error. Whenever the returned error is nil, the
@@ -127,7 +139,7 @@ func (w *Watcher[T, PT]) IncludingDeletions() *Watcher[T, PT] {
 }
 
 // ExcludingDeletions will suppress deleted items from watches.
-// This is the default.
+// This is the default, but has not effect for [Watcher.UntilAll].
 func (w *Watcher[T, PT]) ExcludingDeletions() *Watcher[T, PT] {
 	w.includeDeletions = false
 	return w
@@ -187,11 +199,66 @@ func (w *Watcher[T, PT]) WithErrorCallback(callback ErrorCallback) *Watcher[T, P
 // Until runs a watch until condition returns true. It will error out in case
 // the context gets canceled or the condition returns an error.
 func (w *Watcher[T, PT]) Until(ctx context.Context, condition Condition[T]) error {
-	return retry(ctx, w.errorCallback, func(ctx context.Context) error {
-		ctx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		return w.run(ctx, condition)
-	})
+	s := sink[T, PT]{reset: func(items []T) (bool, error) {
+		for i := range items {
+			if done, err := condition(&items[i]); err != nil || done {
+				return done, err
+			}
+		}
+		return false, nil
+	}}
+
+	if w.includeDeletions {
+		s.update = func(item PT, _ bool) (bool, error) { return condition(item) }
+	} else {
+		s.update = func(item PT, deleted bool) (bool, error) {
+			if !deleted {
+				return condition(item)
+			}
+			return false, nil
+		}
+	}
+
+	return w.runWithSink(ctx, s)
+}
+
+// UntilAll runs a watch until condition returns true. It will error out in case
+// the context gets canceled or the condition returns an error. In contrast to
+// [Watcher.Until], the condition gets called with the complete sequence of
+// matching items rather than with individual items. Every time any of the
+// watched items change, condition is invoked with a sequence over all the
+// current items. It may get called repeatedly with an unchanged sequence.
+//
+// Deleted items are reflected by their absence from the sequence:
+// [Watcher.ExcludingDeletions] doesn't apply to this method.
+func (w *Watcher[T, PT]) UntilAll(ctx context.Context, condition AllCondition[T]) error {
+	type itemMap = map[types.NamespacedName]*T
+	var current itemMap
+
+	update := func(item PT, deleted bool) (done bool, err error) {
+		k := types.NamespacedName{Namespace: item.GetNamespace(), Name: item.GetName()}
+		if deleted {
+			delete(current, k)
+		} else {
+			current[k] = item
+		}
+		return condition(maps.Values(current))
+	}
+
+	return w.runWithSink(ctx, sink[T, PT]{update: update, reset: func(items []T) (bool, error) {
+		if len := len(items); len < 1 {
+			current = nil
+			return condition(func(yield func(*T) bool) {})
+		} else {
+			current = make(itemMap, len)
+		}
+		for i := range items {
+			if done, err := update(&items[i], false); err != nil || done {
+				return done, err
+			}
+		}
+		return false, nil
+	}})
 }
 
 func itemsFromList[L metav1.ListInterface, I any]() (func(L) []I, error) {
@@ -231,14 +298,27 @@ type startWatch struct {
 	resourceVersion string
 }
 
-func (w *Watcher[T, PT]) run(ctx context.Context, condition Condition[T]) error {
-	startWatch, err := w.list(ctx, condition)
+type sink[T any, PT ObjectPtr[T]] struct {
+	reset  func(items []T) (done bool, err error)
+	update func(item PT, deleted bool) (done bool, err error)
+}
+
+func (w *Watcher[T, PT]) runWithSink(ctx context.Context, sink sink[T, PT]) error {
+	return retry(ctx, w.errorCallback, func(ctx context.Context) error {
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		return w.run(ctx, sink)
+	})
+}
+
+func (w *Watcher[T, PT]) run(ctx context.Context, sink sink[T, PT]) error {
+	startWatch, err := w.list(ctx, sink)
 	if err != nil {
 		return err
 	}
 
 	for startWatch != nil {
-		startWatch, err = w.watch(ctx, startWatch.resourceVersion, condition)
+		startWatch, err = w.watch(ctx, startWatch.resourceVersion, sink)
 		if err != nil {
 			return err
 		}
@@ -247,7 +327,7 @@ func (w *Watcher[T, PT]) run(ctx context.Context, condition Condition[T]) error 
 	return nil
 }
 
-func (w *Watcher[T, PT]) list(ctx context.Context, condition Condition[T]) (*startWatch, error) {
+func (w *Watcher[T, PT]) list(ctx context.Context, sink sink[T, PT]) (*startWatch, error) {
 	const maxListDurationSecs = 30
 	ctx, cancel := context.WithTimeout(ctx, (maxListDurationSecs+10)*time.Second)
 	defer cancel()
@@ -260,14 +340,10 @@ func (w *Watcher[T, PT]) list(ctx context.Context, condition Condition[T]) (*sta
 		return nil, err
 	}
 
-	for i := range items {
-		done, err := condition(&items[i])
-		if err != nil {
-			return nil, conditionError{err}
-		}
-		if done {
-			return nil, nil // terminate successfully
-		}
+	if done, err := sink.reset(items); err != nil {
+		return nil, conditionError{err}
+	} else if done {
+		return nil, nil // terminate successfully
 	}
 
 	if !isResourceVersionValid(resourceVersion) {
@@ -277,7 +353,7 @@ func (w *Watcher[T, PT]) list(ctx context.Context, condition Condition[T]) (*sta
 	return &startWatch{resourceVersion}, nil
 }
 
-func (w *Watcher[T, PT]) watch(ctx context.Context, resourceVersion string, condition Condition[T]) (*startWatch, error) {
+func (w *Watcher[T, PT]) watch(ctx context.Context, resourceVersion string, sink sink[T, PT]) (*startWatch, error) {
 	const maxWatchDurationSecs = 120
 	watcher, err := w.Watch(ctx, metav1.ListOptions{
 		ResourceVersion:     resourceVersion,
@@ -310,7 +386,7 @@ func (w *Watcher[T, PT]) watch(ctx context.Context, resourceVersion string, cond
 				return startWatch, nil
 			}
 
-			startWatch, err = w.processWatchEvent(&event, condition)
+			startWatch, err = w.processWatchEvent(&event, sink.update)
 			if err != nil {
 				return nil, err
 			}
@@ -320,7 +396,7 @@ func (w *Watcher[T, PT]) watch(ctx context.Context, resourceVersion string, cond
 	return nil, nil // terminate successfully
 }
 
-func (w *Watcher[T, PT]) processWatchEvent(event *watch.Event, condition Condition[T]) (*startWatch, error) {
+func (w *Watcher[T, PT]) processWatchEvent(event *watch.Event, update func(PT, bool) (bool, error)) (*startWatch, error) {
 	switch event.Type {
 	case watch.Added, watch.Modified, watch.Deleted, watch.Bookmark:
 		item, ok := event.Object.(PT)
@@ -330,8 +406,8 @@ func (w *Watcher[T, PT]) processWatchEvent(event *watch.Event, condition Conditi
 			return nil, fmt.Errorf("got an event of type %q, expecting %T: (%T) %w", event.Type, example, event.Object, err)
 		}
 
-		if event.Type != watch.Bookmark && (w.includeDeletions || event.Type != watch.Deleted) {
-			if done, err := condition(item); err != nil {
+		if event.Type != watch.Bookmark {
+			if done, err := update(item, event.Type == watch.Deleted); err != nil {
 				return nil, conditionError{err}
 			} else if done {
 				return nil, nil // terminate successfully

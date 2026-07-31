@@ -6,6 +6,9 @@ package watch_test
 import (
 	"context"
 	"errors"
+	"iter"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -614,6 +617,160 @@ func TestWatcher(t *testing.T) {
 		assert.Same(t, transformedError, err)
 		assert.Equal(t, 1, provider.callsToList)
 		assert.Equal(t, 1, callsToErrorCallback)
+		assert.Zero(t, provider.callsToWatch)
+	})
+}
+
+func TestWatcher_UntilList(t *testing.T) {
+	ctx := func() context.Context {
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		t.Cleanup(cancel) // satisfy linter, redundant
+		return ctx
+	}()
+
+	cmA := corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "a", ResourceVersion: "cmA"}}
+	cmB := corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "b", ResourceVersion: "cmB"}}
+	cmBModified := corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "b", ResourceVersion: "cmBModified"},
+		Data:       map[string]string{"modified": "yes"},
+	}
+
+	collectSorted := func(items iter.Seq[*corev1.ConfigMap]) []*corev1.ConfigMap {
+		collected := slices.Collect(items)
+		slices.SortFunc(collected, func(l, r *corev1.ConfigMap) int {
+			return strings.Compare(l.Name, r.Name)
+		})
+		return collected
+	}
+
+	t.Run("DeliversEmptySet", func(t *testing.T) {
+		t.Parallel()
+		provider, underTest := newTestWatcher()
+		provider.nextList.ResourceVersion = t.Name()
+		var callsToCondition int
+
+		err := underTest.
+			WithErrorCallback(forbiddenErrorCallback(t)).
+			UntilAll(ctx, func(items iter.Seq[*corev1.ConfigMap]) (bool, error) {
+				assert.Zero(t, callsToCondition, "Condition called more than once")
+				callsToCondition++
+
+				assert.Empty(t, slices.Collect(items))
+				return true, nil
+			})
+
+		assert.NoError(t, err)
+		assert.Equal(t, 1, callsToCondition)
+		assert.Equal(t, 1, provider.callsToList)
+		assert.Zero(t, provider.callsToWatch)
+	})
+
+	t.Run("MaintainsSetAcrossEvents", func(t *testing.T) {
+		t.Parallel()
+		provider, underTest := newTestWatcher()
+		provider.nextList.ResourceVersion = t.Name()
+		provider.nextList.Items = []corev1.ConfigMap{cmA}
+		provider.watch = func(opts metav1.ListOptions) error {
+			bookmark := corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					ResourceVersion: "the bookmark",
+				},
+			}
+
+			provider.ch = openEventChanWith(
+				apiwatch.Event{Type: apiwatch.Added, Object: &cmB},
+				apiwatch.Event{Type: apiwatch.Bookmark, Object: &bookmark},
+				apiwatch.Event{Type: apiwatch.Modified, Object: &cmBModified},
+				apiwatch.Event{Type: apiwatch.Deleted, Object: &cmA},
+			)
+			provider.watch = forbiddenWatch(t)
+
+			return nil
+		}
+		var callsToCondition int
+
+		err := underTest.
+			WithErrorCallback(forbiddenErrorCallback(t)).
+			UntilAll(ctx, func(items iter.Seq[*corev1.ConfigMap]) (bool, error) {
+				defer func() { callsToCondition++ }()
+				switch callsToCondition {
+				case 0:
+					assert.Equal(t, []*corev1.ConfigMap{&cmA}, collectSorted(items))
+				case 1:
+					assert.Equal(t, []*corev1.ConfigMap{&cmA, &cmB}, collectSorted(items))
+				case 2:
+					assert.Equal(t, []*corev1.ConfigMap{&cmA, &cmBModified}, collectSorted(items))
+				case 3:
+					assert.Equal(t, []*corev1.ConfigMap{&cmBModified}, collectSorted(items))
+					return true, nil
+				default:
+					require.Fail(t, "Unexpected call to condition")
+				}
+				return false, nil
+			})
+
+		assert.NoError(t, err)
+		assert.Equal(t, 4, callsToCondition)
+		assert.Equal(t, 1, provider.callsToList)
+		assert.Equal(t, 1, provider.callsToWatch)
+		assert.Equal(t, 1, provider.callsToStop)
+	})
+
+	t.Run("RebuildsSetOnRelist", func(t *testing.T) {
+		t.Parallel()
+		provider, underTest := newTestWatcher()
+		provider.nextList.ResourceVersion = t.Name()
+		provider.nextList.Items = []corev1.ConfigMap{cmA}
+		provider.watch = func(metav1.ListOptions) error {
+			provider.nextList.Items = []corev1.ConfigMap{cmB}
+			provider.ch = openEventChanWith(apiwatch.Event{
+				Type:   apiwatch.Error,
+				Object: &apierrors.NewResourceExpired("injected resource version too old").ErrStatus,
+			})
+			provider.watch = forbiddenWatch(t)
+
+			return nil
+		}
+		var callsToCondition int
+
+		err := underTest.
+			WithErrorCallback(forbiddenErrorCallback(t)).
+			UntilAll(ctx, func(items iter.Seq[*corev1.ConfigMap]) (bool, error) {
+				defer func() { callsToCondition++ }()
+				switch callsToCondition {
+				case 0:
+					assert.Equal(t, []*corev1.ConfigMap{&cmA}, collectSorted(items))
+				case 1:
+					// The item deleted while the watch was interrupted is
+					// gone, even though no deletion event was ever observed.
+					assert.Equal(t, []*corev1.ConfigMap{&cmB}, collectSorted(items))
+					return true, nil
+				default:
+					require.Fail(t, "Unexpected call to condition")
+				}
+				return false, nil
+			})
+
+		assert.NoError(t, err)
+		assert.Equal(t, 2, callsToCondition)
+		assert.Equal(t, 2, provider.callsToList)
+		assert.Equal(t, 1, provider.callsToWatch)
+		assert.Equal(t, 1, provider.callsToStop)
+	})
+
+	t.Run("ConditionError", func(t *testing.T) {
+		t.Parallel()
+		provider, underTest := newTestWatcher()
+		provider.nextList.ResourceVersion = t.Name()
+
+		err := underTest.
+			WithErrorCallback(forbiddenErrorCallback(t)).
+			UntilAll(ctx, func(iter.Seq[*corev1.ConfigMap]) (bool, error) {
+				return false, assert.AnError
+			})
+
+		assert.Same(t, assert.AnError, err)
+		assert.Equal(t, 1, provider.callsToList)
 		assert.Zero(t, provider.callsToWatch)
 	})
 }
