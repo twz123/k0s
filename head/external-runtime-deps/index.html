@@ -25,7 +25,7 @@
       
       
       <link rel="icon" href="../img/k0s-favicon-192.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -33,7 +33,7 @@
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -824,6 +824,17 @@
     <span class="md-ellipsis">
       
         No integration with Name Service Switch (NSS) APIs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kernel-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Kernel Parameters
       
     </span>
   </a>
@@ -3093,6 +3104,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#kernel-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Kernel Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#external-hard-dependencies" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3310,6 +3332,34 @@ to manually add <code>localhost</code> entries to the <code>/etc/hosts</code> fi
 <div class="highlight"><pre><span></span><code>127.0.0.1 localhost
 ::1 localhost
 </code></pre></div>
+<h3 id="kernel-parameters">Kernel Parameters<a class="headerlink" href="#kernel-parameters" title="Permanent link">#</a></h3>
+<h4 id="inotify-instance-limit">Inotify Instance Limit<a class="headerlink" href="#inotify-instance-limit" title="Permanent link">#</a></h4>
+<p><a href="https://www.man7.org/linux/man-pages/man7/inotify.7.html">Inotify API</a> allows
+applications to monitor filesystem changes.</p>
+<p>Workloads that run many pods or watch large numbers of files can exhaust the
+node's default inotify limits, particularly <code>fs.inotify.max_user_instances</code>,
+which limits how many inotify instances one user (UID) can have.</p>
+<p>A value of at least 1024 is recommended; 8192 is commonly used in Kubernetes
+environments:</p>
+<div class="highlight"><pre><span></span><code>fs.inotify.max_user_instances = 8192
+</code></pre></div>
+<ol>
+<li>
+<p>Check the current value:</p>
+<div class="highlight"><pre><span></span><code>cat<span class="w"> </span>/proc/sys/fs/inotify/max_user_instances
+</code></pre></div>
+</li>
+<li>
+<p>To apply the new value persistently, create a <code>sysctl</code> configuration file,
+   for example, <code>/etc/sysctl.d/99-inotify.conf</code>, and place the parameter
+   setting from above in it.</p>
+</li>
+<li>
+<p>Load the new kernel values:</p>
+<div class="highlight"><pre><span></span><code>sudo<span class="w"> </span>sysctl<span class="w"> </span>--system
+</code></pre></div>
+</li>
+</ol>
 <h3 id="external-hard-dependencies">External hard dependencies<a class="headerlink" href="#external-hard-dependencies" title="Permanent link">#</a></h3>
 <p>There are very few external tools that are needed or used.</p>
 <h4 id="mountumount">mount/umount<a class="headerlink" href="#mountumount" title="Permanent link">#</a></h4>
@@ -3320,7 +3370,7 @@ circumstances:</p>
 <h4 id="containerd-and-apparmor">containerd and AppArmor<a class="headerlink" href="#containerd-and-apparmor" title="Permanent link">#</a></h4>
 <p>In order to use containerd in conjunction with <a href="https://wiki.ubuntu.com/AppArmor">AppArmor</a>, it must be enabled in
 the kernel and the <code>/sbin/apparmor_parser</code> executable must be installed on the
-host, otherwise containerd will <a href="https://github.com/containerd/containerd/blob/v2.3.2/pkg/apparmor/apparmor_linux.go#L34-L45">disable</a> AppArmor support.</p>
+host, otherwise containerd will <a href="https://github.com/containerd/containerd/blob/v2.3.4/pkg/apparmor/apparmor_linux.go#L34-L45">disable</a> AppArmor support.</p>
 <h4 id="iptables">iptables<a class="headerlink" href="#iptables" title="Permanent link">#</a></h4>
 <p>iptables may be executed to detect if there are any existing iptables rules and
 if those are in legacy or nft mode. If iptables is not found, k0s will assume
@@ -3446,10 +3496,10 @@ Windows Server 2016. k0s states that it requires Windows Server 2019, though.
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["toc.autohide", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "stable", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["toc.autohide", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "stable", "provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

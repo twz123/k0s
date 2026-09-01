@@ -25,7 +25,7 @@
       
       
       <link rel="icon" href="../img/k0s-favicon-192.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -33,7 +33,7 @@
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -3073,7 +3073,7 @@ Operator</a> based solutions, you can create a
 <code>KubeSchedulerDown</code> as they are based on Prometheus' internal <code>up</code> metrics. But
 you can get rid of these alerts by modifying them to detect a working component
 like this:</p>
-<div class="highlight"><pre><span></span><code><span class="kr">absent</span><span class="o">(</span><span class="nv">apiserver_audit_event_total</span><span class="p">{</span><span class="nl">job</span><span class="o">=</span><span class="p">&quot;</span><span class="s">kube-scheduler</span><span class="p">&quot;}</span><span class="o">)</span>
+<div class="highlight"><pre><span></span><code><span class="kr">absent</span><span class="o">(</span><span class="nv">apiserver_audit_event_total</span><span class="p">{</span><span class="nl">job</span><span class="o">=</span><span class="p">"</span><span class="s">kube-scheduler</span><span class="p">"}</span><span class="o">)</span>
 </code></pre></div>
 <h2 id="jobs">Jobs<a class="headerlink" href="#jobs" title="Permanent link">#</a></h2>
 <p>The list of components which is scrapped by k0s:</p>
@@ -3188,10 +3188,10 @@ like this:</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["toc.autohide", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "stable", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["toc.autohide", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "stable", "provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

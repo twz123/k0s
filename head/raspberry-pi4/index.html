@@ -25,7 +25,7 @@
       
       
       <link rel="icon" href="../img/k0s-favicon-192.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -33,7 +33,7 @@
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -3360,17 +3360,17 @@ swapon<span class="w"> </span>-a
 <h2 id="download-k0s">Download k0s<a class="headerlink" href="#download-k0s" title="Permanent link">#</a></h2>
 <p>Download a <a href="https://github.com/k0sproject/k0s/releases/latest">k0s release</a>. For
 example:</p>
-<div class="highlight"><pre><span></span><code>wget<span class="w"> </span>-O<span class="w"> </span>/tmp/k0s<span class="w"> </span>https://github.com/k0sproject/k0s/releases/download/v1.37.0-alpha.1+head/k0s-v1.37.0-alpha.1+head-arm64<span class="w"> </span><span class="c1"># replace version number!</span>
+<div class="highlight"><pre><span></span><code>wget<span class="w"> </span>-O<span class="w"> </span>/tmp/k0s<span class="w"> </span>https://github.com/k0sproject/k0s/releases/download/v1.37.0-alpha.3+head/k0s-v1.37.0-alpha.3+head-arm64<span class="w"> </span><span class="c1"># replace version number!</span>
 sudo<span class="w"> </span>install<span class="w"> </span>/tmp/k0s<span class="w"> </span>/usr/local/bin/k0s
 </code></pre></div>
 <p>― or ―</p>
 <p>Use the k0s download script (as one command) to download the latest stable k0s
 and make it executable in <code>/usr/bin/k0s</code>.</p>
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>--proto<span class="w"> </span><span class="s1">&#39;=https&#39;</span><span class="w"> </span>--tlsv1.2<span class="w"> </span>-sSf<span class="w"> </span>https://get.k0s.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sudo<span class="w"> </span>sh
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>--proto<span class="w"> </span><span class="s1">'=https'</span><span class="w"> </span>--tlsv1.2<span class="w"> </span>-sSf<span class="w"> </span>https://get.k0s.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sudo<span class="w"> </span>sh
 </code></pre></div>
 <p>At this point you can run <code>k0s</code>:</p>
 <div class="highlight"><pre><span></span><code><span class="gp">ubuntu@ubuntu:~$ </span>k0s<span class="w"> </span>version
-<span class="go">v1.37.0-alpha.1+head</span>
+<span class="go">v1.37.0-alpha.3+head</span>
 </code></pre></div>
 <p>To check if k0s's <a href="../system-requirements/">system requirements</a> and <a href="../external-runtime-deps/">external
 runtime dependencies</a> are fulfilled by your current
@@ -3389,15 +3389,15 @@ setup, you can invoke <code>k0s sysinfo</code>:</p>
 <span class="go">  Executable in PATH: umount: /usr/bin/umount (pass)</span>
 <span class="go">  /proc file system: mounted (0x9fa0) (pass)</span>
 <span class="go">  Control Groups: version 2 (pass)</span>
-<span class="go">    cgroup controller &quot;cpu&quot;: available (pass)</span>
-<span class="go">    cgroup controller &quot;cpuacct&quot;: available (via cpu in version 2) (pass)</span>
-<span class="go">    cgroup controller &quot;cpuset&quot;: available (pass)</span>
-<span class="go">    cgroup controller &quot;memory&quot;: available (pass)</span>
-<span class="go">    cgroup controller &quot;devices&quot;: unknown (warning: insufficient permissions, try with elevated permissions)</span>
-<span class="go">    cgroup controller &quot;freezer&quot;: available (cgroup.freeze exists) (pass)</span>
-<span class="go">    cgroup controller &quot;pids&quot;: available (pass)</span>
-<span class="go">    cgroup controller &quot;hugetlb&quot;: available (pass)</span>
-<span class="go">    cgroup controller &quot;blkio&quot;: available (via io in version 2) (pass)</span>
+<span class="go">    cgroup controller "cpu": available (pass)</span>
+<span class="go">    cgroup controller "cpuacct": available (via cpu in version 2) (pass)</span>
+<span class="go">    cgroup controller "cpuset": available (pass)</span>
+<span class="go">    cgroup controller "memory": available (pass)</span>
+<span class="go">    cgroup controller "devices": unknown (warning: insufficient permissions, try with elevated permissions)</span>
+<span class="go">    cgroup controller "freezer": available (cgroup.freeze exists) (pass)</span>
+<span class="go">    cgroup controller "pids": available (pass)</span>
+<span class="go">    cgroup controller "hugetlb": available (pass)</span>
+<span class="go">    cgroup controller "blkio": available (via io in version 2) (pass)</span>
 <span class="go">  CONFIG_CGROUPS: Control Group support: built-in (pass)</span>
 <span class="go">    CONFIG_CGROUP_SCHED: Group CPU scheduler: built-in (pass)</span>
 <span class="go">      CONFIG_FAIR_GROUP_SCHED: Group scheduling for SCHED_OTHER: built-in (pass)</span>
@@ -3416,16 +3416,16 @@ setup, you can invoke <code>k0s sysinfo</code>:</p>
 <span class="go">      CONFIG_NF_CONNTRACK: Netfilter connection tracking support: module (pass)</span>
 <span class="go">      CONFIG_NETFILTER_XTABLES: Netfilter Xtables support: module (pass)</span>
 <span class="go">        CONFIG_NETFILTER_XT_TARGET_REDIRECT: REDIRECT target support: module (pass)</span>
-<span class="go">        CONFIG_NETFILTER_XT_MATCH_COMMENT: &quot;comment&quot; match support: module (pass)</span>
+<span class="go">        CONFIG_NETFILTER_XT_MATCH_COMMENT: "comment" match support: module (pass)</span>
 <span class="go">        CONFIG_NETFILTER_XT_MARK: nfmark target and match support: module (pass)</span>
 <span class="go">        CONFIG_NETFILTER_XT_SET: set target and match support: module (pass)</span>
 <span class="go">        CONFIG_NETFILTER_XT_TARGET_MASQUERADE: MASQUERADE target support: module (pass)</span>
-<span class="go">        CONFIG_NETFILTER_XT_NAT: &quot;SNAT and DNAT&quot; targets support: module (pass)</span>
-<span class="go">        CONFIG_NETFILTER_XT_MATCH_ADDRTYPE: &quot;addrtype&quot; address type match support: module (pass)</span>
-<span class="go">        CONFIG_NETFILTER_XT_MATCH_CONNTRACK: &quot;conntrack&quot; connection tracking match support: module (pass)</span>
-<span class="go">        CONFIG_NETFILTER_XT_MATCH_MULTIPORT: &quot;multiport&quot; Multiple port match support: module (pass)</span>
-<span class="go">        CONFIG_NETFILTER_XT_MATCH_RECENT: &quot;recent&quot; match support: module (pass)</span>
-<span class="go">        CONFIG_NETFILTER_XT_MATCH_STATISTIC: &quot;statistic&quot; match support: module (pass)</span>
+<span class="go">        CONFIG_NETFILTER_XT_NAT: "SNAT and DNAT" targets support: module (pass)</span>
+<span class="go">        CONFIG_NETFILTER_XT_MATCH_ADDRTYPE: "addrtype" address type match support: module (pass)</span>
+<span class="go">        CONFIG_NETFILTER_XT_MATCH_CONNTRACK: "conntrack" connection tracking match support: module (pass)</span>
+<span class="go">        CONFIG_NETFILTER_XT_MATCH_MULTIPORT: "multiport" Multiple port match support: module (pass)</span>
+<span class="go">        CONFIG_NETFILTER_XT_MATCH_RECENT: "recent" match support: module (pass)</span>
+<span class="go">        CONFIG_NETFILTER_XT_MATCH_STATISTIC: "statistic" match support: module (pass)</span>
 <span class="go">      CONFIG_NETFILTER_NETLINK: module (pass)</span>
 <span class="go">      CONFIG_NF_NAT: module (pass)</span>
 <span class="go">      CONFIG_IP_SET: IP set support: module (pass)</span>
@@ -3500,7 +3500,7 @@ cluster, this is for you.</p>
 <p>When the cluster is up, try to have a look:</p>
 <div class="highlight"><pre><span></span><code><span class="gp">ubuntu@ubuntu:~$ </span>sudo<span class="w"> </span>k0s<span class="w"> </span>kc<span class="w"> </span>get<span class="w"> </span>nodes<span class="w"> </span>-owide
 <span class="go">NAME     STATUS   ROLES           AGE     VERSION               INTERNAL-IP    EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION      CONTAINER-RUNTIME</span>
-<span class="go">ubuntu   Ready    control-plane   4m41s   v1.37.0-alpha.1+k0s   10.152.56.54   &lt;none&gt;        Ubuntu 22.04.1 LTS   5.15.0-1013-raspi   containerd://2.3.2</span>
+<span class="go">ubuntu   Ready    control-plane   4m41s   v1.37.0-alpha.3+k0s   10.152.56.54   &lt;none&gt;        Ubuntu 22.04.1 LTS   5.15.0-1013-raspi   containerd://2.3.4</span>
 <span class="gp">ubuntu@ubuntu:~$ </span>sudo<span class="w"> </span>k0s<span class="w"> </span>kc<span class="w"> </span>get<span class="w"> </span>pod<span class="w"> </span>-owide<span class="w"> </span>-A
 <span class="go">NAMESPACE     NAME                              READY   STATUS    RESTARTS   AGE     IP             NODE     NOMINATED NODE   READINESS GATES</span>
 <span class="go">kube-system   kube-proxy-kkv2l                  1/1     Running   0          4m44s   10.152.56.54   ubuntu   &lt;none&gt;           &lt;none&gt;</span>
@@ -3580,7 +3580,7 @@ token for it:</p>
 <p>To join an existing k0s cluster, create the join token file for the worker
 (where <code>$TOKEN_CONTENT</code> is one of the join tokens created in the control plane
 setup):</p>
-<div class="highlight"><pre><span></span><code><span class="go">sudo sh -c &#39;mkdir -p /var/lib/k0s/ &amp;&amp; umask 077 &amp;&amp; echo &quot;$TOKEN_CONTENT&quot; &gt; /var/lib/k0s/join-token&#39;</span>
+<div class="highlight"><pre><span></span><code><span class="go">sudo sh -c 'mkdir -p /var/lib/k0s/ &amp;&amp; umask 077 &amp;&amp; echo "$TOKEN_CONTENT" &gt; /var/lib/k0s/join-token'</span>
 </code></pre></div>
 <p>After that, install the <code>k0sworker</code> service:</p>
 <div class="highlight"><pre><span></span><code><span class="gp">ubuntu@ubuntu:~$ </span>sudo<span class="w"> </span>k0s<span class="w"> </span>install<span class="w"> </span>worker<span class="w"> </span>--token-file<span class="w"> </span>/var/lib/k0s/join-token
@@ -3605,21 +3605,21 @@ setup):</p>
 <span class="go">             ├─1631 /usr/local/bin/k0s worker --token-file=/var/lib/k0s/join-token</span>
 <span class="go">             └─1643 /var/lib/k0s/bin/containerd --root=/var/lib/k0s/containerd --state=/run/k0s/containerd --address=/run/k0s/containerd.sock --log-level=info --config=/etc/k0s/containerd.toml</span>
 
-<span class="go">Aug 18 13:49:00 ubuntu k0s[1631]: time=&quot;2022-08-18 13:49:00&quot; level=info msg=&quot;Starting to supervise&quot; component=containerd</span>
-<span class="go">Aug 18 13:49:00 ubuntu k0s[1631]: time=&quot;2022-08-18 13:49:00&quot; level=info msg=&quot;Started successfully, go nuts pid 1643&quot; component=containerd</span>
-<span class="go">Aug 18 13:49:00 ubuntu k0s[1631]: time=&quot;2022-08-18 13:49:00&quot; level=info msg=&quot;starting OCIBundleReconciler&quot;</span>
-<span class="go">Aug 18 13:49:00 ubuntu k0s[1631]: time=&quot;2022-08-18 13:49:00&quot; level=info msg=&quot;starting Kubelet&quot;</span>
-<span class="go">Aug 18 13:49:00 ubuntu k0s[1631]: time=&quot;2022-08-18 13:49:00&quot; level=info msg=&quot;Starting kubelet&quot;</span>
-<span class="go">Aug 18 13:49:00 ubuntu k0s[1631]: time=&quot;2022-08-18 13:49:00&quot; level=info msg=&quot;detected 127.0.0.53 nameserver, assuming systemd-resolved, so using resolv.conf: /run/systemd/resolve/resolv.conf&quot;</span>
-<span class="go">Aug 18 13:49:00 ubuntu k0s[1631]: time=&quot;2022-08-18 13:49:00&quot; level=info msg=&quot;Starting to supervise&quot; component=kubelet</span>
-<span class="go">Aug 18 13:49:00 ubuntu k0s[1631]: time=&quot;2022-08-18 13:49:00&quot; level=info msg=&quot;Started successfully, go nuts pid 1648&quot; component=kubelet</span>
-<span class="go">Aug 18 13:49:00 ubuntu k0s[1631]: time=&quot;2022-08-18 13:49:00&quot; level=info msg=&quot;starting Status&quot;</span>
-<span class="go">Aug 18 13:49:00 ubuntu k0s[1631]: time=&quot;2022-08-18 13:49:00&quot; level=info msg=&quot;starting Autopilot&quot;</span>
+<span class="go">Aug 18 13:49:00 ubuntu k0s[1631]: time="2022-08-18 13:49:00" level=info msg="Starting to supervise" component=containerd</span>
+<span class="go">Aug 18 13:49:00 ubuntu k0s[1631]: time="2022-08-18 13:49:00" level=info msg="Started successfully, go nuts pid 1643" component=containerd</span>
+<span class="go">Aug 18 13:49:00 ubuntu k0s[1631]: time="2022-08-18 13:49:00" level=info msg="starting OCIBundleReconciler"</span>
+<span class="go">Aug 18 13:49:00 ubuntu k0s[1631]: time="2022-08-18 13:49:00" level=info msg="starting Kubelet"</span>
+<span class="go">Aug 18 13:49:00 ubuntu k0s[1631]: time="2022-08-18 13:49:00" level=info msg="Starting kubelet"</span>
+<span class="go">Aug 18 13:49:00 ubuntu k0s[1631]: time="2022-08-18 13:49:00" level=info msg="detected 127.0.0.53 nameserver, assuming systemd-resolved, so using resolv.conf: /run/systemd/resolve/resolv.conf"</span>
+<span class="go">Aug 18 13:49:00 ubuntu k0s[1631]: time="2022-08-18 13:49:00" level=info msg="Starting to supervise" component=kubelet</span>
+<span class="go">Aug 18 13:49:00 ubuntu k0s[1631]: time="2022-08-18 13:49:00" level=info msg="Started successfully, go nuts pid 1648" component=kubelet</span>
+<span class="go">Aug 18 13:49:00 ubuntu k0s[1631]: time="2022-08-18 13:49:00" level=info msg="starting Status"</span>
+<span class="go">Aug 18 13:49:00 ubuntu k0s[1631]: time="2022-08-18 13:49:00" level=info msg="starting Autopilot"</span>
 </code></pre></div>
 <p>As this is a worker node, we cannot access the Kubernetes API via the builtin
 <code>k0s kc</code> subcommand, but we can check the k0s API instead:</p>
 <div class="highlight"><pre><span></span><code><span class="gp">ubuntu@ubuntu:~$ </span>sudo<span class="w"> </span>k0s<span class="w"> </span>status
-<span class="go">Version: v1.37.0-alpha.1+head</span>
+<span class="go">Version: v1.37.0-alpha.3+head</span>
 <span class="go">Process ID: 1631</span>
 <span class="go">Role: worker</span>
 <span class="go">Workloads: true</span>
@@ -3661,11 +3661,11 @@ rights and get a <a href="https://kubernetes.io/docs/concepts/configuration/orga
 <p>Using the above kubeconfig, you can now access and use the cluster:</p>
 <div class="highlight"><pre><span></span><code><span class="gp">ubuntu@ubuntu:~$ </span><span class="nv">KUBECONFIG</span><span class="o">=</span>/path/to/kubeconfig<span class="w"> </span>kubectl<span class="w"> </span>get<span class="w"> </span>nodes,deployments,pods<span class="w"> </span>-owide<span class="w"> </span>-A
 <span class="go">NAME          STATUS   ROLES    AGE    VERSION               INTERNAL-IP    EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION      CONTAINER-RUNTIME</span>
-<span class="go">node/ubuntu   Ready    &lt;none&gt;   5m1s   v1.37.0-alpha.1+k0s   10.152.56.54   &lt;none&gt;        Ubuntu 22.04.1 LTS   5.15.0-1013-raspi   containerd://2.3.2</span>
+<span class="go">node/ubuntu   Ready    &lt;none&gt;   5m1s   v1.37.0-alpha.3+k0s   10.152.56.54   &lt;none&gt;        Ubuntu 22.04.1 LTS   5.15.0-1013-raspi   containerd://2.3.4</span>
 
-<span class="go">NAMESPACE     NAME                             READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS       IMAGES                                       SELECTOR</span>
-<span class="go">kube-system   deployment.apps/coredns          1/1     1            1           33m   coredns          quay.io/k0sproject/coredns:1.14.3-k0s.0      k8s-app=kube-dns</span>
-<span class="go">kube-system   deployment.apps/metrics-server   1/1     1            1           33m   metrics-server   quay.io/k0sproject/metrics-server:v0.8.1-0   k8s-app=metrics-server</span>
+<span class="go">NAMESPACE     NAME                             READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS       IMAGES                                           SELECTOR</span>
+<span class="go">kube-system   deployment.apps/coredns          1/1     1            1           33m   coredns          quay.io/k0sproject/coredns:1.14.7-k0s.0          k8s-app=kube-dns</span>
+<span class="go">kube-system   deployment.apps/metrics-server   1/1     1            1           33m   metrics-server   quay.io/k0sproject/metrics-server:v0.9.0-k0s.1   k8s-app=metrics-server</span>
 
 <span class="go">NAMESPACE     NAME                                  READY   STATUS    RESTARTS   AGE    IP             NODE     NOMINATED NODE   READINESS GATES</span>
 <span class="go">kube-system   pod/coredns-88b745646-pkk5w           1/1     Running   0          33m    10.244.0.5     ubuntu   &lt;none&gt;           &lt;none&gt;</span>
@@ -3775,10 +3775,10 @@ rights and get a <a href="https://kubernetes.io/docs/concepts/configuration/orga
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["toc.autohide", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "stable", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["toc.autohide", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "stable", "provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>
