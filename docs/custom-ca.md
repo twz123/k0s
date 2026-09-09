@@ -23,7 +23,10 @@ openssl genrsa -out ca.key 2048
 openssl req -x509 -new -nodes -key ca.key -sha256 -days $LIFETIME -out ca.crt -subj "/CN=Custom CA"
 ```
 
-Then you can [install k0s as usual](./install.md).
+Then you can [install k0s as usual](./install.md). The [kubelet-serving CA] is
+derived from the Kubernetes CA and doesn't need to be provided.
+
+[kubelet-serving CA]: worker-node-config.md#kubelet-serving-ca
 
 ## Pre-generated tokens
 

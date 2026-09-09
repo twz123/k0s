@@ -7,20 +7,27 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 ## Overview of CAs managed by k0s
 
-k0s maintains two Certificate Authorities and one public/private key pair:
+k0s maintains three Certificate Authorities and one public/private key pair:
 
 * The **Kubernetes CA** is used to secure the Kubernetes cluster and manage
   client and server certificates for API communication.
+* The **kubelet-serving CA** is used to issue the certificates that kubelets
+  serve their APIs with. It is derived from the Kubernetes CA, so that every
+  controller has the same kubelet-serving CA without any need to distribute it.
+  See the section on [kubelet serving certificates] for details.
 * The **etcd CA** is used only when managed etcd is enabled, for securing etcd
   communications.
 * The **Kubernetes Service Account (SA) key pair** is used for signing
   Kubernetes [service account tokens].
 
-These CAs are automatically created during cluster initialization and have a
-default expiration period of 10 years. They are distributed once to all k0s
-controllers as part of k0s's [join process]. Replacing them is a manual process,
-as k0s currently lacks automation for CA renewal.
+The Kubernetes CA and the etcd CA are automatically created during cluster
+initialization and have a default expiration period of 10 years. They are
+distributed once to all k0s controllers as part of k0s's [join process].
+Replacing them is a manual process, as k0s currently lacks automation for CA
+renewal. The kubelet-serving CA is recomputed from the Kubernetes CA whenever a
+controller starts, and needs no replacement of its own.
 
+[kubelet serving certificates]: ../worker-node-config.md#kubelet-serving-ca
 [service account tokens]: https://kubernetes.io/docs/reference/access-authn-authz/service-accounts-admin/
 [join process]: ../k0s-multi-node.md#5-add-controllers-to-the-cluster
 
@@ -69,7 +76,9 @@ to all nodes, and then bringing the cluster back online:
 
    After copying the files, the new CA and SA key pair are in place. Restart k0s
    on the other controllers. For controllers running with the `--enable-worker`
-   flag, **reboot the machines** instead.
+   flag, **reboot the machines** instead. The kubelet-serving CA doesn't need
+   any attention. Each controller derives it from the new Kubernetes CA when it
+   starts.
 
 6. Rejoin all workers. The easiest way to do this is to use a
    `kubelet-bootstrap.conf` file. You can [generate](../cli/k0s_token_create.md)

@@ -75,12 +75,12 @@ By default, k0s configures kubelets to request their serving certificates from
 the Kubernetes API via [Certificate Signing Requests] (CSRs), by enabling
 `serverTLSBootstrap` in the generated kubelet configuration. The kubelet then
 requests a certificate from the `kubernetes.io/kubelet-serving` signer and uses
-it to serve its own API. Clients of that API verify the certificate against the
-cluster CA. The Kubernetes API server verifies it, for example, when serving
-`kubectl logs` and `kubectl exec` requests. Similarly, k0s's `metrics-server`
-component, which bundles the [Kubernetes Metrics Server], verifies it when
-scraping the kubelet's resource metrics. Other properly configured monitoring
-systems do the same.
+it to serve its own API. k0s issues these certificates from a dedicated
+[kubelet-serving CA](#kubelet-serving-ca). Clients of the kubelet API verify the
+certificate against that CA. The Kubernetes API server does so, for example,
+when serving `kubectl logs` and `kubectl exec` requests. So does k0s's
+`metrics-server` component, which bundles the [Kubernetes Metrics Server], when
+scraping the kubelet's resource metrics.
 
 Kubernetes doesn't approve these CSRs automatically. k0s ships a controller
 component called `csr-approver` that does so, provided the request meets all of
@@ -118,6 +118,59 @@ kubelet APIs remain unavailable.
 
 [Certificate Signing Requests]: https://kubernetes.io/docs/reference/access-authn-authz/certificate-signing-requests/
 [Kubernetes Metrics Server]: https://github.com/kubernetes-sigs/metrics-server
+
+### Kubelet-serving CA
+
+k0s issues kubelet serving certificates from a certificate authority that is
+dedicated to the `kubernetes.io/kubelet-serving` signer: the kubelet-serving CA.
+This way, a kubelet serving certificate is trusted by exactly those clients that
+connect to kubelets, and by nothing else. In particular, workloads that trust
+the cluster CA in order to verify the Kubernetes API server don't trust kubelet
+serving certificates.
+
+The kubelet-serving CA is derived from the cluster CA. Every controller computes
+the same CA on its own whenever it starts, so there's nothing to distribute or
+to persist, and the CA follows the cluster CA whenever that one is [replaced].
+Its files are written to the run directory, `/run/k0s` by default:
+
+- `kubelet-serving-ca.crt` and `kubelet-serving-ca.key`: the CA certificate and
+  its private key.
+- `kubelet-serving-ca-bundle.crt`: the trust bundle for kubelet serving
+  certificates. It holds the kubelet-serving CA, followed by the cluster CA, so
+  that kubelet serving certificates issued by the cluster CA remain trusted.
+
+Clients that verify kubelet serving certificates, such as monitoring systems
+that scrape kubelets directly, need to trust this bundle rather than the service
+account CA. k0s publishes it in the cluster:
+
+- As the `kubelet-serving-ca.crt` ConfigMap in the `kube-system` namespace,
+  under the `ca.crt` key, just like the `kube-root-ca.crt` ConfigMap that holds
+  the cluster CA. Copy it into the namespaces that need it.
+- On Kubernetes 1.37 and newer, both for the control plane and the kubelet, as
+  the `kubernetes.io:kubelet-serving:k0s` [ClusterTrustBundle]. It can be
+  mounted in any namespace via a projected volume:
+
+  ```yaml
+  volumes:
+    - name: kubelet-serving-ca
+      projected:
+        sources:
+          - clusterTrustBundle:
+              signerName: kubernetes.io/kubelet-serving
+              labelSelector: {}
+              path: ca.crt
+  ```
+
+Workloads that verify kubelet serving certificates against the cluster CA stop
+working once kubelets get certificates issued by the kubelet-serving CA. To keep
+them working while they are switched over to the trust bundle, disable the
+`kubelet-serving-ca` component on all controllers, e.g. via
+`--disable-components=kubelet-serving-ca`. Kubelet serving certificates are then
+issued by the cluster CA, as before. The trust bundle is published and trusted
+either way, so the component can be enabled again at any time.
+
+[replaced]: troubleshooting/certificate-authorities.md#replacing-the-kubernetes-ca-and-sa-key-pair
+[ClusterTrustBundle]: https://kubernetes.io/docs/reference/access-authn-authz/certificate-signing-requests/#cluster-trust-bundles
 
 ## IPTables Mode
 
