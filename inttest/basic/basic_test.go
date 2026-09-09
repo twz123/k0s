@@ -6,6 +6,7 @@ package basic
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"strings"
@@ -19,10 +20,13 @@ import (
 
 	certificatesv1 "k8s.io/api/certificates/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	certutil "k8s.io/client-go/util/cert"
 
 	"github.com/BurntSushi/toml"
 	"github.com/stretchr/testify/suite"
@@ -85,6 +89,7 @@ func (s *BasicSuite) TestK0sGetsUp() {
 
 	s.T().Log("Waiting for all worker CSRs to be approved")
 	s.Require().NoError(s.checkCSRs(ctx, kc))
+	s.verifyKubeletServingCerts(ctx, kc, restConfig)
 
 	s.Require().NoError(s.verifyKubeletAddressFlag(ctx, s.WorkerNode(0)))
 	s.Require().NoError(s.verifyKubeletAddressFlag(ctx, s.WorkerNode(1)))
@@ -205,6 +210,86 @@ func (s *BasicSuite) checkCSRs(ctx context.Context, kc *kubernetes.Clientset) er
 
 			return false, nil
 		})
+}
+
+// The subject common name of the kubelet-serving CA. This is wire format, so
+// it's spelled out here rather than taken from the code under test.
+const kubeletServingCACommonName = "kubernetes-kubelet-serving-ca"
+
+// Verifies that the kubelets' serving certificates are issued by the
+// kubelet-serving CA, and that the trust bundle for them is published.
+func (s *BasicSuite) verifyKubeletServingCerts(ctx context.Context, kc *kubernetes.Clientset, restConfig *rest.Config) {
+	s.T().Log("Waiting for the kubelet-serving CA trust bundle to be published")
+	var trustBundle []byte
+	s.Require().NoError(common.Poll(ctx, func(ctx context.Context) (bool, error) {
+		configMap, err := kc.CoreV1().ConfigMaps(metav1.NamespaceSystem).Get(ctx, "kubelet-serving-ca.crt", metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		} else if err != nil {
+			return false, err
+		}
+		trustBundle = []byte(configMap.Data["ca.crt"])
+		return true, nil
+	}))
+
+	trustBundleCerts, err := certutil.ParseCertsPEM(trustBundle)
+	s.Require().NoError(err)
+	s.Require().Len(trustBundleCerts, 2, "Trust bundle should hold the kubelet-serving CA and the cluster CA")
+	s.Equal(kubeletServingCACommonName, trustBundleCerts[0].Subject.CommonName, "Trust bundle should start with the kubelet-serving CA")
+	clusterCACerts, err := certutil.ParseCertsPEM(restConfig.CAData)
+	s.Require().NoError(err)
+	s.Require().Len(clusterCACerts, 1)
+	s.Equal(clusterCACerts[0].Raw, trustBundleCerts[1].Raw, "Trust bundle should end with the cluster CA")
+
+	trusted, clusterCA := x509.NewCertPool(), x509.NewCertPool()
+	for _, cert := range trustBundleCerts {
+		trusted.AddCert(cert)
+	}
+	clusterCA.AddCert(clusterCACerts[0])
+
+	for i := range s.WorkerCount {
+		node := s.WorkerNode(i)
+		s.T().Logf("Waiting for the serving certificate of %s to be issued", node)
+		var servingCert *x509.Certificate
+		s.Require().NoError(common.Poll(ctx, func(ctx context.Context) (bool, error) {
+			csrs, err := kc.CertificatesV1().CertificateSigningRequests().List(ctx, metav1.ListOptions{
+				FieldSelector: fields.OneTermEqualSelector("spec.signerName", "kubernetes.io/kubelet-serving").String(),
+			})
+			if err != nil {
+				return false, err
+			}
+			for _, csr := range csrs.Items {
+				if csr.Spec.Username != "system:node:"+node || len(csr.Status.Certificate) == 0 {
+					continue
+				}
+				certs, err := certutil.ParseCertsPEM(csr.Status.Certificate)
+				if err != nil {
+					return false, err
+				}
+				servingCert = certs[0]
+				return true, nil
+			}
+			return false, nil
+		}))
+
+		s.Equal(kubeletServingCACommonName, servingCert.Issuer.CommonName, "Serving certificate of %s should be issued by the kubelet-serving CA", node)
+		_, err = servingCert.Verify(x509.VerifyOptions{Roots: trusted, DNSName: node})
+		s.NoError(err, "Serving certificate of %s should verify against the trust bundle", node)
+		_, err = servingCert.Verify(x509.VerifyOptions{Roots: clusterCA, DNSName: node})
+		s.Error(err, "Serving certificate of %s should not verify against the cluster CA", node)
+	}
+
+	s.T().Log("Waiting for the kubelet-serving CA ClusterTrustBundle to be published")
+	s.Require().NoError(common.Poll(ctx, func(ctx context.Context) (bool, error) {
+		ctb, err := kc.CertificatesV1().ClusterTrustBundles().Get(ctx, "kubernetes.io:kubelet-serving:k0s", metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		} else if err != nil {
+			return false, err
+		}
+		s.Equal(string(trustBundle), ctb.Spec.TrustBundle, "ClusterTrustBundle should hold the same bundle as the ConfigMap")
+		return true, nil
+	}))
 }
 
 func getCSRApprovalReason(csr *CSR) (string, bool) {
