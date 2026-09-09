@@ -5,6 +5,7 @@ package controller
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -12,16 +13,20 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/k0sproject/k0s/internal/crypto/kdf"
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/stringslice"
 	"github.com/k0sproject/k0s/internal/pkg/users"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/certificate"
+	"github.com/k0sproject/k0s/pkg/component/controller"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	certutil "k8s.io/client-go/util/cert"
+	"k8s.io/client-go/util/keyutil"
 
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
@@ -29,7 +34,11 @@ import (
 
 // Certificates is the Component implementation to manage all k0s certs
 type Certificates struct {
-	CACert              string
+	CACert string
+	// The parsed cluster CA certificate, available after Init.
+	ClusterCACert *x509.Certificate
+	// The kubelet-serving CA, derived from the cluster CA, available after Init.
+	KubeletServingCA    *controller.KubeletServingCA
 	CertManager         certificate.Manager
 	ClusterSpec         *v1beta1.ClusterSpec
 	K0sVars             *config.CfgVars
@@ -62,6 +71,15 @@ func (c *Certificates) Init(ctx context.Context) error {
 		apiServerUID = users.RootUID
 		logrus.WithError(err).Warn("Files with key material for kube-apiserver user will be owned by root")
 	}
+	eg.Go(func() error {
+		// Kubelet-serving CA, derived from the cluster CA
+		caKey, err := os.ReadFile(caCertKey)
+		if err != nil {
+			return err
+		}
+		c.ClusterCACert, c.KubeletServingCA, err = deriveKubeletServingCA(caKey, cert)
+		return err
+	})
 	eg.Go(func() error {
 		// Front proxy CA
 		if err := c.CertManager.EnsureCA("front-proxy-ca", "kubernetes-front-proxy-ca", c.ClusterSpec.API.CA.ExpiresAfter.Duration); err != nil {
@@ -312,6 +330,38 @@ func detectLocalIPs(ctx context.Context) ([]string, error) {
 	}
 
 	return localIPs, nil
+}
+
+// Derives the kubelet-serving CA from the cluster CA's PEM-encoded key and
+// certificate. The parsed cluster CA certificate is returned along with it.
+func deriveKubeletServingCA(caKeyPEM, caCertPEM []byte) (*x509.Certificate, *controller.KubeletServingCA, error) {
+	// The key and certificate files are parsed the way the controller
+	// manager's signer parses them, so that whatever the signer accepts
+	// derives, and vice versa. In particular, the certificate file must hold
+	// a single certificate.
+	caKey, err := keyutil.ParsePrivateKeyPEM(caKeyPEM)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse cluster CA key: %w", err)
+	}
+	caCerts, err := certutil.ParseCertsPEM(caCertPEM)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse cluster CA certificate: %w", err)
+	}
+	if len(caCerts) != 1 {
+		return nil, nil, fmt.Errorf("expected exactly one cluster CA certificate, found %d", len(caCerts))
+	}
+	caCert := caCerts[0]
+
+	material, err := kdf.FromPrivateKey(caKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get key material of cluster CA key: %w", err)
+	}
+	ca, err := controller.DeriveKubeletServingCA(material, caCert)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return caCert, ca, nil
 }
 
 func kubeConfig(dest string, url *url.URL, caCert, clientCert, clientKey string, ownerID int, fileMode os.FileMode) error {
