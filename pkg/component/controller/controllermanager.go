@@ -80,6 +80,37 @@ func (a *Manager) Start(_ context.Context) error { return nil }
 func (a *Manager) Reconcile(ctx context.Context, clusterConfig *v1beta1.ClusterConfig) error {
 	logger := logrus.WithField("component", kubeControllerManagerComponent)
 	logger.Info("Starting reconcile")
+
+	args := a.buildArgs(logger, clusterConfig)
+
+	if args.Equals(a.previousConfig) && a.supervisor != nil {
+		// no changes and supervisor already running, do nothing
+		logger.Info("reconcile has nothing to do")
+		return nil
+	}
+	// Stop in case there's process running already and we need to change the config
+	if a.supervisor != nil {
+		logger.Info("reconcile has nothing to do")
+		if err := a.supervisor.Stop(); err != nil {
+			logger.WithError(err).Error("Failed to stop executable")
+		}
+		a.supervisor = nil
+	}
+
+	a.supervisor = &supervisor.Supervisor{
+		Name:    kubeControllerManagerComponent,
+		BinPath: a.executablePath,
+		RunDir:  a.K0sVars.RunDir,
+		DataDir: a.K0sVars.DataDir,
+		Args:    append(args.ToDashedArgs(), clusterConfig.Spec.ControllerManager.RawArgs...),
+		UID:     a.uid,
+	}
+	a.previousConfig = args
+	return a.supervisor.Supervise(ctx)
+}
+
+// Assembles the command line arguments for the given cluster configuration.
+func (a *Manager) buildArgs(logger logrus.FieldLogger, clusterConfig *v1beta1.ClusterConfig) stringmap.StringMap {
 	ccmAuthConf := filepath.Join(a.K0sVars.CertRootDir, "ccm.conf")
 	args := stringmap.StringMap{
 		"authentication-kubeconfig":        ccmAuthConf,
@@ -128,32 +159,7 @@ func (a *Manager) Reconcile(ctx context.Context, clusterConfig *v1beta1.ClusterC
 		args["leader-elect"] = "false"
 	}
 
-	args = featuregates.ToArgs(args, clusterConfig.Spec.FeatureGates, kubeControllerManagerComponent)
-
-	if args.Equals(a.previousConfig) && a.supervisor != nil {
-		// no changes and supervisor already running, do nothing
-		logger.Info("reconcile has nothing to do")
-		return nil
-	}
-	// Stop in case there's process running already and we need to change the config
-	if a.supervisor != nil {
-		logger.Info("reconcile has nothing to do")
-		if err := a.supervisor.Stop(); err != nil {
-			logger.WithError(err).Error("Failed to stop executable")
-		}
-		a.supervisor = nil
-	}
-
-	a.supervisor = &supervisor.Supervisor{
-		Name:    kubeControllerManagerComponent,
-		BinPath: a.executablePath,
-		RunDir:  a.K0sVars.RunDir,
-		DataDir: a.K0sVars.DataDir,
-		Args:    append(args.ToDashedArgs(), clusterConfig.Spec.ControllerManager.RawArgs...),
-		UID:     a.uid,
-	}
-	a.previousConfig = args
-	return a.supervisor.Supervise(ctx)
+	return featuregates.ToArgs(args, clusterConfig.Spec.FeatureGates, kubeControllerManagerComponent)
 }
 
 // Stop stops Manager
