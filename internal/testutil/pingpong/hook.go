@@ -18,11 +18,11 @@ func Hook() {
 func exit(err error) {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
-		os.Exit(1)
+		os.Exit(1) //nolint:revive // okay to exit here
 	}
 
 	fmt.Fprintln(os.Stderr, "PID", os.Getpid(), "says good bye!")
-	os.Exit(0)
+	os.Exit(0) //nolint:revive // okay to exit here
 }
 
 func runHook(ignoreGracefulTerminationRequests bool, hook func() error) error {

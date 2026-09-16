@@ -105,6 +105,8 @@ linters:
       rules:
         - name: confusing-results
           disabled: false
+        - name: deep-exit
+          disabled: false
         # Doesn't take comments into account.
         - name: empty-block
           disabled: true

@@ -12,7 +12,8 @@ import (
 	"testing"
 
 	"github.com/k0sproject/k0s/internal/pkg/sysinfo/probes"
-	test_sysinfo "github.com/k0sproject/k0s/internal/testutil/sysinfo"
+
+	testutilsysinfo "github.com/k0sproject/k0s/internal/testutil/sysinfo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -32,7 +33,7 @@ func TestCgroupsProbes_Probe(t *testing.T) {
 	var mockSys *mockCgroupSystem
 	var mockSysErr error
 
-	reporter := new(test_sysinfo.MockReporter)
+	reporter := new(testutilsysinfo.MockReporter)
 
 	init := func() {
 		reporter.Mock = mock.Mock{}
@@ -80,7 +81,7 @@ func TestCgroupsProbes_Probe(t *testing.T) {
 func TestCgroupsProbes_Probe_NonExistent(t *testing.T) {
 	nonExistent := filepath.Join(t.TempDir(), "non-existent")
 	path := probes.ProbePath{t.Name()}
-	reporter := new(test_sysinfo.MockReporter)
+	reporter := new(testutilsysinfo.MockReporter)
 	reporter.On("Reject", mock.Anything, mock.Anything, "").Return(nil)
 
 	underTest := newCgroupsProbes(path, nil, nonExistent)
@@ -95,7 +96,7 @@ func TestCgroupsProbes_Probe_NonExistent(t *testing.T) {
 
 func TestCgroupsProbes_Probe_CgroupV1(t *testing.T) {
 	path := probes.ProbePath{t.Name()}
-	reporter := new(test_sysinfo.MockReporter)
+	reporter := new(testutilsysinfo.MockReporter)
 	v1 := &cgroupV1{}
 	reporter.On("Reject", mock.Anything, v1, "cgroup v1 is not supported").Return(nil)
 

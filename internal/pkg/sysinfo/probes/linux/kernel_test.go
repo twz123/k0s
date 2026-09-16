@@ -12,7 +12,7 @@ import (
 
 	"github.com/k0sproject/k0s/internal/pkg/sysinfo/probes"
 
-	test_sysinfo "github.com/k0sproject/k0s/internal/testutil/sysinfo"
+	testutilsysinfo "github.com/k0sproject/k0s/internal/testutil/sysinfo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -47,7 +47,7 @@ func TestRequireKernelConfig(t *testing.T) {
 		}
 
 		t.Run("calledWhenNoError", func(t *testing.T) {
-			reporter := new(test_sysinfo.MockReporter)
+			reporter := new(testutilsysinfo.MockReporter)
 			reporter.On("Pass", mock.MatchedBy(func(desc probes.ProbeDesc) bool {
 				if (probes.ProbePath{"IKCONFIG"}).Equal(desc.Path()) {
 					assert.Equal(t, "CONFIG_IKCONFIG: ikconfig", desc.DisplayName())
@@ -71,7 +71,7 @@ func TestRequireKernelConfig(t *testing.T) {
 
 		t.Run("notCalledOnError", func(t *testing.T) {
 			expectedErr := errors.New("dummy")
-			reporter := new(test_sysinfo.MockReporter)
+			reporter := new(testutilsysinfo.MockReporter)
 			reporter.On("Pass", mock.MatchedBy(func(desc probes.ProbeDesc) bool {
 				return probes.ProbePath{"IKCONFIG"}.Equal(desc.Path())
 			}), kConfigBuiltIn).Return(expectedErr)
@@ -85,7 +85,7 @@ func TestRequireKernelConfig(t *testing.T) {
 		t.Run("warnsIfNotFound", func(t *testing.T) {
 			var expectedErr noKConfigsFound
 			c["IKCONFIG"] = configResult{kConfigUnknown, &expectedErr}
-			reporter := new(test_sysinfo.MockReporter)
+			reporter := new(testutilsysinfo.MockReporter)
 			reporter.On("Warn", mock.Anything, &expectedErr, "").Return(nil)
 
 			err := linux.Probes.Probe(reporter)
