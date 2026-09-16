@@ -253,17 +253,16 @@ func (s *DualstackSuite) SetupSuite() {
 	}
 }
 
-func (s *DualstackSuite) getPodIPs(pod *corev1.Pod) (string, string) {
+func (s *DualstackSuite) getPodIPs(pod *corev1.Pod) (ipv4, ipv6 string) {
 	s.Require().Len(pod.Status.PodIPs, 2)
-	ipv4, ipv6 := pod.Status.PodIPs[0].IP, pod.Status.PodIPs[1].IP
+	ipv4, ipv6 = pod.Status.PodIPs[0].IP, pod.Status.PodIPs[1].IP
 	if s.defaultIPv6 {
 		ipv4, ipv6 = pod.Status.PodIPs[1].IP, pod.Status.PodIPs[0].IP
 	}
 	s.Require().NotNil(net.ParseIP(ipv4).To4(), "pod has an unexpected non IPv4 address %q", ipv4)
 	s.Require().Nil(net.ParseIP(ipv6).To4(), "pod has an unexpected IPv4 address %q", ipv6)
 	s.Require().NotNil(net.ParseIP(ipv6).To16(), "pod has an unexpected non IPv6 address %q", ipv6)
-
-	return ipv4, ipv6
+	return
 }
 
 func (s *DualstackSuite) validateKubeDNSIP(client *kubernetes.Clientset) {

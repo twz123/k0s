@@ -19,7 +19,7 @@ type removedAPI struct {
 
 // If candidate has been removed, returns the kubernetes version in which it was removed
 // and the current version for Group Kind.
-func removedInVersion(candidate schema.GroupVersionKind) (string, string) {
+func removedInVersion(candidate schema.GroupVersionKind) (removedInVersion, currentVersion string) {
 	if idx, found := sort.Find(len(removedGVKs), func(i int) int {
 		if cmp := cmp.Compare(candidate.Group, removedGVKs[i].group); cmp != 0 {
 			return cmp

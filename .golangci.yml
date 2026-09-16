@@ -103,6 +103,8 @@ linters:
     revive:
       enable-default-rules: true # This is required as soon as individual rules get listed.
       rules:
+        - name: confusing-results
+          disabled: false
         # Doesn't take comments into account.
         - name: empty-block
           disabled: true

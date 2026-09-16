@@ -27,7 +27,7 @@ func (a *Airgap) LockdownMachines(ctx context.Context, nodes ...string) error {
 
 	if err := tryBlockIPv6(); err != nil {
 		a.Logf("Not blocking IPv6: %v", err)
-		v6CIDRs = ""
+		v6CIDRs = nil
 	}
 
 	a.Logf("Allowed CIDRs: %v %v", v4CIDRs, v6CIDRs)
@@ -69,15 +69,15 @@ func tryBlockIPv6() error {
 	return err
 }
 
-func getPrivateCIDRs() (string, string, error) {
-	v4CIDRs := []net.IPNet{
+func getPrivateCIDRs() (v4, v6 []net.IPNet, _ error) {
+	v4 = []net.IPNet{
 		{IP: net.IP{127, 0, 0, 0}, Mask: net.IPv4Mask(255, 0, 0, 0)},
 		{IP: net.IP{10, 0, 0, 0}, Mask: net.IPv4Mask(255, 0, 0, 0)},
 		{IP: net.IP{172, 16, 0, 0}, Mask: net.IPv4Mask(255, 240, 0, 0)},
 		{IP: net.IP{192, 168, 0, 0}, Mask: net.IPv4Mask(255, 255, 0, 0)},
 	}
 
-	v6CIDRs := []net.IPNet{
+	v6 = []net.IPNet{
 		{ // Unique Local Addresses
 			IP:   net.IP{0xfc, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 			Mask: net.CIDRMask(7, 8*net.IPv6len),
@@ -94,7 +94,7 @@ func getPrivateCIDRs() (string, string, error) {
 
 	localAddrs, err := net.InterfaceAddrs()
 	if err != nil {
-		return "", "", err
+		return nil, nil, err
 	}
 
 localAddrs:
@@ -105,42 +105,34 @@ localAddrs:
 		}
 
 		if ip := ipnet.IP.To4(); ip != nil {
-			for _, cidr := range v4CIDRs {
+			for _, cidr := range v4 {
 				if cidr.Contains(ip) {
 					continue localAddrs
 				}
 			}
 
-			v4CIDRs = append(v4CIDRs, net.IPNet{
+			v4 = append(v4, net.IPNet{
 				IP:   ip,
 				Mask: net.IPv4Mask(255, 255, 255, 255),
 			})
 		} else if ip := ipnet.IP.To16(); ip != nil {
-			for _, cidr := range v6CIDRs {
+			for _, cidr := range v6 {
 				if cidr.Contains(ip) {
 					continue localAddrs
 				}
 			}
 
-			v6CIDRs = append(v6CIDRs, net.IPNet{
+			v6 = append(v6, net.IPNet{
 				IP:   ip,
 				Mask: net.CIDRMask(8*net.IPv6len, 8*net.IPv6len),
 			})
 		}
 	}
 
-	var v4CIDRStrings, v6CIDRStrings []string
-	for _, cidr := range v4CIDRs {
-		v4CIDRStrings = append(v4CIDRStrings, cidr.String())
-	}
-	for _, cidr := range v6CIDRs {
-		v6CIDRStrings = append(v6CIDRStrings, cidr.String())
-	}
-
-	return strings.Join(v4CIDRStrings, " "), strings.Join(v6CIDRStrings, " "), nil
+	return v4, v6, nil
 }
 
-func (a *Airgap) airgapMachine(ctx context.Context, name, v4CIDRs, v6CIDRs string) error {
+func (a *Airgap) airgapMachine(ctx context.Context, name string, v4CIDRs, v6CIDRs []net.IPNet) error {
 	const airgapScript = `
 		apk add --no-cache %s
 		v4Cidrs='%s'
@@ -170,15 +162,29 @@ func (a *Airgap) airgapMachine(ctx context.Context, name, v4CIDRs, v6CIDRs strin
 	`
 
 	var packages []string
-	if v4CIDRs != "" {
+	if len(v4CIDRs) > 0 {
 		packages = append(packages, "iptables")
 	}
-	if v6CIDRs != "" {
+	if len(v6CIDRs) > 0 {
 		packages = append(packages, "ip6tables")
 	}
 
 	if len(packages) < 1 {
 		return nil
+	}
+
+	cidrs := func(cidrs []net.IPNet) string {
+		if len(cidrs) < 1 {
+			return ""
+		}
+		var out strings.Builder
+		out.WriteString(cidrs[0].String())
+		cidrs = cidrs[1:]
+		for i := range cidrs {
+			out.WriteByte(' ')
+			out.WriteString(cidrs[i].String())
+		}
+		return out.String()
 	}
 
 	a.Logf("Airgapping %s", name)
@@ -190,6 +196,6 @@ func (a *Airgap) airgapMachine(ctx context.Context, name, v4CIDRs, v6CIDRs strin
 	defer ssh.Disconnect()
 
 	return ssh.Exec(ctx, "sh -e -", SSHStreams{
-		In: strings.NewReader(fmt.Sprintf(airgapScript, strings.Join(packages, " "), v4CIDRs, v6CIDRs)),
+		In: strings.NewReader(fmt.Sprintf(airgapScript, strings.Join(packages, " "), cidrs(v4CIDRs), cidrs(v6CIDRs))),
 	})
 }
