@@ -107,6 +107,14 @@ linters:
           disabled: false
         - name: deep-exit
           disabled: false
+
+        # import-alias-naming
+        # package-directory-mismatch
+        # package-naming
+        # redundant-import-alias
+        # unexported-naming
+        # unsecure-url-scheme
+
         # Doesn't take comments into account.
         - name: empty-block
           disabled: true
