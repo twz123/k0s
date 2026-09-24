@@ -14,7 +14,10 @@ import (
 	"time"
 
 	"github.com/k0sproject/k0s/internal/crypto/kdf"
+	"github.com/k0sproject/k0s/internal/testutil"
+	"github.com/k0sproject/k0s/pkg/applier"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	certutil "k8s.io/client-go/util/cert"
 	"k8s.io/client-go/util/keyutil"
 
@@ -102,4 +105,24 @@ func TestKubeletServingTrustBundle(t *testing.T) {
 	require.Len(t, certs, 2, "Bundle should hold exactly two certificates")
 	assert.Equal(t, ca.Cert.Raw, certs[0].Raw, "Bundle should start with the kubelet-serving CA")
 	assert.Equal(t, clusterCACert.Raw, certs[1].Raw, "Bundle should end with the cluster CA")
+}
+
+func TestKubeletServingCAPublisher(t *testing.T) {
+	ca, clusterCACert := newTestKubeletServingCA(t)
+	bundle := kubeletServingTrustBundle(ca, clusterCACert)
+
+	clients := testutil.NewFakeClientFactory()
+	underTest := KubeletServingCAPublisher{KubeletServingCA: ca, ClusterCACert: clusterCACert, Clients: clients}
+	require.NoError(t, underTest.Init(t.Context()))
+	require.NoError(t, underTest.Start(t.Context()))
+	t.Cleanup(func() { assert.NoError(t, underTest.Stop()) })
+
+	ctx := t.Context()
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		configMap, err := clients.Client.CoreV1().ConfigMaps("kube-system").Get(ctx, "kubelet-serving-ca.crt", metav1.GetOptions{})
+		if assert.NoError(t, err, "ConfigMap should have been published") {
+			assert.Equal(t, map[string]string{"ca.crt": string(bundle)}, configMap.Data, "ConfigMap should contain the bundle verbatim")
+			assert.Equal(t, kubeletServingCAStackName, configMap.Labels[applier.NameLabel], "ConfigMap should belong to the stack")
+		}
+	}, 10*time.Second, 10*time.Millisecond)
 }
