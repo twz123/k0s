@@ -10,6 +10,8 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
+	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -17,7 +19,12 @@ import (
 	"github.com/k0sproject/k0s/internal/testutil"
 	"github.com/k0sproject/k0s/pkg/applier"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/discovery/cached/memory"
+	discoveryfake "k8s.io/client-go/discovery/fake"
+	clienttesting "k8s.io/client-go/testing"
 	certutil "k8s.io/client-go/util/cert"
 	"k8s.io/client-go/util/keyutil"
 
@@ -111,18 +118,110 @@ func TestKubeletServingCAPublisher(t *testing.T) {
 	ca, clusterCACert := newTestKubeletServingCA(t)
 	bundle := kubeletServingTrustBundle(ca, clusterCACert)
 
-	clients := testutil.NewFakeClientFactory()
-	underTest := KubeletServingCAPublisher{KubeletServingCA: ca, ClusterCACert: clusterCACert, Clients: clients}
-	require.NoError(t, underTest.Init(t.Context()))
-	require.NoError(t, underTest.Start(t.Context()))
-	t.Cleanup(func() { assert.NoError(t, underTest.Stop()) })
-
-	ctx := t.Context()
-	require.EventuallyWithT(t, func(t *assert.CollectT) {
-		configMap, err := clients.Client.CoreV1().ConfigMaps("kube-system").Get(ctx, "kubelet-serving-ca.crt", metav1.GetOptions{})
-		if assert.NoError(t, err, "ConfigMap should have been published") {
-			assert.Equal(t, map[string]string{"ca.crt": string(bundle)}, configMap.Data, "ConfigMap should contain the bundle verbatim")
-			assert.Equal(t, kubeletServingCAStackName, configMap.Labels[applier.NameLabel], "ConfigMap should belong to the stack")
+	// Starts a publisher and waits until it has published, using a fake API
+	// server that serves ClusterTrustBundles unless requested otherwise.
+	publish := func(t *testing.T, clusterTrustBundles bool) *testutil.FakeClientFactory {
+		t.Helper()
+		clients := testutil.NewFakeClientFactory()
+		if !clusterTrustBundles {
+			for _, list := range clients.DynamicClient.Resources {
+				if list.GroupVersion == "certificates.k8s.io/v1" {
+					list.APIResources = slices.DeleteFunc(list.APIResources, func(resource metav1.APIResource) bool {
+						return resource.Name == "clustertrustbundles"
+					})
+				}
+			}
 		}
-	}, 10*time.Second, 10*time.Millisecond)
+
+		underTest := KubeletServingCAPublisher{KubeletServingCA: ca, ClusterCACert: clusterCACert, Clients: clients}
+		require.NoError(t, underTest.Init(t.Context()))
+		require.NoError(t, underTest.Start(t.Context()))
+		t.Cleanup(func() { assert.NoError(t, underTest.Stop()) })
+
+		// The ConfigMap is the last resource to be applied.
+		ctx := t.Context()
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			_, err := clients.Client.CoreV1().ConfigMaps("kube-system").Get(ctx, "kubelet-serving-ca.crt", metav1.GetOptions{})
+			assert.NoError(t, err)
+		}, 10*time.Second, 10*time.Millisecond, "ConfigMap should have been published")
+		return clients
+	}
+
+	assertConfigMap := func(t *testing.T, clients *testutil.FakeClientFactory) {
+		t.Helper()
+		configMap, err := clients.Client.CoreV1().ConfigMaps("kube-system").Get(t.Context(), "kubelet-serving-ca.crt", metav1.GetOptions{})
+		require.NoError(t, err, "ConfigMap should have been published")
+		assert.Equal(t, map[string]string{"ca.crt": string(bundle)}, configMap.Data, "ConfigMap should contain the bundle verbatim")
+		assert.Equal(t, kubeletServingCAStackName, configMap.Labels[applier.NameLabel], "ConfigMap should belong to the stack")
+	}
+
+	t.Run("publishes a ConfigMap", func(t *testing.T) {
+		clients := publish(t, false)
+		assertConfigMap(t, clients)
+
+		_, err := clients.Client.CertificatesV1().ClusterTrustBundles().Get(t.Context(), "kubernetes.io:kubelet-serving:k0s", metav1.GetOptions{})
+		assert.True(t, apierrors.IsNotFound(err), "ClusterTrustBundle should not have been published: %v", err)
+	})
+
+	t.Run("publishes a ClusterTrustBundle if served", func(t *testing.T) {
+		clients := publish(t, true)
+		assertConfigMap(t, clients)
+
+		ctb, err := clients.Client.CertificatesV1().ClusterTrustBundles().Get(t.Context(), "kubernetes.io:kubelet-serving:k0s", metav1.GetOptions{})
+		require.NoError(t, err, "ClusterTrustBundle should have been published")
+		assert.Equal(t, kubeletServingCAStackName, ctb.Labels[applier.NameLabel], "ClusterTrustBundle should belong to the stack")
+		assert.Equal(t, "kubernetes.io/kubelet-serving", ctb.Spec.SignerName)
+		assert.Equal(t, string(bundle), ctb.Spec.TrustBundle, "ClusterTrustBundle should contain the bundle verbatim")
+	})
+}
+
+func TestServesClusterTrustBundles(t *testing.T) {
+	newDiscovery := func(resources ...*metav1.APIResourceList) *discoveryfake.FakeDiscovery {
+		return &discoveryfake.FakeDiscovery{Fake: &clienttesting.Fake{Resources: resources}}
+	}
+
+	t.Run("served", func(t *testing.T) {
+		served, err := servesClusterTrustBundles(t.Context(), newDiscovery(&metav1.APIResourceList{
+			GroupVersion: "certificates.k8s.io/v1",
+			APIResources: []metav1.APIResource{{Name: "certificatesigningrequests"}, {Name: "clustertrustbundles"}},
+		}))
+		require.NoError(t, err)
+		assert.True(t, served, "ClusterTrustBundles should be reported as served")
+	})
+
+	t.Run("not served", func(t *testing.T) {
+		served, err := servesClusterTrustBundles(t.Context(), newDiscovery(&metav1.APIResourceList{
+			GroupVersion: "certificates.k8s.io/v1",
+			APIResources: []metav1.APIResource{{Name: "certificatesigningrequests"}},
+		}))
+		require.NoError(t, err)
+		assert.False(t, served, "ClusterTrustBundles should not be reported as served")
+	})
+
+	t.Run("only served in a beta version", func(t *testing.T) {
+		served, err := servesClusterTrustBundles(t.Context(), newDiscovery(&metav1.APIResourceList{
+			GroupVersion: "certificates.k8s.io/v1beta1",
+			APIResources: []metav1.APIResource{{Name: "clustertrustbundles"}},
+		}))
+		require.NoError(t, err)
+		assert.False(t, served, "Only the stable API version counts")
+	})
+
+	t.Run("group version unknown to a cached client", func(t *testing.T) {
+		served, err := servesClusterTrustBundles(t.Context(), memory.NewMemCacheClient(newDiscovery(&metav1.APIResourceList{
+			GroupVersion: "certificates.k8s.io/v1beta1",
+			APIResources: []metav1.APIResource{{Name: "clustertrustbundles"}},
+		})))
+		require.NoError(t, err)
+		assert.False(t, served, "An unknown group version should count as not served")
+	})
+
+	t.Run("discovery fails", func(t *testing.T) {
+		discovery := newDiscovery()
+		discovery.PrependReactor("get", "resource", func(clienttesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("something went wrong")
+		})
+		_, err := servesClusterTrustBundles(t.Context(), discovery)
+		assert.ErrorContains(t, err, "something went wrong")
+	})
 }
