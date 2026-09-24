@@ -17,6 +17,7 @@ limitations under the License.
 package cgroup
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -50,6 +51,9 @@ func (l *Layout) Init(ctx context.Context) error {
 		log.Info("Skipping cgroups setup: only unified mode is supported")
 		return nil
 	}
+
+	// FIXME check with external container runtime, if that's using systemd or not.
+	// K0s might turn on cgroup delegation then.
 
 	if !systemd.IsRunningSystemd() {
 		log.Debug("Not using systemd integration, no systemd found")
@@ -105,15 +109,13 @@ func inspectSystemdUnit(ctx context.Context, log logrus.FieldLogger, unitName st
 	}
 	log.Info("ControlGroup: ", controlGroup)
 
-	// This won't be present on slices.
-	var slice string
-	if _, kind := cutUnitKind(unitName); kind != "slice" {
-		slice, err = castValue[string](props, "Slice")
-		if err != nil {
-			return nil, err
-		}
-		log.Info("Slice: ", slice)
+	// This won't be present on slices, but slices cannot contain processes,
+	// so the unit should be a service/scope in any case.
+	slice, err := castValue[string](props, "Slice")
+	if err != nil {
+		return nil, err
 	}
+	log.Info("Slice: ", slice)
 
 	delegate, err := castValue[bool](props, "Delegate")
 	if err != nil {
@@ -133,45 +135,42 @@ func (l *Layout) systemdSetup(ctx context.Context, log logrus.FieldLogger, rootI
 	// Not that the root unit will always be a service or scope, as it's the
 	// unit of which this process is part of, and slices cannot contain
 	// processes.
-	// parentSlice := cmp.Or(rootInfo.slice, "system.slice")
-	// rootName := trimUnitKind(rootInfo.name) + ".slice"
-	// if !strings.HasPrefix(rootName, "k0s") {
-	// 	rootName = "k0s" + rootName
-	// }
+	parentSlice := cmp.Or(rootInfo.slice, "system.slice")
+	rootName := "k0s.slice"
 
 	// FIXME decide if the following things are hard errors, i.e. will stop k0s.
 
 	// FIXME need to deal with an existing slice here?
 
 	// This should contain the kube pods.
-	// rootMgr, err := cgroup2.NewSystemd(parentSlice, rootName, -1, nil)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to create %s: %w", rootName, err)
-	// }
+	rootMgr, err := cgroup2.NewSystemd(parentSlice, rootName, -1, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create %s: %w", rootName, err)
+	}
 
-	// podsMgr, err := cgroup2.NewSystemd(rootSlice, "pods.slice", -1, nil)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to create pods.slice: %w", err)
-	// }
+	podsMgr, err := cgroup2.NewSystemd(rootSlice, "pods.slice", -1, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create pods.slice: %w", err)
+	}
 
-	// nodeMgr.NewChild()
+	nodeMgr.NewChild()
 
 	// // No need to deal with systemd here, as this cgroup already exists.
-	// rootMgr, err := cgroup2.Load(rootInfo.controlGroup)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to load cgroup %s: %w", rootInfo.controlGroup, err)
-	// }
+	rootMgr, err := cgroup2.Load(rootInfo.controlGroup)
+	if err != nil {
+		return fmt.Errorf("failed to load cgroup %s: %w", rootInfo.controlGroup, err)
+	}
 
-	// pids, err := rootMgr.Procs(false)
+	pids, err := rootMgr.Procs(false)
 
-	// pids, err = rootMgr.GetPids()
-	// if err != nil {
-	// 	return err
-	// }
-	// if len(pids) != 1 {
-	// 	// FIXME Maybe use the parent slice then?
-	// 	return fmt.Errorf("expected a single PID in %s: %v", rootInfo.name, pids)
-	// }
+	pids, err = rootMgr.GetPids()
+	if err != nil {
+		return err
+	}
+	if len(pids) != 1 {
+		// FIXME Maybe use the parent slice then?
+		return fmt.Errorf("expected a single PID in %s: %v", rootInfo.name, pids)
+	}
 
 	// nodeMgr, err := systemd.NewUnifiedManager(&configs.Cgroup{
 	// 	ScopePrefix: "k0s",
