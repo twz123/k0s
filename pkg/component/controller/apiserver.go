@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/yaml"
 
+	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
 	"github.com/k0sproject/k0s/internal/pkg/templatewriter"
 	"github.com/k0sproject/k0s/internal/pkg/users"
@@ -42,6 +43,10 @@ type APIServer struct {
 	EnableKonnectivity        bool
 	DisableEndpointReconciler bool
 	StopTimeout               time.Duration
+	// The kubelet-serving CA and the cluster CA certificate, which make up the
+	// trust bundle for kubelet serving certificates.
+	KubeletServingCA *KubeletServingCA
+	ClusterCACert    *x509.Certificate
 
 	supervisor     *supervisor.Supervisor
 	executablePath string
@@ -87,8 +92,22 @@ func (a *APIServer) Init(_ context.Context) error {
 		a.uid = users.RootUID
 		logrus.WithError(err).Warn("Running Kubernetes API server as root")
 	}
+	if err := a.writeKubeletServingCABundle(); err != nil {
+		return err
+	}
 	a.executablePath, err = assets.StageExecutable(a.K0sVars.BinDir, kubeAPIComponentName)
 	return err
+}
+
+// Writes the trust bundle for kubelet serving certificates to the run
+// directory, for the API server to verify the certificates that kubelets serve.
+func (a *APIServer) writeKubeletServingCABundle() error {
+	bundle := kubeletServingTrustBundle(a.KubeletServingCA, a.ClusterCACert)
+	path := filepath.Join(a.K0sVars.RunDir, kubeletServingCABundleFile)
+	if err := file.WriteContentAtomically(path, bundle, constant.CertMode); err != nil {
+		return fmt.Errorf("failed to write kubelet-serving CA trust bundle: %w", err)
+	}
+	return nil
 }
 
 // buildSupervisor constructs and configures the supervisor for the kube-apiserver
@@ -117,7 +136,7 @@ func (a *APIServer) buildSupervisor() (*supervisor.Supervisor, error) {
 		"service-account-jwks-uri":         "https://kubernetes.default.svc/openid/v1/jwks",
 		"profiling":                        "false",
 		"v":                                a.LogLevel,
-		"kubelet-certificate-authority":    filepath.Join(a.K0sVars.CertRootDir, "ca.crt"),
+		"kubelet-certificate-authority":    filepath.Join(a.K0sVars.RunDir, kubeletServingCABundleFile),
 		"enable-admission-plugins":         "NodeRestriction",
 	}
 
@@ -143,6 +162,11 @@ func (a *APIServer) buildSupervisor() (*supervisor.Supervisor, error) {
 			logrus.Warnf("overriding apiserver flag with user provided value: %s", name)
 		}
 		args[name] = value
+	}
+	if kubeletCA, ok := a.NodeConfig.Spec.API.ExtraArgs["kubelet-certificate-authority"]; ok {
+		logrus.WithField("kubelet-certificate-authority", kubeletCA).Warn(
+			"The kubelet certificate authority has been overridden, the file must contain the kubelet-serving CA for the API server to be able to connect to kubelets",
+		)
 	}
 	args = featuregates.ToArgs(args, a.NodeConfig.Spec.FeatureGates, kubeAPIComponentName)
 

@@ -6,6 +6,7 @@ package controller
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
@@ -22,6 +23,52 @@ func TestApiServerSuite(t *testing.T) {
 	apiServerSuite := &apiServerSuite{}
 
 	suite.Run(t, apiServerSuite)
+}
+
+func (a *apiServerSuite) TestKubeletCertificateAuthority() {
+	k0sVars, err := config.NewCfgVars(nil, a.T().TempDir())
+	a.Require().NoError(err)
+	bundleArg := "--kubelet-certificate-authority=" + filepath.Join(k0sVars.RunDir, kubeletServingCABundleFile)
+
+	buildArgs := func(extraArgs map[string]string) []string {
+		nodeConfig := v1beta1.DefaultClusterConfig()
+		nodeConfig.Spec.API.ExtraArgs = extraArgs
+		apiServer := APIServer{NodeConfig: nodeConfig, K0sVars: k0sVars}
+		sup, err := apiServer.buildSupervisor()
+		a.Require().NoError(err)
+		return sup.Args
+	}
+
+	a.Run("trusts the kubelet-serving CA bundle", func() {
+		a.Contains(buildArgs(nil), bundleArg, "Expected the API server to use the bundle")
+	})
+
+	a.Run("passes overrides through", func() {
+		args := buildArgs(map[string]string{"kubelet-certificate-authority": "/some/where/else.crt"})
+		a.Contains(args, "--kubelet-certificate-authority=/some/where/else.crt", "Expected the override to be used")
+		a.NotContains(args, bundleArg, "Expected the bundle not to be used")
+	})
+}
+
+func (a *apiServerSuite) TestWriteKubeletServingCABundle() {
+	k0sVars, err := config.NewCfgVars(nil, a.T().TempDir())
+	a.Require().NoError(err)
+	a.Require().NoError(os.MkdirAll(k0sVars.RunDir, 0755))
+	ca, clusterCACert := newTestKubeletServingCA(a.T())
+
+	apiServer := APIServer{K0sVars: k0sVars, KubeletServingCA: ca, ClusterCACert: clusterCACert}
+	a.Require().NoError(apiServer.writeKubeletServingCABundle())
+
+	path := filepath.Join(k0sVars.RunDir, kubeletServingCABundleFile)
+	content, err := os.ReadFile(path)
+	a.Require().NoError(err, "Bundle should have been written")
+	a.Equal(string(kubeletServingTrustBundle(ca, clusterCACert)), string(content), "Unexpected bundle content")
+
+	if runtime.GOOS != "windows" { // No UNIX-style permissions on Windows
+		if info, err := os.Stat(path); a.NoError(err) {
+			a.Equal(os.FileMode(0644), info.Mode().Perm(), "Unexpected permissions on the bundle")
+		}
+	}
 }
 
 func (a *apiServerSuite) TestAuthenticationConfigHasAnonymous() {

@@ -91,3 +91,15 @@ func newTestKubeletServingCA(t *testing.T) (*KubeletServingCA, *x509.Certificate
 	require.NoError(t, err)
 	return ca, clusterCACert
 }
+
+func TestKubeletServingTrustBundle(t *testing.T) {
+	ca, clusterCACert := newTestKubeletServingCA(t)
+
+	bundle := kubeletServingTrustBundle(ca, clusterCACert)
+
+	certs, err := certutil.ParseCertsPEM(bundle)
+	require.NoError(t, err)
+	require.Len(t, certs, 2, "Bundle should hold exactly two certificates")
+	assert.Equal(t, ca.Cert.Raw, certs[0].Raw, "Bundle should start with the kubelet-serving CA")
+	assert.Equal(t, clusterCACert.Raw, certs[1].Raw, "Bundle should end with the cluster CA")
+}

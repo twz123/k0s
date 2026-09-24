@@ -329,12 +329,25 @@ func (c *command) start(ctx context.Context, runtimeConfig *config.RuntimeConfig
 		})
 	}
 
+	perfTimer.Checkpoint("starting-certificates-init")
+	certs := &Certificates{
+		ClusterSpec:         nodeConfig.Spec,
+		CertManager:         certificateManager,
+		K0sVars:             c.K0sVars,
+		KonnectivityEnabled: enableKonnectivity,
+	}
+	if err := certs.Init(ctx); err != nil {
+		return err
+	}
+
 	nodeComponents.Add(ctx, &controller.APIServer{
 		NodeConfig:         nodeConfig,
 		K0sVars:            c.K0sVars,
 		LogLevel:           c.LogLevels.KubeAPIServer,
 		EnableKonnectivity: enableKonnectivity,
 		StopTimeout:        flags.APIServerStopTimeout,
+		KubeletServingCA:   certs.KubeletServingCA,
+		ClusterCACert:      certs.ClusterCACert,
 
 		// If k0s reconciles the kubernetes endpoint, the API server shouldn't do it.
 		DisableEndpointReconciler: enableK0sEndpointReconciler,
@@ -438,17 +451,6 @@ func (c *command) start(ctx context.Context, runtimeConfig *config.RuntimeConfig
 		statusComponent.CertManager = worker.NewCertificateManager(worker.DirectKubeletKubeconfigPath(c.K0sVars))
 	}
 	nodeComponents.Add(ctx, &statusComponent)
-
-	perfTimer.Checkpoint("starting-certificates-init")
-	certs := &Certificates{
-		ClusterSpec:         nodeConfig.Spec,
-		CertManager:         certificateManager,
-		K0sVars:             c.K0sVars,
-		KonnectivityEnabled: enableKonnectivity,
-	}
-	if err := certs.Init(ctx); err != nil {
-		return err
-	}
 
 	perfTimer.Checkpoint("starting-node-component-init")
 	// init Node components

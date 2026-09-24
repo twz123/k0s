@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"slices"
 
 	"github.com/k0sproject/k0s/internal/crypto/kdf"
 	"github.com/k0sproject/k0s/internal/crypto/pki"
@@ -81,4 +82,19 @@ func (ca *KubeletServingCA) KeyPEM() ([]byte, error) {
 // CertPEM returns the PEM-encoded CA certificate.
 func (ca *KubeletServingCA) CertPEM() []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: certutil.CertificateBlockType, Bytes: ca.Cert.Raw})
+}
+
+// The file in the run directory that holds the trust bundle for kubelet
+// serving certificates.
+const kubeletServingCABundleFile = "kubelet-serving-ca-bundle.crt"
+
+// Assembles the PEM-encoded trust bundle for kubelet serving certificates: the
+// kubelet-serving CA certificate, followed by the cluster CA certificate, so
+// that kubelet serving certificates issued by the cluster CA remain trusted.
+// The cluster CA certificate is re-encoded, so that the bundle doesn't depend
+// on how the cluster CA certificate file is formatted.
+func kubeletServingTrustBundle(ca *KubeletServingCA, clusterCACert *x509.Certificate) []byte {
+	return slices.Concat(ca.CertPEM(), pem.EncodeToMemory(&pem.Block{
+		Type: certutil.CertificateBlockType, Bytes: clusterCACert.Raw,
+	}))
 }
