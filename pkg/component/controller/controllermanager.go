@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/flags"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
 	"github.com/k0sproject/k0s/internal/pkg/users"
@@ -32,6 +34,10 @@ type Manager struct {
 	ServiceClusterIPRange string
 	PrimaryAddressFamily  v1beta1.PrimaryAddressFamilyType
 	ExtraArgs             string
+	// The CA for the kubernetes.io/kubelet-serving signer. If nil, kubelet
+	// serving certificates are issued by the cluster CA, like the
+	// certificates of all the other signers.
+	KubeletServingCA *KubeletServingCA
 
 	supervisor     *supervisor.Supervisor
 	executablePath string
@@ -69,8 +75,40 @@ func (a *Manager) Init(_ context.Context) error {
 	if err := os.Chown(filepath.Join(a.K0sVars.CertRootDir, "ca.key"), a.uid, -1); err != nil && os.Geteuid() == 0 {
 		logrus.Warn("failed to change permissions for the ca.key: ", err)
 	}
+	if err := a.writeKubeletServingCA(); err != nil {
+		return err
+	}
 	a.executablePath, err = assets.StageExecutable(a.K0sVars.BinDir, kubeControllerManagerComponent)
 	return err
+}
+
+// Writes the kubelet-serving CA's key and certificate to the run directory,
+// for the kubernetes.io/kubelet-serving signer. Does nothing if there's no
+// kubelet-serving CA. The key is owned by the controller manager's user, like
+// the cluster CA key.
+func (a *Manager) writeKubeletServingCA() error {
+	if a.KubeletServingCA == nil {
+		return nil
+	}
+
+	keyPEM, err := a.KubeletServingCA.KeyPEM()
+	if err != nil {
+		return fmt.Errorf("failed to encode kubelet-serving CA key: %w", err)
+	}
+	keyFile := filepath.Join(a.K0sVars.RunDir, kubeletServingCAKeyFile)
+	if err := file.WriteContentAtomically(keyFile, keyPEM, constant.CertSecureMode); err != nil {
+		return fmt.Errorf("failed to write kubelet-serving CA key: %w", err)
+	}
+	if err := file.Chown(keyFile, a.uid, constant.CertSecureMode); err != nil {
+		return fmt.Errorf("failed to change ownership of kubelet-serving CA key: %w", err)
+	}
+
+	certFile := filepath.Join(a.K0sVars.RunDir, kubeletServingCACertFile)
+	if err := file.WriteContentAtomically(certFile, a.KubeletServingCA.CertPEM(), constant.CertMode); err != nil {
+		return fmt.Errorf("failed to write kubelet-serving CA certificate: %w", err)
+	}
+
+	return nil
 }
 
 // Run runs kube Manager
@@ -112,21 +150,34 @@ func (a *Manager) Reconcile(ctx context.Context, clusterConfig *v1beta1.ClusterC
 // Assembles the command line arguments for the given cluster configuration.
 func (a *Manager) buildArgs(logger logrus.FieldLogger, clusterConfig *v1beta1.ClusterConfig) stringmap.StringMap {
 	ccmAuthConf := filepath.Join(a.K0sVars.CertRootDir, "ccm.conf")
+	caCert, caKey := filepath.Join(a.K0sVars.CertRootDir, "ca.crt"), filepath.Join(a.K0sVars.CertRootDir, "ca.key")
 	args := stringmap.StringMap{
 		"authentication-kubeconfig":        ccmAuthConf,
 		"authorization-kubeconfig":         ccmAuthConf,
 		"kubeconfig":                       ccmAuthConf,
-		"client-ca-file":                   filepath.Join(a.K0sVars.CertRootDir, "ca.crt"),
-		"cluster-signing-cert-file":        filepath.Join(a.K0sVars.CertRootDir, "ca.crt"),
-		"cluster-signing-key-file":         filepath.Join(a.K0sVars.CertRootDir, "ca.key"),
+		"client-ca-file":                   caCert,
 		"requestheader-client-ca-file":     filepath.Join(a.K0sVars.CertRootDir, "front-proxy-ca.crt"),
-		"root-ca-file":                     filepath.Join(a.K0sVars.CertRootDir, "ca.crt"),
+		"root-ca-file":                     caCert,
 		"service-account-private-key-file": filepath.Join(a.K0sVars.CertRootDir, "sa.key"),
 		"cluster-cidr":                     clusterConfig.Spec.Network.BuildPodCIDR(a.PrimaryAddressFamily),
 		"service-cluster-ip-range":         a.ServiceClusterIPRange,
 		"profiling":                        "false",
 		"terminated-pod-gc-threshold":      "12500",
 		"v":                                a.LogLevel,
+	}
+
+	if a.KubeletServingCA != nil {
+		// Kubelet serving certificates are issued by their own CA. Once a
+		// signer has files of its own, so must all the others.
+		args["cluster-signing-kubelet-serving-cert-file"] = filepath.Join(a.K0sVars.RunDir, kubeletServingCACertFile)
+		args["cluster-signing-kubelet-serving-key-file"] = filepath.Join(a.K0sVars.RunDir, kubeletServingCAKeyFile)
+		for _, signer := range []string{"kubelet-client", "kube-apiserver-client", "legacy-unknown"} {
+			args["cluster-signing-"+signer+"-cert-file"] = caCert
+			args["cluster-signing-"+signer+"-key-file"] = caKey
+		}
+	} else {
+		args["cluster-signing-cert-file"] = caCert
+		args["cluster-signing-key-file"] = caKey
 	}
 
 	// Handle the extra args as last so they can be used to override some k0s "hardcodings"
@@ -150,6 +201,26 @@ func (a *Manager) buildArgs(logger logrus.FieldLogger, clusterConfig *v1beta1.Cl
 		}
 		args[name] = value
 	}
+
+	// The controller manager refuses to start when the catch-all signing flags
+	// are combined with per-signer ones. Users who provide the former get what
+	// they asked for: all certificates signed by that CA, including kubelet
+	// serving ones. A missing half of the pair is filled in with the cluster
+	// CA, since the controller manager skips signing altogether otherwise.
+	if a.KubeletServingCA != nil && hasClusterSigningCatchAll(args, clusterConfig.Spec.ControllerManager.RawArgs) {
+		logger.Warn("The cluster signing certificate or key has been overridden, kubelet serving certificates will be issued by that CA instead of the kubelet-serving CA")
+		for _, signer := range []string{"kubelet-serving", "kubelet-client", "kube-apiserver-client", "legacy-unknown"} {
+			delete(args, "cluster-signing-"+signer+"-cert-file")
+			delete(args, "cluster-signing-"+signer+"-key-file")
+		}
+		if _, ok := args["cluster-signing-cert-file"]; !ok {
+			args["cluster-signing-cert-file"] = caCert
+		}
+		if _, ok := args["cluster-signing-key-file"]; !ok {
+			args["cluster-signing-key-file"] = caKey
+		}
+	}
+
 	for name, value := range cmDefaultArgs {
 		if args[name] == "" {
 			args[name] = value
@@ -160,6 +231,22 @@ func (a *Manager) buildArgs(logger logrus.FieldLogger, clusterConfig *v1beta1.Cl
 	}
 
 	return featuregates.ToArgs(args, clusterConfig.Spec.FeatureGates, kubeControllerManagerComponent)
+}
+
+// Indicates whether the catch-all cluster signing flags are among the given
+// arguments.
+func hasClusterSigningCatchAll(args stringmap.StringMap, rawArgs []string) bool {
+	for _, name := range []string{"cluster-signing-cert-file", "cluster-signing-key-file"} {
+		if _, ok := args[name]; ok {
+			return true
+		}
+		if slices.ContainsFunc(rawArgs, func(rawArg string) bool {
+			return strings.HasPrefix(rawArg, "--"+name)
+		}) {
+			return true
+		}
+	}
+	return false
 }
 
 // Stop stops Manager

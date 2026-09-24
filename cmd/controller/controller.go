@@ -625,14 +625,20 @@ func (c *command) start(ctx context.Context, runtimeConfig *config.RuntimeConfig
 	}
 
 	if !slices.Contains(flags.DisableComponents, constant.KubeControllerManagerComponentName) {
-		clusterComponents.Add(ctx, &controller.Manager{
+		controllerManager := &controller.Manager{
 			LogLevel:              c.LogLevels.KubeControllerManager,
 			K0sVars:               c.K0sVars,
 			DisableLeaderElection: singleController,
 			ServiceClusterIPRange: nodeConfig.Spec.Network.BuildServiceCIDR(nodeConfig.Spec.PrimaryAddressFamily()),
 			PrimaryAddressFamily:  nodeConfig.Spec.PrimaryAddressFamily(),
 			ExtraArgs:             flags.KubeControllerManagerExtraArgs,
-		})
+		}
+		// Unless disabled, kubelet serving certificates are issued by the
+		// kubelet-serving CA. The trust bundle is in place either way.
+		if !slices.Contains(flags.DisableComponents, constant.KubeletServingCAComponentName) {
+			controllerManager.KubeletServingCA = certs.KubeletServingCA
+		}
+		clusterComponents.Add(ctx, controllerManager)
 	}
 
 	if leaveEtcdClusterOnStop != nil {

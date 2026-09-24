@@ -115,6 +115,7 @@ const (
 	KubeControllerManagerComponentName = "kube-controller-manager"
 	KubeProxyComponentName             = "kube-proxy"
 	KubeSchedulerComponentName         = "kube-scheduler"
+	KubeletServingCAComponentName      = "kubelet-serving-ca"
 	WorkerConfigComponentName          = "worker-config"
 	MetricsServerComponentName         = "metrics-server"
 	NetworkProviderComponentName       = "network-provider"

@@ -100,9 +100,15 @@ func (ca *KubeletServingCA) CertPEM() []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: certutil.CertificateBlockType, Bytes: ca.Cert.Raw})
 }
 
-// The file in the run directory that holds the trust bundle for kubelet
-// serving certificates.
-const kubeletServingCABundleFile = "kubelet-serving-ca-bundle.crt"
+// The kubelet-serving CA files, relative to the run directory.
+const (
+	// Holds the kubelet-serving CA's private key.
+	kubeletServingCAKeyFile = "kubelet-serving-ca.key"
+	// Holds the kubelet-serving CA certificate, and nothing else.
+	kubeletServingCACertFile = "kubelet-serving-ca.crt"
+	// Holds the trust bundle for kubelet serving certificates.
+	kubeletServingCABundleFile = "kubelet-serving-ca-bundle.crt"
+)
 
 // Assembles the PEM-encoded trust bundle for kubelet serving certificates: the
 // kubelet-serving CA certificate, followed by the cluster CA certificate, so

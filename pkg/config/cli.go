@@ -277,6 +277,7 @@ var availableComponents = []string{
 	constant.KubeControllerManagerComponentName,
 	constant.KubeProxyComponentName,
 	constant.KubeSchedulerComponentName,
+	constant.KubeletServingCAComponentName,
 	constant.MetricsServerComponentName,
 	constant.NetworkProviderComponentName,
 	constant.NodeRoleComponentName,
