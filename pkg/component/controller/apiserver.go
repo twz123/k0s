@@ -124,6 +124,16 @@ func (a *APIServer) Init(_ context.Context) error {
 	return nil
 }
 
+// The file that the API server verifies kubelet serving certificates against:
+// the cluster CA certificate, unless overridden via extra args. Shared with
+// [KubeletServingCAPublisher], which publishes that file's contents.
+func kubeletCertificateAuthorityFile(spec *v1beta1.ClusterSpec, k0sVars *config.CfgVars) string {
+	if path, ok := spec.API.ExtraArgs["kubelet-certificate-authority"]; ok {
+		return path
+	}
+	return filepath.Join(k0sVars.CertRootDir, "ca.crt")
+}
+
 // The kube-apiserver launch config.
 type apiServerConfig struct {
 	flags          stringmap.StringMap   // CLI flags without the leading dashes
@@ -158,7 +168,7 @@ func (a *APIServer) buildConfig() (*apiServerConfig, error) {
 		"service-account-jwks-uri":         "https://kubernetes.default.svc/openid/v1/jwks",
 		"profiling":                        "false",
 		"v":                                a.LogLevel,
-		"kubelet-certificate-authority":    filepath.Join(a.K0sVars.CertRootDir, "ca.crt"),
+		"kubelet-certificate-authority":    kubeletCertificateAuthorityFile(a.NodeConfig.Spec, a.K0sVars),
 		"enable-admission-plugins":         "NodeRestriction",
 	}
 

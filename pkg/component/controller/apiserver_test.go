@@ -321,6 +321,29 @@ func (a *apiServerSuite) TestAPIServer_BuildConfig() {
 		})
 	})
 
+	a.Run("kubelet certificate authority", func() {
+		a.Run("is the cluster CA by default", func() {
+			expected := filepath.FromSlash("/var/lib/k0s/pki/ca.crt")
+			underTest := newAPIServer()
+			a.Equal(expected, kubeletCertificateAuthorityFile(underTest.NodeConfig.Spec, underTest.K0sVars))
+
+			cfg := build(underTest)
+			a.Equal(expected, cfg.flags["kubelet-certificate-authority"])
+		})
+
+		a.Run("is the override if overridden", func() {
+			expected := "/some/where/else.crt"
+			underTest := newAPIServer()
+			underTest.NodeConfig.Spec.API.ExtraArgs = map[string]string{
+				"kubelet-certificate-authority": expected,
+			}
+			a.Equal(expected, kubeletCertificateAuthorityFile(underTest.NodeConfig.Spec, underTest.K0sVars))
+
+			cfg := build(underTest)
+			a.Equal(expected, cfg.flags["kubelet-certificate-authority"])
+		})
+	})
+
 	a.Run("stop timeout", func() {
 		for _, tt := range []struct {
 			name           string

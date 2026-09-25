@@ -595,6 +595,12 @@ func (c *command) start(ctx context.Context, runtimeConfig *config.RuntimeConfig
 		})
 	}
 
+	clusterComponents.Add(ctx, &controller.KubeletServingCAPublisher{
+		NodeConfig: nodeConfig,
+		K0sVars:    c.K0sVars,
+		Clients:    adminClientFactory,
+	})
+
 	if !slices.Contains(flags.DisableComponents, constant.NodeRoleComponentName) {
 		clusterComponents.Add(ctx, controller.NewNodeRole(c.K0sVars, adminClientFactory))
 	}
