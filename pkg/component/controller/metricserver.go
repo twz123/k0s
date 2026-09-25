@@ -163,6 +163,7 @@ spec:
       - args:
         - --cert-dir=/tmp
         - --secure-port=10250
+        - --kubelet-certificate-authority=/var/run/k0s/kubelet-serving-ca/ca.crt
         - --kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname
         - --kubelet-use-node-status-port
         - --metric-resolution=15s
@@ -199,6 +200,9 @@ spec:
         volumeMounts:
         - mountPath: /tmp
           name: tmp-dir
+        - mountPath: /var/run/k0s/kubelet-serving-ca
+          name: kubelet-serving-ca
+          readOnly: true
       nodeSelector:
         kubernetes.io/os: linux
       tolerations:
@@ -213,6 +217,9 @@ spec:
       volumes:
       - emptyDir: {}
         name: tmp-dir
+      - configMap:
+          name: kubelet-serving-ca.crt
+        name: kubelet-serving-ca
 ---
 apiVersion: apiregistration.k8s.io/v1
 kind: APIService
