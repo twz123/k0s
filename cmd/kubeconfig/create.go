@@ -98,6 +98,10 @@ func createUserKubeconfig(k0sVars *config.CfgVars, clusterAPIURL, username, grou
 	if err != nil {
 		return nil, fmt.Errorf("failed generate user certificate: %w, check if the control plane is initialized on this node", err)
 	}
+	userKey, err := userCert.Key.Reveal()
+	if err != nil {
+		return nil, err
+	}
 
 	kubeconfig := clientcmdapi.Config{
 		Clusters: map[string]*clientcmdapi.Cluster{contextName: {
@@ -111,7 +115,7 @@ func createUserKubeconfig(k0sVars *config.CfgVars, clusterAPIURL, username, grou
 		CurrentContext: contextName,
 		AuthInfos: map[string]*clientcmdapi.AuthInfo{username: {
 			ClientCertificateData: []byte(userCert.Cert),
-			ClientKeyData:         []byte(userCert.Key),
+			ClientKeyData:         userKey,
 		}},
 	}
 	if err := clientcmdapi.FlattenConfig(&kubeconfig); err != nil {
