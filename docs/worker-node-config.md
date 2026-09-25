@@ -76,11 +76,12 @@ the Kubernetes API via [Certificate Signing Requests] (CSRs), by enabling
 `serverTLSBootstrap` in the generated kubelet configuration. The kubelet then
 requests a certificate from the `kubernetes.io/kubelet-serving` signer and uses
 it to serve its own API. Clients of that API verify the certificate against the
-cluster CA. The Kubernetes API server verifies it, for example, when serving
-`kubectl logs` and `kubectl exec` requests. Similarly, k0s's `metrics-server`
-component, which bundles the [Kubernetes Metrics Server], verifies it when
-scraping the kubelet's resource metrics. Other properly configured monitoring
-systems do the same.
+[kubelet-serving CA trust bundle](#kubelet-serving-ca-trust-bundle), which
+holds the cluster CA by default. The Kubernetes API server verifies it, for
+example, when serving `kubectl logs` and `kubectl exec` requests. Similarly,
+k0s's `metrics-server` component, which bundles the [Kubernetes Metrics
+Server], verifies it when scraping the kubelet's resource metrics. Other
+properly configured monitoring systems do the same.
 
 Kubernetes doesn't approve these CSRs automatically. k0s ships a controller
 component called `csr-approver` that does so, provided the request meets all of
@@ -118,6 +119,41 @@ kubelet APIs remain unavailable.
 
 [Certificate Signing Requests]: https://kubernetes.io/docs/reference/access-authn-authz/certificate-signing-requests/
 [Kubernetes Metrics Server]: https://github.com/kubernetes-sigs/metrics-server
+
+### Kubelet-serving CA trust bundle
+
+The Kubernetes API server verifies kubelet serving certificates against the
+file that it's given as `--kubelet-certificate-authority`. By default, that's
+the cluster CA certificate. It can be overridden via the API server's
+[`extraArgs`](configuration.md#specapi).
+
+Clients that verify kubelet serving certificates, such as monitoring systems
+that scrape kubelets directly, need to trust the same thing. For this, k0s
+publishes the contents of that file in the cluster, as the trust bundle for
+kubelet serving certificates:
+
+- As the `kubelet-serving-ca.crt` ConfigMap in the `kube-system` namespace,
+  under the `ca.crt` key, just like the `kube-root-ca.crt` ConfigMap that holds
+  the cluster CA. Copy it into the namespaces that need it.
+- On Kubernetes 1.37 and newer, both for the control plane and the kubelet, as
+  the `kubernetes.io:kubelet-serving:k0s` [ClusterTrustBundle]. It can be
+  mounted in any namespace via a projected volume:
+
+  ```yaml
+  volumes:
+    - name: kubelet-serving-ca
+      projected:
+        sources:
+          - clusterTrustBundle:
+              signerName: kubernetes.io/kubelet-serving
+              labelSelector: {}
+              path: ca.crt
+  ```
+
+Each controller reads the file when it starts, so a change to an overridden
+file takes effect once the controllers have been restarted.
+
+[ClusterTrustBundle]: https://kubernetes.io/docs/reference/access-authn-authz/certificate-signing-requests/#cluster-trust-bundles
 
 ## IPTables Mode
 
