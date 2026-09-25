@@ -329,7 +329,7 @@ func (c *command) start(ctx context.Context, runtimeConfig *config.RuntimeConfig
 		})
 	}
 
-	nodeComponents.Add(ctx, &controller.APIServer{
+	apiServer := &controller.APIServer{
 		NodeConfig:         nodeConfig,
 		K0sVars:            c.K0sVars,
 		LogLevel:           c.LogLevels.KubeAPIServer,
@@ -338,7 +338,8 @@ func (c *command) start(ctx context.Context, runtimeConfig *config.RuntimeConfig
 
 		// If k0s reconciles the kubernetes endpoint, the API server shouldn't do it.
 		DisableEndpointReconciler: enableK0sEndpointReconciler,
-	})
+	}
+	nodeComponents.Add(ctx, apiServer)
 
 	nodeName, kubeletExtraArgs, err := workercmd.GetNodeName(&c.WorkerOptions)
 	if err != nil {
@@ -594,6 +595,11 @@ func (c *command) start(ctx context.Context, runtimeConfig *config.RuntimeConfig
 			ExcludeAutopilot: disableAutopilot,
 		})
 	}
+
+	clusterComponents.Add(ctx, &controller.KubeletServingCAPublisher{
+		BundleFile: apiServer.KubeletCertificateAuthorityFile(),
+		Clients:    adminClientFactory,
+	})
 
 	if !slices.Contains(flags.DisableComponents, constant.NodeRoleComponentName) {
 		clusterComponents.Add(ctx, controller.NewNodeRole(c.K0sVars, adminClientFactory))

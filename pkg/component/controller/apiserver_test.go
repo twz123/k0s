@@ -24,6 +24,35 @@ func TestApiServerSuite(t *testing.T) {
 	suite.Run(t, apiServerSuite)
 }
 
+func (a *apiServerSuite) TestKubeletCertificateAuthority() {
+	k0sVars, err := config.NewCfgVars(nil, a.T().TempDir())
+	a.Require().NoError(err)
+	clusterCAFile := filepath.Join(k0sVars.CertRootDir, "ca.crt")
+
+	newAPIServer := func(extraArgs map[string]string) *APIServer {
+		nodeConfig := v1beta1.DefaultClusterConfig()
+		nodeConfig.Spec.API.ExtraArgs = extraArgs
+		return &APIServer{NodeConfig: nodeConfig, K0sVars: k0sVars}
+	}
+
+	a.Run("is the cluster CA by default", func() {
+		apiServer := newAPIServer(nil)
+		a.Equal(clusterCAFile, apiServer.KubeletCertificateAuthorityFile())
+		sup, err := apiServer.buildSupervisor()
+		a.Require().NoError(err)
+		a.Contains(sup.Args, "--kubelet-certificate-authority="+clusterCAFile)
+	})
+
+	a.Run("is the override if overridden", func() {
+		apiServer := newAPIServer(map[string]string{"kubelet-certificate-authority": "/some/where/else.crt"})
+		a.Equal("/some/where/else.crt", apiServer.KubeletCertificateAuthorityFile())
+		sup, err := apiServer.buildSupervisor()
+		a.Require().NoError(err)
+		a.Contains(sup.Args, "--kubelet-certificate-authority=/some/where/else.crt")
+		a.NotContains(sup.Args, "--kubelet-certificate-authority="+clusterCAFile)
+	})
+}
+
 func (a *apiServerSuite) TestAuthenticationConfigHasAnonymous() {
 	writeConfig := func(content string) string {
 		path := filepath.Join(a.T().TempDir(), "authentication-config.yaml")

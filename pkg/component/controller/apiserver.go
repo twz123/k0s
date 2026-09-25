@@ -91,6 +91,16 @@ func (a *APIServer) Init(_ context.Context) error {
 	return err
 }
 
+// KubeletCertificateAuthorityFile returns the path of the file that the API
+// server verifies kubelet serving certificates against: the cluster CA
+// certificate, unless overridden via extra args.
+func (a *APIServer) KubeletCertificateAuthorityFile() string {
+	if path, ok := a.NodeConfig.Spec.API.ExtraArgs["kubelet-certificate-authority"]; ok {
+		return path
+	}
+	return filepath.Join(a.K0sVars.CertRootDir, "ca.crt")
+}
+
 // buildSupervisor constructs and configures the supervisor for the kube-apiserver
 // without starting it. This allows for testing the configuration logic independently.
 func (a *APIServer) buildSupervisor() (*supervisor.Supervisor, error) {
@@ -117,7 +127,7 @@ func (a *APIServer) buildSupervisor() (*supervisor.Supervisor, error) {
 		"service-account-jwks-uri":         "https://kubernetes.default.svc/openid/v1/jwks",
 		"profiling":                        "false",
 		"v":                                a.LogLevel,
-		"kubelet-certificate-authority":    filepath.Join(a.K0sVars.CertRootDir, "ca.crt"),
+		"kubelet-certificate-authority":    a.KubeletCertificateAuthorityFile(),
 		"enable-admission-plugins":         "NodeRestriction",
 	}
 
