@@ -145,7 +145,9 @@ func (s *EtcdLearnerSuite) callJoinEtcd(ctx context.Context, node string, req v1
 	encToken, err := s.GetJoinToken("controller")
 	s.Require().NoError(err)
 
-	rawKubeconfig, err := token.DecodeJoinToken(encToken)
+	joinToken, err := token.DecodeJoinToken(encToken)
+	s.Require().NoError(err)
+	rawKubeconfig, err := joinToken.Reveal()
 	s.Require().NoError(err)
 	cfg, err := clientcmd.Load(rawKubeconfig)
 	s.Require().NoError(err)

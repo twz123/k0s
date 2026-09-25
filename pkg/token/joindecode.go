@@ -9,32 +9,35 @@ import (
 	"encoding/base64"
 	"io"
 
+	"github.com/k0sproject/k0s/internal/secret"
+
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
-// DecodeJoinToken decodes an token string that is encoded with JoinEncode
-func DecodeJoinToken(token string) ([]byte, error) {
-	gzData, err := base64.StdEncoding.DecodeString(token)
+// DecodeJoinToken decodes a join token from its encoded form, see
+// [JoinToken.RevealEncoded].
+func DecodeJoinToken(encoded string) (JoinToken, error) {
+	gzData, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return nil, err
+		return JoinToken{}, err
 	}
 
 	gz, err := gzip.NewReader(bytes.NewBuffer(gzData))
 	if err != nil {
-		return nil, err
+		return JoinToken{}, err
 	}
 
 	var buf bytes.Buffer
 	_, err = io.Copy(&buf, gz)
 	closeErr := gz.Close()
 	if err != nil {
-		return nil, err
+		return JoinToken{}, err
 	}
 	if closeErr != nil {
-		return nil, closeErr
+		return JoinToken{}, closeErr
 	}
 
-	return buf.Bytes(), nil
+	return JoinToken{secret.From[JoinToken](buf.Bytes())}, nil
 }
 
 func GetTokenType(clientCfg *clientcmdapi.Config) string {

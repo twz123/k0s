@@ -230,7 +230,7 @@ func (c *command) start(ctx context.Context, runtimeConfig *config.RuntimeConfig
 		if err != nil {
 			return err
 		}
-		if tokenData != "" {
+		if !tokenData.IsZero() {
 			joinClient, err = joinController(ctx, tokenData, c.K0sVars.CertRootDir)
 			if err != nil {
 				return fmt.Errorf("failed to join controller: %w", err)
@@ -799,7 +799,7 @@ func writeCerts(caData v1beta1.CaResponse, certRootDir string) error {
 	return nil
 }
 
-func joinController(ctx context.Context, tokenArg string, certRootDir string) (*token.JoinClient, error) {
+func joinController(ctx context.Context, tokenArg token.JoinToken, certRootDir string) (*token.JoinClient, error) {
 	joinClient, err := token.JoinClientFromToken(tokenArg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create join client: %w", err)

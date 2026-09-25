@@ -4,9 +4,9 @@
 package token_test
 
 import (
-	"bytes"
 	"testing"
 
+	"github.com/k0sproject/k0s/internal/secret"
 	"github.com/k0sproject/k0s/pkg/token"
 
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -15,15 +15,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDecodeJoinToken_RoundTrip(t *testing.T) {
+func TestJoinToken_RoundTrip(t *testing.T) {
 	t.Parallel()
 
-	encoded, err := token.JoinEncode(bytes.NewReader([]byte("the-payload")))
+	kubeconfig := []byte("the-payload")
+	encoded, err := token.JoinToken{Value: secret.From[token.JoinToken](kubeconfig)}.RevealEncoded()
 	require.NoError(t, err)
 
 	decoded, err := token.DecodeJoinToken(encoded)
 	require.NoError(t, err)
-	assert.Equal(t, []byte("the-payload"), decoded)
+	revealed, err := decoded.Reveal()
+	require.NoError(t, err)
+	assert.Equal(t, kubeconfig, revealed)
+}
+
+func TestJoinToken_RevealEncoded_NoToken(t *testing.T) {
+	t.Parallel()
+
+	encoded, err := token.JoinToken{}.RevealEncoded()
+	assert.ErrorAs(t, err, new(secret.NoValueError[token.JoinToken]))
+	assert.Empty(t, encoded)
 }
 
 func TestDecodeJoinToken_InvalidBase64(t *testing.T) {
@@ -31,7 +42,7 @@ func TestDecodeJoinToken_InvalidBase64(t *testing.T) {
 
 	decoded, err := token.DecodeJoinToken("not-valid-base64!!!")
 	assert.ErrorContains(t, err, "illegal base64 data")
-	assert.Zero(t, decoded)
+	assert.True(t, decoded.IsZero(), "Expected no token")
 }
 
 func TestDecodeJoinToken_InvalidGzip(t *testing.T) {
@@ -40,7 +51,7 @@ func TestDecodeJoinToken_InvalidGzip(t *testing.T) {
 	// Valid base64, but not gzip data underneath.
 	decoded, err := token.DecodeJoinToken("bm90LWd6aXA=")
 	assert.ErrorContains(t, err, "unexpected EOF")
-	assert.Zero(t, decoded)
+	assert.True(t, decoded.IsZero(), "Expected no token")
 }
 
 func TestGetTokenType(t *testing.T) {

@@ -25,10 +25,10 @@ type JoinClient struct {
 }
 
 // JoinClientFromToken creates a new join api client from a token.
-func JoinClientFromToken(encodedToken string) (*JoinClient, error) {
-	tokenBytes, err := DecodeJoinToken(encodedToken)
+func JoinClientFromToken(token JoinToken) (*JoinClient, error) {
+	tokenBytes, err := token.Reveal()
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode token: %w", err)
+		return nil, err
 	}
 
 	kubeconfig, err := clientcmd.Load(tokenBytes)

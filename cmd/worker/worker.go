@@ -165,36 +165,24 @@ func GetNodeName(opts *config.WorkerOptions) (apitypes.NodeName, stringmap.Strin
 }
 
 func kubeconfigGetterFromJoinToken(tokenFile, tokenArg string) clientcmd.KubeconfigGetter {
-	if tokenArg != "" {
-		return func() (*clientcmdapi.Config, error) {
-			return loadKubeconfigFromJoinToken(tokenArg)
-		}
-	}
-
-	if envToken := os.Getenv(internal.EnvVarToken); envToken != "" {
-		return func() (*clientcmdapi.Config, error) {
-			return loadKubeconfigFromJoinToken(envToken)
-		}
-	}
-
-	if tokenFile == "" {
+	if tokenArg == "" && os.Getenv(internal.EnvVarToken) == "" && tokenFile == "" {
 		return nil
 	}
 
 	return func() (*clientcmdapi.Config, error) {
-		tokenData, err := internal.GetTokenData("", tokenFile)
+		joinToken, err := internal.GetTokenData(tokenArg, tokenFile)
 		if err != nil {
 			return nil, err
 		}
 
-		return loadKubeconfigFromJoinToken(tokenData)
+		return loadKubeconfigFromJoinToken(joinToken)
 	}
 }
 
-func loadKubeconfigFromJoinToken(tokenData string) (*clientcmdapi.Config, error) {
-	decoded, err := token.DecodeJoinToken(tokenData)
+func loadKubeconfigFromJoinToken(joinToken token.JoinToken) (*clientcmdapi.Config, error) {
+	decoded, err := joinToken.Reveal()
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode join token: %w", err)
+		return nil, err
 	}
 
 	kubeconfig, err := clientcmd.Load(decoded)

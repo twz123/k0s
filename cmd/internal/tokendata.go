@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+
+	"github.com/k0sproject/k0s/pkg/token"
 )
 
 // EnvVarToken is the environment variable name for the join token
@@ -35,20 +37,20 @@ func CheckSingleTokenSource(tokenArg, tokenFile string) error {
 
 // GetTokenData resolves the join token from multiple possible sources:
 // CLI argument, token file, or K0S_TOKEN environment variable.
-// Returns empty string if no token source is available.
-func GetTokenData(tokenArg, tokenFile string) (string, error) {
+// Returns the zero token if no token source is available.
+func GetTokenData(tokenArg, tokenFile string) (token.JoinToken, error) {
 	tokenEnvValue := os.Getenv(EnvVarToken)
 
 	if tokenArg != "" {
-		return tokenArg, nil
+		return decodeJoinToken(tokenArg)
 	}
 
 	if tokenEnvValue != "" {
-		return tokenEnvValue, nil
+		return decodeJoinToken(tokenEnvValue)
 	}
 
 	if tokenFile == "" {
-		return "", nil
+		return token.JoinToken{}, nil
 	}
 
 	var problem string
@@ -56,15 +58,23 @@ func GetTokenData(tokenArg, tokenFile string) (string, error) {
 	if errors.Is(err, os.ErrNotExist) {
 		problem = "not found"
 	} else if err != nil {
-		return "", fmt.Errorf("failed to read token file: %w", err)
+		return token.JoinToken{}, fmt.Errorf("failed to read token file: %w", err)
 	} else if len(data) == 0 {
 		problem = "is empty"
 	}
 	if problem != "" {
-		return "", fmt.Errorf(`token file "%s" %s`+
+		return token.JoinToken{}, fmt.Errorf(`token file "%s" %s`+
 			`: obtain a new token via "k0s token create ..." and store it in the file`+
 			` or reinstall this node via "k0s install --force ..." or "k0sctl apply --force ..."`,
 			tokenFile, problem)
 	}
-	return string(data), nil
+	return decodeJoinToken(string(data))
+}
+
+func decodeJoinToken(encoded string) (token.JoinToken, error) {
+	joinToken, err := token.DecodeJoinToken(encoded)
+	if err != nil {
+		return token.JoinToken{}, fmt.Errorf("failed to decode join token: %w", err)
+	}
+	return joinToken, nil
 }

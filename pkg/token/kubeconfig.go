@@ -4,13 +4,13 @@
 package token
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/k0sproject/k0s/internal/secret"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/config"
 
@@ -30,31 +30,28 @@ const (
 )
 
 // CreateKubeletBootstrapToken creates a new k0s bootstrap token.
-func CreateKubeletBootstrapToken(ctx context.Context, api *v1beta1.APISpec, k0sVars *config.CfgVars, role string, expiry time.Duration) (string, error) {
+func CreateKubeletBootstrapToken(ctx context.Context, api *v1beta1.APISpec, k0sVars *config.CfgVars, role string, expiry time.Duration) (JoinToken, error) {
 	userName, joinURL, err := loadUserAndJoinURL(api, role)
 	if err != nil {
-		return "", err
+		return JoinToken{}, err
 	}
 
 	caCert, err := loadCACert(k0sVars)
 	if err != nil {
-		return "", err
+		return JoinToken{}, err
 	}
 
 	token, err := loadToken(ctx, k0sVars, role, expiry)
 	if err != nil {
-		return "", err
+		return JoinToken{}, err
 	}
 
-	kubeconfig, err := GenerateKubeconfig(joinURL, caCert, userName, token)
-	if err != nil {
-		return "", err
-	}
-
-	return JoinEncode(bytes.NewReader(kubeconfig))
+	return GenerateJoinToken(joinURL, caCert, userName, token)
 }
 
-func GenerateKubeconfig(joinURL string, caCert []byte, userName string, token *bootstraptokenv1.BootstrapTokenString) ([]byte, error) {
+// GenerateJoinToken generates a join token for the given join URL: a
+// kubeconfig for the given user, authenticated by the given bootstrap token.
+func GenerateJoinToken(joinURL string, caCert []byte, userName string, token *bootstraptokenv1.BootstrapTokenString) (JoinToken, error) {
 	const k0sContextName = "k0s"
 	kubeconfig, err := clientcmd.Write(clientcmdapi.Config{
 		Clusters: map[string]*clientcmdapi.Cluster{k0sContextName: {
@@ -70,7 +67,10 @@ func GenerateKubeconfig(joinURL string, caCert []byte, userName string, token *b
 			Token: token.String(),
 		}},
 	})
-	return kubeconfig, err
+	if err != nil {
+		return JoinToken{}, err
+	}
+	return JoinToken{secret.From[JoinToken](kubeconfig)}, nil
 }
 
 func loadUserAndJoinURL(api *v1beta1.APISpec, role string) (string, string, error) {

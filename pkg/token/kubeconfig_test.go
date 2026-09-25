@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGenerateKubeconfig(t *testing.T) {
+func TestGenerateJoinToken(t *testing.T) {
 	expected := `apiVersion: v1
 clusters:
 - cluster:
@@ -33,7 +33,9 @@ users:
 `
 
 	tok := bootstraptokenv1.BootstrapTokenString{ID: "abcdef", Secret: "0123456789abcdef"}
-	kubeconfig, err := GenerateKubeconfig("the join URL", []byte("the cert"), "the user", &tok)
+	joinToken, err := GenerateJoinToken("the join URL", []byte("the cert"), "the user", &tok)
+	require.NoError(t, err)
+	kubeconfig, err := joinToken.Reveal()
 	require.NoError(t, err)
 	assert.Equal(t, expected, string(kubeconfig))
 }

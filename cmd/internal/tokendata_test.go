@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/k0sproject/k0s/internal/secret"
+	"github.com/k0sproject/k0s/pkg/token"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -78,50 +81,57 @@ func TestCheckSingleTokenSource(t *testing.T) {
 }
 
 func TestGetTokenData_EnvVar(t *testing.T) {
-	testToken := "test-token-data"
+	encoded, kubeconfig := encodedTestToken(t)
 
 	t.Run("reads token from K0S_TOKEN env var", func(t *testing.T) {
-		t.Setenv(EnvVarToken, testToken)
+		t.Setenv(EnvVarToken, encoded)
 
-		token, err := GetTokenData("", "")
+		tok, err := GetTokenData("", "")
 		require.NoError(t, err)
-		assert.Equal(t, testToken, token)
+		assert.Equal(t, kubeconfig, revealed(t, tok))
 	})
 
-	t.Run("empty K0S_TOKEN returns empty string", func(t *testing.T) {
+	t.Run("empty K0S_TOKEN returns no token", func(t *testing.T) {
 		t.Setenv(EnvVarToken, "")
 
-		token, err := GetTokenData("", "")
+		tok, err := GetTokenData("", "")
 		require.NoError(t, err)
-		assert.Empty(t, token)
+		assert.True(t, tok.IsZero(), "Expected no token")
 	})
 }
 
 func TestGetTokenData_TokenArg(t *testing.T) {
-	testToken := "test-token-data"
+	encoded, kubeconfig := encodedTestToken(t)
 
 	t.Run("reads token from argument", func(t *testing.T) {
 		t.Setenv(EnvVarToken, "")
 
-		token, err := GetTokenData(testToken, "")
+		tok, err := GetTokenData(encoded, "")
 		require.NoError(t, err)
-		assert.Equal(t, testToken, token)
+		assert.Equal(t, kubeconfig, revealed(t, tok))
+	})
+
+	t.Run("fails for an undecodable token", func(t *testing.T) {
+		t.Setenv(EnvVarToken, "")
+
+		_, err := GetTokenData("not a token", "")
+		assert.ErrorContains(t, err, "failed to decode join token")
 	})
 }
 
 func TestGetTokenData_TokenFile(t *testing.T) {
-	testToken := "test-token-from-file"
+	encoded, kubeconfig := encodedTestToken(t)
 
 	t.Run("reads token from file", func(t *testing.T) {
 		t.Setenv(EnvVarToken, "")
 
 		tmpDir := t.TempDir()
 		tokenFile := filepath.Join(tmpDir, "token")
-		require.NoError(t, os.WriteFile(tokenFile, []byte(testToken), 0600))
+		require.NoError(t, os.WriteFile(tokenFile, []byte(encoded), 0600))
 
-		token, err := GetTokenData("", tokenFile)
+		tok, err := GetTokenData("", tokenFile)
 		require.NoError(t, err)
-		assert.Equal(t, testToken, token)
+		assert.Equal(t, kubeconfig, revealed(t, tok))
 	})
 
 	t.Run("returns error for non-existent file", func(t *testing.T) {
@@ -150,11 +160,28 @@ func TestGetTokenData_TokenFile(t *testing.T) {
 }
 
 func TestGetTokenData_NoToken(t *testing.T) {
-	t.Run("returns empty string when no token provided", func(t *testing.T) {
+	t.Run("returns no token when no token provided", func(t *testing.T) {
 		t.Setenv(EnvVarToken, "")
 
-		token, err := GetTokenData("", "")
+		tok, err := GetTokenData("", "")
 		require.NoError(t, err)
-		assert.Empty(t, token)
+		assert.True(t, tok.IsZero(), "Expected no token")
 	})
+}
+
+// An encoded join token for tests, along with the kubeconfig it holds.
+func encodedTestToken(t *testing.T) (string, []byte) {
+	t.Helper()
+	kubeconfig := []byte("the-kubeconfig")
+	encoded, err := token.JoinToken{Value: secret.From[token.JoinToken](kubeconfig)}.RevealEncoded()
+	require.NoError(t, err)
+	return encoded, kubeconfig
+}
+
+// Reveals the given token, which is expected to be there.
+func revealed(t *testing.T, tok token.JoinToken) []byte {
+	t.Helper()
+	kubeconfig, err := tok.Reveal()
+	require.NoError(t, err)
+	return kubeconfig
 }
