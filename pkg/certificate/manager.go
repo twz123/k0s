@@ -27,6 +27,7 @@ import (
 
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/stringslice"
+	"github.com/k0sproject/k0s/internal/secret"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
 )
@@ -43,7 +44,7 @@ type Request struct {
 
 // Certificate is a helper struct to be able to return the created key and cert data
 type Certificate struct {
-	Key  string
+	Key  secret.Bytes // PEM-encoded private key
 	Cert string
 }
 
@@ -148,7 +149,7 @@ func (m *Manager) EnsureCertificate(certReq Request, ownerID int, expiry time.Du
 			return Certificate{}, err
 		}
 		c := Certificate{
-			Key:  string(key),
+			Key:  secret.FromBytes(key),
 			Cert: string(cert),
 		}
 		err = file.WriteContentAtomically(keyFile, key, constant.CertSecureMode)
@@ -186,7 +187,7 @@ func (m *Manager) EnsureCertificate(certReq Request, ownerID int, expiry time.Du
 	}
 
 	return Certificate{
-		Key:  string(key),
+		Key:  secret.FromBytes(key),
 		Cert: string(cert),
 	}, nil
 
