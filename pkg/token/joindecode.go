@@ -7,43 +7,48 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/base64"
+	"errors"
 	"io"
 
 	"github.com/k0sproject/k0s/internal/secret"
-
-	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
 // DecodeJoinToken decodes a join token from its encoded form, see
-// [JoinToken.RevealEncoded].
-func DecodeJoinToken(encoded string) (JoinToken, error) {
-	gzData, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return JoinToken{}, err
-	}
+// [JoinToken.Encode].
+func DecodeJoinToken(encoded secret.Bytes) (JoinToken, error) {
+	return encoded.Use(func(data []byte) (jt JoinToken, err error) {
+		if data, err = base64.StdEncoding.AppendDecode(nil, data); err != nil {
+			return
+		}
 
-	gz, err := gzip.NewReader(bytes.NewBuffer(gzData))
-	if err != nil {
-		return JoinToken{}, err
-	}
+		gz, err := gzip.NewReader(bytes.NewBuffer(data))
+		if err != nil {
+			return
+		}
+		data, err = io.ReadAll(gz)
+		if err = errors.Join(err, gz.Close()); err != nil {
+			return
+		}
 
-	var buf bytes.Buffer
-	_, err = io.Copy(&buf, gz)
-	closeErr := gz.Close()
-	if err != nil {
-		return JoinToken{}, err
-	}
-	if closeErr != nil {
-		return JoinToken{}, closeErr
-	}
-
-	return JoinToken{secret.From[JoinToken](buf.Bytes())}, nil
+		jt.kubeconfig.Store(data)
+		return
+	})
 }
 
-func GetTokenType(clientCfg *clientcmdapi.Config) string {
-	for _, kubeContext := range clientCfg.Contexts {
-		return kubeContext.AuthInfo
+// Compresses and base64 encodes the token into the given writer. It fails for
+// the zero token, which holds nothing to encode, and for write errors.
+func (t JoinToken) Encode(w io.Writer) error {
+	kubeconfig, err := t.kubeconfig.Reveal()
+	if err != nil {
+		return err
 	}
 
-	return ""
+	enc := base64.NewEncoder(base64.StdEncoding, w)
+	gz, err := gzip.NewWriterLevel(enc, gzip.BestCompression)
+	if err != nil {
+		return err
+	}
+
+	_, err = gz.Write(kubeconfig)
+	return errors.Join(err, gz.Close(), enc.Close())
 }

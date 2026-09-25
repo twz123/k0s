@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 
 	"github.com/k0sproject/k0s/cmd/internal"
 	"github.com/k0sproject/k0s/internal/pkg/dir"
@@ -17,6 +18,7 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/flags"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
 	"github.com/k0sproject/k0s/internal/pkg/sysinfo"
+	"github.com/k0sproject/k0s/internal/secret"
 	"github.com/k0sproject/k0s/internal/supervised"
 	"github.com/k0sproject/k0s/pkg/build"
 	"github.com/k0sproject/k0s/pkg/component/iptables"
@@ -31,7 +33,6 @@ import (
 	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/kubernetes"
 	"github.com/k0sproject/k0s/pkg/node"
-	"github.com/k0sproject/k0s/pkg/token"
 
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
@@ -82,13 +83,11 @@ func NewWorkerCmd() *cobra.Command {
 
 			c := (*Command)(opts)
 			if len(args) > 0 {
-				c.TokenArg = args[0]
+				c.TokenArg = secret.FromString(args[0])
 			}
 			if err := internal.CheckSingleTokenSource(c.TokenArg, c.TokenFile); err != nil {
 				return err
 			}
-
-			getBootstrapKubeconfig := kubeconfigGetterFromJoinToken(c.TokenFile, c.TokenArg)
 
 			nodeName, kubeletExtraArgs, err := GetNodeName(&c.WorkerOptions)
 			if err != nil {
@@ -131,7 +130,13 @@ func NewWorkerCmd() *cobra.Command {
 				}
 			}()
 
-			return c.Start(ctx, nodeName, kubeletExtraArgs, getBootstrapKubeconfig, nil)
+			return c.Start(ctx, nodeName, kubeletExtraArgs, sync.OnceValues(func() (*clientcmdapi.Config, error) {
+				jt, err := internal.GetJoinToken(c.TokenArg, c.TokenFile)
+				if err != nil {
+					return nil, err
+				}
+				return jt.BootstrapKubeconfig()
+			}), nil)
 		},
 	}
 
@@ -162,39 +167,6 @@ func GetNodeName(opts *config.WorkerOptions) (apitypes.NodeName, stringmap.Strin
 		return "", nil, err
 	}
 	return nodeName, kubeletExtraArgs, nil
-}
-
-func kubeconfigGetterFromJoinToken(tokenFile, tokenArg string) clientcmd.KubeconfigGetter {
-	if tokenArg == "" && os.Getenv(internal.EnvVarToken) == "" && tokenFile == "" {
-		return nil
-	}
-
-	return func() (*clientcmdapi.Config, error) {
-		joinToken, err := internal.GetTokenData(tokenArg, tokenFile)
-		if err != nil {
-			return nil, err
-		}
-
-		return loadKubeconfigFromJoinToken(joinToken)
-	}
-}
-
-func loadKubeconfigFromJoinToken(joinToken token.JoinToken) (*clientcmdapi.Config, error) {
-	decoded, err := joinToken.Reveal()
-	if err != nil {
-		return nil, err
-	}
-
-	kubeconfig, err := clientcmd.Load(decoded)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load kubeconfig from join token: %w", err)
-	}
-
-	if tokenType := token.GetTokenType(kubeconfig); tokenType != "kubelet-bootstrap" {
-		return nil, fmt.Errorf("wrong token type %s, expected type: kubelet-bootstrap", tokenType)
-	}
-
-	return kubeconfig, nil
 }
 
 // Start starts the worker components based on the given [config.CLIOptions].

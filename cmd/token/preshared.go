@@ -5,6 +5,7 @@ package token
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -112,12 +113,12 @@ func createKubeConfig(tok *bootstraptokenv1.BootstrapTokenString, role, joinURL,
 		return fmt.Errorf("error generating kubeconfig: %w", err)
 	}
 
-	encodedToken, err := joinToken.RevealEncoded()
-	if err != nil {
+	var buf bytes.Buffer
+	if err := joinToken.Encode(&buf); err != nil {
 		return err
 	}
 
-	err = file.WriteContentAtomically(filepath.Join(outDir, "token_"+tok.ID), []byte(encodedToken), 0640)
+	err = file.WriteContentAtomically(filepath.Join(outDir, "token_"+tok.ID), buf.Bytes(), 0640)
 	if err != nil {
 		return fmt.Errorf("error writing kubeconfig: %w", err)
 	}

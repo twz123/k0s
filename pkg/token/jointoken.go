@@ -4,41 +4,21 @@
 package token
 
 import (
-	"bytes"
-	"compress/gzip"
-	"encoding/base64"
+	"fmt"
 
 	"github.com/k0sproject/k0s/internal/secret"
 )
 
-// JoinToken is a kubeconfig with bootstrap credentials for the join API. It's
-// secret, since it grants access to the cluster. It travels as a single
-// string, compressed and base64 encoded, see [JoinToken.RevealEncoded] and
-// [DecodeJoinToken].
+// A kubeconfig with bootstrap credentials for joining new nodes.
 type JoinToken struct {
-	secret.Value[JoinToken, []byte]
+	kubeconfig secret.Value[JoinToken, []byte]
 }
 
-// Reveals the token in its encoded form: the kubeconfig, compressed and base64
-// encoded, so that it can be handed over as a single string. It fails for the
-// zero token, which holds no kubeconfig to encode.
-func (t JoinToken) RevealEncoded() (string, error) {
-	kubeconfig, err := t.Reveal()
-	if err != nil {
-		return "", err
-	}
+// NoStringError is the [secret.NoValueError] for the zero [JoinToken].
+type NoJoinTokenError = secret.NoValueError[JoinToken]
 
-	var buf bytes.Buffer
-	gz, err := gzip.NewWriterLevel(&buf, gzip.BestCompression)
-	if err != nil {
-		return "", err
-	}
-	if _, err := gz.Write(kubeconfig); err != nil {
-		return "", err
-	}
-	if err := gz.Close(); err != nil {
-		return "", err
-	}
+// String implements [fmt.Stringer]. It never reveals the token.
+func (t JoinToken) String() string { return t.kubeconfig.String() }
 
-	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
-}
+// Format implements [fmt.Formatter]. It never reveals the token.
+func (t JoinToken) Format(f fmt.State, verb rune) { t.kubeconfig.Format(f, verb) }

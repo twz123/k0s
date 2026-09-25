@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/k0sproject/k0s/internal/secret"
 	"github.com/k0sproject/k0s/pkg/token"
 )
 
@@ -16,15 +17,15 @@ const EnvVarToken = "K0S_TOKEN"
 
 // CheckSingleTokenSource verifies that at most one token source is provided.
 // Returns an error if multiple sources are specified.
-func CheckSingleTokenSource(tokenArg, tokenFile string) error {
+func CheckSingleTokenSource(tokenArg secret.String, tokenFile string) error {
 	tokenSources := 0
-	if tokenArg != "" {
+	if !tokenArg.IsZero() {
 		tokenSources++
 	}
 	if tokenFile != "" {
 		tokenSources++
 	}
-	if os.Getenv(EnvVarToken) != "" {
+	if !secret.Getenv(EnvVarToken).IsZero() {
 		tokenSources++
 	}
 
@@ -35,46 +36,50 @@ func CheckSingleTokenSource(tokenArg, tokenFile string) error {
 	return nil
 }
 
-// GetTokenData resolves the join token from multiple possible sources:
-// CLI argument, token file, or K0S_TOKEN environment variable.
+// Resolves the join token from multiple possible sources, in this order of
+// precedence:
+//
+//   - CLI argument,
+//   - K0S_TOKEN environment variable,
+//   - or token file.
+//
 // Returns the zero token if no token source is available.
-func GetTokenData(tokenArg, tokenFile string) (token.JoinToken, error) {
-	tokenEnvValue := os.Getenv(EnvVarToken)
-
-	if tokenArg != "" {
-		return decodeJoinToken(tokenArg)
+func GetJoinToken(tokenArg secret.String, tokenFile string) (jt token.JoinToken, err error) {
+	if jt, err = token.DecodeJoinToken(tokenArg.ToBytes()); err == nil {
+		return
+	} else if !errors.Is(err, secret.NoBytesError{}) {
+		return jt, fmt.Errorf("failed to decode join token argument: %w", err)
 	}
 
-	if tokenEnvValue != "" {
-		return decodeJoinToken(tokenEnvValue)
+	if jt, err = token.DecodeJoinToken(secret.Getenv(EnvVarToken).ToBytes()); err == nil {
+		return
+	} else if !errors.Is(err, secret.NoBytesError{}) {
+		return jt, fmt.Errorf("failed to decode join token from %s: %w", EnvVarToken, err)
 	}
 
 	if tokenFile == "" {
-		return token.JoinToken{}, nil
+		return jt, nil
 	}
 
 	var problem string
-	data, err := os.ReadFile(tokenFile)
+	data, err := secret.ReadFile(tokenFile)
 	if errors.Is(err, os.ErrNotExist) {
 		problem = "not found"
 	} else if err != nil {
-		return token.JoinToken{}, fmt.Errorf("failed to read token file: %w", err)
-	} else if len(data) == 0 {
+		return jt, fmt.Errorf("failed to read token file: %w", err)
+	} else if data.Len() == 0 {
 		problem = "is empty"
 	}
 	if problem != "" {
-		return token.JoinToken{}, fmt.Errorf(`token file "%s" %s`+
+		return jt, fmt.Errorf(`token file "%s" %s`+
 			`: obtain a new token via "k0s token create ..." and store it in the file`+
 			` or reinstall this node via "k0s install --force ..." or "k0sctl apply --force ..."`,
 			tokenFile, problem)
 	}
-	return decodeJoinToken(string(data))
-}
 
-func decodeJoinToken(encoded string) (token.JoinToken, error) {
-	joinToken, err := token.DecodeJoinToken(encoded)
+	jt, err = token.DecodeJoinToken(data)
 	if err != nil {
-		return token.JoinToken{}, fmt.Errorf("failed to decode join token: %w", err)
+		err = fmt.Errorf("failed to decode join token from %s: %w", tokenFile, err)
 	}
-	return joinToken, nil
+	return
 }

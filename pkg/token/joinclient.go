@@ -7,14 +7,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
 	"github.com/k0sproject/k0s/pkg/kubernetes"
 
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/clientcmd/api"
 )
 
@@ -24,30 +22,12 @@ type JoinClient struct {
 	restClient  *rest.RESTClient
 }
 
-// JoinClientFromToken creates a new join api client from a token.
-func JoinClientFromToken(token JoinToken) (*JoinClient, error) {
-	tokenBytes, err := token.Reveal()
-	if err != nil {
-		return nil, err
-	}
-
-	kubeconfig, err := clientcmd.Load(tokenBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	if actual := GetTokenType(kubeconfig); actual != ControllerTokenAuthName {
-		return nil, fmt.Errorf("wrong token type %s, expected type: %s", actual, ControllerTokenAuthName)
-	}
-
-	return JoinClientFromKubeconfig(kubeconfig)
-}
-
-// JoinClientFromKubeconfig builds a JoinClient from an already-loaded
-// kubeconfig. Useful when callers need to tweak the server URL (e.g.
-// integration tests reaching the API server through a port-mapped host).
-func JoinClientFromKubeconfig(kubeconfig *api.Config) (*JoinClient, error) {
-	restConfig, err := kubernetes.ClientConfig(func() (*api.Config, error) { return kubeconfig, nil })
+// NewJoinClient creates a new join API client from the token, which needs to
+// be a controller token.
+func (t JoinToken) NewJoinClient() (*JoinClient, error) {
+	restConfig, err := kubernetes.ClientConfig(func() (*api.Config, error) {
+		return t.loadKubeconfig(ControllerTokenAuthName)
+	})
 	if err != nil {
 		return nil, err
 	}

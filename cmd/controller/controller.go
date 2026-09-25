@@ -26,6 +26,7 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/internal/pkg/stringmap"
 	"github.com/k0sproject/k0s/internal/pkg/sysinfo"
+	"github.com/k0sproject/k0s/internal/secret"
 	"github.com/k0sproject/k0s/internal/supervised"
 	"github.com/k0sproject/k0s/internal/sync/value"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
@@ -94,7 +95,7 @@ func NewControllerCmd() *cobra.Command {
 			c := (*command)(opts)
 
 			if len(args) > 0 {
-				c.TokenArg = args[0]
+				c.TokenArg = secret.FromString(args[0])
 			}
 			if err := internal.CheckSingleTokenSource(c.TokenArg, c.TokenFile); err != nil {
 				return err
@@ -225,14 +226,15 @@ func (c *command) start(ctx context.Context, runtimeConfig *config.RuntimeConfig
 
 	var joinClient *token.JoinClient
 
-	if c.needToJoin(nodeConfig) {
-		tokenData, err := internal.GetTokenData(c.TokenArg, c.TokenFile)
+	if !c.hasClusterState(nodeConfig) {
+		jt, err := internal.GetJoinToken(c.TokenArg, c.TokenFile)
 		if err != nil {
 			return err
 		}
-		if !tokenData.IsZero() {
-			joinClient, err = joinController(ctx, tokenData, c.K0sVars.CertRootDir)
-			if err != nil {
+		if joinClient, err = joinController(ctx, jt, c.K0sVars.CertRootDir); err != nil {
+			if errors.Is(err, token.NoJoinTokenError{}) {
+				logrus.Info("No join token given, initializing a new cluster")
+			} else {
 				return fmt.Errorf("failed to join controller: %w", err)
 			}
 		}
@@ -763,20 +765,16 @@ func (c *embeddingController) UsesIPTables() bool {
 	return c.usesIPTables
 }
 
-// If we've got an etcd data directory in place for embedded etcd, or a ca for
-// external or other storage types, we assume the node has already joined
-// previously.
-func (c *command) needToJoin(nodeConfig *v1beta1.ClusterConfig) bool {
+// Indicates whether this node has already been part of a cluster, be it by
+// creating or joining one. For embedded etcd, the etcd data directory is the
+// source of truth, for all other storage types it's the presence of a CA.
+func (c *command) hasClusterState(nodeConfig *v1beta1.ClusterConfig) bool {
 	if nodeConfig.Spec.Storage.Type == v1beta1.EtcdStorageType && !nodeConfig.Spec.Storage.Etcd.IsExternalClusterUsed() {
-		// Use the main etcd data directory as the source of truth to determine if this node has already joined
-		// See https://etcd.io/docs/v3.5/learning/persistent-storage-files/#bbolt-btree-membersnapdb
-		return !file.Exists(filepath.Join(c.K0sVars.EtcdDataDir, "member", "snap", "db"))
+		// See https://etcd.io/docs/v3.7/learning/persistent-storage-files/#bbolt-btree-membersnapdb
+		return file.Exists(filepath.Join(c.K0sVars.EtcdDataDir, "member", "snap", "db"))
 	}
-	if file.Exists(filepath.Join(c.K0sVars.CertRootDir, "ca.key")) &&
-		file.Exists(filepath.Join(c.K0sVars.CertRootDir, "ca.crt")) {
-		return false
-	}
-	return true
+	return file.Exists(filepath.Join(c.K0sVars.CertRootDir, "ca.key")) &&
+		file.Exists(filepath.Join(c.K0sVars.CertRootDir, "ca.crt"))
 }
 
 func writeCerts(caData v1beta1.CaResponse, certRootDir string) error {
@@ -799,8 +797,8 @@ func writeCerts(caData v1beta1.CaResponse, certRootDir string) error {
 	return nil
 }
 
-func joinController(ctx context.Context, tokenArg token.JoinToken, certRootDir string) (*token.JoinClient, error) {
-	joinClient, err := token.JoinClientFromToken(tokenArg)
+func joinController(ctx context.Context, jt token.JoinToken, certRootDir string) (*token.JoinClient, error) {
+	joinClient, err := jt.NewJoinClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create join client: %w", err)
 	}

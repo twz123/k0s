@@ -142,6 +142,9 @@ func (s *EtcdLearnerSuite) listMembers(ctx context.Context, ssh *common.SSHConne
 // and hand the modified kubeconfig to JoinClientFromKubeconfig, so the
 // rest of the code path runs exactly as it does in production.
 func (s *EtcdLearnerSuite) callJoinEtcd(ctx context.Context, node string, req v1beta1.EtcdRequest) {
+	// FIXME probably add a new CLI flag for the create command.
+	// So that we can inject another join URL.
+
 	encToken, err := s.GetJoinToken("controller")
 	s.Require().NoError(err)
 

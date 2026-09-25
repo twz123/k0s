@@ -101,3 +101,28 @@ func loadToken(ctx context.Context, k0sVars *config.CfgVars, role string, expiry
 	}
 	return manager.Create(ctx, expiry, role)
 }
+
+// BootstrapKubeconfig returns the kubeconfig that makes up the token, for
+// bootstrapping the kubelet. The token needs to be a worker token.
+func (t JoinToken) BootstrapKubeconfig() (*clientcmdapi.Config, error) {
+	return t.loadKubeconfig(WorkerTokenAuthName)
+}
+
+// Loads the kubeconfig that makes up the token and checks that its current
+// context uses the required auth info, which tells the token's type.
+func (t JoinToken) loadKubeconfig(requiredType string) (*clientcmdapi.Config, error) {
+	kubeconfig, err := t.kubeconfig.Use(clientcmd.Load)
+	if err != nil {
+		return nil, err
+	}
+
+	var actualType string
+	if kubeContext := kubeconfig.Contexts[kubeconfig.CurrentContext]; kubeContext != nil {
+		actualType = kubeContext.AuthInfo
+	}
+	if actualType != requiredType {
+		return nil, fmt.Errorf("wrong token type %s, expected type: %s", actualType, requiredType)
+	}
+
+	return kubeconfig, nil
+}

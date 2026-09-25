@@ -6,6 +6,7 @@ package secret
 import (
 	"fmt"
 	"io"
+	"os"
 	"reflect"
 	"strconv"
 )
@@ -52,6 +53,18 @@ func (v Value[K, T]) Reveal() (T, error) {
 // at all.
 func (v Value[K, T]) IsZero() bool { return v.value == nil }
 
+// Reveals the secret value to the given function and returns whatever that
+// returns. It fails with a [NoValueError] for the zero value, like
+// [Value.Reveal], without calling the function.
+func (v Value[K, T]) Use[U any](f func(T) (U, error)) (U, error) {
+	value, err := v.Reveal()
+	if err != nil {
+		var zero U
+		return zero, err
+	}
+	return f(value)
+}
+
 // Stores the given value as the secret value, replacing whatever was stored
 // before. The value is obtained via [Value.Reveal], and only via that.
 func (v *Value[K, T]) Store(value T) { v.value = &value }
@@ -93,6 +106,25 @@ type NoStringError = NoValueError[String]
 // Wraps the given string as a secret [String].
 func FromString(value string) String { return String{From[String](value)} }
 
+// Getenv wraps the value of the environment variable with the given key as a
+// secret [String], so that it's never held in the open. The String is zero if
+// the variable is unset or empty.
+func Getenv(key string) (value String) {
+	if secret := os.Getenv(key); secret != "" {
+		value.Store(secret)
+	}
+	return
+}
+
+// ToBytes returns the string as secret [Bytes], which are zero for the zero
+// String.
+func (s String) ToBytes() (b Bytes) {
+	if s := s.value; s != nil {
+		b.value = new([]byte(*s))
+	}
+	return
+}
+
 // A secret byte slice for values that need no kind of their own.
 type Bytes struct {
 	Value[Bytes, []byte]
@@ -103,6 +135,25 @@ type NoBytesError = NoValueError[Bytes]
 
 // Wraps the given bytes as secret [Bytes].
 func FromBytes(value []byte) Bytes { return Bytes{From[Bytes](value)} }
+
+// Len returns the number of bytes, which is zero for the zero Bytes, as it is
+// for a nil slice. It reveals the length, and only that.
+func (b Bytes) Len() int {
+	if b := b.value; b != nil {
+		return len(*b)
+	}
+	return 0
+}
+
+// ReadFile reads the file with the given path as secret [Bytes], so that its
+// contents are never held in the open.
+func ReadFile(path string) (b Bytes, err error) {
+	data, err := os.ReadFile(path)
+	if err == nil {
+		b.Store(data)
+	}
+	return
+}
 
 // Returns the name of the given type, as %T would print it.
 func nameOf[K any]() string { return reflect.TypeFor[K]().String() }

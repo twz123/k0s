@@ -50,7 +50,7 @@ func BootstrapKubeletClientConfig(ctx context.Context, k0sVars *config.CfgVars, 
 	case file.Exists(bootstrapKubeconfigPath):
 		// Nothing to do here.
 
-	// 3: A bootstrap kubeconfig can be created (usually via a join token).
+	// 3: Try to create a bootstrap kubeconfig via a join token.
 	// Bootstrap the kubelet kubeconfig via a temporary bootstrap config file.
 	case getBootstrapKubeconfig != nil:
 		bootstrapKubeconfig, err := getBootstrapKubeconfig()

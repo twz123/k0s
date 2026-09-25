@@ -65,6 +65,20 @@ func TestValue(t *testing.T) {
 		assert.Equal(t, "hunter2", revealed, "Copies taken before should be unaffected")
 	})
 
+	t.Run("reveals the value to a function", func(t *testing.T) {
+		tok := token{secret.From[token]("hunter2")}
+		length, err := tok.Use(func(s string) (int, error) { return len(s), nil })
+		require.NoError(t, err)
+		assert.Equal(t, 7, length)
+
+		length, err = token{}.Use(func(string) (int, error) {
+			assert.Fail(t, "Function should not be called for the zero value")
+			return 42, nil
+		})
+		assert.Equal(t, secret.NoValueError[token]{}, err)
+		assert.Zero(t, length)
+	})
+
 	t.Run("is zero when unset", func(t *testing.T) {
 		assert.True(t, token{}.IsZero(), "Zero value should be zero")
 		assert.False(t, token{secret.From[token]("")}.IsZero(), "Empty string should still count as set")

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/k0sproject/k0s/internal/secret"
 	"github.com/k0sproject/k0s/pkg/component/manager"
 	"github.com/k0sproject/k0s/pkg/constant"
 	"github.com/k0sproject/k0s/pkg/featuregate"
@@ -73,7 +74,7 @@ type WorkerOptions struct {
 	Labels                map[string]string
 	Taints                []string
 	TokenFile             string
-	TokenArg              string
+	TokenArg              secret.String
 	WorkerProfile         string
 	IPTablesMode          string
 }
