@@ -6,6 +6,7 @@ package basic
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"strings"
@@ -19,10 +20,13 @@ import (
 
 	certificatesv1 "k8s.io/api/certificates/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	certutil "k8s.io/client-go/util/cert"
 
 	"github.com/BurntSushi/toml"
 	"github.com/stretchr/testify/suite"
@@ -85,6 +89,7 @@ func (s *BasicSuite) TestK0sGetsUp() {
 
 	s.T().Log("Waiting for all worker CSRs to be approved")
 	s.Require().NoError(s.checkCSRs(ctx, kc))
+	s.verifyKubeletServingCerts(ctx, kc, restConfig)
 
 	s.Require().NoError(s.verifyKubeletAddressFlag(ctx, s.WorkerNode(0)))
 	s.Require().NoError(s.verifyKubeletAddressFlag(ctx, s.WorkerNode(1)))
@@ -205,6 +210,80 @@ func (s *BasicSuite) checkCSRs(ctx context.Context, kc *kubernetes.Clientset) er
 
 			return false, nil
 		})
+}
+
+// Verifies that the trust bundle for kubelet serving certificates is
+// published, and that the kubelets' serving certificates verify against it.
+func (s *BasicSuite) verifyKubeletServingCerts(ctx context.Context, kc *kubernetes.Clientset, restConfig *rest.Config) {
+	s.T().Log("Waiting for the kubelet-serving CA trust bundle to be published")
+	var trustBundle []byte
+	s.Require().NoError(common.Poll(ctx, func(ctx context.Context) (bool, error) {
+		configMap, err := kc.CoreV1().ConfigMaps(metav1.NamespaceSystem).Get(ctx, "kubelet-serving-ca.crt", metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		} else if err != nil {
+			return false, err
+		}
+		trustBundle = []byte(configMap.Data["ca.crt"])
+		return true, nil
+	}))
+
+	// The API server verifies kubelets against the cluster CA by default,
+	// which is what the bundle should hold.
+	trustBundleCerts, err := certutil.ParseCertsPEM(trustBundle)
+	s.Require().NoError(err)
+	clusterCACerts, err := certutil.ParseCertsPEM(restConfig.CAData)
+	s.Require().NoError(err)
+	s.Require().Len(clusterCACerts, 1)
+	if s.Len(trustBundleCerts, 1, "Trust bundle should hold the cluster CA only") {
+		s.Equal(clusterCACerts[0].Raw, trustBundleCerts[0].Raw, "Trust bundle should hold the cluster CA")
+	}
+
+	trusted := x509.NewCertPool()
+	for _, cert := range trustBundleCerts {
+		trusted.AddCert(cert)
+	}
+
+	for i := range s.WorkerCount {
+		node := s.WorkerNode(i)
+		s.T().Logf("Waiting for the serving certificate of %s to be issued", node)
+		var servingCert *x509.Certificate
+		s.Require().NoError(common.Poll(ctx, func(ctx context.Context) (bool, error) {
+			csrs, err := kc.CertificatesV1().CertificateSigningRequests().List(ctx, metav1.ListOptions{
+				FieldSelector: fields.OneTermEqualSelector("spec.signerName", "kubernetes.io/kubelet-serving").String(),
+			})
+			if err != nil {
+				return false, err
+			}
+			for _, csr := range csrs.Items {
+				if csr.Spec.Username != "system:node:"+node || len(csr.Status.Certificate) == 0 {
+					continue
+				}
+				certs, err := certutil.ParseCertsPEM(csr.Status.Certificate)
+				if err != nil {
+					return false, err
+				}
+				servingCert = certs[0]
+				return true, nil
+			}
+			return false, nil
+		}))
+
+		_, err = servingCert.Verify(x509.VerifyOptions{Roots: trusted, DNSName: node})
+		s.NoError(err, "Serving certificate of %s should verify against the trust bundle", node)
+	}
+
+	s.T().Log("Waiting for the kubelet-serving CA ClusterTrustBundle to be published")
+	s.Require().NoError(common.Poll(ctx, func(ctx context.Context) (bool, error) {
+		ctb, err := kc.CertificatesV1().ClusterTrustBundles().Get(ctx, "kubernetes.io:kubelet-serving:k0s", metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		} else if err != nil {
+			return false, err
+		}
+		s.Equal(string(trustBundle), ctb.Spec.TrustBundle, "ClusterTrustBundle should hold the same bundle as the ConfigMap")
+		return true, nil
+	}))
 }
 
 func getCSRApprovalReason(csr *CSR) (string, bool) {
