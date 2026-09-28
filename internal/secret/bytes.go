@@ -20,6 +20,15 @@ type NoBytesError = NoValueError[Bytes]
 // Mutations through the original slice are visible through the returned Bytes.
 func FromBytes(bytes []byte) Bytes { return Bytes{From[Bytes](bytes)} }
 
+// Len returns the number of bytes, which is zero for the zero Bytes, as it is
+// for a nil slice. It reveals the length, and only that.
+func (b Bytes) Len() int {
+	if b.reveal != nil {
+		return len(b.reveal())
+	}
+	return 0
+}
+
 // Reads the named file into secret [Bytes],
 // the way [os.ReadFile] would read it into a plain byte slice.
 func ReadFile(name string) (b Bytes, err error) {

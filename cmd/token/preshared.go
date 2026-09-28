@@ -108,17 +108,17 @@ func createKubeConfig(tok *bootstraptokenv1.BootstrapTokenString, role, joinURL,
 	default:
 		return fmt.Errorf("unknown role: %s", role)
 	}
-	kubeconfig, err := token.GenerateKubeconfig(joinURL, caCert, userName, tok)
+	joinToken, err := token.GenerateJoinToken(joinURL, caCert, userName, tok)
 	if err != nil {
 		return fmt.Errorf("error generating kubeconfig: %w", err)
 	}
 
-	encodedToken, err := token.JoinEncode(bytes.NewReader(kubeconfig))
-	if err != nil {
-		return fmt.Errorf("error encoding token: %w", err)
+	var buf bytes.Buffer
+	if err := joinToken.Encode(&buf); err != nil {
+		return err
 	}
 
-	err = file.WriteContentAtomically(filepath.Join(outDir, "token_"+tok.ID), []byte(encodedToken), 0640)
+	err = file.WriteContentAtomically(filepath.Join(outDir, "token_"+tok.ID), buf.Bytes(), 0640)
 	if err != nil {
 		return fmt.Errorf("error writing kubeconfig: %w", err)
 	}

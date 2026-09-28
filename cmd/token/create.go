@@ -53,9 +53,9 @@ k0s token create --role worker --expiry 10m  //sets expiration time to 10 minute
 				return err
 			}
 
-			var bootstrapToken string
+			var bootstrapToken token.JoinToken
 			// we will retry every second for two minutes and then error
-			err = retry.OnError(wait.Backoff{
+			if err = retry.OnError(wait.Backoff{
 				Steps:    120,
 				Duration: 1 * time.Second,
 				Factor:   1.0,
@@ -77,12 +77,16 @@ k0s token create --role worker --expiry 10m  //sets expiration time to 10 minute
 
 				bootstrapToken, err = token.CreateKubeletBootstrapToken(cmd.Context(), nodeConfig.Spec.API, opts.K0sVars, createTokenRole, expiry)
 				return err
-			})
-			if err != nil {
+			}); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), bootstrapToken)
-			return nil
+
+			out := cmd.OutOrStdout()
+			if err := bootstrapToken.Encode(out); err != nil {
+				return err
+			}
+			_, err = out.Write([]byte{'\n'})
+			return err
 		},
 	}
 

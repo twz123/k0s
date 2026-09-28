@@ -19,6 +19,7 @@ import (
 	"github.com/k0sproject/k0s/internal/pkg/file"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/constant"
+	"github.com/k0sproject/k0s/pkg/token"
 
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
@@ -50,11 +51,15 @@ func BootstrapKubeletClientConfig(ctx context.Context, k0sVars *config.CfgVars, 
 	case file.Exists(bootstrapKubeconfigPath):
 		// Nothing to do here.
 
-	// 3: A bootstrap kubeconfig can be created (usually via a join token).
+	// 3: Try to create a bootstrap kubeconfig via a join token.
 	// Bootstrap the kubelet kubeconfig via a temporary bootstrap config file.
-	case getBootstrapKubeconfig != nil:
+	default:
 		bootstrapKubeconfig, err := getBootstrapKubeconfig()
 		if err != nil {
+			if errors.Is(err, token.NoJoinTokenError{}) {
+				return errors.New("neither regular nor bootstrap kubeconfig files exist and no join token given; dunno how to make kubelet authenticate to API server")
+			}
+
 			return fmt.Errorf("failed to get bootstrap kubeconfig: %w", err)
 		}
 
@@ -74,10 +79,6 @@ func BootstrapKubeletClientConfig(ctx context.Context, k0sVars *config.CfgVars, 
 		}()
 
 		log.Debug("Wrote bootstrap kubeconfig file: ", bootstrapKubeconfigPath)
-
-	// 4: None of the above, bail out.
-	default:
-		return errors.New("neither regular nor bootstrap kubeconfig files exist and no join token given; dunno how to make kubelet authenticate to API server")
 	}
 
 	log.Info("Bootstrapping client configuration")

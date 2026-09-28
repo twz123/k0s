@@ -4,130 +4,174 @@
 package internal
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/k0sproject/k0s/internal/secret"
+	"github.com/k0sproject/k0s/pkg/token"
+
+	bootstraptokenv1 "k8s.io/kubernetes/cmd/kubeadm/app/apis/bootstraptoken/v1"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestCheckSingleTokenSource(t *testing.T) {
-	testToken := "test-token-data"
-
-	t.Run("returns nil when no token sources provided", func(t *testing.T) {
+func TestGetJoinTokenSource_SingleSource(t *testing.T) {
+	t.Run("no error when no token sources provided", func(t *testing.T) {
 		t.Setenv(EnvVarToken, "")
 
-		err := CheckSingleTokenSource("", "")
+		_, err := GetJoinTokenSource(secret.String{}, "")
 		require.NoError(t, err)
 	})
 
-	t.Run("returns nil when only arg provided", func(t *testing.T) {
+	t.Run("no error when only arg provided", func(t *testing.T) {
 		t.Setenv(EnvVarToken, "")
 
-		err := CheckSingleTokenSource(testToken, "")
+		_, err := GetJoinTokenSource(secret.FromString("some-token-arg"), "")
 		require.NoError(t, err)
 	})
 
-	t.Run("returns nil when only file provided", func(t *testing.T) {
+	t.Run("no error when only file provided", func(t *testing.T) {
 		t.Setenv(EnvVarToken, "")
 
-		err := CheckSingleTokenSource("", "/path/to/token")
+		_, err := GetJoinTokenSource(secret.String{}, "/path/to/token")
 		require.NoError(t, err)
 	})
 
-	t.Run("returns nil when only env provided", func(t *testing.T) {
-		t.Setenv(EnvVarToken, testToken)
+	t.Run("no error when only env provided", func(t *testing.T) {
+		t.Setenv(EnvVarToken, "some-token")
 
-		err := CheckSingleTokenSource("", "")
+		_, err := GetJoinTokenSource(secret.String{}, "")
 		require.NoError(t, err)
 	})
 
-	t.Run("returns error when multiple token sources provided - env and arg", func(t *testing.T) {
-		t.Setenv(EnvVarToken, testToken)
+	t.Run("fails on multiple token sources provided - env and arg", func(t *testing.T) {
+		t.Setenv(EnvVarToken, "some-token")
 
-		err := CheckSingleTokenSource(testToken, "")
+		getter, err := GetJoinTokenSource(secret.FromString("some-token-arg"), "")
+		assert.Nil(t, getter)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "you can only pass one token source")
 		assert.Contains(t, err.Error(), EnvVarToken)
 	})
 
-	t.Run("returns error when multiple token sources provided - env and file", func(t *testing.T) {
-		t.Setenv(EnvVarToken, testToken)
+	t.Run("fails on multiple token sources provided - env and file", func(t *testing.T) {
+		t.Setenv(EnvVarToken, "some-token")
 
-		err := CheckSingleTokenSource("", "/path/to/token")
+		getter, err := GetJoinTokenSource(secret.String{}, "/path/to/token")
+		assert.Nil(t, getter)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "you can only pass one token source")
 	})
 
-	t.Run("returns error when multiple token sources provided - arg and file", func(t *testing.T) {
+	t.Run("fails on multiple token sources provided - arg and file", func(t *testing.T) {
 		t.Setenv(EnvVarToken, "")
 
-		err := CheckSingleTokenSource(testToken, "/path/to/token")
+		getter, err := GetJoinTokenSource(secret.FromString("some-token-arg"), "/path/to/token")
+		assert.Nil(t, getter)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "you can only pass one token source")
 	})
 
-	t.Run("returns error when all three token sources provided", func(t *testing.T) {
-		t.Setenv(EnvVarToken, testToken)
+	t.Run("fails on all three token sources provided", func(t *testing.T) {
+		t.Setenv(EnvVarToken, "some-token")
 
-		err := CheckSingleTokenSource(testToken, "/path/to/token")
+		getter, err := GetJoinTokenSource(secret.FromString("some-token-arg"), "/path/to/token")
+		assert.Nil(t, getter)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "you can only pass one token source")
 	})
 }
 
-func TestGetTokenData_EnvVar(t *testing.T) {
-	testToken := "test-token-data"
+func TestGetJoinTokenSource_EnvVar(t *testing.T) {
+	testToken := encodedTestToken(t)
 
 	t.Run("reads token from K0S_TOKEN env var", func(t *testing.T) {
 		t.Setenv(EnvVarToken, testToken)
 
-		token, err := GetTokenData("", "")
+		jt, err := getJoinToken(t, secret.String{}, "")
 		require.NoError(t, err)
-		assert.Equal(t, testToken, token)
+		assert.Equal(t, testToken, encoded(t, jt))
 	})
 
-	t.Run("empty K0S_TOKEN returns empty string", func(t *testing.T) {
+	t.Run("fails for an undecodable token", func(t *testing.T) {
+		t.Setenv(EnvVarToken, "not a token")
+
+		_, err := getJoinToken(t, secret.String{}, "")
+		assert.ErrorContains(t, err, "failed to decode join token from K0S_TOKEN")
+	})
+
+	t.Run("empty K0S_TOKEN counts as no token", func(t *testing.T) {
 		t.Setenv(EnvVarToken, "")
 
-		token, err := GetTokenData("", "")
+		jt, err := getJoinToken(t, secret.String{}, "")
 		require.NoError(t, err)
-		assert.Empty(t, token)
+		assert.Zero(t, jt, "Expected no token")
 	})
 }
 
-func TestGetTokenData_TokenArg(t *testing.T) {
-	testToken := "test-token-data"
+func TestGetJoinTokenSource_TokenArg(t *testing.T) {
+	testToken := encodedTestToken(t)
 
 	t.Run("reads token from argument", func(t *testing.T) {
 		t.Setenv(EnvVarToken, "")
 
-		token, err := GetTokenData(testToken, "")
+		jt, err := getJoinToken(t, secret.FromString(testToken), "")
 		require.NoError(t, err)
-		assert.Equal(t, testToken, token)
+		assert.Equal(t, testToken, encoded(t, jt))
+	})
+
+	t.Run("fails for an undecodable token", func(t *testing.T) {
+		t.Setenv(EnvVarToken, "")
+
+		_, err := getJoinToken(t, secret.FromString("not a token"), "")
+		assert.ErrorContains(t, err, "failed to decode join token argument")
 	})
 }
 
-func TestGetTokenData_TokenFile(t *testing.T) {
-	testToken := "test-token-from-file"
+func TestGetJoinTokenSource_TokenFile(t *testing.T) {
+	testToken := encodedTestToken(t)
 
 	t.Run("reads token from file", func(t *testing.T) {
 		t.Setenv(EnvVarToken, "")
 
-		tmpDir := t.TempDir()
-		tokenFile := filepath.Join(tmpDir, "token")
+		tokenFile := filepath.Join(t.TempDir(), "token")
 		require.NoError(t, os.WriteFile(tokenFile, []byte(testToken), 0600))
 
-		token, err := GetTokenData("", tokenFile)
+		jt, err := getJoinToken(t, secret.String{}, tokenFile)
 		require.NoError(t, err)
-		assert.Equal(t, testToken, token)
+		assert.Equal(t, testToken, encoded(t, jt))
+	})
+
+	t.Run("reads the file when the token is requested", func(t *testing.T) {
+		t.Setenv(EnvVarToken, "")
+
+		tokenFile := filepath.Join(t.TempDir(), "token")
+		getter, err := GetJoinTokenSource(secret.String{}, tokenFile)
+		require.NoError(t, err)
+
+		require.NoError(t, os.WriteFile(tokenFile, []byte(testToken), 0600))
+		jt, err := getter()
+		require.NoError(t, err)
+		assert.Equal(t, testToken, encoded(t, jt))
+	})
+
+	t.Run("fails for an undecodable token", func(t *testing.T) {
+		t.Setenv(EnvVarToken, "")
+
+		tokenFile := filepath.Join(t.TempDir(), "token")
+		require.NoError(t, os.WriteFile(tokenFile, []byte("not a token"), 0600))
+
+		_, err := getJoinToken(t, secret.String{}, tokenFile)
+		assert.ErrorContains(t, err, "failed to decode join token from "+tokenFile)
 	})
 
 	t.Run("returns error for non-existent file", func(t *testing.T) {
 		t.Setenv(EnvVarToken, "")
 
-		_, err := GetTokenData("", "/non/existent/path")
+		_, err := getJoinToken(t, secret.String{}, "/non/existent/path")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "token file")
 		assert.Contains(t, err.Error(), "not found")
@@ -137,11 +181,10 @@ func TestGetTokenData_TokenFile(t *testing.T) {
 	t.Run("returns error for empty file", func(t *testing.T) {
 		t.Setenv(EnvVarToken, "")
 
-		tmpDir := t.TempDir()
-		tokenFile := filepath.Join(tmpDir, "empty-token")
+		tokenFile := filepath.Join(t.TempDir(), "empty-token")
 		require.NoError(t, os.WriteFile(tokenFile, []byte{}, 0600))
 
-		_, err := GetTokenData("", tokenFile)
+		_, err := getJoinToken(t, secret.String{}, tokenFile)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "token file")
 		assert.Contains(t, err.Error(), "is empty")
@@ -149,12 +192,38 @@ func TestGetTokenData_TokenFile(t *testing.T) {
 	})
 }
 
-func TestGetTokenData_NoToken(t *testing.T) {
-	t.Run("returns empty string when no token provided", func(t *testing.T) {
+func TestGetJoinTokenSource_NoToken(t *testing.T) {
+	t.Run("yields no token when no token provided", func(t *testing.T) {
 		t.Setenv(EnvVarToken, "")
 
-		token, err := GetTokenData("", "")
+		jt, err := getJoinToken(t, secret.String{}, "")
 		require.NoError(t, err)
-		assert.Empty(t, token)
+		assert.Zero(t, jt, "Expected no token")
 	})
+}
+
+// Determines the join token source, which is expected to be valid, and gets
+// the token from it.
+func getJoinToken(t *testing.T, tokenArg secret.String, tokenFile string) (token.JoinToken, error) {
+	t.Helper()
+	getter, err := GetJoinTokenSource(tokenArg, tokenFile)
+	require.NoError(t, err)
+	return getter()
+}
+
+// A join token for tests, in its encoded form.
+func encodedTestToken(t *testing.T) string {
+	t.Helper()
+	tok := bootstraptokenv1.BootstrapTokenString{ID: "abcdef", Secret: "0123456789abcdef"}
+	jt, err := token.GenerateJoinToken("https://example.com", []byte("the cert"), token.WorkerTokenAuthName, &tok)
+	require.NoError(t, err)
+	return encoded(t, jt)
+}
+
+// The encoded form of the given token, which is expected to be there.
+func encoded(t *testing.T, jt token.JoinToken) string {
+	t.Helper()
+	var buf bytes.Buffer
+	require.NoError(t, jt.Encode(&buf))
+	return buf.String()
 }

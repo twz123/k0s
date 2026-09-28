@@ -17,7 +17,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/stretchr/testify/suite"
 )
@@ -135,32 +135,34 @@ func (s *EtcdLearnerSuite) listMembers(ctx context.Context, ssh *common.SSHConne
 }
 
 // callJoinEtcd uses the k0s JoinClient to POST an EtcdRequest to the join
-// API on the given node. The kubeconfig embedded in the join token points
-// to the controller's container-internal IP, which is not reachable from
-// the test host. We rewrite the server URL to the host-mapped port
-// (localhost is in the k0s-api cert's SAN list, so TLS still validates)
-// and hand the modified kubeconfig to JoinClientFromKubeconfig, so the
-// rest of the code path runs exactly as it does in production.
+// API on the given node. A join token created on the node would point to the
+// controller's container-internal IP, which is not reachable from the test
+// host. So the test mints its own controller token, the way `k0s token
+// pre-shared` does: it stores a bootstrap secret in the cluster and puts the
+// host-mapped join URL into the kubeconfig (localhost is in the k0s-api cert's
+// SAN list, so TLS still validates). The rest of the code path runs exactly as
+// it does in production.
 func (s *EtcdLearnerSuite) callJoinEtcd(ctx context.Context, node string, req v1beta1.EtcdRequest) {
-	encToken, err := s.GetJoinToken("controller")
+	kubeConfig, err := s.GetKubeConfig(node)
+	s.Require().NoError(err)
+	s.Require().NotEmpty(kubeConfig.TLSClientConfig.CAData, "admin kubeconfig has no CA data to put into the join token")
+	kc, err := kubernetes.NewForConfig(kubeConfig)
 	s.Require().NoError(err)
 
-	rawKubeconfig, err := token.DecodeJoinToken(encToken)
+	bootstrapSecret, bootstrapToken, err := token.RandomBootstrapSecret(token.RoleController, 10*time.Minute)
 	s.Require().NoError(err)
-	cfg, err := clientcmd.Load(rawKubeconfig)
+	_, err = kc.CoreV1().Secrets(metav1.NamespaceSystem).Create(ctx, bootstrapSecret, metav1.CreateOptions{})
 	s.Require().NoError(err)
 
 	m, err := s.MachineForName(node)
 	s.Require().NoError(err)
 	hostPort, err := m.HostPort(s.K0sAPIExternalPort)
 	s.Require().NoError(err)
-	hostURL := fmt.Sprintf("https://localhost:%d", hostPort)
+	joinURL := fmt.Sprintf("https://localhost:%d", hostPort)
 
-	for _, cluster := range cfg.Clusters {
-		cluster.Server = hostURL
-	}
-
-	client, err := token.JoinClientFromKubeconfig(cfg)
+	joinToken, err := token.GenerateJoinToken(joinURL, kubeConfig.TLSClientConfig.CAData, token.ControllerTokenAuthName, bootstrapToken)
+	s.Require().NoError(err)
+	client, err := joinToken.NewJoinClient()
 	s.Require().NoError(err)
 
 	resp, err := client.JoinEtcd(ctx, req)

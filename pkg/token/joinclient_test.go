@@ -4,7 +4,6 @@
 package token_test
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -38,12 +37,10 @@ func TestJoinClient_GetCA(t *testing.T) {
 	})
 
 	joinURL.Path = "/some/sub/path"
-	kubeconfig, err := token.GenerateKubeconfig(joinURL.String(), certData, token.ControllerTokenAuthName, &bootstraptokenv1.BootstrapTokenString{ID: "the-id", Secret: "the-secret"})
-	require.NoError(t, err)
-	tok, err := token.JoinEncode(bytes.NewReader(kubeconfig))
+	tok, err := token.GenerateJoinToken(joinURL.String(), certData, token.ControllerTokenAuthName, &bootstraptokenv1.BootstrapTokenString{ID: "the-id", Secret: "the-secret"})
 	require.NoError(t, err)
 
-	underTest, err := token.JoinClientFromToken(tok)
+	underTest, err := tok.NewJoinClient()
 	require.NoError(t, err)
 
 	response, err := underTest.GetCA(t.Context())
@@ -73,12 +70,10 @@ func TestJoinClient_JoinEtcd(t *testing.T) {
 	})
 
 	joinURL.Path = "/some/sub/path"
-	kubeconfig, err := token.GenerateKubeconfig(joinURL.String(), certData, token.ControllerTokenAuthName, &bootstraptokenv1.BootstrapTokenString{ID: "the-id", Secret: "the-secret"})
-	require.NoError(t, err)
-	tok, err := token.JoinEncode(bytes.NewReader(kubeconfig))
+	tok, err := token.GenerateJoinToken(joinURL.String(), certData, token.ControllerTokenAuthName, &bootstraptokenv1.BootstrapTokenString{ID: "the-id", Secret: "the-secret"})
 	require.NoError(t, err)
 
-	underTest, err := token.JoinClientFromToken(tok)
+	underTest, err := tok.NewJoinClient()
 	require.NoError(t, err)
 
 	response, err := underTest.JoinEtcd(t.Context(), k0sv1beta1.EtcdRequest{
@@ -114,12 +109,10 @@ func TestJoinClient_Cancellation(t *testing.T) {
 				<-req.Context().Done()              // block forever
 			})
 
-			kubeconfig, err := token.GenerateKubeconfig(joinURL.String(), certData, token.ControllerTokenAuthName, &bootstraptokenv1.BootstrapTokenString{})
-			require.NoError(t, err)
-			tok, err := token.JoinEncode(bytes.NewReader(kubeconfig))
+			tok, err := token.GenerateJoinToken(joinURL.String(), certData, token.ControllerTokenAuthName, &bootstraptokenv1.BootstrapTokenString{})
 			require.NoError(t, err)
 
-			underTest, err := token.JoinClientFromToken(tok)
+			underTest, err := tok.NewJoinClient()
 			require.NoError(t, err)
 
 			err = test.funcUnderTest(clientContext, underTest)
