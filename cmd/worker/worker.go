@@ -81,14 +81,16 @@ func NewWorkerCmd() *cobra.Command {
 			}
 
 			c := (*Command)(opts)
+			var tokenArg string
 			if len(args) > 0 {
-				c.TokenArg = args[0]
+				tokenArg = args[0]
 			}
-			if err := internal.CheckSingleTokenSource(c.TokenArg, c.TokenFile); err != nil {
+			loadJoinToken, err := internal.GetJoinTokenSource(tokenArg, c.TokenFile)
+			if err != nil {
 				return err
 			}
 
-			getBootstrapKubeconfig := kubeconfigGetterFromJoinToken(c.TokenFile, c.TokenArg)
+			getBootstrapKubeconfig := kubeconfigGetterFromJoinToken(loadJoinToken)
 
 			nodeName, kubeletExtraArgs, err := GetNodeName(&c.WorkerOptions)
 			if err != nil {
@@ -164,25 +166,13 @@ func GetNodeName(opts *config.WorkerOptions) (apitypes.NodeName, stringmap.Strin
 	return nodeName, kubeletExtraArgs, nil
 }
 
-func kubeconfigGetterFromJoinToken(tokenFile, tokenArg string) clientcmd.KubeconfigGetter {
-	if tokenArg != "" {
-		return func() (*clientcmdapi.Config, error) {
-			return loadKubeconfigFromJoinToken(tokenArg)
-		}
-	}
-
-	if envToken := os.Getenv(internal.EnvVarToken); envToken != "" {
-		return func() (*clientcmdapi.Config, error) {
-			return loadKubeconfigFromJoinToken(envToken)
-		}
-	}
-
-	if tokenFile == "" {
+func kubeconfigGetterFromJoinToken(loadJoinToken func() (string, error)) clientcmd.KubeconfigGetter {
+	if loadJoinToken == nil {
 		return nil
 	}
 
 	return func() (*clientcmdapi.Config, error) {
-		tokenData, err := internal.GetTokenData("", tokenFile)
+		tokenData, err := loadJoinToken()
 		if err != nil {
 			return nil, err
 		}

@@ -12,149 +12,93 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCheckSingleTokenSource(t *testing.T) {
-	testToken := "test-token-data"
+func TestGetJoinTokenSource(t *testing.T) {
+	const testToken = "test-token-data"
 
-	t.Run("returns nil when no token sources provided", func(t *testing.T) {
+	t.Run("no source", func(t *testing.T) {
 		t.Setenv(EnvVarToken, "")
 
-		err := CheckSingleTokenSource("", "")
+		load, err := GetJoinTokenSource("", "")
 		require.NoError(t, err)
+		assert.Nil(t, load)
 	})
 
-	t.Run("returns nil when only arg provided", func(t *testing.T) {
+	t.Run("argument", func(t *testing.T) {
 		t.Setenv(EnvVarToken, "")
 
-		err := CheckSingleTokenSource(testToken, "")
+		load, err := GetJoinTokenSource(testToken, "")
 		require.NoError(t, err)
-	})
+		require.NotNil(t, load)
 
-	t.Run("returns nil when only file provided", func(t *testing.T) {
-		t.Setenv(EnvVarToken, "")
-
-		err := CheckSingleTokenSource("", "/path/to/token")
-		require.NoError(t, err)
-	})
-
-	t.Run("returns nil when only env provided", func(t *testing.T) {
-		t.Setenv(EnvVarToken, testToken)
-
-		err := CheckSingleTokenSource("", "")
-		require.NoError(t, err)
-	})
-
-	t.Run("returns error when multiple token sources provided - env and arg", func(t *testing.T) {
-		t.Setenv(EnvVarToken, testToken)
-
-		err := CheckSingleTokenSource(testToken, "")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "you can only pass one token source")
-		assert.Contains(t, err.Error(), EnvVarToken)
-	})
-
-	t.Run("returns error when multiple token sources provided - env and file", func(t *testing.T) {
-		t.Setenv(EnvVarToken, testToken)
-
-		err := CheckSingleTokenSource("", "/path/to/token")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "you can only pass one token source")
-	})
-
-	t.Run("returns error when multiple token sources provided - arg and file", func(t *testing.T) {
-		t.Setenv(EnvVarToken, "")
-
-		err := CheckSingleTokenSource(testToken, "/path/to/token")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "you can only pass one token source")
-	})
-
-	t.Run("returns error when all three token sources provided", func(t *testing.T) {
-		t.Setenv(EnvVarToken, testToken)
-
-		err := CheckSingleTokenSource(testToken, "/path/to/token")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "you can only pass one token source")
-	})
-}
-
-func TestGetTokenData_EnvVar(t *testing.T) {
-	testToken := "test-token-data"
-
-	t.Run("reads token from K0S_TOKEN env var", func(t *testing.T) {
-		t.Setenv(EnvVarToken, testToken)
-
-		token, err := GetTokenData("", "")
+		token, err := load()
 		require.NoError(t, err)
 		assert.Equal(t, testToken, token)
 	})
 
-	t.Run("empty K0S_TOKEN returns empty string", func(t *testing.T) {
-		t.Setenv(EnvVarToken, "")
+	t.Run("environment variable", func(t *testing.T) {
+		t.Setenv(EnvVarToken, testToken)
 
-		token, err := GetTokenData("", "")
+		load, err := GetJoinTokenSource("", "")
 		require.NoError(t, err)
-		assert.Empty(t, token)
-	})
-}
+		require.NotNil(t, load)
 
-func TestGetTokenData_TokenArg(t *testing.T) {
-	testToken := "test-token-data"
-
-	t.Run("reads token from argument", func(t *testing.T) {
-		t.Setenv(EnvVarToken, "")
-
-		token, err := GetTokenData(testToken, "")
-		require.NoError(t, err)
-		assert.Equal(t, testToken, token)
-	})
-}
-
-func TestGetTokenData_TokenFile(t *testing.T) {
-	testToken := "test-token-from-file"
-
-	t.Run("reads token from file", func(t *testing.T) {
-		t.Setenv(EnvVarToken, "")
-
-		tmpDir := t.TempDir()
-		tokenFile := filepath.Join(tmpDir, "token")
-		require.NoError(t, os.WriteFile(tokenFile, []byte(testToken), 0600))
-
-		token, err := GetTokenData("", tokenFile)
+		token, err := load()
 		require.NoError(t, err)
 		assert.Equal(t, testToken, token)
 	})
 
-	t.Run("returns error for non-existent file", func(t *testing.T) {
+	t.Run("file", func(t *testing.T) {
 		t.Setenv(EnvVarToken, "")
+		tokenFile := filepath.Join(t.TempDir(), "token")
 
-		_, err := GetTokenData("", "/non/existent/path")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "token file")
-		assert.Contains(t, err.Error(), "not found")
-		assert.Contains(t, err.Error(), "k0s token create")
-	})
-
-	t.Run("returns error for empty file", func(t *testing.T) {
-		t.Setenv(EnvVarToken, "")
-
-		tmpDir := t.TempDir()
-		tokenFile := filepath.Join(tmpDir, "empty-token")
-		require.NoError(t, os.WriteFile(tokenFile, []byte{}, 0600))
-
-		_, err := GetTokenData("", tokenFile)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "token file")
-		assert.Contains(t, err.Error(), "is empty")
-		assert.Contains(t, err.Error(), "k0s token create")
-	})
-}
-
-func TestGetTokenData_NoToken(t *testing.T) {
-	t.Run("returns empty string when no token provided", func(t *testing.T) {
-		t.Setenv(EnvVarToken, "")
-
-		token, err := GetTokenData("", "")
+		load, err := GetJoinTokenSource("", tokenFile)
 		require.NoError(t, err)
-		assert.Empty(t, token)
+		require.NotNil(t, load)
+
+		t.Run("is read lazily", func(t *testing.T) {
+			require.NoError(t, os.WriteFile(tokenFile, []byte(testToken), 0600))
+
+			token, err := load()
+			require.NoError(t, err)
+			assert.Equal(t, testToken, token)
+		})
+
+		t.Run("must not be empty", func(t *testing.T) {
+			require.NoError(t, os.WriteFile(tokenFile, []byte{}, 0600))
+
+			_, err := load()
+			assert.ErrorContains(t, err, `token file "`+tokenFile+`" is empty`)
+			assert.ErrorContains(t, err, "k0s token create")
+		})
+
+		t.Run("must exist", func(t *testing.T) {
+			require.NoError(t, os.Remove(tokenFile))
+
+			_, err := load()
+			assert.ErrorContains(t, err, `token file "`+tokenFile+`" not found`)
+			assert.ErrorContains(t, err, "k0s token create")
+		})
+	})
+
+	t.Run("conflicts", func(t *testing.T) {
+		for _, test := range []struct {
+			name             string
+			tokenArg, envVar string
+			tokenFile        string
+		}{
+			{"argument and environment variable", testToken, testToken, ""},
+			{"argument and file", testToken, "", "/path/to/token"},
+			{"environment variable and file", "", testToken, "/path/to/token"},
+			{"all three", testToken, testToken, "/path/to/token"},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				t.Setenv(EnvVarToken, test.envVar)
+
+				load, err := GetJoinTokenSource(test.tokenArg, test.tokenFile)
+				assert.Nil(t, load)
+				assert.ErrorContains(t, err, "you can only pass one token source")
+				assert.ErrorContains(t, err, EnvVarToken)
+			})
+		}
 	})
 }

@@ -73,7 +73,6 @@ type WorkerOptions struct {
 	Labels                map[string]string
 	Taints                []string
 	TokenFile             string
-	TokenArg              string
 	WorkerProfile         string
 	IPTablesMode          string
 }

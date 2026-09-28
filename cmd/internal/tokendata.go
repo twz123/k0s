@@ -12,45 +12,36 @@ import (
 // EnvVarToken is the environment variable name for the join token
 const EnvVarToken = "K0S_TOKEN"
 
-// CheckSingleTokenSource verifies that at most one token source is provided.
-// Returns an error if multiple sources are specified.
-func CheckSingleTokenSource(tokenArg, tokenFile string) error {
-	tokenSources := 0
-	if tokenArg != "" {
-		tokenSources++
+// GetJoinTokenSource picks the join token source from the CLI argument, the
+// token file and the K0S_TOKEN environment variable. It returns an error if
+// more than one source is given, nil if none is, and otherwise a function that
+// loads the token data from the selected source.
+func GetJoinTokenSource(tokenArg, tokenFile string) (func() (string, error), error) {
+	envToken := os.Getenv(EnvVarToken)
+
+	var sources uint
+	for _, source := range []string{tokenArg, tokenFile, envToken} {
+		if source != "" {
+			sources++
+		}
 	}
-	if tokenFile != "" {
-		tokenSources++
-	}
-	if os.Getenv(EnvVarToken) != "" {
-		tokenSources++
+	if sources > 1 {
+		return nil, fmt.Errorf("you can only pass one token source: either as a CLI argument, via '--token-file [path]', or via the %s environment variable", EnvVarToken)
 	}
 
-	if tokenSources > 1 {
-		return fmt.Errorf("you can only pass one token source: either as a CLI argument, via '--token-file [path]', or via the %s environment variable", EnvVarToken)
+	switch {
+	case tokenArg != "":
+		return func() (string, error) { return tokenArg, nil }, nil
+	case envToken != "":
+		return func() (string, error) { return envToken, nil }, nil
+	case tokenFile != "":
+		return func() (string, error) { return readTokenFile(tokenFile) }, nil
+	default:
+		return nil, nil
 	}
-
-	return nil
 }
 
-// GetTokenData resolves the join token from multiple possible sources:
-// CLI argument, token file, or K0S_TOKEN environment variable.
-// Returns empty string if no token source is available.
-func GetTokenData(tokenArg, tokenFile string) (string, error) {
-	tokenEnvValue := os.Getenv(EnvVarToken)
-
-	if tokenArg != "" {
-		return tokenArg, nil
-	}
-
-	if tokenEnvValue != "" {
-		return tokenEnvValue, nil
-	}
-
-	if tokenFile == "" {
-		return "", nil
-	}
-
+func readTokenFile(tokenFile string) (string, error) {
 	var problem string
 	data, err := os.ReadFile(tokenFile)
 	if errors.Is(err, os.ErrNotExist) {

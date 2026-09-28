@@ -93,10 +93,12 @@ func NewControllerCmd() *cobra.Command {
 
 			c := (*command)(opts)
 
+			var tokenArg string
 			if len(args) > 0 {
-				c.TokenArg = args[0]
+				tokenArg = args[0]
 			}
-			if err := internal.CheckSingleTokenSource(c.TokenArg, c.TokenFile); err != nil {
+			loadJoinToken, err := internal.GetJoinTokenSource(tokenArg, c.TokenFile)
+			if err != nil {
 				return err
 			}
 			if err := controllerFlags.Normalize(); err != nil {
@@ -131,7 +133,7 @@ func NewControllerCmd() *cobra.Command {
 				}
 			}()
 
-			if err := c.start(ctx, runtimeConfig, nodeConfig, &controllerFlags, debugFlags.IsDebug()); err != nil {
+			if err := c.start(ctx, runtimeConfig, nodeConfig, &controllerFlags, loadJoinToken, debugFlags.IsDebug()); err != nil {
 				if controllerFlags.InitOnly && errors.Is(err, errInitOnly) {
 					return nil
 				}
@@ -196,7 +198,7 @@ func (c *command) initDirs() error {
 	return nil
 }
 
-func (c *command) start(ctx context.Context, runtimeConfig *config.RuntimeConfig, nodeConfig *v1beta1.ClusterConfig, flags *config.ControllerOptions, debug bool) error {
+func (c *command) start(ctx context.Context, runtimeConfig *config.RuntimeConfig, nodeConfig *v1beta1.ClusterConfig, flags *config.ControllerOptions, loadJoinToken func() (string, error), debug bool) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 
@@ -225,16 +227,14 @@ func (c *command) start(ctx context.Context, runtimeConfig *config.RuntimeConfig
 
 	var joinClient *token.JoinClient
 
-	if c.needToJoin(nodeConfig) {
-		tokenData, err := internal.GetTokenData(c.TokenArg, c.TokenFile)
+	if loadJoinToken != nil && c.needToJoin(nodeConfig) {
+		tokenData, err := loadJoinToken()
 		if err != nil {
 			return err
 		}
-		if tokenData != "" {
-			joinClient, err = joinController(ctx, tokenData, c.K0sVars.CertRootDir)
-			if err != nil {
-				return fmt.Errorf("failed to join controller: %w", err)
-			}
+		joinClient, err = joinController(ctx, tokenData, c.K0sVars.CertRootDir)
+		if err != nil {
+			return fmt.Errorf("failed to join controller: %w", err)
 		}
 	}
 

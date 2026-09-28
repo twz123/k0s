@@ -4,48 +4,32 @@
 package worker
 
 import (
-	"path/filepath"
+	"errors"
 	"testing"
 
-	"github.com/k0sproject/k0s/cmd/internal"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestKubeconfigGetterFromJoinToken_NoSources(t *testing.T) {
-	t.Setenv(internal.EnvVarToken, "")
+func TestKubeconfigGetterFromJoinToken(t *testing.T) {
+	t.Run("no getter without a token source", func(t *testing.T) {
+		assert.Nil(t, kubeconfigGetterFromJoinToken(nil))
+	})
 
-	getter := kubeconfigGetterFromJoinToken("", "")
-	require.Nil(t, getter)
-}
+	t.Run("propagates token loading errors", func(t *testing.T) {
+		loadErr := errors.New("load failed")
+		getter := kubeconfigGetterFromJoinToken(func() (string, error) { return "", loadErr })
+		require.NotNil(t, getter)
 
-func TestKubeconfigGetterFromJoinToken_TokenFileLazy(t *testing.T) {
-	t.Setenv(internal.EnvVarToken, "")
-	tokenFile := filepath.Join(t.TempDir(), "missing.token")
+		_, err := getter()
+		assert.Equal(t, loadErr, err)
+	})
 
-	getter := kubeconfigGetterFromJoinToken(tokenFile, "")
-	require.NotNil(t, getter)
+	t.Run("rejects undecodable tokens", func(t *testing.T) {
+		getter := kubeconfigGetterFromJoinToken(func() (string, error) { return "not-base64", nil })
+		require.NotNil(t, getter)
 
-	_, err := getter()
-	require.Error(t, err)
-	require.Contains(t, err.Error(), tokenFile)
-}
-
-func TestKubeconfigGetterFromJoinToken_EnvVarDeferred(t *testing.T) {
-	t.Setenv(internal.EnvVarToken, "not-base64")
-
-	getter := kubeconfigGetterFromJoinToken("", "")
-	require.NotNil(t, getter)
-
-	_, err := getter()
-	require.ErrorContains(t, err, "failed to decode join token")
-}
-
-func TestKubeconfigGetterFromJoinToken_InvalidArgDeferred(t *testing.T) {
-	t.Setenv(internal.EnvVarToken, "")
-
-	getter := kubeconfigGetterFromJoinToken("", "invalid")
-	require.NotNil(t, getter)
-
-	_, err := getter()
-	require.ErrorContains(t, err, "failed to decode join token")
+		_, err := getter()
+		assert.ErrorContains(t, err, "failed to decode join token")
+	})
 }
