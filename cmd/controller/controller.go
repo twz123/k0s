@@ -201,6 +201,39 @@ func (c *command) start(ctx context.Context, runtimeConfig *config.RuntimeConfig
 
 	perfTimer := performance.NewTimer("controller-start").Buffer().Start()
 
+	controllerMode := flags.Mode()
+	workerInterface := embeddingController{opts: flags}
+
+	statusComponent := status.Status{
+		Prober: prober.DefaultProber,
+		StatusInformation: status.K0sStatus{
+			Pid:           os.Getpid(),
+			Role:          "controller",
+			Args:          os.Args,
+			Version:       build.Version,
+			SingleNode:    controllerMode == config.SingleNodeMode,
+			K0sVars:       c.K0sVars,
+			ClusterConfig: nodeConfig,
+		},
+		Socket: c.K0sVars.StatusSocketPath,
+	}
+	if controllerMode.WorkloadsEnabled() {
+		// The worker installs the real factory once it starts.
+		workerInterface.workerClientFactory.Store(new(kubernetes.ClientFactoryInterface(&kubernetes.ClientFactory{
+			LoadRESTConfig: func() (*rest.Config, error) { return nil, errors.New("worker not started yet") },
+		})))
+		statusComponent.StatusInformation.Workloads = true
+		statusComponent.GetWorkerClientFactory = func() kubernetes.ClientFactoryInterface {
+			return *workerInterface.workerClientFactory.Load()
+		}
+	}
+
+	stopStatus, err := internal.StartStatus(ctx, &statusComponent)
+	if err != nil {
+		return fmt.Errorf("failed to start status component: %w", err)
+	}
+	defer stopStatus()
+
 	nodeComponents := manager.New(prober.DefaultProber)
 	clusterComponents := manager.New(prober.DefaultProber)
 
@@ -278,14 +311,11 @@ func (c *command) start(ctx context.Context, runtimeConfig *config.RuntimeConfig
 		nodeComponents.Add(ctx, storageBackend)
 	}
 
-	controllerMode := flags.Mode()
 	// Will the cluster support multiple controllers, or just a single one?
 	singleController := controllerMode == config.SingleNodeMode || !nodeConfig.Spec.Storage.IsJoinable()
 
 	// Assume a single active controller during startup
 	numActiveControllers := value.NewLatest[uint](1)
-
-	workerInterface := embeddingController{opts: flags}
 
 	enableK0sEndpointReconciler := nodeConfig.Spec.API.ExternalAddress != "" &&
 		!slices.Contains(flags.DisableComponents, constant.APIEndpointReconcilerComponentName)
@@ -415,31 +445,6 @@ func (c *command) start(ctx context.Context, runtimeConfig *config.RuntimeConfig
 			),
 		)
 	}
-	statusComponent := status.Status{
-		Prober: prober.DefaultProber,
-		StatusInformation: status.K0sStatus{
-			Pid:           os.Getpid(),
-			Role:          "controller",
-			Args:          os.Args,
-			Version:       build.Version,
-			SingleNode:    controllerMode == config.SingleNodeMode,
-			K0sVars:       c.K0sVars,
-			ClusterConfig: nodeConfig,
-		},
-		Socket: c.K0sVars.StatusSocketPath,
-	}
-	if controllerMode.WorkloadsEnabled() {
-		// The worker installs the real factory once it starts.
-		workerInterface.workerClientFactory.Store(new(kubernetes.ClientFactoryInterface(&kubernetes.ClientFactory{
-			LoadRESTConfig: func() (*rest.Config, error) { return nil, errors.New("worker not started yet") },
-		})))
-		statusComponent.StatusInformation.Workloads = true
-		statusComponent.GetWorkerClientFactory = func() kubernetes.ClientFactoryInterface {
-			return *workerInterface.workerClientFactory.Load()
-		}
-	}
-	nodeComponents.Add(ctx, &statusComponent)
-
 	perfTimer.Checkpoint("starting-certificates-init")
 	certs := &Certificates{
 		ClusterSpec:         nodeConfig.Spec,

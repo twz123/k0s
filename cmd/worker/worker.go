@@ -212,6 +212,8 @@ func loadKubeconfigFromJoinToken(tokenData string) (*clientcmdapi.Config, error)
 }
 
 // Start starts the worker components based on the given [config.CLIOptions].
+// The kubelet's certificate manager is stored in kubeletCertManager, if
+// non-nil, as soon as the kubeconfig used by kubelet is known.
 func (c *Command) Start(ctx context.Context, nodeName apitypes.NodeName, kubeletExtraArgs stringmap.StringMap, getBootstrapKubeconfig clientcmd.KubeconfigGetter, controller EmbeddingController) error {
 	if err := worker.BootstrapKubeletClientConfig(ctx, c.K0sVars, nodeName, &c.WorkerOptions, getBootstrapKubeconfig); err != nil {
 		return fmt.Errorf("failed to bootstrap kubelet client configuration: %w", err)
@@ -269,7 +271,29 @@ func (c *Command) Start(ctx context.Context, nodeName apitypes.NodeName, kubelet
 	clientFactory := &kubernetes.ClientFactory{LoadRESTConfig: func() (*rest.Config, error) {
 		return kubernetes.ClientConfig(kubernetes.KubeconfigFromFile(kubeletKubeconfigPath))
 	}}
-	if controller != nil {
+	if controller == nil {
+		stopStatus, err := internal.StartStatus(ctx, &status.Status{
+			Prober: prober.DefaultProber,
+			StatusInformation: status.K0sStatus{
+				Pid:        os.Getpid(),
+				Role:       "worker",
+				Args:       os.Args,
+				Version:    build.Version,
+				Workloads:  true,
+				SingleNode: false,
+				K0sVars:    c.K0sVars,
+				// worker does not have cluster config. this is only shown in "k0s status -o json".
+				// todo: if it's needed, a worker side config client can be set up and used to load the config
+				ClusterConfig: nil,
+			},
+			GetWorkerClientFactory: func() kubernetes.ClientFactoryInterface { return clientFactory },
+			Socket:                 c.K0sVars.StatusSocketPath,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to start status component: %w", err)
+		}
+		defer stopStatus()
+	} else {
 		controller.SetWorkerClientFactory(clientFactory)
 	}
 
@@ -312,27 +336,6 @@ func (c *Command) Start(ctx context.Context, nodeName apitypes.NodeName, kubelet
 		controller:    controller,
 		clientFactory: clientFactory,
 	}).addTo(ctx, componentManager)
-
-	if controller == nil {
-		// if running inside a controller, status component is already running
-		componentManager.Add(ctx, &status.Status{
-			Prober: prober.DefaultProber,
-			StatusInformation: status.K0sStatus{
-				Pid:        os.Getpid(),
-				Role:       "worker",
-				Args:       os.Args,
-				Version:    build.Version,
-				Workloads:  true,
-				SingleNode: false,
-				K0sVars:    c.K0sVars,
-				// worker does not have cluster config. this is only shown in "k0s status -o json".
-				// todo: if it's needed, a worker side config client can be set up and used to load the config
-				ClusterConfig: nil,
-			},
-			GetWorkerClientFactory: func() kubernetes.ClientFactoryInterface { return clientFactory },
-			Socket:                 c.K0sVars.StatusSocketPath,
-		})
-	}
 
 	// extract needed components
 	if err := componentManager.Init(ctx); err != nil {
