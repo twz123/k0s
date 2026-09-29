@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"path/filepath"
 
+	"github.com/k0sproject/k0s/cmd/internal"
 	"github.com/k0sproject/k0s/pkg/config"
 
 	"k8s.io/client-go/tools/clientcmd"
@@ -27,7 +28,7 @@ func kubeConfigAdminCmd() *cobra.Command {
 	$ kubectl get nodes`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			opts, err := config.GetCmdOpts(cmd)
+			opts, err := internal.GetCmdOpts(cmd)
 			if err != nil {
 				return err
 			}

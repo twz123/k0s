@@ -175,7 +175,7 @@ func fallbackToK0sKubeconfig(cmd *cobra.Command) error {
 		return nil
 	}
 
-	opts, err := config.GetCmdOpts(cmd)
+	opts, err := internal.GetCmdOpts(cmd)
 	if err != nil {
 		return err
 	}

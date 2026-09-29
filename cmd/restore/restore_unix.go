@@ -42,12 +42,12 @@ func NewRestoreCmd() *cobra.Command {
 		Args:             cobra.ExactArgs(1),
 		PersistentPreRun: debugFlags.Run,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts, err := config.GetCmdOpts(cmd)
+			opts, err := internal.GetCmdOpts(cmd)
 			if err != nil {
 				return err
 			}
 
-			c := command{opts, restoredConfigPath}
+			c := command{opts.CLIOptions, restoredConfigPath}
 
 			return c.restore(args[0], cmd.OutOrStdout())
 		},

@@ -23,7 +23,7 @@ func NewResetCmd() *cobra.Command {
 		Args:             cobra.NoArgs,
 		PersistentPreRun: debugFlags.Run,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			opts, err := config.GetCmdOpts(cmd)
+			opts, err := internal.GetCmdOpts(cmd)
 			if err != nil {
 				return err
 			}

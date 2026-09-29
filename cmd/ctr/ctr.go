@@ -7,9 +7,9 @@ import (
 	"os"
 
 	"github.com/containerd/containerd/v2/cmd/ctr/app"
+	"github.com/k0sproject/k0s/cmd/internal"
 	"github.com/k0sproject/k0s/internal/pkg/dir"
 	"github.com/k0sproject/k0s/pkg/component/worker/containerd"
-	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/spf13/cobra"
 	"github.com/urfave/cli/v2"
 )
@@ -25,7 +25,7 @@ func NewCtrCommand() *cobra.Command {
 		Long:               containerdCtr.Description,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			opts, err := config.GetCmdOpts(cmd)
+			opts, err := internal.GetCmdOpts(cmd)
 			if err != nil {
 				return err
 			}

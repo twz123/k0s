@@ -37,11 +37,11 @@ func NewBackupCmd() *cobra.Command {
 		Args:             cobra.NoArgs,
 		PersistentPreRun: debugFlags.Run,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			opts, err := config.GetCmdOpts(cmd)
+			opts, err := internal.GetCmdOpts(cmd)
 			if err != nil {
 				return err
 			}
-			c := (*command)(opts)
+			c := (*command)(opts.CLIOptions)
 			nodeConfig, err := c.K0sVars.NodeConfig()
 			if err != nil {
 				return err

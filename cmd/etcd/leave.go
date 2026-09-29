@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 
+	"github.com/k0sproject/k0s/cmd/internal"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/etcd"
 
@@ -27,7 +28,7 @@ func etcdLeaveCmd() *cobra.Command {
 		Short: "Leave the etcd cluster, or remove a specific peer",
 		Args:  cobra.NoArgs, // accept peer address via flag, not via arg
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			opts, err := config.GetCmdOpts(cmd)
+			opts, err := internal.GetCmdOpts(cmd)
 			if err != nil {
 				return err
 			}

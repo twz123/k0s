@@ -8,6 +8,7 @@ import (
 	"io"
 	"text/tabwriter"
 
+	"github.com/k0sproject/k0s/cmd/internal"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/token"
 
@@ -29,7 +30,7 @@ func tokenListCmd() *cobra.Command {
 			return checkTokenRole(listTokenRole)
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			opts, err := config.GetCmdOpts(cmd)
+			opts, err := internal.GetCmdOpts(cmd)
 			if err != nil {
 				return err
 			}

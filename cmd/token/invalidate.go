@@ -6,6 +6,7 @@ package token
 import (
 	"fmt"
 
+	"github.com/k0sproject/k0s/cmd/internal"
 	"github.com/k0sproject/k0s/pkg/config"
 	"github.com/k0sproject/k0s/pkg/token"
 
@@ -19,7 +20,7 @@ func tokenInvalidateCmd() *cobra.Command {
 		Example: "k0s token invalidate xyz123",
 		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts, err := config.GetCmdOpts(cmd)
+			opts, err := internal.GetCmdOpts(cmd)
 			if err != nil {
 				return err
 			}

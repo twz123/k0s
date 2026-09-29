@@ -85,12 +85,12 @@ func NewControllerCmd() *cobra.Command {
 		Args:             cobra.MaximumNArgs(1),
 		PersistentPreRun: debugFlags.Run,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts, err := config.GetCmdOpts(cmd)
+			opts, err := internal.GetCmdOpts(cmd)
 			if err != nil {
 				return err
 			}
 
-			c := (*command)(opts)
+			c := (*command)(opts.CLIOptions)
 
 			if len(args) > 0 {
 				c.TokenArg = args[0]

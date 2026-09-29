@@ -30,7 +30,7 @@ func NewStatusCmd() *cobra.Command {
 		PersistentPreRun: debugFlags.Run,
 		Args:             cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			opts, err := config.GetCmdOpts(cmd)
+			opts, err := internal.GetCmdOpts(cmd)
 			if err != nil {
 				return err
 			}
@@ -75,7 +75,7 @@ func NewStatusSubCmdComponents() *cobra.Command {
 		Example: `The command will return information about k0s components.`,
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			opts, err := config.GetCmdOpts(cmd)
+			opts, err := internal.GetCmdOpts(cmd)
 			if err != nil {
 				return err
 			}

@@ -72,7 +72,7 @@ func NewWorkerCmd() *cobra.Command {
 		Args:             cobra.MaximumNArgs(1),
 		PersistentPreRun: debugFlags.Run,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts, err := config.GetCmdOpts(cmd)
+			opts, err := internal.GetCmdOpts(cmd)
 			if err != nil {
 				return err
 			}
@@ -82,7 +82,7 @@ func NewWorkerCmd() *cobra.Command {
 				return fmt.Errorf("failed to initialize logging: %w", err)
 			}
 
-			c := (*Command)(opts)
+			c := (*Command)(opts.CLIOptions)
 			if len(args) > 0 {
 				c.TokenArg = args[0]
 			}
