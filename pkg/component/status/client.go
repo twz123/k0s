@@ -44,6 +44,19 @@ func GetStatusInfo(socketPath string) (*K0sStatus, error) {
 	return status, nil
 }
 
+// GetStatusInfoWithoutProbe returns the status of the k0s process using the
+// status socket, without probing the connection from the worker to the API
+// server. The probe may block for a long time, e.g. while kubelet isn't yet
+// bootstrapped, whereas this call returns as soon as the socket is served.
+// The returned status leaves [K0sStatus.WorkerToAPIConnectionStatus] empty.
+func GetStatusInfoWithoutProbe(socketPath string) (*K0sStatus, error) {
+	status := &K0sStatus{}
+	if err := doStatusHTTPRequest(socketPath, "status?probe=false", status); err != nil {
+		return nil, err
+	}
+	return status, nil
+}
+
 // GetComponentStatus returns the per-component events and health-checks
 func GetComponentStatus(socketPath string, maxCount int) (*prober.State, error) {
 	status := &prober.State{}

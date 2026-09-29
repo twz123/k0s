@@ -90,7 +90,15 @@ type statusHandler struct {
 
 // ServerHTTP implementation of handler interface
 func (sh *statusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	statusInfo := sh.getCurrentStatus(r.Context())
+	var statusInfo K0sStatus
+	// The API connectivity probe may take a long time, e.g. while kubelet
+	// hasn't been bootstrapped yet. Clients that are only interested in the
+	// static information may opt out.
+	if r.URL.Query().Get("probe") == "false" {
+		statusInfo = sh.Status.StatusInformation
+	} else {
+		statusInfo = sh.getCurrentStatus(r.Context())
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if json.NewEncoder(w).Encode(statusInfo) != nil {
