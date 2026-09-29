@@ -17,25 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLoadRuntimeConfig(t *testing.T) {
-	// write some content to the runtime config file
-	rtConfigPath := filepath.Join(t.TempDir(), "runtime-config")
-	content := []byte(`---
-apiVersion: k0s.k0sproject.io/v1beta1
-kind: RuntimeConfig
-spec:
-  nodeConfig:
-    metadata:
-      name: k0s
-`)
-	require.NoError(t, os.WriteFile(rtConfigPath, content, 0644))
-
-	// try to load runtime config and check if it returns an error
-	spec, err := LoadRuntimeConfig(rtConfigPath)
-	assert.Nil(t, spec)
-	assert.ErrorIs(t, err, ErrK0sNotRunning)
-}
-
 func TestNewRuntimeConfig(t *testing.T) {
 	// Create regular configuration file
 	tempDir := t.TempDir()

@@ -327,11 +327,6 @@ func GetCmdOpts(cobraCmd command) (*CLIOptions, error) {
 		return nil, err
 	}
 
-	// if a runtime config can be loaded, use it to override the k0sVars
-	if rtc, err := LoadRuntimeConfig(k0sVars.RuntimeConfigPath); err == nil {
-		k0sVars = rtc.K0sVars
-	}
-
 	return &CLIOptions{
 		WorkerOptions: workerOpts,
 

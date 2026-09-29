@@ -26,10 +26,12 @@ var (
 	ErrInvalidRuntimeConfig = errors.New("invalid runtime configuration")
 )
 
-// Runtime config is a static copy of the start up config and CfgVars that is used by
-// commands that do not have a --config parameter of their own, such as `k0s token create`.
-// It also stores the k0svars, so the original parameters for the controller such as
-// `--data-dir` will be reused by the commands without the user having to specify them again.
+// The runtime config is a static copy of the startup config and the CfgVars of
+// a running k0s process. Its file is written when the process starts and backs
+// the lock that keeps other k0s processes from using the same data directory
+// concurrently. The `k0s api` subprocess receives it via its standard input.
+// Other commands learn about the running process via the status socket
+// instead.
 type RuntimeConfig struct {
 	metav1.ObjectMeta `json:"metadata"`
 	metav1.TypeMeta   `json:",inline"`
@@ -41,26 +43,6 @@ type RuntimeConfigSpec struct {
 	NodeConfig *v1beta1.ClusterConfig `json:"nodeConfig,omitempty"`
 	K0sVars    *CfgVars               `json:"k0sVars"`
 	lockFile   *os.File
-}
-
-func LoadRuntimeConfig(path string) (*RuntimeConfigSpec, error) {
-	if locked, err := RuntimeConfigLocked(path); err != nil {
-		return nil, err
-	} else if !locked {
-		return nil, ErrK0sNotRunning
-	}
-
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	config, err := ParseRuntimeConfig(content)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse runtime configuration: %w", err)
-	}
-
-	return config.Spec, nil
 }
 
 func ParseRuntimeConfig(content []byte) (*RuntimeConfig, error) {

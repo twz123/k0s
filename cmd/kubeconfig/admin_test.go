@@ -1,3 +1,5 @@
+//go:build unix
+
 // SPDX-FileCopyrightText: 2024 k0s authors
 // SPDX-License-Identifier: Apache-2.0
 
@@ -12,6 +14,7 @@ import (
 
 	"github.com/k0sproject/k0s/cmd"
 	"github.com/k0sproject/k0s/pkg/apis/k0s/v1beta1"
+	"github.com/k0sproject/k0s/pkg/component/status"
 	"github.com/k0sproject/k0s/pkg/config"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,20 +41,15 @@ func TestAdmin(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(certRootDir, "admin.crt"), []byte("contents of admin.crt"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(certRootDir, "admin.key"), []byte("contents of admin.key"), 0600))
 
-	k0sVars := &config.CfgVars{
+	socketPath := serveStatus(t, &config.CfgVars{
 		StartupConfigPath: configPath,
-		RuntimeConfigPath: filepath.Join(dataDir, "run", "k0s.yaml"),
 		DataDir:           dataDir,
 		CertRootDir:       certRootDir,
-	}
-	require.NoError(t, os.Mkdir(filepath.Dir(k0sVars.RuntimeConfigPath), 0700))
-	cfg, err := config.NewRuntimeConfig(k0sVars, nil)
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, cfg.Spec.Cleanup()) })
+	})
 
 	var stdout, stderr strings.Builder
 	underTest := cmd.NewRootCmd()
-	underTest.SetArgs([]string{"kubeconfig", "--data-dir", dataDir, "admin"})
+	underTest.SetArgs([]string{"kubeconfig", "--data-dir", dataDir, "--status-socket", socketPath, "admin"})
 	underTest.SetOut(&stdout)
 	underTest.SetErr(&stderr)
 
@@ -86,21 +84,15 @@ func TestAdmin_NoAdminConfig(t *testing.T) {
 	configPath := filepath.Join(dataDir, "k0s.yaml")
 	require.NoError(t, os.WriteFile(configPath, nil, 0644))
 
-	k0sVars := &config.CfgVars{
+	socketPath := serveStatus(t, &config.CfgVars{
 		StartupConfigPath: configPath,
-		RuntimeConfigPath: filepath.Join(dataDir, "run", "k0s.yaml"),
 		DataDir:           dataDir,
 		CertRootDir:       filepath.Join(dataDir, "pki"),
-	}
-	require.NoError(t, os.Mkdir(filepath.Dir(k0sVars.RuntimeConfigPath), 0700))
-
-	cfg, err := config.NewRuntimeConfig(k0sVars, nil)
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, cfg.Spec.Cleanup()) })
+	})
 
 	var stdout, stderr strings.Builder
 	underTest := cmd.NewRootCmd()
-	underTest.SetArgs([]string{"kubeconfig", "--data-dir", dataDir, "admin"})
+	underTest.SetArgs([]string{"kubeconfig", "--data-dir", dataDir, "--status-socket", socketPath, "admin"})
 	underTest.SetOut(&stdout)
 	underTest.SetErr(&stderr)
 
@@ -109,6 +101,19 @@ func TestAdmin_NoAdminConfig(t *testing.T) {
 	assert.Empty(t, stdout.String())
 	msg := fmt.Sprintf("admin PKI file %q not found, check if the control plane is initialized on this node", filepath.Join(dataDir, "pki", "admin.crt"))
 	assert.Equal(t, "Error: "+msg+"\n", stderr.String())
+}
+
+// Fakes a running controller by serving the given variables via a status
+// socket. Returns the socket path.
+func serveStatus(t *testing.T, k0sVars *config.CfgVars) string {
+	s := status.Status{
+		StatusInformation: status.K0sStatus{Role: "controller", K0sVars: k0sVars},
+		Socket:            filepath.Join(t.TempDir(), "status.sock"),
+	}
+	require.NoError(t, s.Init(t.Context()))
+	require.NoError(t, s.Start(t.Context()))
+	t.Cleanup(func() { assert.NoError(t, s.Stop()) })
+	return s.Socket
 }
 
 func writeYAML(t *testing.T, path string, data any) {
