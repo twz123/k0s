@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"strings"
 
+	"github.com/k0sproject/k0s/internal/config"
 	"github.com/k0sproject/k0s/pkg/featuregate"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	utilnet "k8s.io/utils/net"
 
@@ -67,6 +70,12 @@ const (
 	PrimaryFamilyIPv4    PrimaryAddressFamilyType = "IPv4"
 	PrimaryFamilyIPv6    PrimaryAddressFamilyType = "IPv6"
 )
+
+func (f PrimaryAddressFamilyType) ToIPFamily() corev1.IPFamily { return corev1.IPFamily(f) }
+
+func (f PrimaryAddressFamilyType) toIPStack(dualStack bool) config.IPStack {
+	return config.IPStackFrom(f.ToIPFamily(), dualStack)
+}
 
 // DefaultNetwork creates the Network config struct with sane default values
 func DefaultNetwork() *Network {
@@ -271,41 +280,27 @@ func (n *Network) UnmarshalJSON(data []byte) error {
 }
 
 // BuildServiceCIDR returns actual argument value for service cidr
+//
+// Deprecated: This is an internal implementation detail.
 func (n *Network) BuildServiceCIDR(primaryAddressFamily PrimaryAddressFamilyType) string {
-	if !n.DualStack.Enabled {
-		return n.ServiceCIDR
-	}
-
 	// Because Kubernetes relies on the order of the given CIDRs in dual-stack
 	// mode, the CIDR whose version matches the version of the IP address the
 	// API server is listening on must be specified first.
-	switch primaryAddressFamily {
-	case PrimaryFamilyIPv4:
-		return n.ServiceCIDR + "," + n.DualStack.IPv6ServiceCIDR
-	case PrimaryFamilyIPv6:
-		return n.DualStack.IPv6ServiceCIDR + "," + n.ServiceCIDR
-	default:
-		panic(fmt.Sprintf("BuildServiceCIDR called with invalid PrimaryAddressFamily %q family. This is theoretically impossible", primaryAddressFamily))
-	}
+	stack := primaryAddressFamily.toIPStack(n.DualStack.Enabled)
+	cidrs := stack.Select(n.ServiceCIDR, n.DualStack.IPv6ServiceCIDR)
+	return strings.Join(cidrs, ",")
 }
 
 // BuildPodCIDR returns actual argument value for pod cidr
+//
+// Deprecated: This is an internal implementation detail.
 func (n *Network) BuildPodCIDR(primaryAddressFamily PrimaryAddressFamilyType) string {
-	if !n.DualStack.Enabled {
-		return n.PodCIDR
-	}
-
 	// Because Kubernetes relies on the order of the given CIDRs in dual-stack
 	// mode, the CIDR whose version matches the version of the IP address the
 	// API server is listening on must be specified first.
-	switch primaryAddressFamily {
-	case PrimaryFamilyIPv4:
-		return n.PodCIDR + "," + n.DualStack.IPv6PodCIDR
-	case PrimaryFamilyIPv6:
-		return n.DualStack.IPv6PodCIDR + "," + n.PodCIDR
-	default:
-		panic(fmt.Sprintf("BuildPodCIDR called with invalid PrimaryAddressFamily %q family. This is theoretically impossible", primaryAddressFamily))
-	}
+	stack := primaryAddressFamily.toIPStack(n.DualStack.Enabled)
+	cidrs := stack.Select(n.PodCIDR, n.DualStack.IPv6PodCIDR)
+	return strings.Join(cidrs, ",")
 }
 
 // IsSingleStackIPv6 returns true if the ServiceCIDR is IPv6.

@@ -7,11 +7,31 @@ import (
 	"testing"
 
 	"github.com/k0sproject/k0s/pkg/featuregate"
+
+	corev1 "k8s.io/api/core/v1"
+
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 )
 
 type NetworkSuite struct {
 	suite.Suite
+}
+
+func TestPrimaryAddressFamilyType(t *testing.T) {
+	t.Run("exchangeable with corev1.IPFamily", func(t *testing.T) {
+		for _, tt := range []struct {
+			expected corev1.IPFamily
+			actual   PrimaryAddressFamilyType
+		}{
+			{corev1.IPFamilyUnknown, PrimaryFamilyUnknown},
+			{corev1.IPv4Protocol, PrimaryFamilyIPv4},
+			{corev1.IPv6Protocol, PrimaryFamilyIPv6},
+		} {
+			assert.Equal(t, tt.expected, tt.actual.ToIPFamily())
+			assert.Equal(t, string(tt.expected), string(tt.actual))
+		}
+	})
 }
 
 func (s *NetworkSuite) TestAddresses() {

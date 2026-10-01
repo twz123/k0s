@@ -117,3 +117,14 @@ func (s IPStack) IsDualStack() bool {
 		return false
 	}
 }
+
+func (s IPStack) Select[T any](singleStack, dualStackIPv6 T) []T {
+	switch s {
+	case DualStackIPv4:
+		return []T{singleStack, dualStackIPv6}
+	case DualStackIPv6:
+		return []T{dualStackIPv6, singleStack}
+	default:
+		return []T{singleStack}
+	}
+}
