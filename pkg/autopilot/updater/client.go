@@ -4,6 +4,7 @@
 package updater
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,7 +16,7 @@ import (
 const defaultChannel = "stable"
 
 type Client interface {
-	GetUpdate(channel, clusterID, lastUpdateStatus, k0sVersion string) (*Update, error)
+	GetUpdate(ctx context.Context, channel, clusterID, lastUpdateStatus, k0sVersion string) (*Update, error)
 }
 
 type client struct {
@@ -39,7 +40,7 @@ func NewClient(updateServer string, authToken string) (Client, error) {
 	return c, nil
 }
 
-func (c *client) GetUpdate(channel, clusterID, lastUpdateStatus, currentVersion string) (*Update, error) {
+func (c *client) GetUpdate(ctx context.Context, channel, clusterID, lastUpdateStatus, currentVersion string) (*Update, error) {
 	if channel == "" {
 		channel = defaultChannel
 	}
@@ -51,7 +52,7 @@ func (c *client) GetUpdate(channel, clusterID, lastUpdateStatus, currentVersion 
 	query.Set("currentVersion", currentVersion)
 	u.RawQuery = query.Encode()
 
-	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, err
 	}

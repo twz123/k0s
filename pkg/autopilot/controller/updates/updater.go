@@ -118,7 +118,7 @@ func (u *cronUpdater) checkUpdates() {
 		return
 	}
 
-	update, err := u.updateClient.GetUpdate(u.updateConfig.Spec.Channel, u.clusterID, curPlan.Status.State.String(), u.k0sVersion)
+	update, err := u.updateClient.GetUpdate(u.ctx, u.updateConfig.Spec.Channel, u.clusterID, curPlan.Status.State.String(), u.k0sVersion)
 	if err != nil {
 		u.log.Errorf("failed to read available update from update server: %s", err)
 		return
