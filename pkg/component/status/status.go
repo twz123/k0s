@@ -58,8 +58,8 @@ func (s *Status) Init(_ context.Context) error {
 }
 
 // Start runs the component
-func (s *Status) Start(_ context.Context) error {
-	listener, err := newStatusListener(s.Socket)
+func (s *Status) Start(ctx context.Context) error {
+	listener, err := newStatusListener(ctx, s.Socket)
 	if err != nil {
 		s.L.Errorf("failed to create listener %s", err)
 		return err

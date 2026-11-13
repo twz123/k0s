@@ -12,7 +12,7 @@ import (
 	"github.com/Microsoft/go-winio"
 )
 
-func newStatusListener(pipePath string) (net.Listener, error) {
+func newStatusListener(_ context.Context, pipePath string) (net.Listener, error) {
 	return winio.ListenPipe(pipePath, nil)
 }
 

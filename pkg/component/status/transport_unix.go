@@ -11,17 +11,17 @@ import (
 	"os"
 )
 
-func newStatusListener(socketPath string) (net.Listener, error) {
-	removeLeftovers(socketPath)
-	return net.Listen("unix", socketPath)
+func newStatusListener(ctx context.Context, socketPath string) (net.Listener, error) {
+	removeLeftovers(ctx, socketPath)
+	return (&net.ListenConfig{}).Listen(ctx, "unix", socketPath)
 }
 
 func cleanupStatusListener(socketPath string) {
 	_ = os.Remove(socketPath)
 }
 
-func removeLeftovers(socket string) {
-	_, err := net.Dial("unix", socket)
+func removeLeftovers(ctx context.Context, socket string) {
+	_, err := dialSocket(ctx, socket)
 	if err != nil {
 		_ = os.Remove(socket)
 	}
