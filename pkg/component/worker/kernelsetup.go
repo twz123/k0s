@@ -5,5 +5,7 @@
 
 package worker
 
+import "context"
+
 // KernelSetup comment
-func KernelSetup() {}
+func KernelSetup(context.Context) {}

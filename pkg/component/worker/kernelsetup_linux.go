@@ -4,6 +4,7 @@
 package worker
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path"
@@ -29,8 +30,8 @@ func hasFilesystem(filesystem string) bool {
 	return false
 }
 
-func modprobe(module string) {
-	out, err := exec.Command("modprobe", module).CombinedOutput()
+func modprobe(ctx context.Context, module string) {
+	out, err := exec.CommandContext(ctx, "modprobe", module).CombinedOutput()
 	if err != nil {
 		logrus.WithError(err).Warnf("failed to load kernel module %s: %s", module, out)
 	}
@@ -46,19 +47,19 @@ func enableSysCtl(entry string) {
 
 // KernelSetup sets the needed kernel tuning params. If setting the options fails, it only logs
 // a warning but does not prevent the starting of worker
-func KernelSetup() {
+func KernelSetup(ctx context.Context) {
 	if !hasFilesystem("overlay") {
-		modprobe("overlay")
+		modprobe(ctx, "overlay")
 	}
 	if !file.Exists("/proc/net/nf_conntrack") {
-		modprobe("nf_conntrack")
+		modprobe(ctx, "nf_conntrack")
 	}
 	if !file.Exists("/proc/sys/net/bridge/bridge-nf-call-iptables") {
-		modprobe("br_netfilter")
+		modprobe(ctx, "br_netfilter")
 	}
 	// https://github.com/kubernetes/kubernetes/issues/108877
 	if !file.Exists("/proc/net/ip_tables_targets") {
-		modprobe("ip_tables")
+		modprobe(ctx, "ip_tables")
 	}
 	enableSysCtl("net/ipv4/conf/all/forwarding")
 	enableSysCtl("net/ipv4/conf/default/forwarding")
