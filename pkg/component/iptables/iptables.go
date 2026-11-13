@@ -29,10 +29,10 @@ type Component struct {
 	BinDir       string
 }
 
-func (c *Component) Init(_ context.Context) error {
+func (c *Component) Init(ctx context.Context) error {
 	log := logrus.WithField("component", constant.IptablesBinariesComponentName)
 	log.Info("Staging iptables binaries")
-	iptablesMode, err := extractIPTablesBinaries(c.BinDir, c.IPTablesMode)
+	iptablesMode, err := extractIPTablesBinaries(ctx, c.BinDir, c.IPTablesMode)
 	if err != nil {
 		return err
 	}
@@ -53,7 +53,7 @@ func (c *Component) Stop() error {
 // extractIPTablesBinaries extracts the iptables binaries from the k0s binary and makes the symlinks
 // to the backend detected by DetectHostIPTablesMode.
 // extractIPTablesBinaries only works on linux, if called in another OS it will return an error.
-func extractIPTablesBinaries(k0sBinDir string, iptablesMode string) (string, error) {
+func extractIPTablesBinaries(ctx context.Context, k0sBinDir string, iptablesMode string) (string, error) {
 	cmds := []string{"xtables-legacy-multi", "xtables-nft-multi"}
 	for _, cmd := range cmds {
 		if _, err := assets.StageExecutable(k0sBinDir, cmd); err != nil {
@@ -62,7 +62,7 @@ func extractIPTablesBinaries(k0sBinDir string, iptablesMode string) (string, err
 	}
 	if iptablesMode == "" || iptablesMode == "auto" {
 		var err error
-		iptablesMode, err = DetectHostIPTablesMode(k0sBinDir)
+		iptablesMode, err = DetectHostIPTablesMode(ctx, k0sBinDir)
 		if err != nil {
 			if kernelMajorVersion() < 5 {
 				iptablesMode = ModeLegacy
@@ -102,10 +102,10 @@ func kernelMajorVersion() byte {
 // DetectHostIPTablesMode figure out whether iptables-legacy or iptables-nft is in use on the host.
 // Follows the same logic as kube-proxy/kube-route.
 // See: https://github.com/kubernetes-sigs/iptables-wrappers/blob/master/iptables-wrapper-installer.sh
-func DetectHostIPTablesMode(k0sBinPath string) (string, error) {
+func DetectHostIPTablesMode(ctx context.Context, k0sBinPath string) (string, error) {
 	logrus.Info("Trying to detect iptables mode")
 
-	nftMatches, nftTotal, nftErr := findMatchingEntries(k0sBinPath, ModeNFT, "KUBE-IPTABLES-HINT", "KUBE-KUBELET-CANARY")
+	nftMatches, nftTotal, nftErr := findMatchingEntries(ctx, k0sBinPath, ModeNFT, "KUBE-IPTABLES-HINT", "KUBE-KUBELET-CANARY")
 	if nftErr != nil {
 		logrus.WithError(nftErr).Debug("Failed to inspect iptables rules in nft mode")
 		nftErr = fmt.Errorf("nft: %w", nftErr)
@@ -114,7 +114,7 @@ func DetectHostIPTablesMode(k0sBinPath string) (string, error) {
 		return ModeNFT, nil
 	}
 
-	legacyMatches, legacyTotal, legacyErr := findMatchingEntries(k0sBinPath, ModeLegacy, "KUBE-IPTABLES-HINT", "KUBE-KUBELET-CANARY")
+	legacyMatches, legacyTotal, legacyErr := findMatchingEntries(ctx, k0sBinPath, ModeLegacy, "KUBE-IPTABLES-HINT", "KUBE-KUBELET-CANARY")
 	if legacyErr != nil {
 		logrus.WithError(legacyErr).Debug("Failed to inspect iptables rules in legacy mode")
 		legacyErr = fmt.Errorf("legacy: %w", legacyErr)
@@ -138,7 +138,7 @@ func DetectHostIPTablesMode(k0sBinPath string) (string, error) {
 		return "", errors.Join(err, nftErr, legacyErr)
 	}
 
-	out, err := exec.Command(iptablesPath, "--version").CombinedOutput()
+	out, err := exec.CommandContext(ctx, iptablesPath, "--version").CombinedOutput()
 	if err != nil {
 		return "", errors.Join(err, nftErr, legacyErr)
 	}
@@ -154,11 +154,11 @@ func DetectHostIPTablesMode(k0sBinPath string) (string, error) {
 	return mode, nil
 }
 
-func findMatchingEntries(k0sBinPath, mode string, entries ...string) (entriesFound bool, total uint, _ error) {
+func findMatchingEntries(ctx context.Context, k0sBinPath, mode string, entries ...string) (entriesFound bool, total uint, _ error) {
 	binaryPath := filepath.Join(k0sBinPath, fmt.Sprintf("xtables-%s-multi", mode))
 
 	findMatches := func(subcommand string) error {
-		cmd := exec.Command(binaryPath, subcommand)
+		cmd := exec.CommandContext(ctx, binaryPath, subcommand)
 		out, err := cmd.StdoutPipe()
 		if err != nil {
 			return err
