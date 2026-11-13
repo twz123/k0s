@@ -391,12 +391,12 @@ func (k *Konnectivity) health(ctx context.Context, path string) error {
 	}
 
 	endpoint := url.URL{Scheme: "http", Host: "localhost:8092", Path: path}
-	req, err := http.NewRequest(http.MethodGet, endpoint.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
 		return err
 	}
 
-	resp, err := client.Do(req.WithContext(ctx))
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}

@@ -44,9 +44,13 @@ func Download(ctx context.Context, url string, target io.Writer, options ...Down
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 
+	// Create a context with an inactivity timeout to cancel the download if it stalls.
+	ctx, cancel, keepAlive := k0scontext.WithInactivityTimeout(ctx, opts.stalenessTimeout)
+	defer cancel(nil)
+
 	// Prepare the client and the request.
 	client := http.Client{Transport: transport}
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("invalid download request: %w", err)
 	}
@@ -61,12 +65,8 @@ func Download(ctx context.Context, url string, target io.Writer, options ...Down
 		req.SetBasicAuth(opts.username, opts.password)
 	}
 
-	// Create a context with an inactivity timeout to cancel the download if it stalls.
-	ctx, cancel, keepAlive := k0scontext.WithInactivityTimeout(ctx, opts.stalenessTimeout)
-	defer cancel(nil)
-
 	// Execute the request.
-	resp, err := client.Do(req.WithContext(ctx))
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
