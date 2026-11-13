@@ -138,7 +138,7 @@ func sendCtrlBreakOnTargetConsole(processID uint32) error {
 		return fmt.Errorf("failed to determine path to k0s executable: %w", err)
 	}
 
-	cmd := exec.Command(exe, terminationHelperHookMarker, strconv.FormatUint(uint64(processID), 10))
+	cmd := exec.Command(exe, terminationHelperHookMarker, strconv.FormatUint(uint64(processID), 10)) //nolint:noctx // killed manually after a timeout, see below
 	cmd.Env = []string{}
 
 	var (

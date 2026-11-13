@@ -243,7 +243,7 @@ func (s *Supervisor) Supervise(ctx context.Context) error {
 			if err != nil {
 				s.log.Warnf("Failed to clean before running the process %s: %s", s.BinPath, err)
 			} else {
-				s.cmd = exec.Command(s.BinPath, s.Args...)
+				s.cmd = exec.Command(s.BinPath, s.Args...) //nolint:noctx // the supervisor terminates the process gracefully on its own
 				s.cmd.Dir = s.DataDir
 				s.cmd.Env = getEnv(s.DataDir, s.Name, s.KeepEnvPrefix)
 				if s.Stdin != nil {
