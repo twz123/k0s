@@ -87,7 +87,7 @@ func (c *command) backup(ctx context.Context, nodeConfig *k0sv1beta1.ClusterConf
 		if err != nil {
 			return err
 		}
-		return mgr.RunBackup(nodeConfig.Spec, c.K0sVars, savePath, out)
+		return mgr.RunBackup(ctx, nodeConfig.Spec, c.K0sVars, savePath, out)
 	}
 	return fmt.Errorf("backup command must be run on the controller node, have `%s`", status.Role)
 }

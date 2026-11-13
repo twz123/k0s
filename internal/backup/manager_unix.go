@@ -6,6 +6,7 @@
 package backup
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -28,7 +29,7 @@ type Manager struct {
 }
 
 // RunBackup backups cluster
-func (bm *Manager) RunBackup(nodeSpec *v1beta1.ClusterSpec, vars *config.CfgVars, savePathDir string, out io.Writer) error {
+func (bm *Manager) RunBackup(ctx context.Context, nodeSpec *v1beta1.ClusterSpec, vars *config.CfgVars, savePathDir string, out io.Writer) error {
 	_, err := vars.NodeConfig()
 	if err != nil {
 		return err
@@ -41,7 +42,7 @@ func (bm *Manager) RunBackup(nodeSpec *v1beta1.ClusterSpec, vars *config.CfgVars
 	logrus.Info("Starting backup")
 	for _, step := range bm.steps {
 		logrus.Info("Backup step: ", step.Name())
-		result, err := step.Backup()
+		result, err := step.Backup(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to create backup on step `%s`: %w", step.Name(), err)
 		}
@@ -199,7 +200,7 @@ func NewBackupManager() (*Manager, error) {
 // Backuper defines interface for backup-restore step
 type Backuper interface {
 	Name() string
-	Backup() (StepResult, error)
+	Backup(ctx context.Context) (StepResult, error)
 	Restore(from, to string) error
 }
 

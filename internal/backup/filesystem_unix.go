@@ -6,6 +6,7 @@
 package backup
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,7 +24,7 @@ func (d FileSystemStep) Name() string {
 	return fmt.Sprintf("filesystem path `%s`", d.path)
 }
 
-func (d FileSystemStep) Backup() (StepResult, error) {
+func (d FileSystemStep) Backup(context.Context) (StepResult, error) {
 	var files []string
 	if err := filepath.Walk(d.path, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
