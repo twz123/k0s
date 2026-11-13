@@ -7,6 +7,7 @@ package users
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -17,7 +18,7 @@ import (
 // Lookup looks up a user's UID by username. If the user cannot be found, the
 // returned error is [ErrNotExist]. If an error is returned, the returned UID
 // will be [UnknownUID].
-func LookupUID(name string) (int, error) {
+func LookupUID(ctx context.Context, name string) (int, error) {
 	var uid string
 
 	if entry, err := user.Lookup(name); err != nil {
@@ -28,7 +29,7 @@ func LookupUID(name string) (int, error) {
 		err = ErrNotExist
 
 		// fallback to call external `id` in case NSS is used
-		out, idErr := exec.Command("id", "-u", name).Output()
+		out, idErr := exec.CommandContext(ctx, "id", "-u", name).Output()
 		if idErr != nil {
 			if exitErr, ok := errors.AsType[*exec.ExitError](idErr); ok {
 				return UnknownUID, fmt.Errorf("%w (%w: %s)", err, idErr, bytes.TrimSpace(exitErr.Stderr))

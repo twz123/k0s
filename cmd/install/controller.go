@@ -61,7 +61,7 @@ With the controller subcommand you can setup a single node cluster by running:
 
 			systemUsers := nodeConfig.Spec.Install.SystemUsers
 			homeDir := k0sVars.DataDir
-			if err := install.EnsureControllerUsers(systemUsers, homeDir); err != nil {
+			if err := install.EnsureControllerUsers(cmd.Context(), systemUsers, homeDir); err != nil {
 				return fmt.Errorf("failed to create controller users: %w", err)
 			}
 

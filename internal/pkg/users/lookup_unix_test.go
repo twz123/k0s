@@ -13,12 +13,12 @@ import (
 )
 
 func TestLookupUID(t *testing.T) {
-	uid, err := LookupUID("root")
+	uid, err := LookupUID(t.Context(), "root")
 	if assert.NoError(t, err, "Failed to get UID for root user") {
 		assert.Equal(t, 0, uid, "root's UID is not 0?")
 	}
 
-	uid, err = LookupUID("some-non-existing-user")
+	uid, err = LookupUID(t.Context(), "some-non-existing-user")
 	if assert.Error(t, err, "Got a UID for some-non-existing-user?") {
 		assert.ErrorIs(t, err, ErrNotExist)
 		var exitErr *exec.ExitError

@@ -59,14 +59,14 @@ type Keepalived struct {
 }
 
 // Init extracts the needed binaries and creates the directories
-func (k *Keepalived) Init(_ context.Context) error {
+func (k *Keepalived) Init(ctx context.Context) error {
 	if k.Config == nil {
 		return nil
 	}
 	k.log = logrus.WithField("component", "CPLB")
 
 	var err error
-	k.uid, err = users.LookupUID(constant.KeepalivedUser)
+	k.uid, err = users.LookupUID(ctx, constant.KeepalivedUser)
 	if err != nil {
 		err = fmt.Errorf("failed to lookup UID for %q: %w", constant.KeepalivedUser, err)
 		k.uid = users.RootUID

@@ -83,9 +83,9 @@ type egressSelectorConfig struct {
 
 // Stages the kube-apiserver executable, resolves its launch config, writes
 // the required files and prepares the supervisor.
-func (a *APIServer) Init(_ context.Context) error {
+func (a *APIServer) Init(ctx context.Context) error {
 	var err error
-	a.uid, err = users.LookupUID(constant.ApiserverUser)
+	a.uid, err = users.LookupUID(ctx, constant.ApiserverUser)
 	if err != nil {
 		err = fmt.Errorf("failed to lookup UID for %q: %w", constant.ApiserverUser, err)
 		a.uid = users.RootUID

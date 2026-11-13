@@ -4,6 +4,7 @@
 package install
 
 import (
+	"context"
 	"errors"
 	"os/exec"
 	"slices"
@@ -16,11 +17,11 @@ import (
 
 // Ensures that all controller users exist and creates any missing users with
 // the given home directory.
-func EnsureControllerUsers(systemUsers *v1beta1.SystemUser, homeDir string) error {
+func EnsureControllerUsers(ctx context.Context, systemUsers *v1beta1.SystemUser, homeDir string) error {
 	var shell string
 	var errs []error
 	for _, userName := range getControllerUserNames(systemUsers) {
-		_, err := users.LookupUID(userName)
+		_, err := users.LookupUID(ctx, userName)
 		if errors.Is(err, users.ErrNotExist) {
 			if shell == "" {
 				shell, err = nologinShell()
@@ -32,7 +33,7 @@ func EnsureControllerUsers(systemUsers *v1beta1.SystemUser, homeDir string) erro
 			}
 
 			logrus.Infof("Creating user %q", userName)
-			err = createUser(userName, homeDir, shell)
+			err = createUser(ctx, userName, homeDir, shell)
 		}
 		if err != nil {
 			errs = append(errs, err)
@@ -43,13 +44,13 @@ func EnsureControllerUsers(systemUsers *v1beta1.SystemUser, homeDir string) erro
 }
 
 // Deletes existing controller users.
-func DeleteControllerUsers(systemUsers *v1beta1.SystemUser) error {
+func DeleteControllerUsers(ctx context.Context, systemUsers *v1beta1.SystemUser) error {
 	var errs []error
 	for _, userName := range getControllerUserNames(systemUsers) {
-		if _, err := users.LookupUID(userName); err == nil {
+		if _, err := users.LookupUID(ctx, userName); err == nil {
 			logrus.Debugf("Deleting user %q", userName)
 
-			if err := deleteUser(userName); err != nil {
+			if err := deleteUser(ctx, userName); err != nil {
 				errs = append(errs, err)
 			}
 		} else if !errors.Is(err, users.ErrNotExist) {
@@ -71,19 +72,19 @@ func nologinShell() (string, error) {
 }
 
 // CreateUser creates a system user with either `adduser` or `useradd` command
-func createUser(userName, homeDir, shell string) error {
-	_, err := exec.Command("useradd", `--home`, homeDir, `--shell`, shell, `--system`, `--no-create-home`, userName).Output()
+func createUser(ctx context.Context, userName, homeDir, shell string) error {
+	_, err := exec.CommandContext(ctx, "useradd", `--home`, homeDir, `--shell`, shell, `--system`, `--no-create-home`, userName).Output()
 	if errors.Is(err, exec.ErrNotFound) {
-		_, err = exec.Command("adduser", `--disabled-password`, `--gecos`, `""`, `--home`, homeDir, `--shell`, shell, `--system`, `--no-create-home`, userName).Output()
+		_, err = exec.CommandContext(ctx, "adduser", `--disabled-password`, `--gecos`, `""`, `--home`, homeDir, `--shell`, shell, `--system`, `--no-create-home`, userName).Output()
 	}
 	return err
 }
 
 // DeleteUser deletes system users with either `deluser` or `userdel` command
-func deleteUser(userName string) error {
-	_, err := exec.Command("userdel", userName).Output()
+func deleteUser(ctx context.Context, userName string) error {
+	_, err := exec.CommandContext(ctx, "userdel", userName).Output()
 	if errors.Is(err, exec.ErrNotFound) {
-		_, err = exec.Command("deluser", userName).Output()
+		_, err = exec.CommandContext(ctx, "deluser", userName).Output()
 	}
 	return err
 }

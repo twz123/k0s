@@ -46,10 +46,10 @@ var _ manager.Component = (*Kine)(nil)
 var _ manager.Ready = (*Kine)(nil)
 
 // Init extracts the needed binaries
-func (k *Kine) Init(_ context.Context) error {
+func (k *Kine) Init(ctx context.Context) error {
 	logrus.Infof("initializing kine")
 	var err error
-	k.uid, err = users.LookupUID(constant.KineUser)
+	k.uid, err = users.LookupUID(ctx, constant.KineUser)
 	if err != nil {
 		err = fmt.Errorf("failed to lookup UID for %q: %w", constant.KineUser, err)
 		k.uid = users.RootUID

@@ -206,7 +206,7 @@ var _ prober.Healthz = (*Konnectivity)(nil)
 // Init ...
 func (k *Konnectivity) Init(ctx context.Context) error {
 	var err error
-	k.uid, err = users.LookupUID(constant.KonnectivityServerUser)
+	k.uid, err = users.LookupUID(ctx, constant.KonnectivityServerUser)
 	if err != nil {
 		err = fmt.Errorf("failed to lookup UID for %q: %w", constant.KonnectivityServerUser, err)
 		k.uid = users.RootUID

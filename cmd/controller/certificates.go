@@ -56,7 +56,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 	c.CACert = string(cert)
 	kubeConfigAPIUrl := c.ClusterSpec.API.LocalURL()
 
-	apiServerUID, err := users.LookupUID(constant.ApiserverUser)
+	apiServerUID, err := users.LookupUID(ctx, constant.ApiserverUser)
 	if err != nil {
 		err = fmt.Errorf("failed to lookup UID for %q: %w", constant.ApiserverUser, err)
 		apiServerUID = users.RootUID
@@ -114,7 +114,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 				CAKey:  caCertKey,
 			}
 
-			uid, err := users.LookupUID(constant.KonnectivityServerUser)
+			uid, err := users.LookupUID(ctx, constant.KonnectivityServerUser)
 			if err != nil {
 				err = fmt.Errorf("failed to lookup UID for %q: %w", constant.KonnectivityServerUser, err)
 				uid = users.RootUID
@@ -165,7 +165,7 @@ func (c *Certificates) Init(ctx context.Context) error {
 			CAKey:  caCertKey,
 		}
 
-		uid, err := users.LookupUID(constant.SchedulerUser)
+		uid, err := users.LookupUID(ctx, constant.SchedulerUser)
 		if err != nil {
 			err = fmt.Errorf("failed to lookup UID for %q: %w", constant.SchedulerUser, err)
 			uid = users.RootUID

@@ -39,9 +39,9 @@ var _ manager.Reconciler = (*Scheduler)(nil)
 const kubeSchedulerComponentName = "kube-scheduler"
 
 // Init extracts the needed binaries
-func (a *Scheduler) Init(_ context.Context) error {
+func (a *Scheduler) Init(ctx context.Context) error {
 	var err error
-	a.uid, err = users.LookupUID(constant.SchedulerUser)
+	a.uid, err = users.LookupUID(ctx, constant.SchedulerUser)
 	if err != nil {
 		err = fmt.Errorf("failed to lookup UID for %q: %w", constant.SchedulerUser, err)
 		a.uid = users.RootUID

@@ -57,14 +57,14 @@ var _ manager.Component = (*Etcd)(nil)
 var _ manager.Ready = (*Etcd)(nil)
 
 // Init extracts the needed binaries
-func (e *Etcd) Init(_ context.Context) error {
+func (e *Etcd) Init(ctx context.Context) error {
 	var err error
 
 	if err = detectUnsupportedEtcdArch(); err != nil {
 		return fmt.Errorf("missing environment variable: %w", err)
 	}
 
-	e.uid, err = users.LookupUID(constant.EtcdUser)
+	e.uid, err = users.LookupUID(ctx, constant.EtcdUser)
 	if err != nil {
 		err = fmt.Errorf("failed to lookup UID for %q: %w", constant.EtcdUser, err)
 		e.uid = users.RootUID
@@ -460,7 +460,7 @@ func (e *Etcd) setupCerts(ctx context.Context) error {
 			},
 		}
 
-		uid, err := users.LookupUID(constant.ApiserverUser)
+		uid, err := users.LookupUID(ctx, constant.ApiserverUser)
 		if err != nil {
 			err = fmt.Errorf("failed to lookup UID for %q: %w", constant.ApiserverUser, err)
 			uid = users.RootUID

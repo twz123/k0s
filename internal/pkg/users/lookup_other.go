@@ -6,11 +6,12 @@
 package users
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"runtime"
 )
 
-func LookupUID(string) (int, error) {
+func LookupUID(context.Context, string) (int, error) {
 	return 0, fmt.Errorf("%w on %s", errors.ErrUnsupported, runtime.GOOS)
 }
