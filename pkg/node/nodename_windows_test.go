@@ -48,7 +48,7 @@ func startFakeMetadataServer(t *testing.T) string {
 		assert.NoError(t, err)
 	})
 	server := &http.Server{Addr: "localhost:0", Handler: mux}
-	listener, err := net.Listen("tcp", server.Addr)
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", server.Addr)
 	if err != nil {
 		require.NoError(t, err)
 	}

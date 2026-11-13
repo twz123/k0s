@@ -61,7 +61,7 @@ func TestAPI(t *testing.T) {
 		},
 	}
 	// Find a free port. We cannot pass zero to the API since this will fallback to 9443.
-	if l, err := net.Listen("tcp", "127.0.0.1:0"); assert.NoError(t, err) {
+	if l, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0"); assert.NoError(t, err) {
 		// Extract the port number
 		addr := l.Addr().(*net.TCPAddr)
 		rtc.Spec.NodeConfig.Spec.API.K0sAPIPort = addr.Port

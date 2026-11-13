@@ -181,7 +181,7 @@ func TestDownload_CustomHeaders(t *testing.T) {
 
 func startFakeDownloadServer(t *testing.T, usetls bool, handler http.Handler) string {
 	server := &http.Server{Addr: "localhost:0", Handler: handler}
-	listener, err := net.Listen("tcp", server.Addr)
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", server.Addr)
 	if err != nil {
 		require.NoError(t, err)
 	}

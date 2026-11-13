@@ -263,13 +263,12 @@ func TestStaticPods_Lifecycle(t *testing.T) {
 		url, err := underTest.ManifestURL()
 		require.NoError(t, err)
 
-		req, err := http.NewRequest(http.MethodGet, url.String(), nil)
-		require.NoError(t, err)
-
 		ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 		t.Cleanup(cancel)
 
-		req = req.WithContext(ctx)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url.String(), nil)
+		require.NoError(t, err)
+
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
 		t.Cleanup(func() { assert.NoError(t, resp.Body.Close()) })
@@ -311,13 +310,13 @@ func TestStaticPods_Lifecycle(t *testing.T) {
 		url, err := underTest.ManifestURL()
 		require.NoError(t, err)
 
-		req, err := http.NewRequest(http.MethodGet, url.String(), nil)
-		require.NoError(t, err)
-
 		ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 		t.Cleanup(cancel)
 
-		resp, err := http.DefaultClient.Do(req.WithContext(ctx))
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url.String(), nil)
+		require.NoError(t, err)
+
+		resp, err := http.DefaultClient.Do(req)
 		if assert.Error(t, err) {
 			assert.Contains(t, err.Error(), expectedErrMsg)
 		} else {

@@ -230,7 +230,7 @@ func TestKonnectivityModuleVersions(t *testing.T) {
 }
 
 func getVersion(t *testing.T, component string) string {
-	cmd := exec.Command("sh", "./vars.sh", component+"_version")
+	cmd := exec.CommandContext(t.Context(), "sh", "./vars.sh", component+"_version")
 	cmd.Dir = filepath.Join("..", "..")
 
 	out, err := cmd.Output()

@@ -133,7 +133,7 @@ func startFakeJoinServer(t *testing.T, handler func(http.ResponseWriter, *http.R
 	requestCtx, cancelRequests := context.WithCancel(t.Context())
 	var ok bool
 
-	listener, err := net.Listen("tcp", "localhost:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "localhost:0")
 	if err != nil {
 		require.NoError(t, err)
 	}

@@ -22,9 +22,10 @@ func TestProxyStartNone(t *testing.T) {
 }
 
 func newLocalListener(t *testing.T) net.Listener {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	var lc net.ListenConfig
+	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
-		ln, err = net.Listen("tcp", "[::1]:0")
+		ln, err = lc.Listen(t.Context(), "tcp", "[::1]:0")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -65,7 +66,7 @@ func TestBufferedClose(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	toFront, err := net.Dial("tcp", front.Addr().String())
+	toFront, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", front.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +105,7 @@ func TestProxyAlwaysMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	toFront, err := net.Dial("tcp", front.Addr().String())
+	toFront, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", front.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +143,7 @@ func TestProxyPROXYOut(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	toFront, err := net.Dial("tcp", front.Addr().String())
+	toFront, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", front.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -31,7 +31,7 @@ func TestAllowMethods(t *testing.T) {
 			}
 			h := AllowMethods(test.allowMethods...)(http.HandlerFunc(fn))
 			rec := httptest.NewRecorder()
-			r, err := http.NewRequest(test.method, "/", nil)
+			r, err := http.NewRequestWithContext(t.Context(), test.method, "/", nil)
 			if err != nil {
 				t.Fatal(err)
 			}
