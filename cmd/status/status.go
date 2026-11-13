@@ -35,7 +35,7 @@ func NewStatusCmd() *cobra.Command {
 				return err
 			}
 
-			statusInfo, err := status.GetStatusInfo(opts.K0sVars.StatusSocketPath)
+			statusInfo, err := status.GetStatusInfo(cmd.Context(), opts.K0sVars.StatusSocketPath)
 			if err != nil {
 				return err
 			}
@@ -80,7 +80,7 @@ func NewStatusSubCmdComponents() *cobra.Command {
 				return err
 			}
 			fmt.Fprintln(cmd.ErrOrStderr(), "!!! per component status is not yet finally ready, information here might be not full yet")
-			state, err := status.GetComponentStatus(opts.K0sVars.StatusSocketPath, maxCount)
+			state, err := status.GetComponentStatus(cmd.Context(), opts.K0sVars.StatusSocketPath, maxCount)
 			if err != nil {
 				return err
 			}

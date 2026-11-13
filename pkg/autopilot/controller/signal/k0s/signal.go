@@ -31,7 +31,7 @@ const (
 	SignalResponseProcessingTimeout = 1 * time.Minute
 )
 
-type k0sVersionHandlerFunc func() (string, error)
+type k0sVersionHandlerFunc func(context.Context) (string, error)
 
 // signalDataUpdateCommandK0sPredicate creates a predicate that ensures that the
 // provided SignalData is an 'k0s' update.
@@ -113,7 +113,7 @@ func (h *signalControllerHandler) Handle(ctx context.Context, sctx apsigcomm.Sig
 
 	// Confirm that the installed version of k0s requires an update
 	// TODO:s0j - make the status path an argument to signaling/plan
-	k0sVersion, err := h.k0sVersionHandler()
+	k0sVersion, err := h.k0sVersionHandler(ctx)
 	if err != nil {
 		return cr.Result{}, fmt.Errorf("unable to determine k0s version: %w", err)
 	}

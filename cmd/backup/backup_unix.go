@@ -6,6 +6,7 @@
 package backup
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -49,7 +50,7 @@ func NewBackupCmd() *cobra.Command {
 			if nodeConfig.Spec.Storage.Etcd.IsExternalClusterUsed() {
 				return errors.New("command 'k0s backup' does not support external etcd cluster")
 			}
-			return c.backup(nodeConfig, savePath, cmd.OutOrStdout())
+			return c.backup(cmd.Context(), nodeConfig, savePath, cmd.OutOrStdout())
 		},
 	}
 
@@ -62,7 +63,7 @@ func NewBackupCmd() *cobra.Command {
 	return cmd
 }
 
-func (c *command) backup(nodeConfig *k0sv1beta1.ClusterConfig, savePath string, out io.Writer) error {
+func (c *command) backup(ctx context.Context, nodeConfig *k0sv1beta1.ClusterConfig, savePath string, out io.Writer) error {
 	if os.Geteuid() != 0 {
 		return errors.New("this command must be run as root")
 	}
@@ -75,7 +76,7 @@ func (c *command) backup(nodeConfig *k0sv1beta1.ClusterConfig, savePath string, 
 		return fmt.Errorf("cannot find data-dir (%s). check your environment and/or command input and try again", c.K0sVars.DataDir)
 	}
 
-	status, err := status.GetStatusInfo(c.K0sVars.StatusSocketPath)
+	status, err := status.GetStatusInfo(ctx, c.K0sVars.StatusSocketPath)
 	if err != nil {
 		return fmt.Errorf("unable to detect cluster status %w", err)
 	}

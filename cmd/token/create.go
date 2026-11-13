@@ -63,7 +63,7 @@ k0s token create --role worker --expiry 10m  //sets expiration time to 10 minute
 			}, func(err error) bool {
 				return waitCreate
 			}, func() error {
-				statusInfo, err := status.GetStatusInfo(opts.K0sVars.StatusSocketPath)
+				statusInfo, err := status.GetStatusInfo(cmd.Context(), opts.K0sVars.StatusSocketPath)
 				if err != nil {
 					return fmt.Errorf("failed to get k0s status: %w", err)
 				}

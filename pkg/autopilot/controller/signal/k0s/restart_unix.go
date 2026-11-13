@@ -129,7 +129,7 @@ func (r *restart) Reconcile(ctx context.Context, req cr.Request) (cr.Result, err
 
 	// Get the current version of k0s
 	logger.Info("Determining the current version of k0s")
-	k0sVersion, err := getK0sVersion(status.DefaultSocketPath)
+	k0sVersion, err := getK0sVersion(ctx, status.DefaultSocketPath)
 	if err != nil {
 		logger.Info("Unable to determine current verion of k0s; requeuing")
 		return cr.Result{}, fmt.Errorf("unable to get k0s version: %w", err)
@@ -182,7 +182,7 @@ func (r *restart) Reconcile(ctx context.Context, req cr.Request) (cr.Result, err
 
 	logger.Info("Preparing to restart k0s")
 
-	k0sPid, err := getK0sPid(status.DefaultSocketPath)
+	k0sPid, err := getK0sPid(ctx, status.DefaultSocketPath)
 	if err != nil {
 		logger.Info("Unable to determine current k0s pid; requeuing")
 		return cr.Result{RequeueAfter: restartRequeueDuration}, fmt.Errorf("unable to get k0s pid: %w", err)
@@ -199,8 +199,8 @@ func (r *restart) Reconcile(ctx context.Context, req cr.Request) (cr.Result, err
 }
 
 // getK0sPid returns the PID of a running k0s based on its status socket.
-func getK0sPid(statusSocketPath string) (int, error) {
-	status, err := status.GetStatusInfo(statusSocketPath)
+func getK0sPid(ctx context.Context, statusSocketPath string) (int, error) {
+	status, err := status.GetStatusInfo(ctx, statusSocketPath)
 	if err != nil {
 		return -1, err
 	}

@@ -76,7 +76,7 @@ func newCronUpdater(parentCtx context.Context, updateConfig apv1beta2.UpdateConf
 		schedule = defaultCronSchedule
 	}
 
-	status, err := status.GetStatusInfo(status.DefaultSocketPath)
+	status, err := status.GetStatusInfo(parentCtx, status.DefaultSocketPath)
 	if err != nil {
 		return nil, err
 	}

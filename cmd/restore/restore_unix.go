@@ -6,6 +6,7 @@
 package restore
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -49,7 +50,7 @@ func NewRestoreCmd() *cobra.Command {
 
 			c := command{opts, restoredConfigPath}
 
-			return c.restore(args[0], cmd.OutOrStdout())
+			return c.restore(cmd.Context(), args[0], cmd.OutOrStdout())
 		},
 	}
 
@@ -62,12 +63,12 @@ func NewRestoreCmd() *cobra.Command {
 	return cmd
 }
 
-func (c *command) restore(path string, out io.Writer) error {
+func (c *command) restore(ctx context.Context, path string, out io.Writer) error {
 	if os.Geteuid() != 0 {
 		return errors.New("this command must be run as root")
 	}
 
-	k0sStatus, _ := status.GetStatusInfo(c.K0sVars.StatusSocketPath)
+	k0sStatus, _ := status.GetStatusInfo(ctx, c.K0sVars.StatusSocketPath)
 	if k0sStatus != nil && k0sStatus.Pid != 0 {
 		logrus.Fatal("k0s seems to be running! k0s must be down during the restore operation.")
 	}

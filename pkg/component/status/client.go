@@ -36,18 +36,18 @@ type ProbeStatus struct {
 }
 
 // GetStatus returns the status of the k0s process using the status socket
-func GetStatusInfo(socketPath string) (*K0sStatus, error) {
+func GetStatusInfo(ctx context.Context, socketPath string) (*K0sStatus, error) {
 	status := &K0sStatus{}
-	if err := doStatusHTTPRequest(socketPath, "status", status); err != nil {
+	if err := doStatusHTTPRequest(ctx, socketPath, "status", status); err != nil {
 		return nil, err
 	}
 	return status, nil
 }
 
 // GetComponentStatus returns the per-component events and health-checks
-func GetComponentStatus(socketPath string, maxCount int) (*prober.State, error) {
+func GetComponentStatus(ctx context.Context, socketPath string, maxCount int) (*prober.State, error) {
 	status := &prober.State{}
-	if err := doStatusHTTPRequest(socketPath,
+	if err := doStatusHTTPRequest(ctx, socketPath,
 		fmt.Sprintf("components?maxCount=%d", maxCount),
 		status); err != nil {
 		return nil, err
@@ -55,7 +55,7 @@ func GetComponentStatus(socketPath string, maxCount int) (*prober.State, error) 
 	return status, nil
 }
 
-func doStatusHTTPRequest(socketPath string, path string, tgt any) error {
+func doStatusHTTPRequest(ctx context.Context, socketPath string, path string, tgt any) error {
 	httpc := &http.Client{
 		Transport: &http.Transport{
 			DisableKeepAlives: true,
@@ -65,7 +65,12 @@ func doStatusHTTPRequest(socketPath string, path string, tgt any) error {
 		},
 	}
 
-	response, err := httpc.Get("http://localhost/" + path)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost/"+path, nil)
+	if err != nil {
+		return fmt.Errorf("status: can't get %q via %q: %w", path, socketPath, err)
+	}
+
+	response, err := httpc.Do(request)
 	if err != nil {
 		return fmt.Errorf("status: can't get %q via %q: %w", path, socketPath, err)
 	}

@@ -6,6 +6,7 @@
 package k0s
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -632,7 +633,7 @@ func TestCheckExpiredInvalid(t *testing.T) {
 // echoedK0sVersionHandler is a `k0sVersionHandlerFunc` that returns the version
 // that you provide to it.
 func echoedK0sVersionHandler(version string) k0sVersionHandlerFunc {
-	return func() (string, error) {
+	return func(context.Context) (string, error) {
 		return version, nil
 	}
 }

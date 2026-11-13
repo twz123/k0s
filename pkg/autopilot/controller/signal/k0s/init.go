@@ -52,8 +52,8 @@ func RegisterControllers(ctx context.Context, logger *logrus.Entry, mgr crman.Ma
 
 	logger.Infof("Using node name = '%v'", nodeName)
 
-	k0sVersionHandler := func() (string, error) {
-		return getK0sVersion(status.DefaultSocketPath)
+	k0sVersionHandler := func(ctx context.Context) (string, error) {
+		return getK0sVersion(ctx, status.DefaultSocketPath)
 	}
 
 	if enableWorker {
@@ -172,8 +172,8 @@ func RegisterControllers(ctx context.Context, logger *logrus.Entry, mgr crman.Ma
 
 // getK0sVersion returns the version k0s installed, as identified by the
 // provided status socket path.
-func getK0sVersion(statusSocketPath string) (string, error) {
-	status, err := status.GetStatusInfo(statusSocketPath)
+func getK0sVersion(ctx context.Context, statusSocketPath string) (string, error) {
+	status, err := status.GetStatusInfo(ctx, statusSocketPath)
 	if err != nil {
 		return "", err
 	}
