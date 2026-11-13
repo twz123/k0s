@@ -25,7 +25,7 @@ func (a *Airgap) LockdownMachines(ctx context.Context, nodes ...string) error {
 		return err
 	}
 
-	if err := tryBlockIPv6(); err != nil {
+	if err := tryBlockIPv6(ctx); err != nil {
 		a.Logf("Not blocking IPv6: %v", err)
 		v6CIDRs = ""
 	}
@@ -41,7 +41,7 @@ func (a *Airgap) LockdownMachines(ctx context.Context, nodes ...string) error {
 	return nil
 }
 
-func tryBlockIPv6() error {
+func tryBlockIPv6(ctx context.Context) error {
 	if initState, err := os.ReadFile("/sys/module/ip6table_filter/initstate"); err == nil {
 		if bytes.Equal(bytes.TrimSpace(initState), []byte("live")) {
 			return nil
@@ -53,11 +53,11 @@ func tryBlockIPv6() error {
 		return err
 	}
 
-	err = exec.Command("modprobe", "ip6table_filter").Run()
+	err = exec.CommandContext(ctx, "modprobe", "ip6table_filter").Run()
 	if err != nil && os.Geteuid() != 0 {
 		errs := []error{err}
 		for _, cmd := range []string{"sudo", "doas"} {
-			err := exec.Command(cmd, "-n", "modprobe", "ip6table_filter").Run()
+			err := exec.CommandContext(ctx, cmd, "-n", "modprobe", "ip6table_filter").Run()
 			if err == nil {
 				return nil
 			}

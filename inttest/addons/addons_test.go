@@ -900,10 +900,12 @@ func TestAddonsSuite(t *testing.T) {
 	registryTLSDir := filepath.Join(t.TempDir(), "registry-tls")
 	require.NoError(t, os.MkdirAll(registryTLSDir, 0755))
 	networkName := "k0s-inttest-addons-" + utilrand.String(5)
-	out, err := exec.Command("docker", "network", "create", networkName).CombinedOutput()
+	out, err := exec.CommandContext(t.Context(), "docker", "network", "create", networkName).CombinedOutput()
 	require.NoErrorf(t, err, "failed to create docker network %q: %s", networkName, out)
 	t.Cleanup(func() {
-		_ = exec.Command("docker", "network", "rm", networkName).Run()
+		// The test context is already canceled when the cleanup runs.
+		ctx := context.WithoutCancel(t.Context())
+		_ = exec.CommandContext(ctx, "docker", "network", "rm", networkName).Run()
 	})
 
 	s := AddonsSuite{

@@ -1048,8 +1048,13 @@ func (s *BootlooseSuite) WaitJoinAPI(node string) error {
 	}}
 	checkURL := fmt.Sprintf("https://localhost:%d/v1beta1/ca", joinPort)
 
-	return Poll(s.Context(), func(context.Context) (done bool, err error) {
-		resp, err := client.Get(checkURL)
+	return Poll(s.Context(), func(ctx context.Context) (done bool, err error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, checkURL, nil)
+		if err != nil {
+			return false, err
+		}
+
+		resp, err := client.Do(req)
 		if err != nil {
 			return false, nil
 		}
@@ -1153,7 +1158,7 @@ func (s *BootlooseSuite) initializeBootlooseClusterInDir(dir string) error {
 		"/lib/modules",
 	}
 
-	if kernelVersion, err := exec.Command("uname", "-r").Output(); err == nil {
+	if kernelVersion, err := exec.CommandContext(s.Context(), "uname", "-r").Output(); err == nil {
 		kernelVersion := strings.TrimSpace(string(kernelVersion))
 		bindPaths = append(bindPaths, []string{
 			"/boot/config-" + kernelVersion,
@@ -1516,7 +1521,7 @@ func (s *BootlooseSuite) waitForRegistryHealthy() error {
 
 	registryContainer := registryMachine.ContainerName()
 	return wait.PollUntilContextTimeout(s.Context(), 1*time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {
-		status, err := exec.Command("docker", "inspect", registryContainer, "--format", "{{.State.Health.Status}}").Output()
+		status, err := exec.CommandContext(ctx, "docker", "inspect", registryContainer, "--format", "{{.State.Health.Status}}").Output()
 		if err != nil {
 			s.T().Logf("Failed to inspect registry container %s: %v", registryContainer, err)
 			return false, nil
@@ -1549,7 +1554,8 @@ func (s *BootlooseSuite) AssertSomeKubeSystemPods(client *kubernetes.Clientset) 
 }
 
 func (s *BootlooseSuite) IsDockerIPv6Enabled() (bool, error) {
-	cmd := exec.Command("docker", "inspect", "bridge", "--format", "\"{{ .EnableIPv6 }}\"")
+	// May be called before the suite context is installed.
+	cmd := exec.CommandContext(s.T().Context(), "docker", "inspect", "bridge", "--format", "\"{{ .EnableIPv6 }}\"")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return false, fmt.Errorf("failed to run docker inspect: %w", err)
