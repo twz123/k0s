@@ -327,7 +327,11 @@ func (a *APIServer) Ready() error {
 	}
 	client := &http.Client{Transport: tr}
 	apiAddress := net.JoinHostPort(a.NodeConfig.Spec.API.Address, strconv.Itoa(a.NodeConfig.Spec.API.Port))
-	resp, err := client.Get(fmt.Sprintf("https://%s/readyz?verbose", apiAddress))
+	req, err := http.NewRequestWithContext(context.TODO(), http.MethodGet, fmt.Sprintf("https://%s/readyz?verbose", apiAddress), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
