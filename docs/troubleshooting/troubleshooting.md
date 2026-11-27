@@ -196,3 +196,39 @@ recommended workaround.
 - All data directories reside under `/var/lib/k0s`, for example:
   - `/var/lib/k0s/kubelet`
   - `/var/lib/k0s/etcd`
+
+## Nodes with little memory become unresponsive
+
+On nodes with little memory, the page cache is barely large enough to hold the
+executables of k0s and the Kubernetes components. Whenever the kernel has to
+load a part of an executable from disk, it also [reads the data around it], up
+to the read-ahead size of the disk. If that size is large, this pushes other
+parts of the executables out of memory, which then have to be loaded again. The
+node keeps re-reading its executables, and becomes unresponsive as soon as the
+disk cannot keep up. This shows as high I/O wait and system CPU times, a growing
+load average and timeouts when talking to the Kubernetes API, whereas the memory
+usage looks normal and the kernel doesn't kill any processes for being out of
+memory.
+
+The read-ahead size used to be 128 KiB for most disks. [Since Linux 6.17], it is
+considerably larger for disks that the kernel treats as rotational and that
+don't report an optimal I/O size. This includes virtio disks, which may end up
+with a read-ahead size of 8 MiB.
+
+To inspect the read-ahead size of the disk that holds k0s's data directory and
+lower it to 128 KiB, run the following as root, replacing `vda` with the disk in
+question:
+
+```shell
+# See https://docs.kernel.org/admin-guide/abi-stable.html#abi-sys-block-disk-queue-read-ahead-kb
+cat /sys/block/vda/queue/read_ahead_kb
+echo 128 >/sys/block/vda/queue/read_ahead_kb
+```
+
+A changed read-ahead size only applies to files that are opened afterwards, so
+restart k0s after changing it. The setting doesn't survive a reboot. Use the
+means of the operating system to apply it on boot before k0s starts, for example
+a udev rule.
+
+[reads the data around it]: https://lwn.net/Articles/888715/
+[Since Linux 6.17]: https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/commit/?h=459779d04ae8dfd4083679a7bf9d72af165d1023

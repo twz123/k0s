@@ -17,6 +17,11 @@ The minimum requirements for k0s detailed below are approximations, and thus you
 | Worker node         |                0.5 |                   1 |
 | Controller + worker |                  1 |                   1 |
 
+On nodes close to these minimums, a large disk read-ahead size may [render the
+node unresponsive].
+
+[render the node unresponsive]: (troubleshooting/troubleshooting.md#nodes-with-little-memory-become-unresponsive).
+
 ## Controller node recommendations
 
 | # of worker nodes | # of pods | Recommended RAM (in GB) | Recommended vCPU |
